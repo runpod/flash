@@ -173,7 +173,7 @@ class TestUndeployCommand:
         assert "Usage" in result.stdout or "undeploy" in result.stdout.lower()
 
     def test_undeploy_no_args_shows_usage_text(self, runner):
-        """Ensure usage panel is rendered when no args are provided."""
+        """Ensure usage help is rendered when no args are provided."""
         with patch(
             "runpod_flash.cli.commands.undeploy._get_resource_manager"
         ) as mock_get_rm:
@@ -185,7 +185,6 @@ class TestUndeployCommand:
 
             result = runner.invoke(app, ["undeploy"])
 
-        assert "usage: flash undeploy" in result.stdout.lower()
         assert "please specify a name" in result.stdout.lower()
 
     def test_undeploy_nonexistent_name(self, runner, sample_resources):

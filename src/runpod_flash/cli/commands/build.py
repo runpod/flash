@@ -14,9 +14,6 @@ from typing import Optional
 
 import typer
 from rich.console import Console
-from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, TextColumn
-from rich.table import Table
 
 try:
     import tomllib  # Python 3.11+
@@ -191,6 +188,7 @@ def run_build(
     output_name: str | None = None,
     exclude: str | None = None,
     use_local_flash: bool = False,
+    verbose: bool = False,
 ) -> Path:
     """Run the build process and return the artifact path.
 
@@ -224,260 +222,133 @@ def run_build(
     if exclude:
         excluded_packages = [pkg.strip().lower() for pkg in exclude.split(",")]
 
-    # Display configuration
-    _display_build_config(
-        project_dir, app_name, no_deps, output_name, excluded_packages
-    )
+    spec = load_ignore_patterns(project_dir)
+    files = get_file_tree(project_dir, spec)
 
-    # Execute build
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        console=console,
-    ) as progress:
-        # Load ignore patterns
-        ignore_task = progress.add_task("Loading ignore patterns...")
-        spec = load_ignore_patterns(project_dir)
-        progress.update(ignore_task, description="[green]✓ Loaded ignore patterns")
-        progress.stop_task(ignore_task)
-
-        # Collect files
-        collect_task = progress.add_task("Collecting project files...")
-        files = get_file_tree(project_dir, spec)
-        progress.update(
-            collect_task,
-            description=f"[green]✓ Found {len(files)} files to package",
-        )
-        progress.stop_task(collect_task)
-
-        # Note: build directory already created before progress tracking
-        build_task = progress.add_task("Creating build directory...")
-        progress.update(
-            build_task,
-            description="[green]✓ Created .flash/.build/",
-        )
-        progress.stop_task(build_task)
+    try:
+        copy_project_files(files, project_dir, build_dir)
 
         try:
-            # Copy files
-            copy_task = progress.add_task("Copying project files...")
-            copy_project_files(files, project_dir, build_dir)
-            progress.update(
-                copy_task, description=f"[green]✓ Copied {len(files)} files"
+            scanner = RemoteDecoratorScanner(build_dir)
+            remote_functions = scanner.discover_remote_functions()
+
+            manifest_builder = ManifestBuilder(
+                app_name, remote_functions, scanner, build_dir=build_dir
             )
-            progress.stop_task(copy_task)
+            manifest = manifest_builder.build()
+            manifest_path = build_dir / "flash_manifest.json"
+            manifest_path.write_text(json.dumps(manifest, indent=2))
 
-            # Generate manifest
-            manifest_task = progress.add_task("Generating service manifest...")
-            try:
-                scanner = RemoteDecoratorScanner(build_dir)
-                remote_functions = scanner.discover_remote_functions()
+            flash_dir = project_dir / ".flash"
+            deployment_manifest_path = flash_dir / "flash_manifest.json"
+            shutil.copy2(manifest_path, deployment_manifest_path)
 
-                # Always build manifest (includes mothership even without @remote functions)
-                manifest_builder = ManifestBuilder(
-                    app_name, remote_functions, scanner, build_dir=build_dir
-                )
-                manifest = manifest_builder.build()
-                manifest_path = build_dir / "flash_manifest.json"
-                manifest_path.write_text(json.dumps(manifest, indent=2))
+            manifest_resources = manifest.get("resources", {})
 
-                # Copy manifest to .flash/ directory for deployment reference
-                # This avoids needing to extract from tarball during deploy
-                flash_dir = project_dir / ".flash"
-                deployment_manifest_path = flash_dir / "flash_manifest.json"
-                shutil.copy2(manifest_path, deployment_manifest_path)
-
-                manifest_resources = manifest.get("resources", {})
-
-                if manifest_resources:
-                    progress.update(
-                        manifest_task,
-                        description=f"[green]✓ Generated manifest with {len(manifest_resources)} resources",
-                    )
-                else:
-                    progress.update(
-                        manifest_task,
-                        description="[yellow]⚠ No resources detected",
-                    )
-
-            except (ImportError, SyntaxError) as e:
-                progress.stop_task(manifest_task)
-                console.print(f"[red]Error:[/red] Code analysis failed: {e}")
-                logger.exception("Code analysis failed")
-                raise typer.Exit(1)
-            except ValueError as e:
-                progress.stop_task(manifest_task)
-                console.print(f"[red]Error:[/red] {e}")
-                logger.exception("Handler generation validation failed")
-                raise typer.Exit(1)
-            except Exception as e:
-                progress.stop_task(manifest_task)
-                logger.exception("Handler generation failed")
-                console.print(
-                    f"[yellow]Warning:[/yellow] Handler generation failed: {e}"
-                )
-
-            progress.stop_task(manifest_task)
-
-        except typer.Exit:
-            # Clean up on fatal errors (ImportError, SyntaxError, ValueError)
-            if build_dir.exists():
-                shutil.rmtree(build_dir)
-            raise
-        except Exception as e:
-            # Clean up on unexpected errors
-            if build_dir.exists():
-                shutil.rmtree(build_dir)
-            console.print(f"[red]Error:[/red] Build failed: {e}")
-            logger.exception("Build failed")
+        except (ImportError, SyntaxError) as e:
+            console.print(f"[red]Error:[/red] Code analysis failed: {e}")
+            logger.exception("Code analysis failed")
             raise typer.Exit(1)
+        except ValueError as e:
+            console.print(f"[red]Error:[/red] {e}")
+            logger.exception("Handler generation validation failed")
+            raise typer.Exit(1)
+        except Exception as e:
+            logger.exception("Handler generation failed")
+            console.print(f"[yellow]Warning:[/yellow] Handler generation failed: {e}")
 
-        # Extract runpod_flash dependencies if bundling local version
-        flash_deps = []
-        if use_local_flash:
-            flash_pkg = _find_local_runpod_flash()
-            if flash_pkg:
-                flash_deps = _extract_runpod_flash_dependencies(flash_pkg)
+    except typer.Exit:
+        if build_dir.exists():
+            shutil.rmtree(build_dir)
+        raise
+    except Exception as e:
+        if build_dir.exists():
+            shutil.rmtree(build_dir)
+        console.print(f"[red]Error:[/red] Build failed: {e}")
+        logger.exception("Build failed")
+        raise typer.Exit(1)
 
-        # Install dependencies
-        deps_task = progress.add_task("Installing dependencies...")
-        requirements = collect_requirements(project_dir, build_dir)
+    flash_deps = []
+    if use_local_flash:
+        flash_pkg = _find_local_runpod_flash()
+        if flash_pkg:
+            flash_deps = _extract_runpod_flash_dependencies(flash_pkg)
 
-        # Add runpod_flash dependencies if bundling local version
-        # This ensures all runpod_flash runtime dependencies are available in the build
-        requirements.extend(flash_deps)
+    # install dependencies
+    requirements = collect_requirements(project_dir, build_dir)
+    requirements.extend(flash_deps)
 
-        # Filter out excluded packages
-        if excluded_packages:
-            original_count = len(requirements)
-            matched_exclusions = set()
-            filtered_requirements = []
+    # filter out excluded packages
+    if excluded_packages:
+        original_count = len(requirements)
+        matched_exclusions = set()
+        filtered_requirements = []
 
-            for req in requirements:
-                if should_exclude_package(req, excluded_packages):
-                    # Extract which exclusion matched
-                    pkg_name = extract_package_name(req)
-                    if pkg_name in excluded_packages:
-                        matched_exclusions.add(pkg_name)
-                else:
-                    filtered_requirements.append(req)
+        for req in requirements:
+            if should_exclude_package(req, excluded_packages):
+                pkg_name = extract_package_name(req)
+                if pkg_name in excluded_packages:
+                    matched_exclusions.add(pkg_name)
+            else:
+                filtered_requirements.append(req)
 
-            requirements = filtered_requirements
-            excluded_count = original_count - len(requirements)
+        requirements = filtered_requirements
+        excluded_count = original_count - len(requirements)
 
-            if excluded_count > 0:
-                console.print(
-                    f"[yellow]Excluded {excluded_count} package(s) "
-                    f"(assumed in base image)[/yellow]"
-                )
-
-            # Warn about exclusions that didn't match any packages
-            unmatched = set(excluded_packages) - matched_exclusions
-            if unmatched:
-                console.print(
-                    f"[yellow]Warning: No packages matched exclusions: "
-                    f"{', '.join(sorted(unmatched))}[/yellow]"
-                )
-
-        if not requirements:
-            progress.update(
-                deps_task,
-                description="[yellow]⚠ No dependencies found",
-            )
-        else:
-            progress.update(
-                deps_task,
-                description=f"Installing {len(requirements)} packages...",
+        unmatched = set(excluded_packages) - matched_exclusions
+        if unmatched:
+            console.print(
+                f"[yellow]Warning:[/yellow] No packages matched exclusions: "
+                f"{', '.join(sorted(unmatched))}"
             )
 
+    if requirements:
+        with console.status(f"Installing {len(requirements)} packages..."):
             success = install_dependencies(build_dir, requirements, no_deps)
 
-            if not success:
-                progress.stop_task(deps_task)
-                console.print("[red]Error:[/red] Failed to install dependencies")
-                raise typer.Exit(1)
-
-            progress.update(
-                deps_task,
-                description=f"[green]✓ Installed {len(requirements)} packages",
-            )
-
-        progress.stop_task(deps_task)
-
-        # Bundle local runpod_flash if requested
-        if use_local_flash:
-            flash_task = progress.add_task("Bundling local runpod_flash...")
-            if _bundle_local_runpod_flash(build_dir):
-                _remove_runpod_flash_from_requirements(build_dir)
-                progress.update(
-                    flash_task,
-                    description="[green]✓ Bundled local runpod_flash",
-                )
-            else:
-                progress.update(
-                    flash_task,
-                    description="[yellow]⚠ Using PyPI runpod_flash",
-                )
-            progress.stop_task(flash_task)
-
-        # Generate resource configuration files
-        # IMPORTANT: Must happen AFTER bundle_local_runpod_flash to avoid being overwritten
-        # These files tell each resource which functions are local vs remote
-        from .build_utils.resource_config_generator import (
-            generate_all_resource_configs,
-        )
-
-        generate_all_resource_configs(manifest, build_dir)
-
-        # Clean up Python bytecode before archiving
-        cleanup_python_bytecode(build_dir)
-
-        # Create archive
-        archive_task = progress.add_task("Creating archive...")
-        archive_name = output_name or "artifact.tar.gz"
-        archive_path = project_dir / ".flash" / archive_name
-
-        create_tarball(build_dir, archive_path, app_name)
-
-        # Get archive size
-        size_mb = archive_path.stat().st_size / (1024 * 1024)
-
-        progress.update(
-            archive_task,
-            description=f"[green]✓ Created {archive_name} ({size_mb:.1f} MB)",
-        )
-        progress.stop_task(archive_task)
-
-        # Fail build if archive exceeds size limit
-        if size_mb > MAX_TARBALL_SIZE_MB:
-            console.print()
-            console.print(
-                Panel(
-                    f"[red bold]✗ BUILD FAILED: Archive exceeds RunPod limit[/red bold]\n\n"
-                    f"[red]Archive size:[/red] {size_mb:.1f} MB\n"
-                    f"[red]RunPod limit:[/red] {MAX_TARBALL_SIZE_MB} MB\n"
-                    f"[red]Over by:[/red] {size_mb - MAX_TARBALL_SIZE_MB:.1f} MB\n\n"
-                    f"[bold]Solutions:[/bold]\n"
-                    f"  1. Use --exclude to skip packages in base image:\n"
-                    f"     [dim]flash deploy --exclude torch,torchvision,torchaudio[/dim]\n\n"
-                    f"  2. Reduce dependencies in requirements.txt",
-                    title="Build Artifact Too Large",
-                    border_style="red",
-                )
-            )
-            console.print()
-
-            # Cleanup: Remove invalid artifacts
-            console.print("[dim]Cleaning up invalid artifacts...[/dim]")
-            if archive_path.exists():
-                archive_path.unlink()
-            if build_dir.exists():
-                shutil.rmtree(build_dir)
-
+        if not success:
+            console.print("[red]Error:[/red] Failed to install dependencies")
             raise typer.Exit(1)
 
+    # bundle local runpod_flash if requested
+    if use_local_flash:
+        if _bundle_local_runpod_flash(build_dir):
+            _remove_runpod_flash_from_requirements(build_dir)
+
+    # clean up and create archive
+    cleanup_python_bytecode(build_dir)
+
+    archive_name = output_name or "artifact.tar.gz"
+    archive_path = project_dir / ".flash" / archive_name
+
+    with console.status("Creating archive..."):
+        create_tarball(build_dir, archive_path, app_name)
+
+    size_mb = archive_path.stat().st_size / (1024 * 1024)
+
+    # fail build if archive exceeds size limit
+    if size_mb > MAX_TARBALL_SIZE_MB:
+        console.print()
+        console.print(
+            f"[red]Error:[/red] Archive exceeds RunPod limit "
+            f"({size_mb:.1f} MB / {MAX_TARBALL_SIZE_MB} MB)"
+        )
+        console.print(
+            "  Use --exclude to skip packages in base image: "
+            "[dim]flash deploy --exclude torch,torchvision,torchaudio[/dim]"
+        )
+
+        if archive_path.exists():
+            archive_path.unlink()
+        if build_dir.exists():
+            shutil.rmtree(build_dir)
+
+        raise typer.Exit(1)
+
     # Success summary
-    _display_build_summary(archive_path, app_name, len(files), len(requirements))
+    _display_build_summary(
+        archive_path, app_name, len(files), len(requirements), size_mb, verbose=verbose
+    )
 
     return archive_path
 
@@ -522,6 +393,7 @@ def build_command(
             output_name=output_name,
             exclude=exclude,
             use_local_flash=use_local_flash,
+            verbose=True,
         )
 
     except KeyboardInterrupt:
@@ -948,7 +820,7 @@ def install_dependencies(
         platform_str = "x86_64-unknown-linux-gnu"
     else:
         platform_str = f"{len(RUNPOD_PLATFORMS)} manylinux variants"
-    console.print(f"[dim]Installing for: {platform_str}, Python {python_version}[/dim]")
+    logger.debug(f"Installing for: {platform_str}, Python {python_version}")
 
     try:
         result = subprocess.run(
@@ -1003,64 +875,21 @@ def cleanup_build_directory(build_base: Path) -> None:
         shutil.rmtree(build_base)
 
 
-def _display_build_config(
-    project_dir: Path,
-    app_name: str,
-    no_deps: bool,
-    output_name: str | None,
-    excluded_packages: list[str],
-):
-    """Display build configuration."""
-    archive_name = output_name or "artifact.tar.gz"
-
-    config_text = (
-        f"[bold]Project:[/bold] {app_name}\n"
-        f"[bold]Directory:[/bold] {project_dir}\n"
-        f"[bold]Archive:[/bold] .flash/{archive_name}\n"
-        f"[bold]Skip transitive deps:[/bold] {no_deps}"
-    )
-
-    if excluded_packages:
-        config_text += (
-            f"\n[bold]Excluded packages:[/bold] {', '.join(excluded_packages)}"
-        )
-
-    console.print(
-        Panel(
-            config_text,
-            title="Flash Build Configuration",
-            expand=False,
-        )
-    )
-
-
 def _display_build_summary(
-    archive_path: Path, app_name: str, file_count: int, dep_count: int
+    archive_path: Path,
+    app_name: str,
+    file_count: int,
+    dep_count: int,
+    size_mb: float,
+    verbose: bool = False,
 ):
     """Display build summary."""
-    size_mb = archive_path.stat().st_size / (1024 * 1024)
-
-    summary = Table(show_header=False, box=None)
-    summary.add_column("Item", style="bold")
-    summary.add_column("Value", style="cyan")
-
-    summary.add_row("Application", app_name)
-    summary.add_row("Files packaged", str(file_count))
-    summary.add_row("Dependencies", str(dep_count))
-    summary.add_row("Archive", str(archive_path.relative_to(Path.cwd())))
-    summary.add_row("Size", f"{size_mb:.1f} MB")
-
-    console.print("\n")
-    console.print(summary)
-
-    archive_rel = archive_path.relative_to(Path.cwd())
-
     console.print(
-        Panel(
-            f"[bold]{app_name}[/bold] built successfully!\n\n"
-            f"[bold]Archive:[/bold] {archive_rel}",
-            title="Build Complete",
-            expand=False,
-            border_style="green",
-        )
+        f"[green]Built[/green] [bold]{app_name}[/bold]  "
+        f"[dim]{file_count} files, {dep_count} deps, {size_mb:.1f} MB[/dim]"
     )
+    if verbose:
+        console.print(f"  [dim]Archive:[/dim]  {archive_path}")
+        build_dir = archive_path.parent / ".build"
+        if build_dir.exists():
+            console.print(f"  [dim]Build:[/dim]    {build_dir}")

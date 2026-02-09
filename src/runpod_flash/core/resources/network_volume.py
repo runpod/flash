@@ -111,7 +111,7 @@ class NetworkVolume(DeployableResource):
         existing_volumes = self._normalize_volumes_response(volumes_response)
 
         if matching_volume := self._find_matching_volume(existing_volumes):
-            log.info(
+            log.debug(
                 f"Found existing network volume: {matching_volume.get('id')} with name '{self.name}'"
             )
             # Update our instance with the existing volume's ID

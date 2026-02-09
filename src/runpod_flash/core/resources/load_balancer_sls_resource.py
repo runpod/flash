@@ -198,7 +198,7 @@ class LoadBalancerSlsResource(ServerlessResource):
         if not self.id:
             raise ValueError("Cannot wait for health: endpoint not deployed")
 
-        log.info(
+        log.debug(
             f"Waiting for LB endpoint {self.name} ({self.id}) to become healthy... "
             f"(max {max_retries} retries, {retry_interval}s interval)"
         )
@@ -206,7 +206,7 @@ class LoadBalancerSlsResource(ServerlessResource):
         for attempt in range(max_retries):
             try:
                 if await self._check_ping_endpoint():
-                    log.info(
+                    log.debug(
                         f"LB endpoint {self.name} is healthy (attempt {attempt + 1})"
                     )
                     return True
@@ -223,7 +223,7 @@ class LoadBalancerSlsResource(ServerlessResource):
             if attempt < max_retries - 1:
                 await asyncio.sleep(retry_interval)
 
-        log.error(
+        log.debug(
             f"LB endpoint {self.name} failed to become healthy after "
             f"{max_retries} attempts"
         )
@@ -259,14 +259,14 @@ class LoadBalancerSlsResource(ServerlessResource):
             self.env["FLASH_IS_MOTHERSHIP"] = "true"
 
             # Call parent deploy (creates endpoint via RunPod API)
-            log.info(f"Deploying LB endpoint {self.name}...")
+            log.debug(f"Deploying LB endpoint {self.name}...")
             deployed = await super()._do_deploy()
 
-            log.info(f"LB endpoint {self.name} ({deployed.id}) deployed successfully")
+            log.debug(f"LB endpoint {self.name} ({deployed.id}) deployed successfully")
             return deployed
 
         except Exception as e:
-            log.error(f"Failed to deploy LB endpoint {self.name}: {e}")
+            log.debug(f"Failed to deploy LB endpoint {self.name}: {e}")
             raise
 
     def is_deployed(self) -> bool:

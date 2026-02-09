@@ -366,7 +366,7 @@ class ServerlessResource(DeployableResource):
         # Auto-size if using default value
         default_disk_size = PodTemplate.model_fields["containerDiskInGb"].default
         if template.containerDiskInGb == default_disk_size:
-            log.info(
+            log.debug(
                 f"Auto-sizing containerDiskInGb from {default_disk_size}GB "
                 f"to {cpu_limit}GB (CPU instance limit)"
             )
@@ -477,7 +477,7 @@ class ServerlessResource(DeployableResource):
             response = self.endpoint.health()
             return response is not None
         except Exception as e:
-            log.error(f"Error checking {self}: {e}")
+            log.debug(f"Error checking {self}: {e}")
             return False
 
     def _payload_exclude(self) -> Set[str]:
@@ -648,12 +648,12 @@ class ServerlessResource(DeployableResource):
             resolved_template_id = self.templateId or new_config.templateId
             # Log if version-triggering changes detected (informational only)
             if self._has_structural_changes(new_config):
-                log.info(
+                log.debug(
                     f"{self.name}: Version-triggering changes detected. "
                     "Server will increment version and recreate workers."
                 )
             else:
-                log.info(f"Updating endpoint '{self.name}' (ID: {self.id})")
+                log.debug(f"Updating endpoint '{self.name}' (ID: {self.id})")
 
             # Ensure network volume is deployed if specified
             await new_config._ensure_network_volume_deployed()
@@ -790,21 +790,21 @@ class ServerlessResource(DeployableResource):
                 success = result.get("success", False)
 
                 if success:
-                    log.info(f"{self} successfully undeployed")
+                    log.debug(f"{self} successfully undeployed")
                     return True
                 else:
-                    log.error(f"{self} failed to undeploy")
+                    log.debug(f"{self} failed to undeploy")
                     return False
 
         except Exception as e:
-            log.error(f"{self} failed to undeploy: {e}")
+            log.debug(f"{self} failed to undeploy: {e}")
 
             # Deletion failed. Check if endpoint still exists.
             # If it doesn't exist, treat as successful cleanup (orphaned endpoint).
             try:
                 async with RunpodGraphQLClient() as client:
                     if not await client.endpoint_exists(self.id):
-                        log.info(
+                        log.debug(
                             f"{self} no longer exists on RunPod, removing from cache"
                         )
                         return True
@@ -835,14 +835,14 @@ class ServerlessResource(DeployableResource):
         try:
             # log.debug(f"[{self}] Payload: {payload}")
 
-            log.info(f"{self} | API /run_sync")
+            log.debug(f"{self} | API /run_sync")
             response = await asyncio.to_thread(_fetch_job)
             return JobOutput(**response)
 
         except Exception as e:
             health = await asyncio.to_thread(self.endpoint.health)
             health = ServerlessHealth(**health)
-            log.info(f"{self} | Health {health.workers.status}")
+            log.debug(f"{self} | Health {health.workers.status}")
             log.error(f"{self} | Exception: {e}")
             raise
 
@@ -860,12 +860,12 @@ class ServerlessResource(DeployableResource):
             # log.debug(f"[{self}] Payload: {payload}")
 
             # Create a job using the endpoint
-            log.info(f"{self} | API /run")
+            log.debug(f"{self} | API /run")
             job = await asyncio.to_thread(self.endpoint.run, request_input=payload)
 
             log_subgroup = f"Job:{job.job_id}"
 
-            log.info(f"{self} | Started {log_subgroup}")
+            log.debug(f"{self} | Started {log_subgroup}")
 
             current_pace = 0
             attempt = 0
@@ -884,10 +884,10 @@ class ServerlessResource(DeployableResource):
                     attempt += 1
                     indicator = "." * (attempt // 2) if attempt % 2 == 0 else ""
                     if indicator:
-                        log.info(f"{log_subgroup} | {indicator}")
+                        log.debug(f"{log_subgroup} | {indicator}")
                 else:
                     # status changed, reset the gap
-                    log.info(f"{log_subgroup} | Status: {job_status}")
+                    log.debug(f"{log_subgroup} | Status: {job_status}")
                     attempt = 0
 
                 last_status = job_status
@@ -901,7 +901,7 @@ class ServerlessResource(DeployableResource):
 
         except Exception as e:
             if job and job.job_id:
-                log.info(f"{self} | Cancelling job {job.job_id}")
+                log.debug(f"{self} | Cancelling job {job.job_id}")
                 await asyncio.to_thread(job.cancel)
 
             log.error(f"{self} | Exception: {e}")
@@ -974,8 +974,8 @@ class JobOutput(BaseModel):
 
     def model_post_init(self, _: Any) -> None:
         log_group = f"Worker:{self.workerId}"
-        log.info(f"{log_group} | Delay Time: {self.delayTime} ms")
-        log.info(f"{log_group} | Execution Time: {self.executionTime} ms")
+        log.debug(f"{log_group} | Delay Time: {self.delayTime} ms")
+        log.debug(f"{log_group} | Execution Time: {self.executionTime} ms")
 
 
 class Status(str, Enum):
