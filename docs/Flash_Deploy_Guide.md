@@ -41,7 +41,7 @@ graph TB
 
     Developer -->|flash build| Build
     Build -->|archive| S3
-    Developer -->|flash deploy send| S3
+    Developer -->|flash deploy --env| S3
     CLI -->|provision upfront<br/>before activation| ChildEndpoints
     Mothership -->|reconcile_children<br/>on boot| ChildEndpoints
     MothershipReconciler -->|update state| Database
@@ -55,7 +55,7 @@ graph TB
 
 ### Key Concepts
 
-**Mothership**: The orchestration endpoint responsible for deployment, resource provisioning, and manifest distribution. Created via `flash deploy new <env_name>`.
+**Mothership**: The orchestration endpoint responsible for deployment, resource provisioning, and manifest distribution. Created via `flash env create <env_name>`.
 
 **Child Endpoints**: Worker endpoints that execute `@remote` functions. One per resource config (e.g., `gpu_config`, `cpu_config`).
 
@@ -69,19 +69,19 @@ graph TB
 
 ## CLI Commands Reference
 
-### flash deploy new
+### flash env create
 
 Create a new deployment environment (mothership).
 
 ```bash
-flash deploy new <env_name> [--app-name <app_name>]
+flash env create <env_name> [--app <app_name>]
 ```
 
 **Arguments:**
 - `env_name`: Name for the deployment environment
 
 **Options:**
-- `--app-name <app_name>`: Flash app name (auto-detected if not provided)
+- `--app <app_name>`: Flash app name (auto-detected if not provided)
 
 **What it does:**
 1. Creates a FlashApp in RunPod (if first environment for the app)
@@ -90,29 +90,27 @@ flash deploy new <env_name> [--app-name <app_name>]
 
 **Example:**
 ```bash
-flash deploy new production
+flash env create production
 # Output: Environment 'production' created successfully
 # Environment ID: flash-prod-abc123
-# Next: flash deploy send production
+# Next: flash deploy --env production
 ```
 
-**Implementation:** `src/runpod_flash/cli/commands/deploy.py:38-50`
+**Implementation:** `src/runpod_flash/cli/commands/env.py`
 
 ---
 
-### flash deploy send
+### flash deploy
 
 Deploy built archive to an environment.
 
 ```bash
-flash deploy send <env_name> [--app-name <app_name>]
+flash deploy --env <env_name> [--app <app_name>]
 ```
 
-**Arguments:**
-- `env_name`: Name of the deployment environment
-
 **Options:**
-- `--app-name <app_name>`: Flash app name (auto-detected if not provided)
+- `--env <env_name>`: Target deployment environment name
+- `--app <app_name>`: Flash app name (auto-detected if not provided)
 
 **Prerequisites:**
 - Archive must exist at `.flash/artifact.tar.gz` (created by `flash build`)
@@ -124,7 +122,7 @@ flash deploy send <env_name> [--app-name <app_name>]
 
 **Example:**
 ```bash
-flash deploy send production
+flash deploy --env production
 # Output: ⏳ Deploying to 'production'...
 # Deployment Complete
 ```
@@ -133,16 +131,16 @@ flash deploy send production
 
 ---
 
-### flash deploy list
+### flash env list
 
 List all deployment environments for an app.
 
 ```bash
-flash deploy list [--app-name <app_name>]
+flash env list [--app <app_name>]
 ```
 
 **Options:**
-- `--app-name <app_name>`: Flash app name (auto-detected if not provided)
+- `--app <app_name>`: Flash app name (auto-detected if not provided)
 
 **Output:** Table showing:
 - Environment name
@@ -150,23 +148,23 @@ flash deploy list [--app-name <app_name>]
 - Active build ID
 - Creation timestamp
 
-**Implementation:** `src/runpod_flash/cli/commands/deploy.py:27-135`
+**Implementation:** `src/runpod_flash/cli/commands/env.py`
 
 ---
 
-### flash deploy info
+### flash env get
 
 Show detailed information about a deployment environment.
 
 ```bash
-flash deploy info <env_name> [--app-name <app_name>]
+flash env get <env_name> [--app <app_name>]
 ```
 
 **Arguments:**
 - `env_name`: Name of the deployment environment
 
 **Options:**
-- `--app-name <app_name>`: Flash app name (auto-detected if not provided)
+- `--app <app_name>`: Flash app name (auto-detected if not provided)
 
 **Output:** Displays:
 - Environment status and ID
@@ -174,29 +172,29 @@ flash deploy info <env_name> [--app-name <app_name>]
 - Associated endpoints
 - Associated network volumes
 
-**Implementation:** `src/runpod_flash/cli/commands/deploy.py:69-111`
+**Implementation:** `src/runpod_flash/cli/commands/env.py`
 
 ---
 
-### flash deploy delete
+### flash env delete
 
 Delete a deployment environment.
 
 ```bash
-flash deploy delete <env_name> [--app-name <app_name>]
+flash env delete <env_name> [--app <app_name>]
 ```
 
 **Arguments:**
 - `env_name`: Name of the deployment environment
 
 **Options:**
-- `--app-name <app_name>`: Flash app name (auto-detected if not provided)
+- `--app <app_name>`: Flash app name (auto-detected if not provided)
 
 **Safety:**
 - Requires confirmation (twice for safety)
 - Cannot be undone
 
-**Implementation:** `src/runpod_flash/cli/commands/deploy.py:237-270`
+**Implementation:** `src/runpod_flash/cli/commands/env.py`
 
 ---
 
@@ -263,7 +261,7 @@ artifact.tar.gz
 
 ```mermaid
 sequenceDiagram
-    Developer->>CLI: flash deploy send <env_name>
+    Developer->>CLI: flash deploy --env <env_name>
     CLI->>S3: Upload .flash/artifact.tar.gz
     CLI->>RunPod: Create endpoints via API<br/>with manifest reference
     RunPod->>ChildEndpoints: Boot endpoints

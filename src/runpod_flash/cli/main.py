@@ -51,7 +51,7 @@ env_app = typer.Typer(
 
 env_app.command("list")(env.list_command)
 env_app.command("create")(env.create_command)
-env_app.command("info")(env.info_command)
+env_app.command("get")(env.get_command)
 env_app.command("delete")(env.delete_command)
 
 app.add_typer(env_app, name="env")

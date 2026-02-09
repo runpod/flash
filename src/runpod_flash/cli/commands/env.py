@@ -157,17 +157,17 @@ async def _create_environment(app_name: str, env_name: str):
     console.print(table)
 
 
-def info_command(
+def get_command(
     env_name: str = typer.Argument(..., help="Name of the deployment environment"),
     app_name: str = typer.Option(None, "--app", "-a", help="Flash app name"),
 ):
     """Show detailed information about a deployment environment."""
     if not app_name:
         _, app_name = discover_flash_project()
-    asyncio.run(_info_environment(app_name, env_name))
+    asyncio.run(_get_environment(app_name, env_name))
 
 
-async def _info_environment(app_name: str, env_name: str):
+async def _get_environment(app_name: str, env_name: str):
     app = await FlashApp.from_name(app_name)
     env = await app.get_environment_by_name(env_name)
 

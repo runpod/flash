@@ -136,23 +136,6 @@ class TestAppsList:
         assert "dev, prod" in columns[2]._cells[0]
         assert "build-1" in columns[3]._cells[0]
 
-    @patch("runpod_flash.cli.commands.apps.FlashApp.list", new_callable=AsyncMock)
-    def test_list_and_ls_share_logic(
-        self, mock_list, runner, mock_asyncio_run_coro, patched_console
-    ):
-        mock_list.return_value = []
-
-        with patch(
-            "runpod_flash.cli.commands.apps.asyncio.run",
-            side_effect=mock_asyncio_run_coro,
-        ):
-            result_ls = runner.invoke(app, ["app", "ls"])
-            result_list = runner.invoke(app, ["app", "list"])
-
-        assert result_ls.exit_code == result_list.exit_code == 0
-        assert mock_list.await_count == 2
-        assert patched_console.print.call_count == 2
-
 
 class TestAppsGet:
     @patch("runpod_flash.cli.commands.apps.FlashApp.from_name", new_callable=AsyncMock)

@@ -132,9 +132,9 @@ class TestEnvCreate:
         assert isinstance(table, Table)
 
 
-class TestEnvInfo:
+class TestEnvGet:
     @patch("runpod_flash.cli.commands.env.FlashApp.from_name", new_callable=AsyncMock)
-    def test_info_includes_children(
+    def test_get_includes_children(
         self, mock_from_name, runner, mock_asyncio_run_coro, patched_console
     ):
         flash_app = MagicMock()
@@ -155,7 +155,7 @@ class TestEnvInfo:
             "runpod_flash.cli.commands.env.asyncio.run",
             side_effect=mock_asyncio_run_coro,
         ):
-            result = runner.invoke(app, ["env", "info", "dev", "--app", "demo"])
+            result = runner.invoke(app, ["env", "get", "dev", "--app", "demo"])
 
         assert result.exit_code == 0
         panel = patched_console.print.call_args_list[0].args[0]
@@ -166,7 +166,7 @@ class TestEnvInfo:
         assert isinstance(network_table, Table)
 
     @patch("runpod_flash.cli.commands.env.FlashApp.from_name", new_callable=AsyncMock)
-    def test_info_without_children(
+    def test_get_without_children(
         self, mock_from_name, runner, mock_asyncio_run_coro, patched_console
     ):
         flash_app = MagicMock()
@@ -187,7 +187,7 @@ class TestEnvInfo:
             "runpod_flash.cli.commands.env.asyncio.run",
             side_effect=mock_asyncio_run_coro,
         ):
-            result = runner.invoke(app, ["env", "info", "dev", "--app", "demo"])
+            result = runner.invoke(app, ["env", "get", "dev", "--app", "demo"])
 
         assert result.exit_code == 0
         # Only the panel should be printed when there are no child resources

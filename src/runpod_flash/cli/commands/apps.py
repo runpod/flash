@@ -26,9 +26,8 @@ def get(app_name: str = typer.Argument(..., help="Name of the flash app")):
     return asyncio.run(get_flash_app(app_name))
 
 
-@apps_app.command("ls", short_help="List existing apps under your account.")
 @apps_app.command("list", short_help="List existing apps under your account.")
-def ls():
+def list_command():
     return asyncio.run(list_flash_apps())
 
 

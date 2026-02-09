@@ -184,7 +184,7 @@ def _display_post_deployment_guidance(env_name: str) -> None:
 
     # 4. Monitor & Debug
     console.print("[bold cyan]4. Monitor & Debug[/bold cyan]")
-    console.print(f"   [dim]flash env info {env_name}[/dim]  - View environment status")
+    console.print(f"   [dim]flash env get {env_name}[/dim]  - View environment status")
     console.print(
         "   [dim]Runpod Console[/dim]  - View logs and metrics at https://console.runpod.io/serverless\n"
     )
