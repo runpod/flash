@@ -243,8 +243,6 @@ def run_build(
             deployment_manifest_path = flash_dir / "flash_manifest.json"
             shutil.copy2(manifest_path, deployment_manifest_path)
 
-            manifest_resources = manifest.get("resources", {})
-
         except (ImportError, SyntaxError) as e:
             console.print(f"[red]Error:[/red] Code analysis failed: {e}")
             logger.exception("Code analysis failed")
@@ -280,7 +278,6 @@ def run_build(
 
     # filter out excluded packages
     if excluded_packages:
-        original_count = len(requirements)
         matched_exclusions = set()
         filtered_requirements = []
 
@@ -293,7 +290,6 @@ def run_build(
                 filtered_requirements.append(req)
 
         requirements = filtered_requirements
-        excluded_count = original_count - len(requirements)
 
         unmatched = set(excluded_packages) - matched_exclusions
         if unmatched:

@@ -136,10 +136,10 @@ def _display_post_deployment_guidance(
                 '    -H "Authorization: Bearer $RUNPOD_API_KEY" \\\n'
                 "    -d '{\"input\": {}}'"
             )
-            console.print(f"\n[bold]Try it:[/bold]")
+            console.print("\n[bold]Try it:[/bold]")
             console.print(f"  [dim]{curl_cmd}[/dim]")
 
-    console.print(f"\n[bold]Useful commands:[/bold]")
+    console.print("\n[bold]Useful commands:[/bold]")
     console.print(
         f"  [dim]flash env get {env_name}[/dim]       View environment status"
     )
