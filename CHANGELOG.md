@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/runpod/flash/compare/v1.1.0...v1.1.1) (2026-02-09)
+
+
+### Bug Fixes
+
+* AE-2041: standardize cli cmd names ([#179](https://github.com/runpod/flash/issues/179)) ([9d035e3](https://github.com/runpod/flash/commit/9d035e3d1f43e3661f8ee11611070326b60379c5))
+
 ## [1.1.0](https://github.com/runpod/flash/compare/v1.0.0...v1.1.0) (2026-02-06)
 
 
