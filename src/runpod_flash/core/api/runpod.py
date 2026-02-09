@@ -171,7 +171,7 @@ class RunpodGraphQLClient:
             raise Exception("Unexpected GraphQL response structure")
 
         endpoint_data = result["saveEndpoint"]
-        log.info(
+        log.debug(
             f"Saved endpoint: {endpoint_data.get('id', 'unknown')} - {endpoint_data.get('name', 'unnamed')}"
         )
 
@@ -242,7 +242,7 @@ class RunpodGraphQLClient:
         """
 
         variables = {"id": endpoint_id}
-        log.info(f"Deleting endpoint: {endpoint_id}")
+        log.debug(f"Deleting endpoint: {endpoint_id}")
 
         result = await self._execute_graphql(mutation, variables)
 
@@ -705,7 +705,7 @@ class RunpodGraphQLClient:
         """
 
         variables = {"flashAppId": app_id}
-        log.info(f"Deleting flash app: {app_id}")
+        log.debug(f"Deleting flash app: {app_id}")
 
         result = await self._execute_graphql(mutation, variables)
         return {"success": "deleteFlashApp" in result}
@@ -719,7 +719,7 @@ class RunpodGraphQLClient:
         """
 
         variables = {"flashEnvironmentId": environment_id}
-        log.info(f"Deleting flash environment: {environment_id}")
+        log.debug(f"Deleting flash environment: {environment_id}")
 
         result = await self._execute_graphql(mutation, variables)
         return {"success": "deleteFlashEnvironment" in result}
@@ -745,7 +745,7 @@ class RunpodGraphQLClient:
             log.debug(f"Endpoint {endpoint_id} exists: {exists}")
             return exists
         except Exception as e:
-            log.error(f"Error checking endpoint existence: {e}")
+            log.debug(f"Error checking endpoint existence: {e}")
             return False
 
     async def close(self):
@@ -821,7 +821,7 @@ class RunpodRestClient:
             "POST", f"{RUNPOD_REST_API_URL}/networkvolumes", payload
         )
 
-        log.info(
+        log.debug(
             f"Created network volume: {result.get('id', 'unknown')} - {result.get('name', 'unnamed')}"
         )
 
