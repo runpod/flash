@@ -22,6 +22,7 @@ class ResourceConfig:
 
     resource_type: str
     functions: List[FunctionMetadata] = field(default_factory=list)
+    makes_remote_calls: bool = True  # Default true for safety
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "ResourceConfig":
@@ -32,6 +33,7 @@ class ResourceConfig:
         return cls(
             resource_type=data["resource_type"],
             functions=functions,
+            makes_remote_calls=data.get("makes_remote_calls", True),
         )
 
 
