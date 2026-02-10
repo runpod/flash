@@ -108,9 +108,11 @@ def _display_post_deployment_guidance(
             resources = manifest.get("resources", {})
             routes = manifest.get("routes", {})
 
-            for resource_name in resources_endpoints:
+            for resource_name, url in resources_endpoints.items():
                 if resources.get(resource_name, {}).get("is_mothership", False):
                     mothership_routes = routes.get(resource_name, {})
+                    if not mothership_url:
+                        mothership_url = url
                     break
     except (FileNotFoundError, json.JSONDecodeError) as e:
         logger.debug(f"Could not read manifest: {e}")
