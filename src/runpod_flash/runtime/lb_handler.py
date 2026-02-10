@@ -22,6 +22,7 @@ from typing import Any, Callable, Dict
 
 from fastapi import FastAPI, Request
 
+from .api_key_context import clear_api_key, set_api_key
 from .serialization import (
     deserialize_args,
     deserialize_kwargs,
@@ -29,6 +30,37 @@ from .serialization import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+async def extract_api_key_middleware(request: Request, call_next):
+    """Extract API key from Authorization header and set in context.
+
+    This middleware extracts the Bearer token from the Authorization header
+    and makes it available to downstream code via context variables. This
+    enables mothership endpoints to propagate API keys to worker endpoints.
+
+    Args:
+        request: Incoming FastAPI request
+        call_next: Next middleware in chain
+
+    Returns:
+        Response from downstream handlers
+    """
+    # Extract API key from Authorization header
+    auth_header = request.headers.get("Authorization", "")
+    api_key = None
+
+    if auth_header.startswith("Bearer "):
+        api_key = auth_header[7:]  # Remove "Bearer " prefix
+        set_api_key(api_key)
+        logger.debug("Extracted API key from Authorization header")
+
+    try:
+        response = await call_next(request)
+        return response
+    finally:
+        # Clean up context after request
+        clear_api_key()
 
 
 def create_lb_handler(
@@ -50,6 +82,9 @@ def create_lb_handler(
         Configured FastAPI application with routes registered.
     """
     app = FastAPI(title="Flash Load-Balanced Handler", lifespan=lifespan)
+
+    # Add API key extraction middleware
+    app.middleware("http")(extract_api_key_middleware)
 
     # Register /execute endpoint for @remote stub execution (if enabled)
     if include_execute:
