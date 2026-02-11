@@ -12,6 +12,7 @@ You can find a repository of prebuilt Flash examples at [runpod/flash-examples](
 - [Overview](#overview)
 - [Get started](#get-started)
 - [Create Flash API endpoints](#create-flash-api-endpoints)
+- [CLI Reference](#cli-reference)
 - [Key concepts](#key-concepts)
 - [How it works](#how-it-works)
 - [Advanced features](#advanced-features)
@@ -154,6 +155,8 @@ You can also initialize your current directory:
 flash init
 ```
 
+For complete CLI documentation, see the [Flash CLI Reference](src/runpod_flash/cli/docs/README.md).
+
 ### Step 2: Explore the project template
 
 This is the structure of the project template created by `flash init`:
@@ -237,6 +240,8 @@ curl -X POST http://localhost:8888/gpu/hello \
 
 If you switch back to the terminal tab where you used `flash run`, you'll see the details of the job's progress.
 
+For more `flash run` options and configuration, see the [flash run documentation](src/runpod_flash/cli/docs/flash-run.md).
+
 ### Faster testing with auto-provisioning
 
 For development with multiple endpoints, use `--auto-provision` to deploy all resources before testing:
@@ -266,6 +271,62 @@ To customize your API endpoint and functionality:
 2. Test the scripts individually by running `python endpoint.py`.
 3. Configure your FastAPI routers by editing the `__init__.py` files.
 4. Add any new endpoints to your `main.py` file.
+
+## CLI Reference
+
+Flash provides a comprehensive command-line interface for project management, development, and deployment:
+
+### Main Commands
+
+- **`flash init`** - Initialize a new Flash project with template structure
+- **`flash run`** - Start local development server with auto-reload
+- **`flash build`** - Build deployment artifact with all dependencies
+- **`flash deploy`** - Build and deploy to RunPod serverless in one step
+
+### Management Commands
+
+- **`flash env`** - Manage deployment environments (dev, staging, production)
+  - `list`, `create`, `get`, `delete` subcommands
+- **`flash app`** - Manage Flash applications (top-level organization)
+  - `list`, `create`, `get`, `delete` subcommands
+- **`flash undeploy`** - Manage and remove deployed endpoints
+
+### Quick Examples
+
+```bash
+# Initialize and run locally
+flash init my-project
+cd my-project
+flash run --auto-provision
+
+# Build and deploy to production
+flash build
+flash deploy --env production
+
+# Manage environments
+flash env create staging
+flash env list
+flash deploy --env staging
+
+# Clean up
+flash undeploy --interactive
+flash env delete staging
+```
+
+### Complete Documentation
+
+For comprehensive CLI documentation including all options, examples, and troubleshooting:
+
+**[📖 Flash CLI Documentation](src/runpod_flash/cli/docs/README.md)**
+
+Individual command references:
+- [flash init](src/runpod_flash/cli/docs/flash-init.md) - Project initialization
+- [flash run](src/runpod_flash/cli/docs/flash-run.md) - Development server
+- [flash build](src/runpod_flash/cli/docs/flash-build.md) - Build artifacts
+- [flash deploy](src/runpod_flash/cli/docs/flash-deploy.md) - Deployment
+- [flash env](src/runpod_flash/cli/docs/flash-env.md) - Environment management
+- [flash app](src/runpod_flash/cli/docs/flash-app.md) - App management
+- [flash undeploy](src/runpod_flash/cli/docs/flash-undeploy.md) - Endpoint removal
 
 ## Key concepts
 
