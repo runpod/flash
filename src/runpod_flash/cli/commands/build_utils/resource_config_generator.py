@@ -60,7 +60,10 @@ RESOURCE_LOCAL_FUNCTIONS = {
     # Add each resource's local functions
     for resource_name, local_funcs in sorted(resource_functions.items()):
         formatted_funcs = _format_set(local_funcs)
-        config_content += f'    "{resource_name}": {{{formatted_funcs}}},\n'
+        if formatted_funcs == "set()":
+            config_content += f'    "{resource_name}": set(),\n'
+        else:
+            config_content += f'    "{resource_name}": {{{formatted_funcs}}},\n'
 
     config_content += '''}
 
@@ -88,11 +91,11 @@ def is_local_function(func_name: str) -> bool:
 
     # Handle -fb suffix that RunPod backend adds to flashbooted endpoints
     # Try exact match first, then with -fb suffix, then without -fb suffix
-    local_functions = (
-        RESOURCE_LOCAL_FUNCTIONS.get(current_resource) or
-        RESOURCE_LOCAL_FUNCTIONS.get(current_resource + "-fb") or
-        RESOURCE_LOCAL_FUNCTIONS.get(current_resource.removesuffix("-fb"))
-    )
+    local_functions = RESOURCE_LOCAL_FUNCTIONS.get(current_resource)
+    if local_functions is None:
+        local_functions = RESOURCE_LOCAL_FUNCTIONS.get(current_resource + "-fb")
+    if local_functions is None:
+        local_functions = RESOURCE_LOCAL_FUNCTIONS.get(current_resource.removesuffix("-fb"))
 
     if local_functions is None:
         local_functions = set()
@@ -123,9 +126,9 @@ def _format_set(items: Set[str]) -> str:
         items: Set of strings
 
     Returns:
-        Formatted string like '"item1", "item2"'
+        Formatted string like '"item1", "item2"' or "set()" for empty set
     """
     if not items:
-        return ""
+        return "set()"
     sorted_items = sorted(items)
     return ", ".join(f'"{item}"' for item in sorted_items)

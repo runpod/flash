@@ -12,9 +12,9 @@ class TestFormatSet:
     """Tests for _format_set helper function."""
 
     def test_format_empty_set(self):
-        """Empty set returns empty string."""
+        """Empty set returns set() literal."""
         result = _format_set(set())
-        assert result == ""
+        assert result == "set()"
 
     def test_format_single_item(self):
         """Single item formatted correctly."""
@@ -156,7 +156,7 @@ class TestGenerateAllResourceConfigs:
         content = config_file.read_text()
 
         # worker_b should have empty set
-        assert '"worker_b": {}' in content
+        assert '"worker_b": set()' in content
 
     def test_creates_parent_directories(self, sample_manifest, build_dir):
         """Creates runtime directory if it doesn't exist."""
