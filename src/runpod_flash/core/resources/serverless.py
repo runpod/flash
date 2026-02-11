@@ -536,16 +536,26 @@ class ServerlessResource(DeployableResource):
                 manifest_data = json.load(f)
 
             resources = manifest_data.get("resources", {})
-            resource_config = resources.get(self.name)
+
+            # Strip -fb suffix and live- prefix to match manifest name
+            lookup_name = self.name
+            if lookup_name.endswith("-fb"):
+                lookup_name = lookup_name[:-3]
+            if lookup_name.startswith(LIVE_PREFIX):
+                lookup_name = lookup_name[len(LIVE_PREFIX) :]
+
+            resource_config = resources.get(lookup_name)
 
             if not resource_config:
                 log.debug(
-                    f"Resource '{self.name}' not in manifest, assuming makes_remote_calls=True"
+                    f"Resource '{lookup_name}' (from '{self.name}') not in manifest, assuming makes_remote_calls=True"
                 )
                 return True  # Safe default
 
             makes_remote_calls = resource_config.get("makes_remote_calls", True)
-            log.debug(f"Resource '{self.name}' makes_remote_calls={makes_remote_calls}")
+            log.debug(
+                f"Resource '{lookup_name}' (from '{self.name}') makes_remote_calls={makes_remote_calls}"
+            )
             return makes_remote_calls
 
         except Exception as e:
