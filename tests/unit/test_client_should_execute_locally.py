@@ -87,7 +87,7 @@ class TestShouldExecuteLocally:
             result = _should_execute_locally("func")
 
             assert result is True
-            mock_is_local_function.assert_called_once()
+            mock_is_local_function.assert_called_once_with("func")
 
 
 class TestRemoteDecoratorIntegration:

@@ -50,13 +50,20 @@ class TestRemoteDecoratorStubBehavior:
             assert callable(process_data)
             assert hasattr(process_data, "__remote_config__")
 
-            # Call the decorated function to verify it invokes the mocks
-            result = await process_data(10)
-
-            # Verify mocks were invoked
-            mock_rm_instance.get_or_deploy_resource.assert_called_once()
-            mock_stub.assert_called_once()
+            # Actually call the function to verify stub behavior
+            result = await process_data(21)
             assert result == {"result": 42}
+            mock_rm_instance.get_or_deploy_resource.assert_called_once_with(
+                sample_resource
+            )
+            mock_stub.assert_called_once()
+            # stub is called with (func, dependencies, system_dependencies, accelerate_downloads, *args)
+            call_args = mock_stub_callable.call_args[0]
+            assert callable(call_args[0])  # function
+            assert call_args[1] is None  # dependencies
+            assert call_args[2] is None  # system_dependencies
+            assert call_args[3] is True  # accelerate_downloads
+            assert call_args[4] == 21  # actual argument
 
     @patch.dict(os.environ, {"RUNPOD_ENDPOINT_ID": "ep_123"})
     @patch("runpod_flash.runtime._flash_resource_config.is_local_function")
@@ -111,14 +118,17 @@ class TestRemoteDecoratorStubBehavior:
             assert callable(remote_compute)
             assert hasattr(remote_compute, "__remote_config__")
 
-            # Call the decorated function to verify it uses stub
-            result = await remote_compute(21)
-
-            # Verify mocks were invoked
-            mock_rm_instance.get_or_deploy_resource.assert_called_once()
-            mock_stub.assert_called_once()
-            # Verify stub result returned (NOT original function result of 42)
-            assert result == {"result": 84}
+            # Actually call the function to verify stub is used
+            result = await remote_compute(42)
+            assert result == {"result": 84}  # Stub result, not original implementation
+            # stub is called with (func, dependencies, system_dependencies, accelerate_downloads, *args)
+            call_args = mock_stub_callable.call_args[0]
+            assert callable(call_args[0])  # function
+            assert call_args[1] is None  # dependencies
+            assert call_args[2] is None  # system_dependencies
+            assert call_args[3] is True  # accelerate_downloads
+            assert call_args[4] == 42  # actual argument
+            # Verify original implementation was NOT called (result would be 84, not 42*2)
 
     def test_config_stored_in_function(self, sample_resource):
         """Decorator stores config in __remote_config__ attribute."""

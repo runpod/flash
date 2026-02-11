@@ -100,15 +100,16 @@ class RemoteDecoratorScanner:
                 content = py_file.read_text(encoding="utf-8")
                 tree = ast.parse(content)
 
-                # Build a mapping from function name to its AST node with a single walk
-                function_nodes: Dict[str, ast.AST] = {}
+                # Build a map of function name -> function node for this file (single pass)
+                func_node_map: Dict[str, ast.AST] = {}
                 for node in ast.walk(tree):
                     if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                        function_nodes.setdefault(node.name, node)
+                        # Store first occurrence if multiple functions share same name
+                        func_node_map.setdefault(node.name, node)
 
-                # Direct lookup for each @remote function in this file
+                # Find each @remote function and analyze its calls
                 for func_meta in [f for f in functions if f.file_path == py_file]:
-                    node = function_nodes.get(func_meta.function_name)
+                    node = func_node_map.get(func_meta.function_name)
                     if node is not None:
                         self._analyze_function_calls(
                             node, func_meta, remote_function_names

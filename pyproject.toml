@@ -68,7 +68,7 @@ addopts = [
     "--tb=short",
     "--cov=runpod_flash",
     "--cov-report=term-missing",
-    "--cov-fail-under=64.5"
+    "--cov-fail-under=65"
 ]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
