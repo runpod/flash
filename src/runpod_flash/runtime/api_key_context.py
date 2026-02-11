@@ -9,13 +9,16 @@ _api_key_context: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar
 )
 
 
-def set_api_key(api_key: Optional[str]) -> None:
+def set_api_key(api_key: Optional[str]) -> contextvars.Token:
     """Set API key in current context.
 
     Args:
         api_key: RunPod API key to use for remote calls
+
+    Returns:
+        Token that can be used to reset the context
     """
-    _api_key_context.set(api_key)
+    return _api_key_context.set(api_key)
 
 
 def get_api_key() -> Optional[str]:
@@ -27,6 +30,14 @@ def get_api_key() -> Optional[str]:
     return _api_key_context.get()
 
 
-def clear_api_key() -> None:
-    """Clear API key from current context."""
-    _api_key_context.set(None)
+def clear_api_key(token: Optional[contextvars.Token] = None) -> None:
+    """Clear API key from current context.
+
+    Args:
+        token: Optional token from set_api_key() to reset to previous value.
+               If None, sets context to None (backwards compatible).
+    """
+    if token is not None:
+        _api_key_context.reset(token)
+    else:
+        _api_key_context.set(None)

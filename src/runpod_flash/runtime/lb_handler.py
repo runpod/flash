@@ -49,10 +49,11 @@ async def extract_api_key_middleware(request: Request, call_next):
     # Extract API key from Authorization header
     auth_header = request.headers.get("Authorization", "")
     api_key = None
+    token = None
 
     if auth_header.startswith("Bearer "):
-        api_key = auth_header[7:]  # Remove "Bearer " prefix
-        set_api_key(api_key)
+        api_key = auth_header[7:].strip()  # Remove "Bearer " prefix and trim whitespace
+        token = set_api_key(api_key)
         logger.debug("Extracted API key from Authorization header")
 
     try:
@@ -60,7 +61,8 @@ async def extract_api_key_middleware(request: Request, call_next):
         return response
     finally:
         # Clean up context after request
-        clear_api_key()
+        if token is not None:
+            clear_api_key(token)
 
 
 def create_lb_handler(

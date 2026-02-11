@@ -20,9 +20,12 @@ class TestRemoteDecoratorStubBehavior:
             workers=1,
         )
 
+    @pytest.mark.asyncio
     @patch.dict(os.environ, {}, clear=True)
     @patch("runpod_flash.client.ResourceManager")
-    def test_local_dev_invokes_resource_manager(self, mock_rm_class, sample_resource):
+    async def test_local_dev_invokes_resource_manager(
+        self, mock_rm_class, sample_resource
+    ):
         """In local dev, calling decorated function uses ResourceManager."""
         from runpod_flash.client import remote
 
@@ -47,6 +50,21 @@ class TestRemoteDecoratorStubBehavior:
             assert callable(process_data)
             assert hasattr(process_data, "__remote_config__")
 
+            # Actually call the function to verify stub behavior
+            result = await process_data(21)
+            assert result == {"result": 42}
+            mock_rm_instance.get_or_deploy_resource.assert_called_once_with(
+                sample_resource
+            )
+            mock_stub.assert_called_once()
+            # stub is called with (func, dependencies, system_dependencies, accelerate_downloads, *args)
+            call_args = mock_stub_callable.call_args[0]
+            assert callable(call_args[0])  # function
+            assert call_args[1] is None  # dependencies
+            assert call_args[2] is None  # system_dependencies
+            assert call_args[3] is True  # accelerate_downloads
+            assert call_args[4] == 21  # actual argument
+
     @patch.dict(os.environ, {"RUNPOD_ENDPOINT_ID": "ep_123"})
     @patch("runpod_flash.runtime._flash_resource_config.is_local_function")
     async def test_deployed_local_execution_calls_original(
@@ -66,10 +84,11 @@ class TestRemoteDecoratorStubBehavior:
         result = await compute(21)
         assert result == 42
 
+    @pytest.mark.asyncio
     @patch.dict(os.environ, {"RUNPOD_ENDPOINT_ID": "ep_123"})
     @patch("runpod_flash.runtime._flash_resource_config.is_local_function")
     @patch("runpod_flash.client.ResourceManager")
-    def test_deployed_remote_function_uses_stub(
+    async def test_deployed_remote_function_uses_stub(
         self, mock_rm_class, mock_is_local, sample_resource
     ):
         """In deployed env, remote functions create stubs."""
@@ -98,6 +117,18 @@ class TestRemoteDecoratorStubBehavior:
             # Function should be wrapped for remote execution
             assert callable(remote_compute)
             assert hasattr(remote_compute, "__remote_config__")
+
+            # Actually call the function to verify stub is used
+            result = await remote_compute(42)
+            assert result == {"result": 84}  # Stub result, not original implementation
+            # stub is called with (func, dependencies, system_dependencies, accelerate_downloads, *args)
+            call_args = mock_stub_callable.call_args[0]
+            assert callable(call_args[0])  # function
+            assert call_args[1] is None  # dependencies
+            assert call_args[2] is None  # system_dependencies
+            assert call_args[3] is True  # accelerate_downloads
+            assert call_args[4] == 42  # actual argument
+            # Verify original implementation was NOT called (result would be 84, not 42*2)
 
     def test_config_stored_in_function(self, sample_resource):
         """Decorator stores config in __remote_config__ attribute."""

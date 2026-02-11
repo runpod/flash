@@ -40,6 +40,11 @@ def generate_all_resource_configs(
                 local_funcs.add(func_name)
         resource_functions[resource_name] = local_funcs
 
+    # Build set of ALL known functions across all resources
+    all_known_functions = set()
+    for func_name in function_registry.keys():
+        all_known_functions.add(func_name)
+
     # Generate the unified configuration file
     config_content = '''"""Unified resource configuration for all resources.
 
@@ -60,8 +65,19 @@ RESOURCE_LOCAL_FUNCTIONS = {
     # Add each resource's local functions
     for resource_name, local_funcs in sorted(resource_functions.items()):
         formatted_funcs = _format_set(local_funcs)
-        config_content += f'    "{resource_name}": {{{formatted_funcs}}},\n'
+        if formatted_funcs == "set()":
+            config_content += f'    "{resource_name}": set(),\n'
+        else:
+            config_content += f'    "{resource_name}": {{{formatted_funcs}}},\n'
 
+    config_content += """}
+
+# Set of all known functions in the manifest
+ALL_KNOWN_FUNCTIONS = {"""
+
+    # Add all known functions
+    formatted_all_funcs = _format_set(all_known_functions)
+    config_content += formatted_all_funcs
     config_content += '''}
 
 
@@ -88,25 +104,31 @@ def is_local_function(func_name: str) -> bool:
 
     # Handle -fb suffix that RunPod backend adds to flashbooted endpoints
     # Try exact match first, then with -fb suffix, then without -fb suffix
-    local_functions = (
-        RESOURCE_LOCAL_FUNCTIONS.get(current_resource) or
-        RESOURCE_LOCAL_FUNCTIONS.get(current_resource + "-fb") or
-        RESOURCE_LOCAL_FUNCTIONS.get(current_resource.removesuffix("-fb"))
-    )
+    local_functions = RESOURCE_LOCAL_FUNCTIONS.get(current_resource)
+    if local_functions is None:
+        local_functions = RESOURCE_LOCAL_FUNCTIONS.get(current_resource + "-fb")
+    if local_functions is None:
+        local_functions = RESOURCE_LOCAL_FUNCTIONS.get(current_resource.removesuffix("-fb"))
 
     if local_functions is None:
         local_functions = set()
 
-    # If function is in the local set, execute locally
-    # Otherwise, create a stub for remote execution
-    return func_name in local_functions
+    # Three cases:
+    # 1. Function in local set -> execute locally (True)
+    # 2. Function known but not in local set -> remote execution (False)
+    # 3. Function completely unknown -> execute locally for safety (True)
+    if func_name in local_functions:
+        return True
+    if func_name in ALL_KNOWN_FUNCTIONS:
+        return False  # Known to exist in other resource
+    return True  # Unknown function, default to local for safety
 '''
 
     # Write the configuration file
     config_file = build_dir / "runpod_flash" / "runtime" / "_flash_resource_config.py"
     config_file.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(config_file, "w") as f:
+    with open(config_file, "w", encoding="utf-8") as f:
         f.write(config_content)
 
     total_functions = sum(len(funcs) for funcs in resource_functions.values())
@@ -123,9 +145,9 @@ def _format_set(items: Set[str]) -> str:
         items: Set of strings
 
     Returns:
-        Formatted string like '"item1", "item2"'
+        Formatted string like '"item1", "item2"' or "set()" for empty set
     """
     if not items:
-        return ""
+        return "set()"
     sorted_items = sorted(items)
     return ", ".join(f'"{item}"' for item in sorted_items)
