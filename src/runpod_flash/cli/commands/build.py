@@ -420,6 +420,15 @@ def run_build(
                 )
             progress.stop_task(flash_task)
 
+        # Generate resource configuration files
+        # IMPORTANT: Must happen AFTER bundle_local_runpod_flash to avoid being overwritten
+        # These files tell each resource which functions are local vs remote
+        from .build_utils.resource_config_generator import (
+            generate_all_resource_configs,
+        )
+
+        generate_all_resource_configs(manifest, build_dir)
+
         # Clean up Python bytecode before archiving
         cleanup_python_bytecode(build_dir)
 

@@ -4,7 +4,7 @@ import ast
 import importlib
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -29,6 +29,12 @@ class RemoteFunctionMetadata:
         False  # LiveLoadBalancer (vs deployed LoadBalancerSlsResource)
     )
     config_variable: Optional[str] = None  # Variable name like "gpu_config"
+    calls_remote_functions: bool = (
+        False  # Does this function call other @remote functions?
+    )
+    called_remote_functions: List[str] = field(
+        default_factory=list
+    )  # Names of @remote functions called
 
 
 class RemoteDecoratorScanner:
@@ -80,6 +86,33 @@ class RemoteDecoratorScanner:
                 content = py_file.read_text(encoding="utf-8")
                 tree = ast.parse(content)
                 functions.extend(self._extract_remote_functions(tree, py_file))
+            except UnicodeDecodeError:
+                logger.debug(f"Skipping non-UTF-8 file: {py_file}")
+            except SyntaxError as e:
+                logger.warning(f"Syntax error in {py_file}: {e}")
+            except Exception as e:
+                logger.debug(f"Failed to parse {py_file}: {e}")
+
+        # Third pass: analyze function call graphs
+        remote_function_names = {f.function_name for f in functions}
+        for py_file in self.py_files:
+            try:
+                content = py_file.read_text(encoding="utf-8")
+                tree = ast.parse(content)
+
+                # Build a mapping from function name to its AST node with a single walk
+                function_nodes: Dict[str, ast.AST] = {}
+                for node in ast.walk(tree):
+                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        function_nodes.setdefault(node.name, node)
+
+                # Direct lookup for each @remote function in this file
+                for func_meta in [f for f in functions if f.file_path == py_file]:
+                    node = function_nodes.get(func_meta.function_name)
+                    if node is not None:
+                        self._analyze_function_calls(
+                            node, func_meta, remote_function_names
+                        )
             except UnicodeDecodeError:
                 logger.debug(f"Skipping non-UTF-8 file: {py_file}")
             except SyntaxError as e:
@@ -316,6 +349,42 @@ class RemoteDecoratorScanner:
                     if isinstance(keyword.value, ast.Constant):
                         return keyword.value.value
         return None
+
+    def _analyze_function_calls(
+        self,
+        func_node: ast.AST,
+        function_metadata: RemoteFunctionMetadata,
+        remote_function_names: set[str],
+    ) -> None:
+        """Analyze if a function calls other @remote functions.
+
+        Args:
+            func_node: AST node for the function
+            function_metadata: Metadata to update with call information
+            remote_function_names: Set of all @remote function names
+        """
+        # Walk AST looking for function calls
+        for node in ast.walk(func_node):
+            if isinstance(node, ast.Call):
+                # Handle direct calls: some_function()
+                if isinstance(node.func, ast.Name):
+                    called_name = node.func.id
+                    if called_name in remote_function_names:
+                        function_metadata.calls_remote_functions = True
+                        if called_name not in function_metadata.called_remote_functions:
+                            function_metadata.called_remote_functions.append(
+                                called_name
+                            )
+
+                # Handle attribute calls: obj.some_function()
+                elif isinstance(node.func, ast.Attribute):
+                    called_name = node.func.attr
+                    if called_name in remote_function_names:
+                        function_metadata.calls_remote_functions = True
+                        if called_name not in function_metadata.called_remote_functions:
+                            function_metadata.called_remote_functions.append(
+                                called_name
+                            )
 
     def _get_resource_type(self, resource_config_name: str) -> str:
         """Get the resource type for a given config name."""
