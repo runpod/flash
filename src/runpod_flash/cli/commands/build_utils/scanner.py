@@ -4,7 +4,7 @@ import ast
 import importlib
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -32,13 +32,9 @@ class RemoteFunctionMetadata:
     calls_remote_functions: bool = (
         False  # Does this function call other @remote functions?
     )
-    called_remote_functions: Optional[List[str]] = (
-        None  # Names of @remote functions called
-    )
-
-    def __post_init__(self):
-        if self.called_remote_functions is None:
-            self.called_remote_functions = []
+    called_remote_functions: List[str] = field(
+        default_factory=list
+    )  # Names of @remote functions called
 
 
 class RemoteDecoratorScanner:
@@ -104,16 +100,19 @@ class RemoteDecoratorScanner:
                 content = py_file.read_text(encoding="utf-8")
                 tree = ast.parse(content)
 
-                # Find each @remote function and analyze its calls
+                # Build a mapping from function name to its AST node with a single walk
+                function_nodes: Dict[str, ast.AST] = {}
+                for node in ast.walk(tree):
+                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        function_nodes.setdefault(node.name, node)
+
+                # Direct lookup for each @remote function in this file
                 for func_meta in [f for f in functions if f.file_path == py_file]:
-                    # Find the function node in the AST
-                    for node in ast.walk(tree):
-                        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                            if node.name == func_meta.function_name:
-                                self._analyze_function_calls(
-                                    node, func_meta, remote_function_names
-                                )
-                                break
+                    node = function_nodes.get(func_meta.function_name)
+                    if node is not None:
+                        self._analyze_function_calls(
+                            node, func_meta, remote_function_names
+                        )
             except UnicodeDecodeError:
                 logger.debug(f"Skipping non-UTF-8 file: {py_file}")
             except SyntaxError as e:
@@ -372,8 +371,6 @@ class RemoteDecoratorScanner:
                     called_name = node.func.id
                     if called_name in remote_function_names:
                         function_metadata.calls_remote_functions = True
-                        if function_metadata.called_remote_functions is None:
-                            function_metadata.called_remote_functions = []
                         if called_name not in function_metadata.called_remote_functions:
                             function_metadata.called_remote_functions.append(
                                 called_name
@@ -384,8 +381,6 @@ class RemoteDecoratorScanner:
                     called_name = node.func.attr
                     if called_name in remote_function_names:
                         function_metadata.calls_remote_functions = True
-                        if function_metadata.called_remote_functions is None:
-                            function_metadata.called_remote_functions = []
                         if called_name not in function_metadata.called_remote_functions:
                             function_metadata.called_remote_functions.append(
                                 called_name
