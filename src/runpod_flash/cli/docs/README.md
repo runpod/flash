@@ -77,6 +77,42 @@ flash build --exclude torch,torchvision,torchaudio   # Exclude large packages
 
 ---
 
+### flash deploy
+
+Build and deploy Flash application in one step.
+
+```bash
+flash deploy [OPTIONS]
+```
+
+**Options:**
+- `--env, -e`: Target environment name
+- `--app, -a`: Flash app name
+- `--no-deps`: Skip transitive dependencies during pip install
+- `--exclude`: Comma-separated packages to exclude (e.g., 'torch,torchvision')
+- `--use-local-flash`: Bundle local runpod_flash source (for development)
+- `--output, -o`: Custom archive name (default: artifact.tar.gz)
+- `--preview`: Build and launch local preview instead of deploying
+
+**Examples:**
+```bash
+# Build and deploy (auto-selects environment if only one exists)
+flash deploy
+
+# Deploy to specific environment
+flash deploy --env staging
+
+# Deploy with excluded packages
+flash deploy --exclude torch,torchvision,torchaudio
+
+# Build and test locally before deploying
+flash deploy --preview
+```
+
+[Full documentation](./flash-deploy.md)
+
+---
+
 ### flash run
 
 Run Flash development server.
@@ -98,6 +134,78 @@ flash run --port 3000
 ```
 
 [Full documentation](./flash-run.md)
+
+---
+
+### flash env
+
+Manage deployment environments for your Flash applications.
+
+```bash
+flash env <subcommand> [OPTIONS]
+```
+
+**Subcommands:**
+- `list`: Show all available environments
+- `create <name>`: Create a new environment
+- `get <name>`: Get detailed environment information
+- `delete <name>`: Delete an environment and its resources
+
+**Options:**
+- `--app, -a`: Flash app name (auto-detected if in project directory)
+
+**Examples:**
+```bash
+# List all environments
+flash env list
+
+# Create new environment
+flash env create staging
+
+# Get environment details
+flash env get production
+
+# Delete environment
+flash env delete dev
+```
+
+[Full documentation](./flash-env.md)
+
+---
+
+### flash app
+
+Manage Flash applications (top-level organizational units).
+
+```bash
+flash app <subcommand> [OPTIONS]
+```
+
+**Subcommands:**
+- `list`: Show all Flash apps
+- `create <name>`: Create a new Flash app
+- `get <name>`: Get detailed app information
+- `delete`: Delete an app and all associated resources
+
+**Options:**
+- `--app, -a`: Flash app name (required for delete)
+
+**Examples:**
+```bash
+# List all apps
+flash app list
+
+# Create new app
+flash app create my-project
+
+# Get app details
+flash app get my-project
+
+# Delete app
+flash app delete --app my-project
+```
+
+[Full documentation](./flash-app.md)
 
 ---
 
