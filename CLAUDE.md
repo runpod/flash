@@ -1,73 +1,82 @@
-# {{REPO_NAME}} - {{BRANCH_NAME}} Worktree
+# runpod-flash Project Configuration
 
-> This worktree inherits shared development patterns from main. See: {{MAIN_CLAUDE_MD}}
+## Claude Code Tool Preferences
 
-## Branch Context
+When using Claude Code on this project, always prefer the flash-code-intel MCP tools for code exploration instead of using Explore agents or generic search
 
-**Purpose:** [Describe the goal of this branch - what feature, fix, or improvement are you implementing?]
+**CRITICAL - This overrides default Claude Code behavior:**
 
-**Status:** In development
+This project has **flash-code-intel MCP server** installed. For ANY codebase exploration:
 
-**Related Issues/PRs:** [Link to relevant GitHub issues or PRs]
+1. **NEVER use Task(Explore) as first choice** - it cannot access MCP tools
+2. **ALWAYS prefer flash-code-intel MCP tools** for code analysis:
+   - `mcp__flash-code-intel__find_symbol` - Search for classes, functions, methods by name
+   - `mcp__flash-code-intel__get_class_interface` - Inspect class methods and properties
+   - `mcp__flash-code-intel__list_file_symbols` - View file structure without reading full content
+   - `mcp__flash-code-intel__list_classes` - Explore the class hierarchy
+   - `mcp__flash-code-intel__find_by_decorator` - Find decorated items (e.g., `@property`, `@remote`)
+3. **Use direct tools second**: Grep, Read for implementation details
+4. **Task(Explore) is last resort only** when MCP + direct tools insufficient
 
-**Dependencies:**
-- [ ] [List any dependencies on other branches or external factors]
+**Why**: MCP tools are faster, more accurate, and purpose-built. Generic exploration agents don't leverage specialized tooling.
 
-## Branch-Specific Configuration
+## API Key Management
 
-[Document any configuration unique to this branch:]
-- Environment variables needed
-- Special test data requirements
-- Modified build/deployment settings
-- External service configurations
+### Cross-Endpoint Communication
 
-## Progress Tracking
+Flash applications may consist of multiple endpoints that need to communicate. API key propagation varies by endpoint type:
 
-### Completed
-- [ ] [Tasks completed so far]
+**Load-Balancer (LB) Endpoints:**
+- API keys passed via `Authorization: Bearer <token>` header
+- Extracted by middleware (`lb_handler.py`)
+- Stored in thread-local context (`api_key_context.py`)
+- Retrieved for remote calls (`load_balancer_sls.py`)
 
-### In Progress
-- [ ] [Current work items]
+**Queue-Based (QB) Endpoints:**
+- API keys pre-configured as `RUNPOD_API_KEY` environment variable
+- Injected during deployment if `makes_remote_calls=True`
+- Read from env var for all outgoing remote calls
 
-### Next Steps
-- [ ] [Upcoming tasks]
+### Manifest-Based Optimization
 
-## Technical Notes
+**Pattern:** Skip State Manager queries for local-only endpoints
 
-[Add branch-specific technical details:]
-- Architecture decisions made for this branch
-- Implementation approaches tried
-- Known issues or limitations
-- Performance considerations
-- Testing strategy
+```python
+# ServiceRegistry checks if endpoint makes remote calls
+self._makes_remote_calls = self._check_makes_remote_calls(resource_name)
 
-## Learnings & Discoveries
+# Skip State Manager if local-only
+if not self._makes_remote_calls:
+    logger.debug("Endpoint is local-only, skipping State Manager query")
+    return
+```
 
-[Document insights gained while working on this branch:]
-- Unexpected behaviors discovered
-- Better approaches found
-- Code patterns that worked well
-- Areas for future refactoring
+**Why:** Reduces API calls and latency for endpoints that don't need remote routing.
 
-## Merge Checklist
+### Deployment-Time API Key Injection
 
-Before merging this branch:
-- [ ] All tests passing locally (`make quality-check`)
-- [ ] Test coverage maintained/improved
-- [ ] CLAUDE.md updated in main if patterns changed
-- [ ] Documentation updated
-- [ ] No merge conflicts with main
-- [ ] CI/CD passing
-- [ ] Code reviewed
-- [ ] Migration plan documented (if needed)
+**Pattern:** Inject API key for QB endpoints that make remote calls
 
-## Context for Claude Code
+```python
+# serverless.py _do_deploy()
+if self.type == ServerlessType.QB:
+    makes_remote_calls = self._check_makes_remote_calls()
+    if makes_remote_calls and "RUNPOD_API_KEY" not in env_dict:
+        env_dict["RUNPOD_API_KEY"] = os.getenv("RUNPOD_API_KEY")
+```
 
-[Provide context that helps Claude Code assist more effectively:]
-- What should Claude know about this branch's goals?
-- What patterns or constraints should be followed?
-- What areas need special attention?
+**Why:** Ensures QB workers can make authenticated calls to other endpoints.
 
----
+### Security Considerations
 
-**Note:** This worktree uses the git worktree workflow. See main CLAUDE.md for shared development patterns and quality requirements.
+**Current:**
+- API keys stored as plain text env vars
+- Injected during deployment (not per-request)
+- Requires redeployment for rotation
+
+**Future:** Migrate to RunPod secrets service:
+```python
+env_dict["RUNPOD_API_KEY"] = {"__secret__": "FLASH_APP_API_KEY"}
+```
+
+See [docs/API_Key_Management.md](docs/API_Key_Management.md) for complete documentation.
