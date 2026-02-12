@@ -580,6 +580,7 @@ class ServerlessResource(DeployableResource):
                 return self
 
             # Inject API key for queue-based endpoints that make remote calls
+            # LB endpoints use Authorization headers from requests, not env vars
             if self.type == ServerlessType.QB:
                 env_dict = self.env or {}
 
@@ -601,6 +602,21 @@ class ServerlessResource(DeployableResource):
                                 f"{self.name}: makes_remote_calls=True but RUNPOD_API_KEY not set. "
                                 f"Remote calls to other endpoints will fail."
                             )
+
+                self.env = env_dict
+
+            # Inject FLASH_ENVIRONMENT_ID for any endpoint type that needs State Manager queries
+            if self.type in (ServerlessType.QB, ServerlessType.LB):
+                env_dict = self.env or {}
+
+                if "FLASH_ENVIRONMENT_ID" not in env_dict and hasattr(
+                    self, "flash_environment_id"
+                ):
+                    if self.flash_environment_id:
+                        env_dict["FLASH_ENVIRONMENT_ID"] = self.flash_environment_id
+                        log.info(
+                            f"{self.name}: Injected FLASH_ENVIRONMENT_ID for State Manager queries"
+                        )
 
                 self.env = env_dict
 
