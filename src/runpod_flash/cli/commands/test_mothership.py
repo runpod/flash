@@ -58,10 +58,10 @@ def test_mothership_command(
     """
     Test mothership boot locally with Docker.
 
-    Runs the application in a Docker container with mothership provisioning enabled.
-    This simulates the mothership deployment process, including auto-provisioning of
-    child resources to RunPod. On shutdown (Ctrl+C or docker stop), automatically
-    cleans up all deployed endpoints.
+    Runs the application in a Docker container with CLI-time resource provisioning.
+    This simulates the deployment process by provisioning all resources from the
+    manifest before starting the server. On shutdown (Ctrl+C or docker stop),
+    automatically cleans up all deployed endpoints.
 
     Examples:
       flash test-mothership                       # Default setup
@@ -278,8 +278,7 @@ def _create_entrypoint_script(build_dir: str) -> None:
     """Create entrypoint.sh script for Docker container.
 
     This script handles signal trapping and cleanup on shutdown.
-    It runs manifest-based provisioning then flash run (without --auto-provision
-    to avoid duplicate discovery from bundled dependencies).
+    It runs manifest-based provisioning then flash run.
     """
     build_path = Path(build_dir)
 
@@ -326,11 +325,10 @@ echo "Phase 1: Mothership container startup"
 echo "=========================================="
 
 # Provision resources from manifest before starting server
-# This uses the same method as production mothership, avoiding
-# false discovery from bundled skeleton templates
+# All resources are provisioned upfront (CLI-time provisioning)
 python3 provision_from_manifest.py
 
-# Start server without --auto-provision to avoid re-discovering resources
+# Start server
 python -m runpod_flash.cli.main run --host 0.0.0.0 --port 8000 &
 PID=$!
 
@@ -345,14 +343,14 @@ def _display_test_objectives() -> None:
     """Display what test-mothership tests and important warnings."""
     objectives_text = """[bold cyan]What this tests:[/bold cyan]
 • Mothership container deployment
-• Child endpoint auto-provisioning via State Manager
-• Manifest persistence and State Manager integration
+• CLI-time resource provisioning from manifest
+• State Manager integration for endpoint discovery
 
 [bold yellow]⚠ Important:[/bold yellow]
-• Uses peer-to-peer architecture (no hub-and-spoke)
+• Uses peer-to-peer architecture
 • All endpoints query State Manager directly
-• Child endpoints are [bold]temporary[/bold] - prefixed with 'tmp-'
-• All child endpoints will be [bold]automatically cleaned up[/bold] on shutdown
+• Test endpoints are [bold]temporary[/bold] - prefixed with 'tmp-'
+• All endpoints will be [bold]automatically cleaned up[/bold] on shutdown
 
 [dim]These are test deployments only. Use 'flash deploy' for production.[/dim]"""
 
@@ -434,9 +432,9 @@ def _run_docker_container(docker_cmd: list, port: int) -> None:
     console.print("[bold]Test phases:[/bold]")
     console.print("  [dim]1. Mothership startup and health check[/dim]")
     console.print(
-        "  [dim]2. Auto-provisioning child endpoints (prefixed with 'tmp-')[/dim]"
+        "  [dim]2. CLI-time provisioning of endpoints (prefixed with 'tmp-')[/dim]"
     )
-    console.print("  [dim]3. Manifest update with child endpoint URLs[/dim]")
+    console.print("  [dim]3. State Manager update with endpoint URLs[/dim]")
     console.print()
     console.print("[dim]Watch container logs below for provisioning progress...[/dim]")
     console.print("[dim]Press Ctrl+C to stop and cleanup all endpoints.\n[/dim]")
