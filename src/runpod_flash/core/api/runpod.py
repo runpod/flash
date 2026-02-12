@@ -123,7 +123,6 @@ class RunpodGraphQLClient:
             log.error(f"HTTP client error: {e}")
             raise Exception(f"HTTP request failed: {e}")
 
-
     async def update_template(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         mutation = """
         mutation saveTemplate($input: SaveTemplateInput) {
@@ -141,7 +140,7 @@ class RunpodGraphQLClient:
             }
         }
         """
-        
+
         variables = {"input": input_data}
 
         log.debug(
