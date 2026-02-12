@@ -1,6 +1,7 @@
 """GraphQL client for State Manager API to persist and reconcile manifests."""
 
 import asyncio
+import json
 import logging
 from typing import Any, Dict, Optional
 
@@ -71,6 +72,22 @@ class StateManagerClient:
                 async with RunpodGraphQLClient() as client:
                     _, manifest = await self._fetch_build_and_manifest(
                         client, mothership_id
+                    )
+
+                # Log what we're returning to understand State Manager response
+                logger.info(
+                    f"get_persisted_manifest returning manifest with keys: "
+                    f"{list(manifest.keys())}"
+                )
+                if "resources_endpoints" in manifest:
+                    logger.info(
+                        f"Manifest contains resources_endpoints with "
+                        f"{len(manifest['resources_endpoints'])} entries"
+                    )
+                else:
+                    logger.warning(
+                        f"Manifest missing resources_endpoints field! "
+                        f"Full manifest structure: {json.dumps(manifest, indent=2)}"
                     )
 
                 logger.debug(f"Persisted manifest loaded for {mothership_id}")
