@@ -113,7 +113,7 @@ class TestLocalOnlyEndpointOptimization:
 
                 # Assert State Manager was queried
                 mock_state_manager.get_persisted_manifest.assert_called_once_with(
-                    "ep-123", api_key=None
+                    "ep-123"
                 )
                 assert len(registry._endpoint_registry) == 2
                 assert (
