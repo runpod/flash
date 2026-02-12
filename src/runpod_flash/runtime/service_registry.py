@@ -222,20 +222,38 @@ class ServiceRegistry:
                     return
 
                 try:
-                    mothership_id = os.getenv("RUNPOD_ENDPOINT_ID")
-                    if not mothership_id:
+                    # Use FLASH_ENVIRONMENT_ID (set during deployment) to query State Manager
+                    # Fallback to RUNPOD_ENDPOINT_ID for backwards compatibility
+                    environment_id = os.getenv("FLASH_ENVIRONMENT_ID") or os.getenv(
+                        "RUNPOD_ENDPOINT_ID"
+                    )
+                    if not environment_id:
                         logger.warning(
-                            "RUNPOD_ENDPOINT_ID not set, cannot query State Manager"
+                            "FLASH_ENVIRONMENT_ID not set, cannot query State Manager"
                         )
                         return
 
                     # Query State Manager directly for full manifest
                     full_manifest = await self._manifest_client.get_persisted_manifest(
-                        mothership_id
+                        environment_id
+                    )
+
+                    # Log what State Manager returned for troubleshooting
+                    logger.info(
+                        f"State Manager returned manifest with keys: {list(full_manifest.keys())}"
                     )
 
                     # Extract resources_endpoints mapping
                     resources_endpoints = full_manifest.get("resources_endpoints", {})
+
+                    if not resources_endpoints:
+                        logger.error(
+                            f"State Manager returned empty resources_endpoints for environment {environment_id}!"
+                        )
+                    else:
+                        logger.info(
+                            f"State Manager provided {len(resources_endpoints)} endpoints"
+                        )
 
                     self._endpoint_registry = resources_endpoints
                     self._endpoint_registry_loaded_at = now
