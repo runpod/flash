@@ -9,6 +9,7 @@ import requests
 
 def get_authenticated_httpx_client(
     timeout: Optional[float] = None,
+    api_key_override: Optional[str] = None,
 ) -> httpx.AsyncClient:
     """Create httpx AsyncClient with RunPod authentication.
 
@@ -18,6 +19,8 @@ def get_authenticated_httpx_client(
 
     Args:
         timeout: Request timeout in seconds. Defaults to 30.0.
+        api_key_override: Optional API key to use instead of RUNPOD_API_KEY env var.
+                         Used for propagating API keys from mothership to worker endpoints.
 
     Returns:
         Configured httpx.AsyncClient with Authorization header
@@ -29,9 +32,13 @@ def get_authenticated_httpx_client(
         # With custom timeout
         async with get_authenticated_httpx_client(timeout=60.0) as client:
             response = await client.get(url)
+
+        # With API key override (for propagation)
+        async with get_authenticated_httpx_client(api_key_override=context_key) as client:
+            response = await client.post(url, json=data)
     """
     headers = {}
-    api_key = os.environ.get("RUNPOD_API_KEY")
+    api_key = api_key_override or os.environ.get("RUNPOD_API_KEY")
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
@@ -39,12 +46,18 @@ def get_authenticated_httpx_client(
     return httpx.AsyncClient(timeout=timeout_config, headers=headers)
 
 
-def get_authenticated_requests_session() -> requests.Session:
+def get_authenticated_requests_session(
+    api_key_override: Optional[str] = None,
+) -> requests.Session:
     """Create requests Session with RunPod authentication.
 
     Automatically includes Authorization header if RUNPOD_API_KEY is set.
     Provides a centralized place to manage authentication headers for
     synchronous RunPod HTTP requests.
+
+    Args:
+        api_key_override: Optional API key to use instead of RUNPOD_API_KEY env var.
+                         Used for propagating API keys from mothership to worker endpoints.
 
     Returns:
         Configured requests.Session with Authorization header
@@ -58,9 +71,13 @@ def get_authenticated_requests_session() -> requests.Session:
         import contextlib
         with contextlib.closing(get_authenticated_requests_session()) as session:
             response = session.post(url, json=data)
+
+        # With API key override (for propagation)
+        with contextlib.closing(get_authenticated_requests_session(api_key_override=context_key)) as session:
+            response = session.post(url, json=data)
     """
     session = requests.Session()
-    api_key = os.environ.get("RUNPOD_API_KEY")
+    api_key = api_key_override or os.environ.get("RUNPOD_API_KEY")
     if api_key:
         session.headers["Authorization"] = f"Bearer {api_key}"
 

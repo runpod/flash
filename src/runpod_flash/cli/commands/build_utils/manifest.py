@@ -369,12 +369,16 @@ class ManifestBuilder:
                 resource_name, config_variable, resource_type
             )
 
+            # Determine if this resource makes remote calls
+            makes_remote_calls = any(func.calls_remote_functions for func in functions)
+
             resources_dict[resource_name] = {
                 "resource_type": resource_type,
                 "functions": functions_list,
                 "is_load_balanced": is_load_balanced,
                 "is_live_resource": is_live_resource,
                 "config_variable": config_variable,
+                "makes_remote_calls": makes_remote_calls,
                 **deployment_config,  # Include imageName, templateId, gpuIds, workers config
             }
 
