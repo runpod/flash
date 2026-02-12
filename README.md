@@ -274,7 +274,7 @@ To customize your API endpoint and functionality:
 
 ## CLI Reference
 
-Flash provides a comprehensive command-line interface for project management, development, and deployment:
+Flash provides a command-line interface for project management, development, and deployment:
 
 ### Main Commands
 
@@ -315,9 +315,9 @@ flash env delete staging
 
 ### Complete Documentation
 
-For comprehensive CLI documentation including all options, examples, and troubleshooting:
+For complete CLI documentation including all options, examples, and troubleshooting:
 
-**[📖 Flash CLI Documentation](src/runpod_flash/cli/docs/README.md)**
+**[Flash CLI Documentation](src/runpod_flash/cli/docs/README.md)**
 
 Individual command references:
 - [flash init](src/runpod_flash/cli/docs/flash-init.md) - Project initialization

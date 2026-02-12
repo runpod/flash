@@ -204,20 +204,6 @@ curl -X POST https://YOUR_ENDPOINT_URL/YOUR_PATH \
     -d '{"param1": "value1"}'
 ```
 
-Using the Flash SDK:
-
-```python
-from runpod_flash import LiveServerless
-
-config = LiveServerless(
-    name="my-gpu",
-    url="https://YOUR_ENDPOINT_URL"
-)
-
-# Call remote function
-result = my_remote_function(param1="value1")
-```
-
 ### 3. Available Routes
 
 The deployment output shows all available routes registered from your `@remote` decorators:

@@ -122,7 +122,6 @@ flash env get staging --app my-project
 ╭────────────────────────────────────╮
 │ Environment: production            │
 ├────────────────────────────────────┤
-│ Environment: production            │
 │ ID: env_ghi789                     │
 │ State: DEPLOYED                    │
 │ Active Build: build_rst123         │
@@ -330,84 +329,6 @@ Each environment can run a different build version, allowing you to test changes
 - **DEPLOYED**: Successfully deployed and running
 - **FAILED**: Deployment or health check failed
 - **DELETING**: Deletion in progress
-
-## Examples with Real Output
-
-### List Environments
-
-```bash
-$ flash env list
-
-┏━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┓
-┃ Name       ┃ ID                  ┃ Active Build      ┃ Created At       ┃
-┡━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━┩
-│ production │ env_prod_123        │ build_abc456      │ 2024-01-20 09:15 │
-└────────────┴─────────────────────┴───────────────────┴──────────────────┘
-```
-
-### Create Environment
-
-```bash
-$ flash env create staging
-
-╭───────────────────────────────────────────────╮
-│ Environment Created                           │
-├───────────────────────────────────────────────┤
-│ Environment 'staging' created successfully    │
-│                                               │
-│ App: my-project                               │
-│ Environment ID: env_staging_456               │
-│ Status: PENDING                               │
-╰───────────────────────────────────────────────╯
-```
-
-### Get Environment Details
-
-```bash
-$ flash env get production
-
-╭────────────────────────────────────╮
-│ Environment: production            │
-├────────────────────────────────────┤
-│ Environment: production            │
-│ ID: env_prod_123                   │
-│ State: DEPLOYED                    │
-│ Active Build: build_abc456         │
-│ Created: 2024-01-20 09:15:00       │
-╰────────────────────────────────────╯
-
-           Associated Endpoints
-┏━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━┓
-┃ Name           ┃ ID                 ┃
-┡━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━┩
-│ my-gpu-worker  │ ep_123abc          │
-│ my-cpu-worker  │ ep_456def          │
-└────────────────┴────────────────────┘
-```
-
-### Delete Environment
-
-```bash
-$ flash env delete dev
-
-╭───────────────────────────────────╮
-│ Delete Confirmation               │
-├───────────────────────────────────┤
-│ Environment 'dev' will be deleted │
-│                                   │
-│ Environment ID: env_dev_789       │
-│ App: my-project                   │
-│ Active Build: build_xyz123        │
-╰───────────────────────────────────╯
-
-? Are you sure you want to delete environment 'dev'?
-  This will delete all resources associated with this environment! Yes
-
-Undeploying resources for 'dev'...
-Undeployed 2 resource(s) for 'dev'
-Deleting environment 'dev'...
-Environment 'dev' deleted successfully
-```
 
 ## Best Practices
 
