@@ -277,6 +277,10 @@ def create_resource_from_manifest(
         "FLASH_RESOURCE_NAME": resource_name,
     }
 
+    # Inject FLASH_ENVIRONMENT_ID if provided (for State Manager queries at runtime)
+    if flash_environment_id:
+        env["FLASH_ENVIRONMENT_ID"] = flash_environment_id
+
     # Only set FLASH_MOTHERSHIP_ID when running in mothership context
     # (i.e., when RUNPOD_ENDPOINT_ID is available).
     # During CLI provisioning, RUNPOD_ENDPOINT_ID is not set, so we don't
