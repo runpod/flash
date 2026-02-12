@@ -151,7 +151,7 @@ class RemoteDecoratorScanner:
                             self.resource_configs[resource_name] = resource_name
                             self.resource_types[resource_name] = config_type
 
-                            # Store variable name for test-mothership config discovery
+                            # Store variable name for config discovery
                             self.resource_variables[resource_name] = variable_name
 
                             # Also store variable name mapping for local lookups in same module

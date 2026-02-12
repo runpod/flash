@@ -214,16 +214,7 @@ def create_resource_from_manifest(
     if mothership_id:
         env["FLASH_MOTHERSHIP_ID"] = mothership_id
 
-    # Add "tmp-" prefix for test-mothership deployments
-    # Check environment variable set by test-mothership command
-
-    is_test_mothership = os.getenv("FLASH_IS_TEST_MOTHERSHIP", "").lower() == "true"
-
-    if is_test_mothership and not resource_name.startswith("tmp-"):
-        prefixed_name = f"tmp-{resource_name}"
-        logger.info(f"Test mode: Using temporary name '{prefixed_name}'")
-    else:
-        prefixed_name = resource_name
+    prefixed_name = resource_name
 
     # Extract deployment config from manifest
     deployment_kwargs = {"name": prefixed_name, "env": env}

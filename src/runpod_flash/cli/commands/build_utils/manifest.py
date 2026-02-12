@@ -71,7 +71,7 @@ class ManifestResource:
     functions: List[ManifestFunction]
     is_load_balanced: bool = False  # Determined by isinstance() at scan time
     is_live_resource: bool = False  # LiveLoadBalancer vs LoadBalancerSlsResource
-    config_variable: Optional[str] = None  # Variable name for test-mothership
+    config_variable: Optional[str] = None  # Variable name of resource config
     imageName: Optional[str] = None  # Docker image name for auto-provisioning
     templateId: Optional[str] = None  # RunPod template ID for auto-provisioning
     gpuIds: Optional[list] = None  # GPU types/IDs for auto-provisioning

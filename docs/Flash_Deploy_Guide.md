@@ -1189,7 +1189,6 @@ logging.getLogger("runpod_flash.runtime.service_registry").setLevel(logging.DEBU
 |------|---------|
 | `src/runpod_flash/cli/commands/deploy.py` | Deploy environment management commands |
 | `src/runpod_flash/cli/commands/build.py` | Build packaging and archive creation |
-| `src/runpod_flash/cli/commands/test_mothership.py` | Local mothership testing |
 
 ### Build System
 
