@@ -232,6 +232,7 @@ class ManifestBuilder:
             "is_load_balanced": True,
             "is_live_resource": True,
             "is_mothership": True,
+            "makes_remote_calls": True,
             "main_file": main_app_config["file_path"].name,
             "app_variable": main_app_config["app_variable"],
             "imageName": FLASH_CPU_LB_IMAGE,
@@ -280,7 +281,8 @@ class ManifestBuilder:
             "is_load_balanced": True,
             "is_live_resource": True,
             "is_mothership": True,
-            "is_explicit": True,  # Flag to indicate explicit configuration
+            "is_explicit": True,
+            "makes_remote_calls": True,
             "main_file": main_file,
             "app_variable": app_variable,
             "imageName": image_name,
