@@ -168,7 +168,7 @@ class ServiceRegistry:
 
         Returns:
             True if resource makes remote calls, False if local-only,
-            True (safe default) if manifest/resource not found.
+            True (safe default) if manifest/resource not found or makes_remote_calls is null.
         """
         if not resource_name or not self._manifest.resources:
             return True  # Safe default - allow remote calls
@@ -177,7 +177,13 @@ class ServiceRegistry:
         if not resource_config:
             return True  # Safe default
 
-        return resource_config.makes_remote_calls
+        makes_remote_calls = resource_config.makes_remote_calls
+
+        # Handle null/None as True (safe default - allow remote calls)
+        if makes_remote_calls is None:
+            return True
+
+        return makes_remote_calls
 
     async def _ensure_manifest_loaded(self) -> None:
         """Load manifest from State Manager if cache expired or not loaded.
