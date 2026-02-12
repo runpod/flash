@@ -116,6 +116,59 @@ class TestLoadBalancerSlsResourceCreation:
         with pytest.raises(ValueError, match="Endpoint ID not set"):
             _ = resource.endpoint_url
 
+    def test_endpoint_url_with_custom_url(self):
+        """Test that custom_endpoint_url overrides default URL construction."""
+        custom_url = "http://flash-preview-gpu_config:80"
+        resource = LoadBalancerSlsResource(
+            name="test",
+            imageName="image",
+            id="6g2hfns3ar5pti",
+            custom_endpoint_url=custom_url,
+        )
+
+        # Should use custom URL instead of production format
+        assert resource.endpoint_url == custom_url
+
+    def test_endpoint_url_without_custom_url_uses_production(self):
+        """Test that production URL is used when custom_endpoint_url not set."""
+        resource = LoadBalancerSlsResource(
+            name="test",
+            imageName="image",
+            id="6g2hfns3ar5pti",
+            custom_endpoint_url=None,
+        )
+
+        # Should use production URL format
+        assert resource.endpoint_url == "https://6g2hfns3ar5pti.api.runpod.ai"
+
+    def test_skip_template_validation_when_id_set(self):
+        """Test that template validation is skipped when connecting to existing endpoint."""
+        # Create resource with ID but no imageName/template/templateId
+        # This would normally fail validation, but should be skipped when ID is set
+        try:
+            resource = LoadBalancerSlsResource(
+                name="test",
+                id="existing-endpoint-123",
+                # Intentionally omit imageName/template/templateId
+            )
+            # Should succeed without raising ValueError
+            assert resource.id == "existing-endpoint-123"
+        except ValueError as e:
+            pytest.fail(f"Template validation should be skipped when ID is set: {e}")
+
+    def test_template_validation_required_without_id(self):
+        """Test that template validation is enforced when ID not set."""
+        # Create resource without ID and without imageName/template/templateId
+        # Should raise ValueError during initialization
+        with pytest.raises(
+            ValueError,
+            match="Either imageName, template, or templateId must be provided",
+        ):
+            LoadBalancerSlsResource(
+                name="test",
+                # Intentionally omit id, imageName, template, templateId
+            )
+
 
 class TestLoadBalancerSlsResourceHealthCheck:
     """Test health check functionality."""

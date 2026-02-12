@@ -60,6 +60,10 @@ class LoadBalancerSlsResource(ServerlessResource):
     # Override default type to LB
     type: Optional[ServerlessType] = ServerlessType.LB
 
+    # Custom endpoint URL for preview mode (overrides default URL construction)
+    # Note: Cannot use underscore prefix as Pydantic ignores private fields in __init__
+    custom_endpoint_url: Optional[str] = None
+
     def __init__(self, **data):
         """Initialize LoadBalancerSlsResource with LB-specific defaults."""
         # Ensure type is always LB
@@ -76,7 +80,16 @@ class LoadBalancerSlsResource(ServerlessResource):
         """Create template from imageName if not provided.
 
         Must run after sync_input_fields to ensure all input fields are synced.
+
+        Skips validation if ID is provided (connecting to existing endpoint).
         """
+        # Skip validation if endpoint ID is already set (connecting to existing endpoint)
+        if self.id:
+            log.debug(
+                f"Skipping template validation for {self.name} - connecting to existing endpoint (id={self.id})"
+            )
+            return self
+
         if not any([self.imageName, self.template, self.templateId]):
             raise ValueError(
                 "Either imageName, template, or templateId must be provided"
@@ -96,12 +109,20 @@ class LoadBalancerSlsResource(ServerlessResource):
         Load-balanced endpoints use a different URL format than standard
         serverless endpoints. They use: https://{endpoint_id}.{ENDPOINT_DOMAIN}
 
+        For preview mode, a custom URL can be provided via custom_endpoint_url
+        to override the default production URL construction.
+
         Returns:
             The endpoint URL for health checks and direct HTTP requests
 
         Raises:
-            ValueError: If endpoint ID not set
+            ValueError: If endpoint ID not set and no custom URL provided
         """
+        # Use custom URL if provided (for preview mode)
+        if self.custom_endpoint_url:
+            return self.custom_endpoint_url
+
+        # Otherwise construct production URL
         if not self.id:
             raise ValueError("Endpoint ID not set. Cannot determine endpoint URL.")
         return f"https://{self.id}.{ENDPOINT_DOMAIN}"

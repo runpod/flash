@@ -196,10 +196,41 @@ def remote(
             # Handle function decoration
             @wraps(func_or_class)
             async def wrapper(*args, **kwargs):
-                resource_manager = ResourceManager()
-                remote_resource = await resource_manager.get_or_deploy_resource(
-                    resource_config
-                )
+                # Check ServiceRegistry first for remote endpoint discovery
+                from .runtime.service_registry import ServiceRegistry
+
+                try:
+                    service_registry = ServiceRegistry()
+                    remote_resource_config = (
+                        await service_registry.get_resource_for_function(func_name)
+                    )
+
+                    if remote_resource_config:
+                        # Remote execution: use LoadBalancerSlsResource from ServiceRegistry
+                        log.debug(
+                            f"Using remote endpoint for {func_name}: {remote_resource_config.name}"
+                        )
+                        remote_resource = remote_resource_config
+                    else:
+                        # Local execution: use ResourceManager with original config
+                        log.debug(
+                            f"Using local/ResourceManager execution for {func_name}"
+                        )
+                        resource_manager = ResourceManager()
+                        remote_resource = await resource_manager.get_or_deploy_resource(
+                            resource_config
+                        )
+
+                except (ValueError, Exception) as e:
+                    # ServiceRegistry not available or function not in manifest
+                    # Fall back to ResourceManager (local development)
+                    log.debug(
+                        f"ServiceRegistry lookup failed for {func_name}, using ResourceManager: {e}"
+                    )
+                    resource_manager = ResourceManager()
+                    remote_resource = await resource_manager.get_or_deploy_resource(
+                        resource_config
+                    )
 
                 stub = stub_resource(remote_resource, **extra)
                 return await stub(

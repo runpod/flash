@@ -196,11 +196,11 @@ class TestServiceRegistry:
 
             resource = await registry.get_resource_for_function("preprocess")
 
-            # Should return ServerlessResource
+            # Should return LoadBalancerSlsResource with correct endpoint ID
             assert resource is not None
             assert resource.id == "abc123"
-            # Name starts with remote_preprocess (may have random suffix appended)
-            assert resource.name.startswith("remote_preprocess")
+            # Name should be the resource config name from manifest
+            assert resource.name == "cpu_config"
 
     @pytest.mark.asyncio
     async def test_get_resource_for_function_not_in_manifest(self, manifest_file):
@@ -338,3 +338,34 @@ class TestServiceRegistry:
         # Should not fail, just log warning
         await registry._ensure_manifest_loaded()
         assert registry._endpoint_registry == {}
+
+    def test_load_preview_endpoints_from_environment(self, manifest_file):
+        """Test loading endpoints from FLASH_RESOURCES_ENDPOINTS env var."""
+        preview_endpoints = {
+            "gpu_config": "http://flash-preview-gpu_config:80",
+            "cpu_config": "http://flash-preview-cpu_config:80",
+        }
+
+        with patch.dict(
+            os.environ, {"FLASH_RESOURCES_ENDPOINTS": json.dumps(preview_endpoints)}
+        ):
+            registry = ServiceRegistry(manifest_path=manifest_file)
+
+            # Should have loaded endpoints from environment
+            assert registry._endpoint_registry == preview_endpoints
+
+    def test_load_preview_endpoints_invalid_json(self, manifest_file):
+        """Test handling of invalid JSON in FLASH_RESOURCES_ENDPOINTS."""
+        with patch.dict(os.environ, {"FLASH_RESOURCES_ENDPOINTS": "invalid json{"}):
+            registry = ServiceRegistry(manifest_path=manifest_file)
+
+            # Should handle error gracefully and have empty registry
+            assert registry._endpoint_registry == {}
+
+    def test_load_preview_endpoints_not_set(self, manifest_file):
+        """Test initialization when FLASH_RESOURCES_ENDPOINTS not set."""
+        with patch.dict(os.environ, {}, clear=True):
+            registry = ServiceRegistry(manifest_path=manifest_file)
+
+            # Should have empty registry (no State Manager, no preview endpoints)
+            assert registry._endpoint_registry == {}

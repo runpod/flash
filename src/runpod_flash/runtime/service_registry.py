@@ -82,6 +82,9 @@ class ServiceRegistry:
             self._current_endpoint
         )
 
+        # Check for preview mode resources_endpoints from environment
+        self._load_preview_endpoints()
+
     def _load_manifest(self, manifest_path: Optional[Path]) -> None:
         """Load flash_manifest.json.
 
@@ -136,6 +139,26 @@ class ServiceRegistry:
             function_registry={},
             resources={},
         )
+
+    def _load_preview_endpoints(self) -> None:
+        """Load resources_endpoints from environment for preview mode.
+
+        In preview mode, the CLI passes resources_endpoints as a JSON-encoded
+        environment variable. This allows containers to discover each other
+        via Docker DNS without State Manager queries.
+        """
+        preview_endpoints_json = os.getenv("FLASH_RESOURCES_ENDPOINTS")
+        if preview_endpoints_json:
+            try:
+                self._endpoint_registry = json.loads(preview_endpoints_json)
+                self._endpoint_registry_loaded_at = time.time()
+                logger.info(
+                    f"Loaded {len(self._endpoint_registry)} endpoints from preview environment"
+                )
+            except json.JSONDecodeError as e:
+                logger.warning(
+                    f"Failed to parse FLASH_RESOURCES_ENDPOINTS environment variable: {e}"
+                )
 
     def _check_makes_remote_calls(self, resource_name: Optional[str]) -> bool:
         """Check if current resource makes remote calls based on local manifest.
@@ -220,12 +243,20 @@ class ServiceRegistry:
                         f"Manifest loaded from State Manager: {len(self._endpoint_registry)} endpoints, "
                         f"cache TTL {self.cache_ttl}s"
                     )
-                except ManifestServiceUnavailableError as e:
-                    logger.warning(
-                        f"Failed to load manifest from State Manager: {e}. "
-                        f"Cross-endpoint routing unavailable."
+                except (ManifestServiceUnavailableError, Exception) as e:
+                    logger.debug(
+                        f"State Manager unavailable ({type(e).__name__}), "
+                        f"using local manifest for cross-endpoint routing"
                     )
-                    self._endpoint_registry = {}
+                    # Fall back to local manifest's resources_endpoints if available
+                    if self._manifest and self._manifest.resources_endpoints:
+                        self._endpoint_registry = self._manifest.resources_endpoints
+                        logger.debug(
+                            f"Loaded {len(self._endpoint_registry)} endpoints from local manifest"
+                        )
+                    else:
+                        self._endpoint_registry = {}
+                        logger.debug("No resources_endpoints in local manifest")
 
     async def get_endpoint_for_function(self, function_name: str) -> Optional[str]:
         """Get endpoint URL for a function.
@@ -276,14 +307,18 @@ class ServiceRegistry:
     ) -> Optional[ServerlessResource]:
         """Get ServerlessResource for a function.
 
-        Creates a ServerlessResource with the correct endpoint ID if the function
+        Creates a LoadBalancerSlsResource with the correct endpoint ID if the function
         is remote, returns None if local.
+
+        For remote functions, this creates a LoadBalancerSlsResource configured to connect
+        to an existing endpoint (not deploy a new one). This enables the stub logic to
+        make HTTP calls to user-defined routes instead of using the /execute endpoint.
 
         Args:
             function_name: Name of the function to route.
 
         Returns:
-            ServerlessResource with ID set if function is remote
+            LoadBalancerSlsResource with ID set if function is remote
             None if function runs on current endpoint
 
         Raises:
@@ -294,25 +329,73 @@ class ServiceRegistry:
         if endpoint_url is None:
             return None  # Local function
 
-        # Extract endpoint ID from URL (format: https://{endpoint_base_url}/v2/{endpoint_id})
+        # Get resource name and config from manifest
+        await self._ensure_manifest_loaded()
+        resource_name = self._manifest.function_registry.get(function_name)
+        resource_config = (
+            self._manifest.resources.get(resource_name) if resource_name else None
+        )
+
+        # Extract endpoint ID from URL
+        # Supports formats:
+        # - Queue-based: https://{domain}/v2/{endpoint_id}
+        # - Load-balanced: https://{endpoint_id}.{domain}
+        # - Preview/Docker: http://{container-name} (use container name as ID)
         try:
             parsed = urlparse(endpoint_url)
-            # Get the last path component (the endpoint ID)
-            path_parts = parsed.path.rstrip("/").split("/")
-            endpoint_id = path_parts[-1] if path_parts else ""
+
+            # Check for queue-based format first (path contains /v2/{endpoint_id})
+            if parsed.path and "/v2/" in parsed.path:
+                path_parts = parsed.path.rstrip("/").split("/")
+                endpoint_id = path_parts[-1] if path_parts else ""
+            # Load-balanced format (hostname starts with endpoint ID, has subdomain)
+            elif parsed.hostname and parsed.hostname.count(".") >= 2:
+                endpoint_id = parsed.hostname.split(".")[0]
+            # Preview/Docker format (hostname is container name, no dots or single dot for localhost)
+            elif parsed.hostname:
+                endpoint_id = parsed.hostname.replace("flash-preview-", "")
+                logger.debug(
+                    f"Using hostname as endpoint ID for preview mode: {endpoint_id}"
+                )
+            else:
+                endpoint_id = ""
 
             if not endpoint_id:
-                raise ValueError(
-                    f"Invalid endpoint URL format: {endpoint_url} - no endpoint ID found"
+                logger.warning(
+                    f"Could not extract endpoint ID from URL: {endpoint_url}"
                 )
+                return None
         except Exception as e:
-            raise ValueError(
-                f"Failed to parse endpoint URL '{endpoint_url}': {e}"
-            ) from e
+            logger.warning(f"Failed to parse endpoint URL '{endpoint_url}': {e}")
+            return None
 
-        # Create and return ServerlessResource
-        resource = ServerlessResource(name=f"remote_{function_name}")
-        resource.id = endpoint_id
+        # Create appropriate resource type based on manifest
+        # Queue-based workers (LiveServerless) need direct URLs for preview mode
+        # Load-balanced endpoints use LoadBalancerSlsResource
+        resource_type = (
+            resource_config.resource_type
+            if resource_config
+            else "LoadBalancerSlsResource"
+        )
+
+        logger.debug(
+            f"Function '{function_name}' is remote (resource: {resource_name}, type: {resource_type}, id: {endpoint_id}, url: {endpoint_url})"
+        )
+
+        # For preview mode, use LoadBalancerSlsResource for all types
+        # since containers expose HTTP endpoints regardless of deployment type
+        from runpod_flash.core.resources.load_balancer_sls_resource import (
+            LoadBalancerSlsResource,
+        )
+
+        # Create resource config with endpoint URL for preview mode
+        # Note: In preview, all containers have HTTP endpoints at :80
+        resource = LoadBalancerSlsResource(
+            name=resource_name or f"remote_{function_name}",
+            id=endpoint_id,
+            flashboot=False,
+            custom_endpoint_url=endpoint_url,  # Use preview Docker DNS URL
+        )
 
         return resource
 

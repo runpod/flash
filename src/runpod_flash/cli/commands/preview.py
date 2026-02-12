@@ -12,7 +12,12 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from runpod_flash.core.resources.constants import FLASH_CPU_LB_IMAGE
+from runpod_flash.core.resources.constants import (
+    FLASH_CPU_IMAGE,
+    FLASH_CPU_LB_IMAGE,
+    FLASH_GPU_IMAGE,
+    FLASH_LB_IMAGE,
+)
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -68,6 +73,9 @@ def launch_preview(
         network_name = _create_docker_network()
         console.print(f"[dim]Docker network: {network_name}[/dim]\n")
 
+        # Build resources_endpoints mapping for cross-endpoint discovery
+        resources_endpoints = _build_resources_endpoints(resources)
+
         # Start containers for each resource
         containers = []
         try:
@@ -77,6 +85,7 @@ def launch_preview(
                     resource_config=resource_config,
                     build_dir=build_dir,
                     network=network_name,
+                    resources_endpoints=resources_endpoints,
                 )
                 containers.append(container)
         except Exception as e:
@@ -219,6 +228,7 @@ def _start_resource_container(
     resource_config: dict,
     build_dir: Path,
     network: str,
+    resources_endpoints: dict,
 ) -> ContainerInfo:
     """Start a single resource container.
 
@@ -227,6 +237,7 @@ def _start_resource_container(
         resource_config: Resource configuration dictionary
         build_dir: Path to .flash/.build directory
         network: Docker network name
+        resources_endpoints: Mapping of resource names to endpoint URLs
 
     Returns:
         ContainerInfo with container details
@@ -235,7 +246,9 @@ def _start_resource_container(
         Exception: If container startup fails
     """
     # Determine Docker image
-    image = resource_config.get("imageName", FLASH_CPU_LB_IMAGE)
+    # For preview mode, use load-balancer images that expose HTTP /execute endpoints
+    # instead of queue-based worker images (which expect test_input.json)
+    image = _get_preview_image(resource_config.get("imageName", FLASH_CPU_LB_IMAGE))
     is_mothership = resource_config.get("is_mothership", False)
 
     # Assign port
@@ -268,6 +281,8 @@ def _start_resource_container(
         f"FLASH_RESOURCE_NAME={resource_name}",
         "-e",
         f"RUNPOD_ENDPOINT_ID=preview-{resource_name}",
+        "-e",
+        f"FLASH_RESOURCES_ENDPOINTS={json.dumps(resources_endpoints)}",
         "-p",
         f"{port}:80",
     ]
@@ -343,6 +358,60 @@ def _verify_container_health(container_id: str, resource_name: str) -> None:
         if logs_result.stdout:
             error_msg += f"\n{logs_result.stdout[:500]}"
         raise Exception(error_msg)
+
+
+def _get_preview_image(original_image: str) -> str:
+    """Map queue-based worker images to load-balancer images for preview mode.
+
+    Queue-based worker images (flash, flash-cpu) expect job queue inputs and
+    test_input.json for validation. For preview mode, we need HTTP endpoints,
+    so we use load-balancer images (flash-lb, flash-lb-cpu) instead.
+
+    Args:
+        original_image: Image name from manifest (e.g., "runpod/flash:wip")
+
+    Returns:
+        Load-balancer image name for preview mode
+    """
+    # Map queue-based to load-balancer images
+    # Format: runpod/flash:tag → runpod/flash-lb:tag
+    if "flash-cpu:" in original_image or original_image == FLASH_CPU_IMAGE:
+        # CPU queue-based → CPU load-balancer
+        return FLASH_CPU_LB_IMAGE
+    elif "flash:" in original_image or original_image == FLASH_GPU_IMAGE:
+        # GPU queue-based → GPU load-balancer
+        return FLASH_LB_IMAGE
+    elif "flash-lb" in original_image:
+        # Already a load-balancer image
+        return original_image
+    else:
+        # Unknown image, default to CPU LB
+        logger.warning(
+            f"Unknown image '{original_image}', defaulting to {FLASH_CPU_LB_IMAGE}"
+        )
+        return FLASH_CPU_LB_IMAGE
+
+
+def _build_resources_endpoints(resources: dict) -> dict:
+    """Build resources_endpoints mapping for preview environment.
+
+    Creates Docker DNS URLs for all resources so containers can
+    discover and communicate with each other.
+
+    Args:
+        resources: Dictionary of resource_name -> resource_config
+
+    Returns:
+        Dictionary mapping resource names to Docker DNS URLs
+    """
+    resources_endpoints = {}
+    for resource_name in resources.keys():
+        # Docker DNS URL: http://container-name:80 (internal port)
+        container_name = f"flash-preview-{resource_name}"
+        resources_endpoints[resource_name] = f"http://{container_name}:80"
+
+    logger.info(f"Built resources_endpoints for preview: {resources_endpoints}")
+    return resources_endpoints
 
 
 def _assign_container_port(resource_name: str, is_mothership: bool) -> int:
