@@ -6,13 +6,7 @@ from logging.handlers import TimedRotatingFileHandler
 from unittest.mock import patch
 
 
-from runpod_flash.logger import (
-    setup_logging,
-    _add_file_handler_if_local,
-    LoggingConfig,
-    get_logging_config,
-    set_logging_config,
-)
+from runpod_flash.logger import setup_logging, _add_file_handler_if_local
 
 
 def cleanup_handlers(logger: logging.Logger) -> None:
@@ -148,12 +142,12 @@ class TestSetupLogging:
         # Capture stdout
         stream = StringIO()
 
-        # Mock is_local_development and Path.mkdir to simulate failure
+        # Mock is_local_development and get_paths to simulate failure
         with patch(
             "runpod_flash.runtime.context.is_local_development", return_value=True
         ):
             with patch(
-                "runpod_flash.logger.Path.mkdir",
+                "runpod_flash.config.get_paths",
                 side_effect=Exception("Simulated error"),
             ):
                 setup_logging(level=logging.WARNING, stream=stream)
@@ -393,7 +387,7 @@ class TestAddFileHandlerIfLocal:
             "runpod_flash.runtime.context.is_local_development", return_value=True
         ):
             with patch(
-                "runpod_flash.logger.Path.mkdir", side_effect=RuntimeError("Test error")
+                "runpod_flash.config.get_paths", side_effect=RuntimeError("Test error")
             ):
                 _add_file_handler_if_local(root_logger, logging.INFO, "%(message)s")
 
@@ -406,182 +400,3 @@ class TestAddFileHandlerIfLocal:
         assert len(root_logger.handlers) == 1
 
         cleanup_handlers(root_logger)
-
-
-class TestLoggingConfig:
-    """Tests for LoggingConfig class."""
-
-    def test_default_values(self):
-        """Verify default configuration values."""
-        config = LoggingConfig()
-        assert config.enabled is True
-        assert config.retention_days == 30
-        assert config.log_dir == ".flash/logs"
-
-    def test_from_env_enabled_true(self, monkeypatch):
-        """Verify FLASH_FILE_LOGGING_ENABLED=true enables file logging."""
-        monkeypatch.setenv("FLASH_FILE_LOGGING_ENABLED", "true")
-        config = LoggingConfig.from_env()
-        assert config.enabled is True
-
-    def test_from_env_enabled_false(self, monkeypatch):
-        """Verify FLASH_FILE_LOGGING_ENABLED=false disables file logging."""
-        monkeypatch.setenv("FLASH_FILE_LOGGING_ENABLED", "false")
-        config = LoggingConfig.from_env()
-        assert config.enabled is False
-
-    def test_from_env_retention_days(self, monkeypatch):
-        """Verify FLASH_LOG_RETENTION_DAYS is applied."""
-        monkeypatch.setenv("FLASH_LOG_RETENTION_DAYS", "7")
-        config = LoggingConfig.from_env()
-        assert config.retention_days == 7
-
-    def test_from_env_invalid_retention_days(self, monkeypatch, capsys):
-        """Verify invalid retention days falls back to default with warning."""
-        monkeypatch.setenv("FLASH_LOG_RETENTION_DAYS", "0")
-
-        # Capture logging warning
-        logger = logging.getLogger()
-        stream = StringIO()
-        handler = logging.StreamHandler(stream)
-        handler.setLevel(logging.WARNING)
-        logger.addHandler(handler)
-        logger.setLevel(logging.WARNING)
-
-        try:
-            config = LoggingConfig.from_env()
-            assert config.retention_days == 30
-
-            # Verify warning was logged
-            output = stream.getvalue()
-            assert "Invalid FLASH_LOG_RETENTION_DAYS=0" in output
-        finally:
-            logger.removeHandler(handler)
-            handler.close()
-
-    def test_from_env_custom_log_dir(self, monkeypatch):
-        """Verify FLASH_LOG_DIR custom directory is used."""
-        custom_dir = "/tmp/my-logs"
-        monkeypatch.setenv("FLASH_LOG_DIR", custom_dir)
-        config = LoggingConfig.from_env()
-        assert config.log_dir == custom_dir
-
-    def test_get_logging_config_lazy_loads(self, monkeypatch):
-        """Verify get_logging_config() lazy-loads configuration."""
-        # Reset global config
-        set_logging_config(None)
-
-        monkeypatch.setenv("FLASH_LOG_RETENTION_DAYS", "15")
-        config = get_logging_config()
-        assert config.retention_days == 15
-
-        # Calling again should return same instance
-        config2 = get_logging_config()
-        assert config is config2
-
-    def test_set_logging_config_for_testing(self):
-        """Verify set_logging_config() allows test isolation."""
-        test_config = LoggingConfig(
-            enabled=False, retention_days=5, log_dir="/test/path"
-        )
-        set_logging_config(test_config)
-
-        config = get_logging_config()
-        assert config.enabled is False
-        assert config.retention_days == 5
-        assert config.log_dir == "/test/path"
-
-        # Reset for other tests
-        set_logging_config(None)
-
-    def test_file_logging_disabled_via_config(self, tmp_path, monkeypatch):
-        """Verify file handler is NOT added when config.enabled=False."""
-        # Change to temp directory
-        monkeypatch.chdir(tmp_path)
-
-        # Set config to disabled
-        set_logging_config(LoggingConfig(enabled=False))
-
-        # Clear existing handlers
-        root_logger = logging.getLogger()
-        cleanup_handlers(root_logger)
-
-        # Mock local mode
-        with patch(
-            "runpod_flash.runtime.context.is_local_development", return_value=True
-        ):
-            _add_file_handler_if_local(root_logger, logging.INFO, "%(message)s")
-
-        # Verify no file handler was added
-        file_handlers = [
-            h for h in root_logger.handlers if isinstance(h, TimedRotatingFileHandler)
-        ]
-        assert len(file_handlers) == 0
-
-        # Verify no log directory created
-        flash_dir = tmp_path / ".flash"
-        assert not flash_dir.exists()
-
-        # Cleanup
-        cleanup_handlers(root_logger)
-        set_logging_config(None)
-
-    def test_custom_retention_applied_to_handler(self, tmp_path, monkeypatch):
-        """Verify custom retention days is applied to TimedRotatingFileHandler."""
-        # Change to temp directory
-        monkeypatch.chdir(tmp_path)
-
-        # Set custom retention
-        set_logging_config(LoggingConfig(retention_days=7))
-
-        # Clear existing handlers
-        root_logger = logging.getLogger()
-        cleanup_handlers(root_logger)
-
-        # Mock local mode
-        with patch(
-            "runpod_flash.runtime.context.is_local_development", return_value=True
-        ):
-            _add_file_handler_if_local(root_logger, logging.INFO, "%(message)s")
-
-        # Verify file handler has correct backupCount
-        file_handlers = [
-            h for h in root_logger.handlers if isinstance(h, TimedRotatingFileHandler)
-        ]
-        assert len(file_handlers) == 1
-        assert file_handlers[0].backupCount == 7
-
-        # Cleanup
-        cleanup_handlers(root_logger)
-        set_logging_config(None)
-
-    def test_custom_log_dir_created(self, tmp_path, monkeypatch):
-        """Verify custom log directory is created and used."""
-        # Change to temp directory
-        monkeypatch.chdir(tmp_path)
-
-        # Set custom log directory
-        custom_log_dir = tmp_path / "custom" / "logs"
-        set_logging_config(LoggingConfig(log_dir=str(custom_log_dir)))
-
-        # Clear existing handlers
-        root_logger = logging.getLogger()
-        cleanup_handlers(root_logger)
-
-        # Mock local mode
-        with patch(
-            "runpod_flash.runtime.context.is_local_development", return_value=True
-        ):
-            _add_file_handler_if_local(root_logger, logging.INFO, "%(message)s")
-
-        # Verify custom directory was created
-        assert custom_log_dir.exists()
-        assert custom_log_dir.is_dir()
-
-        # Verify log file is in custom directory
-        log_file = custom_log_dir / "activity.log"
-        assert log_file.exists()
-
-        # Cleanup
-        cleanup_handlers(root_logger)
-        set_logging_config(None)
