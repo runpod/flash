@@ -141,6 +141,31 @@ flash undeploy --cleanup-stale
 
 ---
 
+## Features
+
+### File-Based Logging
+
+Flash automatically logs CLI activity to local files during development for debugging and auditing.
+
+**Quick configuration:**
+
+```bash
+# Disable file logging
+export FLASH_FILE_LOGGING_ENABLED=false
+
+# Keep only 7 days of logs
+export FLASH_LOG_RETENTION_DAYS=7
+
+# Use custom log directory
+export FLASH_LOG_DIR=/var/log/flash
+```
+
+Default location: `.flash/logs/activity.log`
+
+[Full documentation](./flash-logging.md)
+
+---
+
 ## Project Structure
 
 ```

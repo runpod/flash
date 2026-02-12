@@ -589,6 +589,25 @@ Some common GPU groups available through `GpuGroup`:
 - `CpuInstanceType.CPU5C_4_8` - (cpu5c-4-8) 5th gen compute-optimized, 4 vCPU, 8GB RAM
 - `CpuInstanceType.CPU5C_8_16` - (cpu5c-8-16) 5th gen compute-optimized, 8 vCPU, 16GB RAM
 
+### Logging
+
+Flash automatically logs CLI activity to local files during development. Logs are written to `.flash/logs/activity.log` with daily rotation and 30-day retention by default.
+
+**Configuration via environment variables:**
+
+```bash
+# Disable file logging (CLI continues with stdout-only)
+export FLASH_FILE_LOGGING_ENABLED=false
+
+# Keep only 7 days of logs
+export FLASH_LOG_RETENTION_DAYS=7
+
+# Use custom log directory
+export FLASH_LOG_DIR=/var/log/flash
+```
+
+File logging is automatically disabled in deployed containers. See [flash-logging.md](src/runpod_flash/cli/docs/flash-logging.md) for complete documentation.
+
 ## Workflow examples
 
 ### Basic GPU workflow

@@ -6,7 +6,20 @@ from logging.handlers import TimedRotatingFileHandler
 from unittest.mock import patch
 
 
-from runpod_flash.logger import setup_logging, _add_file_handler_if_local
+from runpod_flash.logger import (
+    setup_logging,
+    _add_file_handler_if_local,
+    LoggingConfig,
+    get_logging_config,
+    set_logging_config,
+)
+
+
+def cleanup_handlers(logger: logging.Logger) -> None:
+    """Close and clear all handlers to prevent file descriptor leaks."""
+    for handler in logger.handlers[:]:
+        handler.close()
+        logger.removeHandler(handler)
 
 
 class TestSetupLogging:
@@ -19,7 +32,7 @@ class TestSetupLogging:
 
         # Clear any existing handlers
         root_logger = logging.getLogger()
-        root_logger.handlers.clear()
+        cleanup_handlers(root_logger)
 
         # Capture stdout
         stream = StringIO()
@@ -39,7 +52,7 @@ class TestSetupLogging:
         assert "Test message" in output
 
         # Cleanup
-        root_logger.handlers.clear()
+        cleanup_handlers(root_logger)
 
     def test_file_handler_in_local_mode(self, tmp_path, monkeypatch):
         """Verify file handler is added in local development mode."""
@@ -48,7 +61,7 @@ class TestSetupLogging:
 
         # Clear existing handlers
         root_logger = logging.getLogger()
-        root_logger.handlers.clear()
+        cleanup_handlers(root_logger)
 
         # Mock is_local_development to return True
         with patch(
@@ -87,7 +100,7 @@ class TestSetupLogging:
         assert logs_dir.is_dir()
 
         # Cleanup
-        root_logger.handlers.clear()
+        cleanup_handlers(root_logger)
 
     def test_no_file_handler_in_deployed_mode(self, tmp_path, monkeypatch):
         """Verify file handler is NOT added in deployed container mode."""
@@ -96,7 +109,7 @@ class TestSetupLogging:
 
         # Clear existing handlers
         root_logger = logging.getLogger()
-        root_logger.handlers.clear()
+        cleanup_handlers(root_logger)
 
         # Mock is_local_development to return False (deployed mode)
         with patch(
@@ -121,26 +134,29 @@ class TestSetupLogging:
         assert not flash_dir.exists()
 
         # Cleanup
-        root_logger.handlers.clear()
+        cleanup_handlers(root_logger)
 
-    def test_graceful_degradation_on_error(self, tmp_path, monkeypatch, capsys):
+    def test_graceful_degradation_on_error(self, tmp_path, monkeypatch):
         """Verify CLI continues with stdout-only if file logging fails."""
         # Change to temp directory
         monkeypatch.chdir(tmp_path)
 
         # Clear existing handlers
         root_logger = logging.getLogger()
-        root_logger.handlers.clear()
+        cleanup_handlers(root_logger)
 
-        # Mock is_local_development and get_paths to simulate failure
+        # Capture stdout
+        stream = StringIO()
+
+        # Mock is_local_development and Path.mkdir to simulate failure
         with patch(
             "runpod_flash.runtime.context.is_local_development", return_value=True
         ):
             with patch(
-                "runpod_flash.config.get_paths",
+                "runpod_flash.logger.Path.mkdir",
                 side_effect=Exception("Simulated error"),
             ):
-                setup_logging(level=logging.INFO)
+                setup_logging(level=logging.WARNING, stream=stream)
 
         # Verify only stream handler exists (graceful fallback)
         assert len(root_logger.handlers) == 1
@@ -149,13 +165,13 @@ class TestSetupLogging:
         ]
         assert len(stream_handlers) == 1
 
-        # Verify warning was printed to stderr
-        captured = capsys.readouterr()
-        assert "Warning: Could not set up file logging" in captured.err
-        assert "Simulated error" in captured.err
+        # Verify warning was logged
+        output = stream.getvalue()
+        assert "Could not set up file logging" in output
+        assert "Simulated error" in output
 
         # Cleanup
-        root_logger.handlers.clear()
+        cleanup_handlers(root_logger)
 
     def test_log_file_creation(self, tmp_path, monkeypatch):
         """Verify log messages are written to file."""
@@ -164,7 +180,7 @@ class TestSetupLogging:
 
         # Clear existing handlers
         root_logger = logging.getLogger()
-        root_logger.handlers.clear()
+        cleanup_handlers(root_logger)
 
         # Mock is_local_development
         with patch(
@@ -188,7 +204,7 @@ class TestSetupLogging:
         assert "Test file logging" in log_contents
 
         # Cleanup
-        root_logger.handlers.clear()
+        cleanup_handlers(root_logger)
 
     def test_handler_not_duplicated(self, tmp_path, monkeypatch):
         """Verify calling setup_logging() twice doesn't duplicate handlers."""
@@ -197,7 +213,7 @@ class TestSetupLogging:
 
         # Clear existing handlers
         root_logger = logging.getLogger()
-        root_logger.handlers.clear()
+        cleanup_handlers(root_logger)
 
         # Mock is_local_development
         with patch(
@@ -215,7 +231,7 @@ class TestSetupLogging:
         assert handler_count_1 == handler_count_2 == 2
 
         # Cleanup
-        root_logger.handlers.clear()
+        cleanup_handlers(root_logger)
 
     def test_log_level_override_via_env(self, tmp_path, monkeypatch):
         """Verify LOG_LEVEL environment variable overrides level."""
@@ -224,7 +240,7 @@ class TestSetupLogging:
 
         # Clear existing handlers
         root_logger = logging.getLogger()
-        root_logger.handlers.clear()
+        cleanup_handlers(root_logger)
 
         # Set environment variable
         monkeypatch.setenv("LOG_LEVEL", "DEBUG")
@@ -239,7 +255,7 @@ class TestSetupLogging:
         assert root_logger.level == logging.DEBUG
 
         # Cleanup
-        root_logger.handlers.clear()
+        cleanup_handlers(root_logger)
         monkeypatch.delenv("LOG_LEVEL")
 
     def test_debug_format_includes_details(self, tmp_path, monkeypatch):
@@ -249,7 +265,7 @@ class TestSetupLogging:
 
         # Clear existing handlers
         root_logger = logging.getLogger()
-        root_logger.handlers.clear()
+        cleanup_handlers(root_logger)
 
         stream = StringIO()
 
@@ -271,7 +287,7 @@ class TestSetupLogging:
         assert "test" in output  # logger name
 
         # Cleanup
-        root_logger.handlers.clear()
+        cleanup_handlers(root_logger)
 
 
 class TestAddFileHandlerIfLocal:
@@ -283,7 +299,7 @@ class TestAddFileHandlerIfLocal:
         monkeypatch.chdir(tmp_path)
 
         root_logger = logging.getLogger()
-        root_logger.handlers.clear()
+        cleanup_handlers(root_logger)
 
         # Mock deployed mode
         with patch(
@@ -304,7 +320,7 @@ class TestAddFileHandlerIfLocal:
         monkeypatch.chdir(tmp_path)
 
         root_logger = logging.getLogger()
-        root_logger.handlers.clear()
+        cleanup_handlers(root_logger)
 
         # Mock local mode
         with patch(
@@ -318,7 +334,7 @@ class TestAddFileHandlerIfLocal:
         assert flash_dir.exists()
         assert logs_dir.exists()
 
-        root_logger.handlers.clear()
+        cleanup_handlers(root_logger)
 
     def test_file_handler_format_matches_console(self, tmp_path, monkeypatch):
         """Verify file handler uses same format as console."""
@@ -326,7 +342,7 @@ class TestAddFileHandlerIfLocal:
         monkeypatch.chdir(tmp_path)
 
         root_logger = logging.getLogger()
-        root_logger.handlers.clear()
+        cleanup_handlers(root_logger)
 
         test_format = "%(levelname)s - %(message)s"
 
@@ -342,32 +358,230 @@ class TestAddFileHandlerIfLocal:
         ]
         assert len(file_handlers) == 1
 
+        # Verify the formatter produces output matching the expected format
         file_handler = file_handlers[0]
-        assert file_handler.formatter._fmt == test_format
+        record = logging.LogRecord(
+            name="test_logger",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=0,
+            msg="Test message",
+            args=(),
+            exc_info=None,
+        )
+        formatted_output = file_handler.format(record)
+        assert formatted_output == "INFO - Test message"
 
-        root_logger.handlers.clear()
+        cleanup_handlers(root_logger)
 
     def test_error_handling_prints_warning(self, tmp_path, monkeypatch, capsys):
-        """Verify errors are caught and warning is printed."""
+        """Verify errors are caught and warning is logged."""
         # Change to temp directory
         monkeypatch.chdir(tmp_path)
 
         root_logger = logging.getLogger()
-        root_logger.handlers.clear()
+        cleanup_handlers(root_logger)
+
+        # Add a stream handler so warnings can be captured
+        stream = StringIO()
+        handler = logging.StreamHandler(stream)
+        root_logger.addHandler(handler)
+        root_logger.setLevel(logging.WARNING)
 
         # Mock local mode and force an error
         with patch(
             "runpod_flash.runtime.context.is_local_development", return_value=True
         ):
             with patch(
-                "runpod_flash.config.get_paths", side_effect=RuntimeError("Test error")
+                "runpod_flash.logger.Path.mkdir", side_effect=RuntimeError("Test error")
             ):
                 _add_file_handler_if_local(root_logger, logging.INFO, "%(message)s")
 
-        # Verify warning was printed to stderr
-        captured = capsys.readouterr()
-        assert "Warning: Could not set up file logging" in captured.err
-        assert "Test error" in captured.err
+        # Verify warning was logged
+        output = stream.getvalue()
+        assert "Could not set up file logging" in output
+        assert "Test error" in output
 
-        # Verify no handlers were added
-        assert len(root_logger.handlers) == 0
+        # Verify no file handler was added (only the stream handler we added)
+        assert len(root_logger.handlers) == 1
+
+        cleanup_handlers(root_logger)
+
+
+class TestLoggingConfig:
+    """Tests for LoggingConfig class."""
+
+    def test_default_values(self):
+        """Verify default configuration values."""
+        config = LoggingConfig()
+        assert config.enabled is True
+        assert config.retention_days == 30
+        assert config.log_dir == ".flash/logs"
+
+    def test_from_env_enabled_true(self, monkeypatch):
+        """Verify FLASH_FILE_LOGGING_ENABLED=true enables file logging."""
+        monkeypatch.setenv("FLASH_FILE_LOGGING_ENABLED", "true")
+        config = LoggingConfig.from_env()
+        assert config.enabled is True
+
+    def test_from_env_enabled_false(self, monkeypatch):
+        """Verify FLASH_FILE_LOGGING_ENABLED=false disables file logging."""
+        monkeypatch.setenv("FLASH_FILE_LOGGING_ENABLED", "false")
+        config = LoggingConfig.from_env()
+        assert config.enabled is False
+
+    def test_from_env_retention_days(self, monkeypatch):
+        """Verify FLASH_LOG_RETENTION_DAYS is applied."""
+        monkeypatch.setenv("FLASH_LOG_RETENTION_DAYS", "7")
+        config = LoggingConfig.from_env()
+        assert config.retention_days == 7
+
+    def test_from_env_invalid_retention_days(self, monkeypatch, capsys):
+        """Verify invalid retention days falls back to default with warning."""
+        monkeypatch.setenv("FLASH_LOG_RETENTION_DAYS", "0")
+
+        # Capture logging warning
+        logger = logging.getLogger()
+        stream = StringIO()
+        handler = logging.StreamHandler(stream)
+        handler.setLevel(logging.WARNING)
+        logger.addHandler(handler)
+        logger.setLevel(logging.WARNING)
+
+        try:
+            config = LoggingConfig.from_env()
+            assert config.retention_days == 30
+
+            # Verify warning was logged
+            output = stream.getvalue()
+            assert "Invalid FLASH_LOG_RETENTION_DAYS=0" in output
+        finally:
+            logger.removeHandler(handler)
+            handler.close()
+
+    def test_from_env_custom_log_dir(self, monkeypatch):
+        """Verify FLASH_LOG_DIR custom directory is used."""
+        custom_dir = "/tmp/my-logs"
+        monkeypatch.setenv("FLASH_LOG_DIR", custom_dir)
+        config = LoggingConfig.from_env()
+        assert config.log_dir == custom_dir
+
+    def test_get_logging_config_lazy_loads(self, monkeypatch):
+        """Verify get_logging_config() lazy-loads configuration."""
+        # Reset global config
+        set_logging_config(None)
+
+        monkeypatch.setenv("FLASH_LOG_RETENTION_DAYS", "15")
+        config = get_logging_config()
+        assert config.retention_days == 15
+
+        # Calling again should return same instance
+        config2 = get_logging_config()
+        assert config is config2
+
+    def test_set_logging_config_for_testing(self):
+        """Verify set_logging_config() allows test isolation."""
+        test_config = LoggingConfig(
+            enabled=False, retention_days=5, log_dir="/test/path"
+        )
+        set_logging_config(test_config)
+
+        config = get_logging_config()
+        assert config.enabled is False
+        assert config.retention_days == 5
+        assert config.log_dir == "/test/path"
+
+        # Reset for other tests
+        set_logging_config(None)
+
+    def test_file_logging_disabled_via_config(self, tmp_path, monkeypatch):
+        """Verify file handler is NOT added when config.enabled=False."""
+        # Change to temp directory
+        monkeypatch.chdir(tmp_path)
+
+        # Set config to disabled
+        set_logging_config(LoggingConfig(enabled=False))
+
+        # Clear existing handlers
+        root_logger = logging.getLogger()
+        cleanup_handlers(root_logger)
+
+        # Mock local mode
+        with patch(
+            "runpod_flash.runtime.context.is_local_development", return_value=True
+        ):
+            _add_file_handler_if_local(root_logger, logging.INFO, "%(message)s")
+
+        # Verify no file handler was added
+        file_handlers = [
+            h for h in root_logger.handlers if isinstance(h, TimedRotatingFileHandler)
+        ]
+        assert len(file_handlers) == 0
+
+        # Verify no log directory created
+        flash_dir = tmp_path / ".flash"
+        assert not flash_dir.exists()
+
+        # Cleanup
+        cleanup_handlers(root_logger)
+        set_logging_config(None)
+
+    def test_custom_retention_applied_to_handler(self, tmp_path, monkeypatch):
+        """Verify custom retention days is applied to TimedRotatingFileHandler."""
+        # Change to temp directory
+        monkeypatch.chdir(tmp_path)
+
+        # Set custom retention
+        set_logging_config(LoggingConfig(retention_days=7))
+
+        # Clear existing handlers
+        root_logger = logging.getLogger()
+        cleanup_handlers(root_logger)
+
+        # Mock local mode
+        with patch(
+            "runpod_flash.runtime.context.is_local_development", return_value=True
+        ):
+            _add_file_handler_if_local(root_logger, logging.INFO, "%(message)s")
+
+        # Verify file handler has correct backupCount
+        file_handlers = [
+            h for h in root_logger.handlers if isinstance(h, TimedRotatingFileHandler)
+        ]
+        assert len(file_handlers) == 1
+        assert file_handlers[0].backupCount == 7
+
+        # Cleanup
+        cleanup_handlers(root_logger)
+        set_logging_config(None)
+
+    def test_custom_log_dir_created(self, tmp_path, monkeypatch):
+        """Verify custom log directory is created and used."""
+        # Change to temp directory
+        monkeypatch.chdir(tmp_path)
+
+        # Set custom log directory
+        custom_log_dir = tmp_path / "custom" / "logs"
+        set_logging_config(LoggingConfig(log_dir=str(custom_log_dir)))
+
+        # Clear existing handlers
+        root_logger = logging.getLogger()
+        cleanup_handlers(root_logger)
+
+        # Mock local mode
+        with patch(
+            "runpod_flash.runtime.context.is_local_development", return_value=True
+        ):
+            _add_file_handler_if_local(root_logger, logging.INFO, "%(message)s")
+
+        # Verify custom directory was created
+        assert custom_log_dir.exists()
+        assert custom_log_dir.is_dir()
+
+        # Verify log file is in custom directory
+        log_file = custom_log_dir / "activity.log"
+        assert log_file.exists()
+
+        # Cleanup
+        cleanup_handlers(root_logger)
+        set_logging_config(None)
