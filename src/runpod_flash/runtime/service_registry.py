@@ -168,7 +168,7 @@ class ServiceRegistry:
 
         Returns:
             True if resource makes remote calls, False if local-only,
-            True (safe default) if manifest/resource not found or makes_remote_calls is null.
+            True (safe default) if manifest/resource not found.
         """
         if not resource_name or not self._manifest.resources:
             return True  # Safe default - allow remote calls
@@ -177,13 +177,7 @@ class ServiceRegistry:
         if not resource_config:
             return True  # Safe default
 
-        makes_remote_calls = resource_config.makes_remote_calls
-
-        # Handle null/None as True (safe default - allow remote calls)
-        if makes_remote_calls is None:
-            return True
-
-        return makes_remote_calls
+        return resource_config.makes_remote_calls
 
     async def _ensure_manifest_loaded(self) -> None:
         """Load manifest from State Manager if cache expired or not loaded.
@@ -228,95 +222,41 @@ class ServiceRegistry:
                     return
 
                 try:
-                    # Get API key from request context (set by middleware)
-                    from .api_key_context import get_api_key
-
-                    api_key = get_api_key()
-
-                    # Query State Manager using the Flash environment ID from deployment
-                    # This ID is set by the mothership provisioner during flash deploy
-                    environment_id = os.getenv("FLASH_ENVIRONMENT_ID")
-                    if not environment_id:
+                    mothership_id = os.getenv("RUNPOD_ENDPOINT_ID")
+                    if not mothership_id:
                         logger.warning(
-                            "FLASH_ENVIRONMENT_ID not set in mothership container. "
-                            "Remote function calls will not work. This is set during 'flash deploy'. "
-                            "Did you deploy the mothership endpoint?"
+                            "RUNPOD_ENDPOINT_ID not set, cannot query State Manager"
                         )
                         return
 
-                    # DIAGNOSTIC: Log what environment ID we're querying with
-                    logger.info(
-                        f"[RUNTIME SYNC] Querying State Manager with environment_id={environment_id}"
-                    )
-                    logger.info(
-                        f"[RUNTIME SYNC] FLASH_ENVIRONMENT_ID={os.getenv('FLASH_ENVIRONMENT_ID')}, "
-                        f"RUNPOD_ENDPOINT_ID={os.getenv('RUNPOD_ENDPOINT_ID')}"
-                    )
-
                     # Query State Manager directly for full manifest
-                    # Pass API key explicitly to ensure it's available even if contextvars isn't propagated
                     full_manifest = await self._manifest_client.get_persisted_manifest(
-                        environment_id, api_key=api_key
-                    )
-
-                    # DIAGNOSTIC: Log what State Manager returned for troubleshooting
-                    logger.info(
-                        f"[RUNTIME SYNC] Received manifest with keys: {list(full_manifest.keys())}"
-                    )
-                    resources_endpoints = full_manifest.get("resources_endpoints", {})
-                    logger.info(
-                        f"[RUNTIME SYNC] resources_endpoints contains {len(resources_endpoints)} entries: "
-                        f"{list(resources_endpoints.keys()) if resources_endpoints else 'EMPTY'}"
+                        mothership_id
                     )
 
                     # Extract resources_endpoints mapping
+                    resources_endpoints = full_manifest.get("resources_endpoints", {})
 
-                    # Check if State Manager returned empty endpoints
-                    if not resources_endpoints:
-                        logger.warning(
-                            f"State Manager returned empty resources_endpoints for environment {environment_id}. "
-                            f"Falling back to local manifest."
-                        )
-                        # Fall back to local manifest if available
-                        if self._manifest and self._manifest.resources_endpoints:
-                            self._endpoint_registry = self._manifest.resources_endpoints
-                            self._endpoint_registry_loaded_at = now
-                            logger.info(
-                                f"Using {len(self._endpoint_registry)} endpoints from local manifest as fallback"
-                            )
-                        else:
-                            # No local manifest fallback available
-                            self._endpoint_registry = {}
-                            logger.error(
-                                "No endpoints available: State Manager returned empty and local manifest has no resources_endpoints"
-                            )
-                    else:
-                        # State Manager returned valid endpoints
-                        logger.info(
-                            f"State Manager provided {len(resources_endpoints)} endpoints"
-                        )
-                        self._endpoint_registry = resources_endpoints
-                        self._endpoint_registry_loaded_at = now
-                        logger.debug(
-                            f"Manifest loaded from State Manager: {len(self._endpoint_registry)} endpoints, "
-                            f"cache TTL {self.cache_ttl}s"
-                        )
+                    self._endpoint_registry = resources_endpoints
+                    self._endpoint_registry_loaded_at = now
+                    logger.debug(
+                        f"Manifest loaded from State Manager: {len(self._endpoint_registry)} endpoints, "
+                        f"cache TTL {self.cache_ttl}s"
+                    )
                 except (ManifestServiceUnavailableError, Exception) as e:
-                    logger.error(
-                        f"State Manager query failed ({type(e).__name__}: {e}), "
-                        f"falling back to local manifest"
+                    logger.debug(
+                        f"State Manager unavailable ({type(e).__name__}), "
+                        f"using local manifest for cross-endpoint routing"
                     )
                     # Fall back to local manifest's resources_endpoints if available
                     if self._manifest and self._manifest.resources_endpoints:
                         self._endpoint_registry = self._manifest.resources_endpoints
-                        logger.info(
-                            f"Loaded {len(self._endpoint_registry)} endpoints from local manifest as fallback"
+                        logger.debug(
+                            f"Loaded {len(self._endpoint_registry)} endpoints from local manifest"
                         )
                     else:
                         self._endpoint_registry = {}
-                        logger.error(
-                            "No resources_endpoints available: State Manager failed and local manifest has no endpoints"
-                        )
+                        logger.debug("No resources_endpoints in local manifest")
 
     async def get_endpoint_for_function(self, function_name: str) -> Optional[str]:
         """Get endpoint URL for a function.

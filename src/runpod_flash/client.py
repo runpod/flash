@@ -6,7 +6,6 @@ from typing import List, Optional
 
 from .core.resources import LoadBalancerSlsResource, ResourceManager, ServerlessResource
 from .execute_class import create_remote_class
-from .runtime.context import is_deployed_container
 from .stubs import stub_resource
 
 log = logging.getLogger(__name__)
@@ -26,9 +25,17 @@ def _should_execute_locally(func_name: str) -> bool:
     # Check if we're in a deployed environment
     runpod_endpoint_id = os.getenv("RUNPOD_ENDPOINT_ID")
     runpod_pod_id = os.getenv("RUNPOD_POD_ID")
+    flash_resource_name = os.getenv("FLASH_RESOURCE_NAME")
+
+    log.debug(
+        f"@remote decorator for {func_name}: "
+        f"RUNPOD_ENDPOINT_ID={runpod_endpoint_id}, "
+        f"FLASH_RESOURCE_NAME={flash_resource_name}"
+    )
 
     if not runpod_endpoint_id and not runpod_pod_id:
         # Local development - create stub for remote execution via ResourceManager
+        log.debug(f"@remote {func_name}: local dev mode, creating stub")
         return False
 
     # In deployed environment - check build-time generated configuration
@@ -36,6 +43,9 @@ def _should_execute_locally(func_name: str) -> bool:
         from .runtime._flash_resource_config import is_local_function
 
         result = is_local_function(func_name)
+        log.debug(
+            f"@remote {func_name}: deployed mode, is_local_function returned {result}"
+        )
         return result
     except ImportError as e:
         # Configuration not generated (shouldn't happen in deployed env)
@@ -176,10 +186,14 @@ def remote(
 
         if should_execute_local:
             # This function belongs to our resource - execute locally
+            log.debug(
+                f"@remote {func_name}: returning original function (local execution)"
+            )
             func_or_class.__remote_config__ = routing_config
             return func_or_class
 
         # Remote execution mode - create stub for calling other endpoints
+        log.debug(f"@remote {func_name}: creating wrapper for remote execution")
 
         if inspect.isclass(func_or_class):
             # Handle class decoration
@@ -213,47 +227,25 @@ def remote(
                         )
                         remote_resource = remote_resource_config
                     else:
-                        # ServiceRegistry returned None - endpoint not in manifest
-                        if is_deployed_container():
-                            # In deployed environment: endpoint SHOULD be in manifest
-                            raise RuntimeError(
-                                f"Remote function '{func_name}' endpoint not found in manifest. "
-                                f"Resources must be deployed via 'flash deploy' CLI command before runtime execution. "
-                                f"If you recently added this function, run 'flash deploy' again to update the manifest."
-                            )
-                        else:
-                            # Local development: deploy on-demand for testing
-                            log.debug(
-                                f"Using local/ResourceManager execution for {func_name}"
-                            )
-                            resource_manager = ResourceManager()
-                            remote_resource = (
-                                await resource_manager.get_or_deploy_resource(
-                                    resource_config
-                                )
-                            )
-
-                except RuntimeError:
-                    # Re-raise our deployment guard errors
-                    raise
-                except (ValueError, Exception) as e:
-                    # ServiceRegistry not available or other errors
-                    if is_deployed_container():
-                        # In deployed environment: cannot fall back to ResourceManager
-                        raise RuntimeError(
-                            f"Failed to lookup remote function '{func_name}' endpoint in deployed environment. "
-                            f"ServiceRegistry error: {e}. "
-                            f"This typically indicates a State Manager connectivity issue or misconfigured manifest."
-                        ) from e
-                    else:
-                        # Local development: fall back to ResourceManager
+                        # Local execution: use ResourceManager with original config
                         log.debug(
-                            f"ServiceRegistry lookup failed for {func_name}, using ResourceManager: {e}"
+                            f"Using local/ResourceManager execution for {func_name}"
                         )
                         resource_manager = ResourceManager()
                         remote_resource = await resource_manager.get_or_deploy_resource(
                             resource_config
                         )
+
+                except (ValueError, Exception) as e:
+                    # ServiceRegistry not available or function not in manifest
+                    # Fall back to ResourceManager (local development)
+                    log.debug(
+                        f"ServiceRegistry lookup failed for {func_name}, using ResourceManager: {e}"
+                    )
+                    resource_manager = ResourceManager()
+                    remote_resource = await resource_manager.get_or_deploy_resource(
+                        resource_config
+                    )
 
                 stub = stub_resource(remote_resource, **extra)
                 return await stub(
