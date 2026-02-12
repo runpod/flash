@@ -249,7 +249,7 @@ def _start_resource_container(
     # For preview mode, use load-balancer images that expose HTTP /execute endpoints
     # instead of queue-based worker images (which expect test_input.json)
     image = _get_preview_image(resource_config.get("imageName", FLASH_CPU_LB_IMAGE))
-    is_mothership = resource_config.get("is_mothership", False)
+    is_mothership = resource_name in ("mothership", "mothership-entrypoint")
 
     # Assign port
     port = _assign_container_port(resource_name, is_mothership)
@@ -286,9 +286,6 @@ def _start_resource_container(
         "-p",
         f"{port}:80",
     ]
-
-    if is_mothership:
-        docker_cmd.extend(["-e", "FLASH_IS_MOTHERSHIP=true"])
 
     # Use image's default CMD (uvicorn lb_handler:app)
     docker_cmd.append(image)

@@ -72,10 +72,6 @@ class ManifestResource:
     is_load_balanced: bool = False  # Determined by isinstance() at scan time
     is_live_resource: bool = False  # LiveLoadBalancer vs LoadBalancerSlsResource
     config_variable: Optional[str] = None  # Variable name for test-mothership
-    is_mothership: bool = False  # Special flag for mothership endpoint
-    is_explicit: bool = False  # Flag indicating explicit mothership.py configuration
-    main_file: Optional[str] = None  # Filename of main.py for mothership
-    app_variable: Optional[str] = None  # Variable name of FastAPI app
     imageName: Optional[str] = None  # Docker image name for auto-provisioning
     templateId: Optional[str] = None  # RunPod template ID for auto-provisioning
     gpuIds: Optional[list] = None  # GPU types/IDs for auto-provisioning
@@ -231,10 +227,7 @@ class ManifestBuilder:
             "functions": functions_list,
             "is_load_balanced": True,
             "is_live_resource": True,
-            "is_mothership": True,
             "makes_remote_calls": True,
-            "main_file": main_app_config["file_path"].name,
-            "app_variable": main_app_config["app_variable"],
             "imageName": FLASH_CPU_LB_IMAGE,
             "workersMin": DEFAULT_WORKERS_MIN,
             "workersMax": DEFAULT_WORKERS_MAX,
@@ -257,12 +250,8 @@ class ManifestBuilder:
 
         if not main_app_config:
             # No FastAPI app found, use defaults
-            main_file = "main.py"
-            app_variable = "app"
             fastapi_routes = []
         else:
-            main_file = main_app_config["file_path"].name
-            app_variable = main_app_config["app_variable"]
             fastapi_routes = main_app_config.get("fastapi_routes", [])
 
         # Extract FastAPI routes into functions list
@@ -280,11 +269,7 @@ class ManifestBuilder:
             "functions": functions_list,
             "is_load_balanced": True,
             "is_live_resource": True,
-            "is_mothership": True,
-            "is_explicit": True,
             "makes_remote_calls": True,
-            "main_file": main_file,
-            "app_variable": app_variable,
             "imageName": image_name,
             "workersMin": explicit_config.get("workersMin", DEFAULT_WORKERS_MIN),
             "workersMax": explicit_config.get("workersMax", DEFAULT_WORKERS_MAX),
@@ -448,9 +433,13 @@ class ManifestBuilder:
                 mothership_resource = self._create_mothership_resource(main_app_config)
                 resources_dict[mothership_name] = mothership_resource
 
-        # Extract routes from mothership resources
+        # Extract routes from mothership resources (auto-detected or explicit)
+        # Mothership endpoints are named "mothership" or "mothership-entrypoint"
         for resource_name, resource in resources_dict.items():
-            if resource.get("is_mothership") and resource.get("functions"):
+            if resource_name in (
+                "mothership",
+                "mothership-entrypoint",
+            ) and resource.get("functions"):
                 mothership_routes = {}
                 for func in resource["functions"]:
                     if func.get("http_method") and func.get("http_path"):

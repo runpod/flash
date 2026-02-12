@@ -62,9 +62,6 @@ def process(data):
                 # Check mothership is in resources
                 assert "mothership" in manifest["resources"]
                 mothership = manifest["resources"]["mothership"]
-                assert mothership["is_mothership"] is True
-                assert mothership["main_file"] == "main.py"
-                assert mothership["app_variable"] == "app"
                 assert mothership["resource_type"] == "CpuLiveLoadBalancer"
                 assert mothership["imageName"] == FLASH_CPU_LB_IMAGE
 
@@ -166,7 +163,7 @@ def process(data):
                 # Auto-generated mothership should use alternate name
                 assert "mothership-entrypoint" in manifest["resources"]
                 entrypoint = manifest["resources"]["mothership-entrypoint"]
-                assert entrypoint["is_mothership"] is True
+                assert entrypoint["resource_type"] == "CpuLiveLoadBalancer"
 
     def test_mothership_resource_config(self):
         """Test mothership resource has correct configuration."""
@@ -249,7 +246,6 @@ mothership = CpuLiveLoadBalancer(
                 # Check explicit config is used
                 assert "my-api" in manifest["resources"]
                 mothership = manifest["resources"]["my-api"]
-                assert mothership["is_explicit"] is True
                 assert mothership["workersMin"] == 3
                 assert mothership["workersMax"] == 7
 
@@ -295,7 +291,8 @@ mothership = CpuLiveLoadBalancer(
                 # Check only explicit config is in resources (not auto-detected "mothership")
                 assert "explicit-mothership" in manifest["resources"]
                 assert (
-                    manifest["resources"]["explicit-mothership"]["is_explicit"] is True
+                    manifest["resources"]["explicit-mothership"]["resource_type"]
+                    == "CpuLiveLoadBalancer"
                 )
                 assert "mothership" not in manifest["resources"]
 
@@ -357,7 +354,7 @@ def process(data):
                 # Explicit mothership should use alternate name
                 assert "mothership-entrypoint" in manifest["resources"]
                 entrypoint = manifest["resources"]["mothership-entrypoint"]
-                assert entrypoint["is_explicit"] is True
+                assert entrypoint["resource_type"] == "CpuLiveLoadBalancer"
 
     def test_manifest_explicit_mothership_with_gpu_load_balancer(self):
         """Test explicit GPU-based load balancer config."""
@@ -401,4 +398,3 @@ def root():
                 mothership = manifest["resources"]["gpu-mothership"]
                 assert mothership["resource_type"] == "LiveLoadBalancer"
                 assert mothership["imageName"] == FLASH_LB_IMAGE
-                assert mothership["is_explicit"] is True

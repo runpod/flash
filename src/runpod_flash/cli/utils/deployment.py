@@ -147,9 +147,7 @@ async def provision_resources_for_build(
         resources_endpoints[resource_name] = endpoint_url
 
         # Track mothership URL for prominent logging
-        if resource_name == "mothership" or manifest["resources"][resource_name].get(
-            "is_mothership"
-        ):
+        if resource_name in ("mothership", "mothership-entrypoint"):
             mothership_url = endpoint_url
 
         if show_progress:
@@ -327,8 +325,8 @@ async def reconcile_and_provision_resources(
     # Validate mothership was provisioned
     mothership_resources = [
         name
-        for name, config in local_manifest.get("resources", {}).items()
-        if config.get("is_mothership", False)
+        for name in local_manifest.get("resources", {}).keys()
+        if name in ("mothership", "mothership-entrypoint")
     ]
 
     if mothership_resources:
@@ -371,13 +369,10 @@ async def reconcile_and_provision_resources(
 
         # Display mothership in simplified format
         resources_endpoints = local_manifest.get("resources_endpoints", {})
-        resources = local_manifest.get("resources", {})
 
         for resource_name in sorted(resources_endpoints.keys()):
-            resource_config = resources.get(resource_name, {})
-            is_mothership = resource_config.get("is_mothership", False)
-
-            if is_mothership:
+            # Display mothership endpoint prominently
+            if resource_name in ("mothership", "mothership-entrypoint"):
                 print(f"🚀 Deployed: {app.name}")
                 print(f"   Environment: {environment_name}")
                 print(f"   URL:  {resources_endpoints[resource_name]}")

@@ -4,13 +4,14 @@ import asyncio
 import json
 import logging
 import shutil
+import textwrap
 
 import typer
 from pathlib import Path
 from rich.console import Console
 
 from ..utils.app import discover_flash_project
-from ..utils.deployment import deploy_from_uploaded_build, validate_local_manifest
+from ..utils.deployment import deploy_to_environment
 from .build import run_build
 
 from runpod_flash.core.resources.app import FlashApp
@@ -94,57 +95,103 @@ def deploy_command(
         raise typer.Exit(1)
 
 
-def _display_post_deployment_guidance(
-    env_name: str, mothership_url: str | None = None
-) -> None:
+def _display_post_deployment_guidance(env_name: str) -> None:
     """Display helpful next steps after successful deployment."""
+    # Try to read manifest for endpoint information
     manifest_path = Path.cwd() / ".flash" / "flash_manifest.json"
+    mothership_url = None
     mothership_routes = {}
 
     try:
         with open(manifest_path) as f:
             manifest = json.load(f)
             resources_endpoints = manifest.get("resources_endpoints", {})
-            resources = manifest.get("resources", {})
             routes = manifest.get("routes", {})
 
-            for resource_name in resources_endpoints:
-                if resources.get(resource_name, {}).get("is_mothership", False):
+            # Find mothership URL and routes
+            for resource_name, url in resources_endpoints.items():
+                if resource_name in ("mothership", "mothership-entrypoint"):
+                    mothership_url = url
                     mothership_routes = routes.get(resource_name, {})
                     break
     except (FileNotFoundError, json.JSONDecodeError) as e:
         logger.debug(f"Could not read manifest: {e}")
 
-    if mothership_routes:
-        console.print("\n[bold]Routes:[/bold]")
-        for route_key in sorted(mothership_routes.keys()):
-            method, path = route_key.split(" ", 1)
-            console.print(f"  {method:6s} {path}")
+    console.print("\n[bold]Next Steps:[/bold]\n")
 
-    # curl example using the first POST route
-    if mothership_url and mothership_routes:
-        post_routes = [
-            k.split(" ", 1)[1]
-            for k in sorted(mothership_routes.keys())
-            if k.startswith("POST ")
-        ]
-        if post_routes:
-            example_route = post_routes[0]
-            curl_cmd = (
-                f"curl -X POST {mothership_url}{example_route} \\\n"
-                f'    -H "Content-Type: application/json" \\\n'
-                '    -H "Authorization: Bearer $RUNPOD_API_KEY" \\\n'
-                "    -d '{\"input\": {}}'"
-            )
-            console.print("\n[bold]Try it:[/bold]")
-            console.print(f"  [dim]{curl_cmd}[/dim]")
-
-    console.print("\n[bold]Useful commands:[/bold]")
+    # 1. Authentication
+    console.print("[bold cyan]1. Authentication Required[/bold cyan]")
     console.print(
-        f"  [dim]flash env get {env_name}[/dim]       View environment status"
+        "   All endpoints require authentication. Set your API key as an environment "
+        "variable. Avoid typing secrets directly into shell commands, as they may be "
+        "stored in your shell history."
     )
-    console.print(f"  [dim]flash deploy --env {env_name}[/dim]  Update deployment")
-    console.print(f"  [dim]flash env delete {env_name}[/dim]    Remove deployment")
+    console.print(
+        "   [dim]# Recommended: store RUNPOD_API_KEY in a .env file or your shell profile[/dim]"
+    )
+    console.print(
+        "   [dim]# Or securely prompt for it without echo (Bash example):[/dim]"
+    )
+    console.print("   [dim]read -s RUNPOD_API_KEY && export RUNPOD_API_KEY[/dim]\n")
+
+    # 2. Calling functions
+    console.print("[bold cyan]2. Call Your Functions[/bold cyan]")
+
+    if mothership_url:
+        console.print(
+            f"   Your mothership is deployed at:\n   [link]{mothership_url}[/link]\n"
+        )
+
+    console.print("   [bold]Using HTTP/curl:[/bold]")
+    if mothership_url:
+        curl_example = textwrap.dedent(f"""
+            curl -X POST {mothership_url}/YOUR_PATH \\
+                -H "Authorization: Bearer $RUNPOD_API_KEY" \\
+                -H "Content-Type: application/json" \\
+                -d '{{"param1": "value1"}}'
+        """).strip()
+    else:
+        curl_example = textwrap.dedent("""
+            curl -X POST https://YOUR_ENDPOINT_URL/YOUR_PATH \\
+                -H "Authorization: Bearer $RUNPOD_API_KEY" \\
+                -H "Content-Type: application/json" \\
+                -d '{"param1": "value1"}'
+        """).strip()
+    console.print(f"   [dim]{curl_example}[/dim]\n")
+
+    # 3. Available routes
+    console.print("[bold cyan]3. Available Routes[/bold cyan]")
+    if mothership_routes:
+        for route_key in sorted(mothership_routes.keys()):
+            # route_key format: "POST /api/hello"
+            method, path = route_key.split(" ", 1)
+            console.print(f"   [cyan]{method:6s}[/cyan] {path}")
+        console.print()
+    else:
+        # Routes not found - could mean manifest missing, no LB endpoints, or no routes defined
+        if mothership_url:
+            console.print(
+                "   [dim]No routes found in manifest. Check @remote decorators in your code.[/dim]\n"
+            )
+        else:
+            console.print(
+                "   Check your code for @remote decorators to find available endpoints:"
+            )
+            console.print(
+                '   [dim]@remote(mothership, method="POST", path="/api/process")[/dim]\n'
+            )
+
+    # 4. Monitor & Debug
+    console.print("[bold cyan]4. Monitor & Debug[/bold cyan]")
+    console.print(f"   [dim]flash env get {env_name}[/dim]  - View environment status")
+    console.print(
+        "   [dim]Runpod Console[/dim]  - View logs and metrics at https://console.runpod.io/serverless\n"
+    )
+
+    # 5. Update & Teardown
+    console.print("[bold cyan]5. Update or Remove Deployment[/bold cyan]")
+    console.print(f"   [dim]flash deploy --env {env_name}[/dim]  - Update deployment")
+    console.print(f"   [dim]flash env delete {env_name}[/dim]  - Remove deployment\n")
 
 
 def _launch_preview(project_dir):
@@ -168,43 +215,17 @@ def _launch_preview(project_dir):
 async def _resolve_and_deploy(
     app_name: str, env_name: str | None, archive_path
 ) -> None:
-    app, resolved_env_name = await _resolve_environment(app_name, env_name)
+    resolved_env_name = await _resolve_environment(app_name, env_name)
 
-    local_manifest = validate_local_manifest()
+    console.print(f"\nDeploying to '[bold]{resolved_env_name}[/bold]'...")
 
-    with console.status("Uploading build..."):
-        build = await app.upload_build(archive_path)
+    await deploy_to_environment(app_name, resolved_env_name, archive_path)
 
-    with console.status("Deploying resources..."):
-        result = await deploy_from_uploaded_build(
-            app, build["id"], resolved_env_name, local_manifest
-        )
-    console.print(f"[green]Deployed[/green] to [bold]{resolved_env_name}[/bold]")
-
-    resources_endpoints = result.get("resources_endpoints", {})
-    local_manifest = result.get("local_manifest", {})
-    resources = local_manifest.get("resources", {})
-
-    # mothership first, then workers
-    mothership_url = None
-    if resources_endpoints:
-        console.print()
-        other_items = []
-        for resource_name, url in resources_endpoints.items():
-            if resources.get(resource_name, {}).get("is_mothership", False):
-                mothership_url = url
-                console.print(f"  [bold]{url}[/bold]  [dim]({resource_name})[/dim]")
-            else:
-                other_items.append((resource_name, url))
-        for resource_name, url in other_items:
-            console.print(f"  [dim]{url}  ({resource_name})[/dim]")
-
-    _display_post_deployment_guidance(resolved_env_name, mothership_url=mothership_url)
+    # Display next steps guidance
+    _display_post_deployment_guidance(resolved_env_name)
 
 
-async def _resolve_environment(
-    app_name: str, env_name: str | None
-) -> tuple[FlashApp, str]:
+async def _resolve_environment(app_name: str, env_name: str | None) -> str:
     try:
         app = await FlashApp.from_name(app_name)
     except Exception as exc:
@@ -214,8 +235,8 @@ async def _resolve_environment(
         console.print(
             f"[dim]No app '{app_name}' found. Creating app and '{target}' environment...[/dim]"
         )
-        app, _ = await FlashApp.create_environment_and_app(app_name, target)
-        return app, target
+        await FlashApp.create_environment_and_app(app_name, target)
+        return target
 
     if env_name:
         envs = await app.list_environments()
@@ -225,19 +246,21 @@ async def _resolve_environment(
                 f"[dim]Environment '{env_name}' not found. Creating it...[/dim]"
             )
             await app.create_environment(env_name)
-        return app, env_name
+        return env_name
 
     envs = await app.list_environments()
 
     if len(envs) == 1:
-        return app, envs[0].get("name")
+        resolved = envs[0].get("name")
+        console.print(f"[dim]Auto-selected environment: {resolved}[/dim]")
+        return resolved
 
     if len(envs) == 0:
         console.print(
             "[dim]No environments found. Creating 'production' environment...[/dim]"
         )
         await app.create_environment("production")
-        return app, "production"
+        return "production"
 
     env_names = [e.get("name", "?") for e in envs]
     console.print(

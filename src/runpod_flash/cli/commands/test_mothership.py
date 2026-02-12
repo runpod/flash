@@ -400,8 +400,6 @@ def _build_docker_command(
     cmd.extend(
         [
             "-e",
-            "FLASH_IS_MOTHERSHIP=true",
-            "-e",
             "FLASH_IS_TEST_MOTHERSHIP=true",
             "-e",
             f"RUNPOD_ENDPOINT_ID={endpoint_id}",

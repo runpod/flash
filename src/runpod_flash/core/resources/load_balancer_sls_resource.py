@@ -274,11 +274,6 @@ class LoadBalancerSlsResource(ServerlessResource):
             return self
 
         try:
-            # Mark this endpoint as a mothership (triggers auto-provisioning on boot)
-            if self.env is None:
-                self.env = {}
-            self.env["FLASH_IS_MOTHERSHIP"] = "true"
-
             # Call parent deploy (creates endpoint via RunPod API)
             log.debug(f"Deploying LB endpoint {self.name}...")
             deployed = await super()._do_deploy()

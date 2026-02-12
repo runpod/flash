@@ -21,11 +21,8 @@ Load-balanced endpoints expose HTTP servers directly to clients, enabling:
 - Real-time communication patterns
 """
 
-import asyncio
 import logging
 from contextlib import asynccontextmanager
-from pathlib import Path
-from typing import Optional
 
 from fastapi import FastAPI, Request
 from runpod_flash.runtime.lb_handler import create_lb_handler
@@ -47,51 +44,7 @@ async def lifespan(app: FastAPI):
     """Handle application startup and shutdown."""
     # Startup
     logger.info("Starting {resource_name} endpoint")
-
-    # Check if this is the mothership and run reconciliation
-    # Note: Resources are now provisioned upfront by the CLI during deployment.
-    # This background task runs reconciliation on mothership startup to ensure
-    # all resources are still deployed and in sync with the manifest.
-    try:
-        from runpod_flash.runtime.mothership_provisioner import (
-            is_mothership,
-            reconcile_children,
-            get_mothership_url,
-        )
-        from runpod_flash.runtime.state_manager_client import StateManagerClient
-
-        if is_mothership():
-            logger.info("=" * 60)
-            logger.info("Mothership detected - Starting reconciliation task")
-            logger.info("Resources are provisioned upfront by the CLI")
-            logger.info("This task ensures all resources remain in sync")
-            logger.info("=" * 60)
-            try:
-                mothership_url = get_mothership_url()
-                logger.info(f"Mothership URL: {{mothership_url}}")
-
-                # Initialize State Manager client for reconciliation
-                state_client = StateManagerClient()
-
-                # Spawn background reconciliation task (non-blocking)
-                # This will verify all resources from manifest are deployed
-                manifest_path = Path(__file__).parent / "flash_manifest.json"
-                task = asyncio.create_task(
-                    reconcile_children(manifest_path, mothership_url, state_client)
-                )
-                # Add error callback to catch and log background task exceptions
-                task.add_done_callback(
-                    lambda t: logger.error(f"Reconciliation task failed: {{t.exception()}}")
-                    if t.exception()
-                    else None
-                )
-
-            except Exception as e:
-                logger.error(f"Failed to start reconciliation task: {{e}}")
-                # Don't fail startup - continue serving traffic
-
-    except ImportError:
-        logger.debug("Mothership provisioning modules not available")
+    logger.info("All resources provisioned during deployment by CLI")
 
     yield
 

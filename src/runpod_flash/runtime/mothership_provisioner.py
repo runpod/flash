@@ -1,54 +1,19 @@
-"""Mothership auto-provisioning logic with manifest reconciliation."""
+"""Helper functions for resource provisioning from manifest.
+
+CLI-time provisioning utilities for deploying Flash resources. All provisioning
+happens during `flash deploy` via CLI, not at runtime.
+"""
 
 import hashlib
 import json
 import logging
 import os
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from runpod_flash.core.resources.base import DeployableResource
-from runpod_flash.core.resources.constants import ENDPOINT_DOMAIN
-from runpod_flash.core.resources.resource_manager import ResourceManager
-
-from .state_manager_client import StateManagerClient
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class ManifestDiff:
-    """Result of manifest reconciliation."""
-
-    new: List[str]  # Resources to deploy
-    changed: List[str]  # Resources to update
-    removed: List[str]  # Resources to delete
-    unchanged: List[str]  # Resources to skip
-
-
-def get_mothership_url() -> str:
-    """Construct mothership URL from RUNPOD_ENDPOINT_ID env var.
-
-    Returns:
-        Mothership URL in format: https://{endpoint_id}.{ENDPOINT_DOMAIN}
-
-    Raises:
-        RuntimeError: If RUNPOD_ENDPOINT_ID not set
-    """
-    endpoint_id = os.getenv("RUNPOD_ENDPOINT_ID")
-    if not endpoint_id:
-        raise RuntimeError("RUNPOD_ENDPOINT_ID environment variable not set")
-    return f"https://{endpoint_id}.{ENDPOINT_DOMAIN}"
-
-
-def is_mothership() -> bool:
-    """Check if current endpoint is mothership.
-
-    Returns:
-        True if FLASH_IS_MOTHERSHIP env var is 'true'
-    """
-    return os.getenv("FLASH_IS_MOTHERSHIP", "").lower() == "true"
 
 
 def load_manifest(manifest_path: Optional[Path] = None) -> Dict[str, Any]:
@@ -179,47 +144,6 @@ def filter_resources_by_manifest(
     return filtered
 
 
-def reconcile_manifests(
-    local_manifest: Dict[str, Any],
-    persisted_manifest: Optional[Dict[str, Any]],
-) -> ManifestDiff:
-    """Compare local and persisted manifests to detect changes.
-
-    Args:
-        local_manifest: Current manifest from flash_manifest.json
-        persisted_manifest: Last known manifest from State Manager (None if first boot)
-
-    Returns:
-        ManifestDiff with categorized resources
-    """
-    local_resources = local_manifest.get("resources", {})
-    persisted_resources = (
-        persisted_manifest.get("resources", {}) if persisted_manifest else {}
-    )
-
-    new = []
-    changed = []
-    unchanged = []
-
-    for name, local_data in local_resources.items():
-        if name not in persisted_resources:
-            new.append(name)
-        else:
-            # Compare config hashes to detect changes
-            local_hash = compute_resource_hash(local_data)
-            persisted_hash = persisted_resources[name].get("config_hash")
-
-            if local_hash != persisted_hash:
-                changed.append(name)
-            else:
-                unchanged.append(name)
-
-    # Detect removed resources (in persisted, not in local)
-    removed = [name for name in persisted_resources if name not in local_resources]
-
-    return ManifestDiff(new=new, changed=changed, removed=removed, unchanged=unchanged)
-
-
 def create_resource_from_manifest(
     resource_name: str,
     resource_data: Dict[str, Any],
@@ -290,14 +214,6 @@ def create_resource_from_manifest(
     if mothership_id:
         env["FLASH_MOTHERSHIP_ID"] = mothership_id
 
-    # Mothership-specific environment variables
-    if resource_data.get("is_mothership"):
-        env["FLASH_IS_MOTHERSHIP"] = "true"
-        if "main_file" in resource_data:
-            env["FLASH_MAIN_FILE"] = resource_data["main_file"]
-        if "app_variable" in resource_data:
-            env["FLASH_APP_VARIABLE"] = resource_data["app_variable"]
-
     # Add "tmp-" prefix for test-mothership deployments
     # Check environment variable set by test-mothership command
 
@@ -349,168 +265,3 @@ def create_resource_from_manifest(
         resource = ServerlessResource(**deployment_kwargs)
 
     return resource
-
-
-async def reconcile_children(
-    manifest_path: Path,
-    mothership_url: str,
-    state_client: StateManagerClient,
-) -> None:
-    """Reconcile all child resources based on manifest differences.
-
-    Orchestrates deployment/update/delete of resources based on manifest differences.
-
-    Args:
-        manifest_path: Path to flash_manifest.json
-        mothership_url: Mothership endpoint URL to set on children
-        state_client: State Manager API client
-    """
-    try:
-        # Load local manifest
-        local_manifest = load_manifest(manifest_path)
-
-        # Get persisted manifest from State Manager
-        mothership_id = os.getenv("RUNPOD_ENDPOINT_ID")
-        if not mothership_id:
-            logger.error("RUNPOD_ENDPOINT_ID not set, cannot load persisted manifest")
-            return
-
-        persisted_manifest = await state_client.get_persisted_manifest(mothership_id)
-
-        # Reconcile manifests
-        logger.info(
-            f"Starting reconciliation: {len(local_manifest.get('resources', {}))} manifest resources"
-        )
-
-        diff = reconcile_manifests(local_manifest, persisted_manifest)
-
-        logger.info(
-            f"Reconciliation plan: {len(diff.new)} to deploy, "
-            f"{len(diff.changed)} to update, "
-            f"{len(diff.removed)} to remove, "
-            f"{len(diff.unchanged)} unchanged"
-        )
-
-        manager = ResourceManager()
-
-        # Filter cached resources to prevent stale entries from being deployed
-        # This ensures resources from old codebase versions don't get redeployed
-        all_cached = manager.list_all_resources()
-        if all_cached:
-            valid_cached = filter_resources_by_manifest(all_cached, local_manifest)
-            logger.info(
-                f"Cache validation: {len(all_cached)} cached, "
-                f"{len(valid_cached)} valid, "
-                f"{len(local_manifest.get('resources', {}))} in manifest"
-            )
-
-        # Deploy NEW resources
-        for resource_name in diff.new:
-            try:
-                resource_data = local_manifest["resources"][resource_name]
-                config = create_resource_from_manifest(
-                    resource_name, resource_data, mothership_url
-                )
-                deployed = await manager.get_or_deploy_resource(config)
-
-                # Update State Manager
-                await state_client.update_resource_state(
-                    mothership_id,
-                    resource_name,
-                    {
-                        "config_hash": compute_resource_hash(resource_data),
-                        "endpoint_url": deployed.endpoint_url
-                        if hasattr(deployed, "endpoint_url")
-                        else deployed.url,
-                        "status": "deployed",
-                    },
-                )
-                logger.info(f"Deployed new resource: {resource_name}")
-
-            except Exception as e:
-                logger.error(f"Failed to deploy {resource_name}: {e}")
-                try:
-                    await state_client.update_resource_state(
-                        mothership_id,
-                        resource_name,
-                        {"status": "failed", "error": str(e)},
-                    )
-                except Exception as sm_error:
-                    logger.error(
-                        f"Failed to update State Manager for {resource_name}: {sm_error}"
-                    )
-
-        # Update CHANGED resources
-        for resource_name in diff.changed:
-            try:
-                resource_data = local_manifest["resources"][resource_name]
-                config = create_resource_from_manifest(
-                    resource_name, resource_data, mothership_url
-                )
-                updated = await manager.get_or_deploy_resource(config)
-
-                await state_client.update_resource_state(
-                    mothership_id,
-                    resource_name,
-                    {
-                        "config_hash": compute_resource_hash(resource_data),
-                        "endpoint_url": updated.endpoint_url
-                        if hasattr(updated, "endpoint_url")
-                        else updated.url,
-                        "status": "updated",
-                    },
-                )
-                logger.info(f"Updated resource: {resource_name}")
-
-            except Exception as e:
-                logger.error(f"Failed to update {resource_name}: {e}")
-                try:
-                    await state_client.update_resource_state(
-                        mothership_id,
-                        resource_name,
-                        {"status": "failed", "error": str(e)},
-                    )
-                except Exception as sm_error:
-                    logger.error(
-                        f"Failed to update State Manager for {resource_name}: {sm_error}"
-                    )
-
-        # Delete REMOVED resources
-        for resource_name in diff.removed:
-            try:
-                # Find resource in ResourceManager
-                matches = manager.find_resources_by_name(resource_name)
-                if matches:
-                    resource_id, _ = matches[0]
-                    result = await manager.undeploy_resource(resource_id, resource_name)
-
-                    if result["success"]:
-                        try:
-                            await state_client.remove_resource_state(
-                                mothership_id, resource_name
-                            )
-                        except Exception as sm_error:
-                            logger.error(
-                                f"Failed to remove {resource_name} from State Manager: {sm_error}"
-                            )
-                        logger.info(f"Deleted removed resource: {resource_name}")
-                    else:
-                        logger.error(
-                            f"Failed to delete {resource_name}: {result['message']}"
-                        )
-                else:
-                    logger.warning(
-                        f"Removed resource {resource_name} not found in ResourceManager"
-                    )
-
-            except Exception as e:
-                logger.error(f"Failed to delete {resource_name}: {e}")
-
-        logger.info("=" * 60)
-        logger.info("Provisioning complete - All child endpoints deployed")
-        logger.info(f"Total endpoints: {len(local_manifest.get('resources', {}))}")
-        logger.info("Test phase: Manifest updated with child endpoint URLs")
-        logger.info("=" * 60)
-
-    except Exception as e:
-        logger.error(f"Provisioning failed: {e}", exc_info=True)
