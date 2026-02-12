@@ -103,6 +103,9 @@ def mock_runpod_client():
     client.save_endpoint = AsyncMock(
         return_value={"id": "test-endpoint-id", "status": "active"}
     )
+    client.update_template = AsyncMock(
+        return_value={"id": "test-template-id", "name": "template"}
+    )
     client.get_endpoint = AsyncMock(
         return_value={"id": "test-endpoint-id", "status": "running"}
     )

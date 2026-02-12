@@ -290,6 +290,54 @@ class TestResourceManager:
 
         assert "error-test" in str(excinfo.value)
 
+    @pytest.mark.asyncio
+    async def test_get_or_deploy_resource_updates_on_config_drift(
+        self, mock_resource_file
+    ):
+        """Config drift should trigger in-place update, not redeploy."""
+        manager = ResourceManager()
+
+        existing = ServerlessResource(
+            name="drift-endpoint",
+            flashboot=False,
+            env={"VERSION": "v1"},
+        )
+        existing.id = "endpoint-existing"
+
+        new_config = ServerlessResource(
+            name="drift-endpoint",
+            flashboot=False,
+            env={"VERSION": "v2"},
+        )
+
+        resource_key = new_config.get_resource_key()
+        manager._resources[resource_key] = existing
+        manager._resource_configs[resource_key] = existing.config_hash
+
+        updated = ServerlessResource(
+            name="drift-endpoint",
+            flashboot=False,
+            env={"VERSION": "v2"},
+        )
+        updated.id = "endpoint-existing"
+
+        with patch.object(ServerlessResource, "is_deployed", return_value=True):
+            with patch.object(
+                ServerlessResource, "update", new=AsyncMock(return_value=updated)
+            ) as mock_update:
+                with patch.object(
+                    ServerlessResource,
+                    "_do_deploy",
+                    new=AsyncMock(),
+                ) as mock_do_deploy:
+                    with patch.object(manager, "_add_resource") as mock_add:
+                        result = await manager.get_or_deploy_resource(new_config)
+
+        mock_update.assert_awaited_once_with(new_config)
+        mock_do_deploy.assert_not_awaited()
+        mock_add.assert_called_once_with(resource_key, updated)
+        assert result is updated
+
 
 class TestConfigHashStability:
     """Test that config_hash is stable and excludes dynamic fields like env."""
