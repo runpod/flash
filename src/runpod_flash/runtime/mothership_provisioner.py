@@ -147,6 +147,7 @@ def filter_resources_by_manifest(
 def create_resource_from_manifest(
     resource_name: str,
     resource_data: Dict[str, Any],
+    mothership_url: str = "",
     flash_environment_id: Optional[str] = None,
 ) -> DeployableResource:
     """Create DeployableResource config from manifest entry.
@@ -154,6 +155,7 @@ def create_resource_from_manifest(
     Args:
         resource_name: Name of the resource
         resource_data: Resource configuration from manifest
+        mothership_url: Optional mothership URL (for future use with child env vars)
         flash_environment_id: Optional flash environment ID to attach
 
     Returns:
@@ -211,14 +213,6 @@ def create_resource_from_manifest(
     mothership_id = os.getenv("RUNPOD_ENDPOINT_ID")
     if mothership_id:
         env["FLASH_MOTHERSHIP_ID"] = mothership_id
-
-    # Mothership-specific environment variables
-    if resource_data.get("is_mothership"):
-        env["FLASH_IS_MOTHERSHIP"] = "true"
-        if "main_file" in resource_data:
-            env["FLASH_MAIN_FILE"] = resource_data["main_file"]
-        if "app_variable" in resource_data:
-            env["FLASH_APP_VARIABLE"] = resource_data["app_variable"]
 
     prefixed_name = resource_name
 
