@@ -88,7 +88,19 @@ class SensitiveDataFilter(logging.Filter):
                     record.args = self._redact_value(record.args)
 
             # Sanitize exception information if present
-            if record.exc_text:
+            # Handle exc_info first (before formatters run) to prevent unsafe traces
+            if record.exc_info:
+                # Format the exception and redact it before storing in exc_text
+                try:
+                    formatted_exc = logging.Formatter().formatException(record.exc_info)
+                    record.exc_text = self._redact_string(formatted_exc)
+                except Exception:
+                    # If formatting fails, fallback to just sanitizing existing exc_text
+                    pass
+                # Clear exc_info so downstream formatters don't regenerate an unredacted traceback
+                record.exc_info = None
+            elif record.exc_text:
+                # Fallback: if exc_text is already set, sanitize it directly
                 record.exc_text = self._redact_string(record.exc_text)
 
         except Exception:
@@ -154,13 +166,12 @@ class SensitiveDataFilter(logging.Filter):
 
         result = {}
         for key, value in data.items():
-            if key.lower() in self.SENSITIVE_KEYS:
-                # Unconditionally redact values for sensitive keys
-                if isinstance(value, str) and len(value) > 8:
-                    # For long strings, show first/last 4 chars for debugging
-                    result[key] = f"{value[:4]}...***REDACTED***...{value[-4:]}"
-                else:
-                    result[key] = "***REDACTED***"
+            # Safely handle non-string keys
+            key_lower = key.lower() if isinstance(key, str) else str(key).lower()
+
+            if key_lower in self.SENSITIVE_KEYS:
+                # Fully redact sensitive keys without leaking any characters
+                result[key] = "***REDACTED***"
             elif isinstance(value, dict):
                 result[key] = self._redact_dict(value)
             elif isinstance(value, (list, tuple)):
@@ -288,16 +299,26 @@ def setup_logging(
             fmt = "%(asctime)s | %(levelname)-5s | %(message)s"
 
     root_logger = logging.getLogger()
+
+    # Create sensitive data filter to prevent logging of API keys, tokens, etc.
+    sensitive_filter = SensitiveDataFilter()
+
     if not root_logger.hasHandlers():
+        # No handlers exist, create default handler
         handler = logging.StreamHandler(stream)
         handler.setFormatter(logging.Formatter(fmt))
-        root_logger.setLevel(level)
-
-        # Add sensitive data filter to prevent logging of API keys, tokens, etc.
-        sensitive_filter = SensitiveDataFilter()
         handler.addFilter(sensitive_filter)
-
         root_logger.addHandler(handler)
 
         # Add file handler for local development with same level/format
         _add_file_handler_if_local(root_logger, level, fmt)
+    else:
+        # Handlers already exist, add filter to all of them
+        for existing_handler in root_logger.handlers:
+            # Avoid adding filter multiple times
+            if not any(
+                isinstance(f, SensitiveDataFilter) for f in existing_handler.filters
+            ):
+                existing_handler.addFilter(sensitive_filter)
+
+    root_logger.setLevel(level)
