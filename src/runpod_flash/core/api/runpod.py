@@ -12,6 +12,7 @@ import aiohttp
 from aiohttp.resolver import ThreadedResolver
 
 from runpod_flash.core.exceptions import RunpodAPIKeyError
+from runpod_flash.runtime.api_key_context import get_api_key
 from runpod_flash.runtime.exceptions import GraphQLMutationError, GraphQLQueryError
 
 log = logging.getLogger(__name__)
@@ -60,7 +61,8 @@ class RunpodGraphQLClient:
     GRAPHQL_URL = f"{RUNPOD_API_BASE_URL}/graphql"
 
     def __init__(self, api_key: Optional[str] = None):
-        self.api_key = api_key or os.getenv("RUNPOD_API_KEY")
+        # Priority: explicit param > request context > env var
+        self.api_key = api_key or get_api_key() or os.getenv("RUNPOD_API_KEY")
         if not self.api_key:
             raise RunpodAPIKeyError()
 
@@ -800,7 +802,8 @@ class RunpodRestClient:
     """
 
     def __init__(self, api_key: Optional[str] = None):
-        self.api_key = api_key or os.getenv("RUNPOD_API_KEY")
+        # Priority: explicit param > request context > env var
+        self.api_key = api_key or get_api_key() or os.getenv("RUNPOD_API_KEY")
         if not self.api_key:
             raise RunpodAPIKeyError()
 

@@ -17,6 +17,7 @@ from runpod.endpoint.runner import Job
 
 from ..api.runpod import RunpodGraphQLClient
 from ..utils.backoff import get_backoff_delay
+from ...runtime.api_key_context import get_api_key
 from .base import DeployableResource
 from .cloud import runpod
 from .constants import CONSOLE_URL
@@ -198,7 +199,10 @@ class ServerlessResource(DeployableResource):
         """
         if not self.id:
             raise ValueError("Missing self.id")
-        return runpod.Endpoint(self.id)
+
+        # Priority: request context > env var
+        api_key = get_api_key() or os.getenv("RUNPOD_API_KEY")
+        return runpod.Endpoint(self.id, api_key=api_key)
 
     @property
     def endpoint_url(self) -> str:

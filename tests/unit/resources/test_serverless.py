@@ -87,9 +87,17 @@ class TestServerlessResource:
 
         # Patch runpod.Endpoint since runpod is now lazy-loaded
         with patch("runpod.Endpoint") as mock_endpoint:
-            endpoint = serverless.endpoint
-            assert endpoint is not None
-            mock_endpoint.assert_called_once_with("test-id-123")
+            # Mock context API key to return a test key
+            with patch(
+                "runpod_flash.core.resources.serverless.get_api_key",
+                return_value="test-api-key",
+            ):
+                endpoint = serverless.endpoint
+                assert endpoint is not None
+                # Endpoint should be called with ID and api_key parameter
+                mock_endpoint.assert_called_once_with(
+                    "test-id-123", api_key="test-api-key"
+                )
 
     def test_endpoint_property_without_id_raises_error(self, basic_serverless_config):
         """Test endpoint property raises error when ID is not set."""
