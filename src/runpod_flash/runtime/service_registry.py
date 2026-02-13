@@ -244,19 +244,32 @@ class ServiceRegistry:
                         )
                         return
 
+                    # DIAGNOSTIC: Log what environment ID we're querying with
+                    logger.info(
+                        f"📥 RUNTIME SYNC: Querying State Manager with environment_id={environment_id}"
+                    )
+                    logger.info(
+                        f"📥 RUNTIME SYNC: FLASH_ENVIRONMENT_ID={os.getenv('FLASH_ENVIRONMENT_ID')}, "
+                        f"RUNPOD_ENDPOINT_ID={os.getenv('RUNPOD_ENDPOINT_ID')}"
+                    )
+
                     # Query State Manager directly for full manifest
                     # Pass API key explicitly to ensure it's available even if contextvars isn't propagated
                     full_manifest = await self._manifest_client.get_persisted_manifest(
                         environment_id, api_key=api_key
                     )
 
-                    # Log what State Manager returned for troubleshooting
+                    # DIAGNOSTIC: Log what State Manager returned for troubleshooting
                     logger.info(
-                        f"State Manager returned manifest with keys: {list(full_manifest.keys())}"
+                        f"📥 RUNTIME SYNC: Received manifest with keys: {list(full_manifest.keys())}"
+                    )
+                    resources_endpoints = full_manifest.get("resources_endpoints", {})
+                    logger.info(
+                        f"📥 RUNTIME SYNC: resources_endpoints contains {len(resources_endpoints)} entries: "
+                        f"{list(resources_endpoints.keys()) if resources_endpoints else 'EMPTY'}"
                     )
 
                     # Extract resources_endpoints mapping
-                    resources_endpoints = full_manifest.get("resources_endpoints", {})
 
                     # Check if State Manager returned empty endpoints
                     if not resources_endpoints:
