@@ -70,8 +70,13 @@ class StateManagerClient:
         Raises:
             ManifestServiceUnavailableError: If State Manager unavailable after retries.
         """
-        # Use provided api_key, fall back to instance api_key, then context/env
+        # Use provided api_key, fall back to instance api_key, then get from context
         key_to_use = api_key or self.api_key
+        if not key_to_use:
+            from .api_key_context import get_api_key
+
+            key_to_use = get_api_key()
+
         last_exception: Optional[Exception] = None
 
         for attempt in range(self.max_retries):
@@ -144,8 +149,13 @@ class StateManagerClient:
         Raises:
             ManifestServiceUnavailableError: If State Manager unavailable.
         """
-        # Use provided api_key, fall back to instance api_key, then context/env
+        # Use provided api_key, fall back to instance api_key, then get from context
         key_to_use = api_key or self.api_key
+        if not key_to_use:
+            from .api_key_context import get_api_key
+
+            key_to_use = get_api_key()
+
         last_exception: Optional[Exception] = None
 
         for attempt in range(self.max_retries):
@@ -207,8 +217,13 @@ class StateManagerClient:
         Raises:
             ManifestServiceUnavailableError: If State Manager unavailable.
         """
-        # Use provided api_key, fall back to instance api_key, then context/env
+        # Use provided api_key, fall back to instance api_key, then get from context
         key_to_use = api_key or self.api_key
+        if not key_to_use:
+            from .api_key_context import get_api_key
+
+            key_to_use = get_api_key()
+
         last_exception: Optional[Exception] = None
 
         for attempt in range(self.max_retries):
