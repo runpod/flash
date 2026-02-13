@@ -62,7 +62,7 @@ def test_constants_exist():
     test("FLASH_CPU_IMAGE defined", FLASH_CPU_IMAGE is not None)
     test("FLASH_LB_IMAGE defined", FLASH_LB_IMAGE is not None)
     test("FLASH_CPU_LB_IMAGE defined", FLASH_CPU_LB_IMAGE is not None)
-    test("DEFAULT_WORKERS_MIN is 1", DEFAULT_WORKERS_MIN == 1)
+    test("DEFAULT_WORKERS_MIN is 0", DEFAULT_WORKERS_MIN == 0)
     test("DEFAULT_WORKERS_MAX is 1", DEFAULT_WORKERS_MAX == 1)
 
     print(f"  Constants values (with FLASH_IMAGE_TAG={FLASH_IMAGE_TAG}):")
@@ -78,9 +78,9 @@ def test_manifest_builder():
 
     from runpod_flash.cli.commands.build_utils.manifest import ManifestBuilder
     from runpod_flash.core.resources.constants import (
-        FLASH_CPU_LB_IMAGE,
-        DEFAULT_WORKERS_MIN,
         DEFAULT_WORKERS_MAX,
+        DEFAULT_WORKERS_MIN,
+        FLASH_CPU_LB_IMAGE,
     )
 
     builder = ManifestBuilder(project_name="test", remote_functions=[])
