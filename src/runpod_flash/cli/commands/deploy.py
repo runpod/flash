@@ -105,12 +105,16 @@ def _display_post_deployment_guidance(env_name: str) -> None:
     try:
         with open(manifest_path) as f:
             manifest = json.load(f)
+            resources = manifest.get("resources", {})
             resources_endpoints = manifest.get("resources_endpoints", {})
             routes = manifest.get("routes", {})
 
             # Find mothership URL and routes
             for resource_name, url in resources_endpoints.items():
-                if resource_name in ("mothership", "mothership-entrypoint"):
+                if resource_name in (
+                    "mothership",
+                    "mothership-entrypoint",
+                ) or resources.get(resource_name, {}).get("is_mothership", False):
                     mothership_url = url
                     mothership_routes = routes.get(resource_name, {})
                     break
