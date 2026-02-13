@@ -1,9 +1,9 @@
-from runpod_flash import CpuLiveServerless, remote
+from runpod_flash import DEFAULT_WORKERS_MAX, DEFAULT_WORKERS_MIN, CpuLiveServerless, remote
 
 cpu_config = CpuLiveServerless(
     name="cpu_worker",
-    workersMin=0,
-    workersMax=1,
+    workersMin=DEFAULT_WORKERS_MIN,
+    workersMax=DEFAULT_WORKERS_MAX,
     idleTimeout=5,
 )
 
