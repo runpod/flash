@@ -13,17 +13,67 @@ The `flash deploy` command is the primary way to get your Flash application runn
 - Testing your full distributed system with `--preview` before going live
 
 **What happens during deployment:**
-1. **Build** — Packages your code, dependencies, and manifest (same as `flash build`)
-2. **Upload** — Sends the artifact to Runpod's storage
-3. **Provision** — Creates or updates serverless endpoints based on your resource configs
-4. **Configure** — Sets up environment variables, volumes, and service discovery
-5. **Verify** — Confirms endpoints are healthy and displays access information
+1. **Build:** Packages your code, dependencies, and manifest (same as `flash build`)
+2. **Upload:** Sends the artifact to Runpod's storage
+3. **Provision:** Creates or updates serverless endpoints based on your resource configs
+4. **Configure:** Sets up environment variables, volumes, and service discovery
+5. **Verify:** Confirms endpoints are healthy and displays access information
 
 **Key features:**
-- **One command** — No need to run build and deploy separately
-- **Smart environment handling** — Auto-selects environment if only one exists, prompts if multiple
-- **Incremental updates** — Only updates what changed, preserving endpoint URLs
-- **Preview mode** — Test locally with Docker before deploying to production
+- **One command:** No need to run build and deploy separately
+- **Smart environment handling:** Auto-selects environment if only one exists, prompts if multiple
+- **Incremental updates:** Only updates what changed, preserving endpoint URLs
+- **Preview mode:** Test locally with Docker before deploying to production
+
+## Architecture: Fully Deployed to Runpod
+
+With `flash deploy`, your **entire application** runs on Runpod Serverless—both your FastAPI app (the "orchestrator") and all `@remote` worker functions:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  RUNPOD SERVERLESS                                              │
+│                                                                 │
+│  ┌─────────────────────────────────────┐                        │
+│  │  MOTHERSHIP ENDPOINT                │                        │
+│  │  (your FastAPI app from main.py)    │                        │
+│  │  - Your HTTP routes                 │                        │
+│  │  - Orchestrates @remote calls       │───────────┐            │
+│  │  - Public URL for users             │           │            │
+│  └─────────────────────────────────────┘           │            │
+│                                                    │ internal   │
+│                                                    ▼            │
+│  ┌─────────────────────────┐  ┌─────────────────────────┐       │
+│  │ gpu-worker              │  │ cpu-worker              │       │
+│  │ (your @remote function) │  │ (your @remote function) │       │
+│  └─────────────────────────┘  └─────────────────────────┘       │
+└─────────────────────────────────────────────────────────────────┘
+          ▲
+          │ HTTPS (authenticated)
+          │
+    ┌─────┴─────┐
+    │   USERS   │
+    └───────────┘
+```
+
+**Key points:**
+- **Your FastAPI app runs on Runpod** as the "mothership" endpoint
+- **`@remote` functions run on Runpod** as separate worker endpoints
+- **Users call the mothership URL** directly (e.g., `https://xyz123.api.runpod.ai/api/hello`)
+- **No `live-` prefix** on endpoint names (these are production endpoints)
+- **No hot reload:** code changes require a new deployment
+
+This is different from `flash run`, where your FastAPI app runs locally on your machine. See [flash run](./flash-run.md) for the hybrid development architecture.
+
+### flash run vs flash deploy
+
+| Aspect | `flash run` | `flash deploy` |
+|--------|-------------|----------------|
+| **FastAPI app runs on** | Your machine (localhost) | Runpod Serverless (mothership) |
+| **`@remote` functions run on** | Runpod Serverless | Runpod Serverless |
+| **Endpoint naming** | `live-` prefix (e.g., `live-gpu-worker`) | No prefix (e.g., `gpu-worker`) |
+| **Hot reload** | Yes | No |
+| **Use case** | Development & testing | Production deployment |
+| **Build artifact created** | No | Yes (tarball + manifest) |
 
 ## Usage
 

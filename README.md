@@ -135,10 +135,9 @@ Computed on: NVIDIA GeForce RTX 4090
 
 ## Create Flash API endpoints
 
-> [!Note]
-> **Flash API endpoints are currently only available for local testing:** Using `flash run` will start the API server on your local machine. Future updates will add the ability to build and deploy API servers for production deployments.
+You can use Flash to deploy and serve API endpoints that compute responses using GPU and CPU Serverless workers. Use `flash run` for local development of `@remote` functions, then `flash deploy` to deploy your full application to Runpod Serverless for production.
 
-You can use Flash to deploy and serve API endpoints that compute responses using GPU and CPU Serverless workers. These endpoints will run scripts using the same Python remote decorators [demonstrated above](#get-started)
+These endpoints use the same Python `@remote` decorators [demonstrated above](#get-started)
 
 ### Step 1: Initialize a new project
 
@@ -279,9 +278,9 @@ Flash provides a command-line interface for project management, development, and
 ### Main Commands
 
 - **`flash init`** - Initialize a new Flash project with template structure
-- **`flash run`** - Start local development server with auto-reload
+- **`flash run`** - Start local development server to test your `@remote` functions with auto-reload
 - **`flash build`** - Build deployment artifact with all dependencies
-- **`flash deploy`** - Build and deploy to Runpod serverless in one step
+- **`flash deploy`** - Build and deploy your application to Runpod Serverless in one step
 
 ### Management Commands
 

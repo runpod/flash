@@ -4,9 +4,43 @@ Start the Flash development server for testing/debugging/development.
 
 ## Overview
 
-The `flash run` command starts a local development server that hosts your mothership (FastAPI app) while deploying and connecting to a Runpod Serverless endpoint for each `@remote` function. It hot-reloads on code changes, letting you rapidly iterate on your distributed application locally before deploying your full application.
+The `flash run` command starts a local development server that hosts your FastAPI app on your machine while deploying `@remote` functions to Runpod Serverless. This hybrid architecture lets you rapidly iterate on your application with hot-reload while testing real GPU/CPU workloads in the cloud.
 
-Use `flash run` when you want to skip the build step and test/develop/debug your remote functions rapidly before deploying your application with `flash deploy`. (See [Flash Deploy](./flash-deploy.md) for details.)
+Use `flash run` when you want to skip the build step and test/develop/debug your remote functions rapidly before deploying your full application with `flash deploy`. (See [Flash Deploy](./flash-deploy.md) for details.)
+
+## Architecture: Local App + Remote Workers
+
+With `flash run`, your system runs in a **hybrid architecture**:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  YOUR MACHINE (localhost:8888)                                  │
+│  ┌─────────────────────────────────────┐                        │
+│  │  FastAPI App (main.py)              │                        │
+│  │  - Your HTTP routes                 │                        │
+│  │  - Orchestrates @remote calls       │─────────┐              │
+│  │  - Hot-reload enabled               │         │              │
+│  └─────────────────────────────────────┘         │              │
+└──────────────────────────────────────────────────│──────────────┘
+                                                   │ HTTPS
+                                                   ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  RUNPOD SERVERLESS                                              │
+│  ┌─────────────────────────┐  ┌─────────────────────────┐       │
+│  │ live-gpu-worker         │  │ live-cpu-worker         │       │
+│  │ (your @remote function) │  │ (your @remote function) │       │
+│  └─────────────────────────┘  └─────────────────────────┘       │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Key points:**
+- **Your FastAPI app runs locally** on your machine (uvicorn at `localhost:8888`)
+- **`@remote` functions run on Runpod** as serverless endpoints
+- **Your machine is the orchestrator** that calls remote endpoints when you invoke `@remote` functions
+- **Hot reload works** because your app code is local—changes are picked up instantly
+- **Endpoints are prefixed with `live-`** to distinguish development endpoints from production (e.g., `gpu-worker` becomes `live-gpu-worker`)
+
+This is different from `flash deploy`, where **everything** (including your FastAPI app) runs on Runpod. See [flash deploy](./flash-deploy.md) for the fully-deployed architecture.
 
 ## Usage
 

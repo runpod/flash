@@ -29,7 +29,7 @@ Start the development server to test your `@remote` functions:
 flash run
 ```
 
-When you're ready to deploy to Runpod, use:
+When you're ready to deploy your application to Runpod, use:
 
 ```bash
 flash deploy
