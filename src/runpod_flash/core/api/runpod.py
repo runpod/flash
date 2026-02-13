@@ -123,6 +123,42 @@ class RunpodGraphQLClient:
             log.error(f"HTTP client error: {e}")
             raise Exception(f"HTTP request failed: {e}")
 
+    async def update_template(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+        mutation = """
+        mutation saveTemplate($input: SaveTemplateInput) {
+            saveTemplate(input: $input) {
+                id
+                containerDiskInGb
+                dockerArgs
+                env {
+                    key
+                    value
+                }
+                imageName
+                name
+                readme
+            }
+        }
+        """
+
+        variables = {"input": input_data}
+
+        log.debug(
+            f"Updating template with GraphQL: {input_data.get('name', 'unnamed')}"
+        )
+
+        result = await self._execute_graphql(mutation, variables)
+
+        if "saveTemplate" not in result:
+            raise Exception("Unexpected GraphQL response structure")
+
+        template_data = result["saveTemplate"]
+        log.info(
+            f"Updated template: {template_data.get('id', 'unknown')} - {template_data.get('name', 'unnamed')}"
+        )
+
+        return template_data
+
     async def save_endpoint(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Create or update a serverless endpoint using direct GraphQL mutation.

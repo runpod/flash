@@ -484,6 +484,32 @@ class ServerlessResource(DeployableResource):
         exclude_fields.discard("flashEnvironmentId")
         return exclude_fields
 
+    @staticmethod
+    def _build_template_update_payload(
+        template: PodTemplate, template_id: str
+    ) -> Dict[str, Any]:
+        """Build saveTemplate payload from template model.
+
+        Keep this to fields supported by saveTemplate to avoid passing endpoint-only
+        fields to the template mutation.
+        """
+        template_data = template.model_dump(exclude_none=True, mode="json")
+        allowed_fields = {
+            "name",
+            "imageName",
+            "containerDiskInGb",
+            "dockerArgs",
+            "env",
+            "readme",
+        }
+        payload = {
+            key: value for key, value in template_data.items() if key in allowed_fields
+        }
+        # savetemplate mutation requires volumeInGb, but for sls this is always 0
+        payload["volumeInGb"] = 0
+        payload["id"] = template_id
+        return payload
+
     async def _do_deploy(self) -> "DeployableResource":
         """
         Deploys the serverless resource using the provided configuration.
@@ -507,6 +533,7 @@ class ServerlessResource(DeployableResource):
             if endpoint := self.__class__(**result):
                 endpoint = await self._sync_graphql_object_with_inputs(endpoint)
                 self.id = endpoint.id
+                self.templateId = endpoint.templateId
                 return endpoint
 
             raise ValueError("Deployment failed, no endpoint was returned.")
@@ -535,6 +562,7 @@ class ServerlessResource(DeployableResource):
             raise ValueError("Cannot update: endpoint not deployed")
 
         try:
+            resolved_template_id = self.templateId or new_config.templateId
             # Log if version-triggering changes detected (informational only)
             if self._has_structural_changes(new_config):
                 log.info(
@@ -557,8 +585,35 @@ class ServerlessResource(DeployableResource):
                 payload["id"] = self.id  # Critical: include ID for update
 
                 result = await client.save_endpoint(payload)
+                resolved_template_id = (
+                    result.get("templateId") or self.templateId or new_config.templateId
+                )
+
+                if new_config.template:
+                    if resolved_template_id:
+                        template_payload = self._build_template_update_payload(
+                            new_config.template, resolved_template_id
+                        )
+                        await client.update_template(template_payload)
+                        log.info(
+                            f"Updated template '{resolved_template_id}' for endpoint '{self.name}'"
+                        )
+                    else:
+                        log.warning(
+                            "Template provided during endpoint update but no templateId could "
+                            "be resolved; skipping separate saveTemplate call"
+                        )
 
             if updated := self.__class__(**result):
+                if not updated.templateId:
+                    updated.templateId = (
+                        resolved_template_id or self.templateId or new_config.templateId
+                    )
+                # Keep local input-only state on the hydrated model. The GraphQL
+                # response does not include many user-provided fields (for example
+                # env, networkVolume, datacenter), and dropping them causes
+                # repeated false drift on subsequent deploys.
+                updated = await new_config._sync_graphql_object_with_inputs(updated)
                 log.info(f"Successfully updated endpoint '{self.name}' (ID: {self.id})")
                 return updated
 
@@ -629,6 +684,7 @@ class ServerlessResource(DeployableResource):
         # hydrate the id onto the resource so it's usable when this is called directly
         # on a config
         self.id = resource.id
+        self.templateId = getattr(resource, "templateId", None)
         return self
 
     async def _do_undeploy(self) -> bool:
