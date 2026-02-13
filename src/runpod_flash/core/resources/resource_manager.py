@@ -204,7 +204,7 @@ class ResourceManager(SingletonMixin):
         return self._resources.get(uid)
 
     async def get_or_deploy_resource(
-        self, config: DeployableResource
+        self, config: DeployableResource, allow_runtime_deployment: bool = True
     ) -> DeployableResource:
         """Get existing, update if config changed, or deploy new resource.
 
@@ -218,6 +218,12 @@ class ResourceManager(SingletonMixin):
         4. If no resource exists, deploy new one
 
         Thread-safe implementation that prevents concurrent deployments.
+
+        Args:
+            config: Resource configuration to deploy
+            allow_runtime_deployment: If False, prevents deployment in deployed containers.
+                Defaults to True for backwards compatibility. Set to False when called from
+                runtime contexts that should only lookup pre-deployed resources.
         """
         # Use name-based key instead of hash
         resource_key = config.get_resource_key()
@@ -235,6 +241,17 @@ class ResourceManager(SingletonMixin):
         # Acquire per-resource lock
         async with resource_lock:
             existing = self._resources.get(resource_key)
+
+            # Defense-in-depth: Guard against runtime deployments in deployed containers
+            if not allow_runtime_deployment:
+                from ..runtime.context import is_deployed_container
+
+                if is_deployed_container() and not existing:
+                    raise RuntimeError(
+                        f"Deployment blocked: Resource '{getattr(config, 'name', 'unknown')}' not found in cache. "
+                        f"Runtime deployment is disabled in deployed environments. "
+                        f"Resources must be deployed via 'flash deploy' CLI command before runtime execution."
+                    )
 
             if existing:
                 # Resource exists - check if still valid
