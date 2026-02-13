@@ -273,7 +273,7 @@ flash env list --app other-project
 ### App Hierarchy
 
 ```
-RunPod Account
+Runpod Account
 ├── Flash App: my-api
 │   ├── Environment: dev
 │   ├── Environment: prod
@@ -370,7 +370,7 @@ flash app create feature-recommendations
 - **Monitor app usage**: Use `flash app get` to track environments and builds
 - **Clean up old builds**: Builds accumulate over time
 - **Delete unused apps**: Remove apps you're no longer using
-- **Check costs**: Each app's resources contribute to your RunPod usage
+- **Check costs**: Each app's resources contribute to your Runpod usage
 
 ### Safety Features
 

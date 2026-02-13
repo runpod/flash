@@ -449,7 +449,7 @@ flash env delete <name>
 
 **Problem**: Environment shows DEPLOYING state but deployment completed
 
-**Solution**: Check endpoint status in RunPod Console:
+**Solution**: Check endpoint status in Runpod Console:
 - Visit https://console.runpod.io/serverless
 - Check endpoint health and logs
 - If healthy, try deploying again to update state

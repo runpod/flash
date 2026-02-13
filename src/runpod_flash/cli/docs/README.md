@@ -79,7 +79,7 @@ flash build --exclude torch,torchvision,torchaudio   # Exclude large packages
 
 ### flash deploy
 
-Build and deploy Flash application in one step.
+Build and deploy Flash applications to Runpod Serverless endpoints in one step.
 
 ```bash
 flash deploy [OPTIONS]
@@ -211,7 +211,7 @@ flash app delete --app my-project
 
 ### flash undeploy
 
-Manage and delete RunPod serverless endpoints.
+Manage and delete Runpod serverless endpoints.
 
 ```bash
 flash undeploy [NAME|list] [OPTIONS]

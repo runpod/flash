@@ -54,7 +54,7 @@ After `flash build` completes:
 
 | File/Directory | Purpose |
 |---|---|
-| `.flash/artifact.tar.gz` | Deployment package (ready for RunPod) |
+| `.flash/artifact.tar.gz` | Deployment package (ready for Runpod) |
 | `.flash/flash_manifest.json` | Service discovery configuration |
 | `.flash/.build/` | Temporary build directory (removed unless `--keep-build` specified) |
 
@@ -62,13 +62,13 @@ After `flash build` completes:
 
 ### Cross-Platform Builds
 
-Flash automatically handles cross-platform builds, ensuring compatibility with RunPod's Linux x86_64 serverless infrastructure:
+Flash automatically handles cross-platform builds, ensuring compatibility with Runpod's Linux x86_64 serverless infrastructure:
 
 - **Automatic Platform Targeting**: Dependencies are always installed for Linux x86_64, regardless of your build platform (macOS, Windows, or Linux)
 - **Python Version Matching**: Uses your current Python version to ensure package compatibility
 - **Binary Wheel Enforcement**: Only pre-built binary wheels are used, preventing platform-specific compilation issues
 
-This means you can safely build on macOS ARM64, Windows, or any platform, and the deployment will work correctly on RunPod.
+This means you can safely build on macOS ARM64, Windows, or any platform, and the deployment will work correctly on Runpod.
 
 ### Default Behavior
 
@@ -98,7 +98,7 @@ Only installs direct dependencies specified in `@remote` decorators:
 flash build --preview
 ```
 
-Launch a local Docker-based test environment immediately after building. This allows you to test your distributed system locally before deploying to RunPod.
+Launch a local Docker-based test environment immediately after building. This allows you to test your distributed system locally before deploying to Runpod.
 
 **What happens:**
 1. Builds your project (creates archive, manifest)
@@ -231,7 +231,7 @@ If a package doesn't have pre-built Linux x86_64 wheels:
 
 ### Size Limits
 
-RunPod serverless enforces a **500MB limit** on deployment archives. Exceeding this will cause deployment failures.
+Runpod Serverless enforces a **500MB limit** on deployment archives. Exceeding this will cause your deployment to fail.
 
 ### Excluding Base Image Packages
 
@@ -284,7 +284,7 @@ Check the [worker-flash repository](https://github.com/runpod-workers/worker-fla
 After building:
 
 1. **Test Locally**: Run `flash run` to test the application
-2. **Deploy**: Use `flash deploy` to deploy to RunPod serverless
+2. **Deploy**: Use `flash deploy` to deploy to Runpod Serverless
 3. **Preview**: Test with `flash build --preview` before production deployment
 4. **Monitor**: Use `flash env get` to check deployment status
 

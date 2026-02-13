@@ -141,12 +141,12 @@ async def _ensure_manifest_loaded(self) -> None:
 3. **Rotation**: Plan for periodic key rotation with coordinated redeployment
 4. **Access Control**: Restrict access to endpoint configuration UI
 
-### Future Migration: RunPod Secrets Service
+### Future Migration: Runpod Secrets Service
 
-RunPod plans to offer a secrets service for secure credential management. Flash will migrate to this pattern:
+Runpod plans to offer a secrets service for secure credential management. Flash will migrate to this pattern:
 
 ```python
-# Future: Use RunPod secrets service instead of bare string
+# Future: Use Runpod secrets service instead of bare string
 env_dict["RUNPOD_API_KEY"] = {"__secret__": "FLASH_APP_API_KEY"}
 ```
 
@@ -220,7 +220,7 @@ Failed to load manifest from State Manager
    ```
 3. Verify new key is injected in deployment logs
 
-**Future:** RunPod secrets service will enable rotation without redeployment.
+**Future:** Runpod secrets service will enable rotation without redeployment.
 
 ## Testing
 
@@ -255,4 +255,4 @@ Flash implements API key propagation tailored to each endpoint type:
 - **QB endpoints**: Pre-configured via environment variable
 - **Local-only endpoints**: Skip manifest sync optimization
 
-This design balances security, performance, and operational simplicity while maintaining a clear migration path to RunPod's future secrets service.
+This design balances security, performance, and operational simplicity while maintaining a clear migration path to Runpod's future secrets service.

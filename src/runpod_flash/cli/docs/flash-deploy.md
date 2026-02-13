@@ -1,6 +1,6 @@
 # flash deploy
 
-Build and deploy Flash application in one step.
+Build and deploy your Flash application to Runpod Serverless endpoints in one step.
 
 ## Usage
 
@@ -59,8 +59,8 @@ The deploy command combines building and deploying your Flash application in a s
    - If multiple environments exist, prompts for selection
 
 3. **Deployment Phase**:
-   - Uploads build artifact to RunPod storage
-   - Provisions serverless endpoints based on resource configs
+   - Uploads the build artifact to Runpod storage
+   - Provisions Serverless endpoints based on resource configs
    - Configures endpoints with environment variables and volumes
    - Sets up service discovery for cross-endpoint function calls
    - Registers endpoints in environment tracking
@@ -88,7 +88,7 @@ Only installs direct dependencies specified in `@remote` decorators. Useful when
 flash deploy --exclude torch,torchvision,torchaudio
 ```
 
-Skips specified packages during dependency installation. Critical for staying under RunPod's 500MB deployment limit. See [flash build](./flash-build.md#managing-deployment-size) for base image package reference.
+Skips specified packages during dependency installation. Critical for staying under Runpod's 500MB deployment limit. See [flash build](./flash-build.md#managing-deployment-size) for base image package reference.
 
 ### Local Flash Development
 
@@ -104,10 +104,10 @@ Bundles your local `runpod_flash` source instead of the PyPI version. Only use t
 flash deploy --preview
 ```
 
-Builds your project and launches a local Docker-based test environment instead of deploying to RunPod. This allows you to test your distributed system locally before production deployment.
+Builds your project and launches a local Docker-based test environment instead of deploying to Runpod. This allows you to test your distributed system locally before production deployment.
 
 **What happens:**
-1. Builds your project (creates archive, manifest)
+1. Builds your project (creates the archive and manifest)
 2. Creates a Docker network for inter-container communication
 3. Starts one Docker container per resource config:
    - Mothership container (orchestrator)
@@ -116,12 +116,12 @@ Builds your project and launches a local Docker-based test environment instead o
 5. All containers communicate via Docker DNS
 6. On shutdown (Ctrl+C), automatically stops and removes all containers
 
-**When to use:**
-- Test deployment before production
-- Validate manifest structure
-- Debug resource provisioning
-- Verify endpoint auto-discovery
-- Test distributed function calls
+**Use this when:**
+- Testing deployment before production
+- Validating manifest structure
+- Debugging resource provisioning
+- Verifying endpoint auto-discovery
+- Testing distributed function calls
 
 See [flash build](./flash-build.md#preview-environment) for more details on preview mode.
 
@@ -183,7 +183,7 @@ After successful deployment, the command displays guidance for using your deploy
 
 ### 1. Authentication
 
-All endpoints require authentication with your RunPod API key:
+All endpoints require authentication with your Runpod API key:
 
 ```bash
 # Set API key as environment variable (recommended)
@@ -222,7 +222,7 @@ View deployment status and logs:
 # Check environment status
 flash env get production
 
-# View in RunPod Console
+# View in Runpod Console
 # https://console.runpod.io/serverless
 ```
 
@@ -307,7 +307,7 @@ If the build phase fails, see [flash build troubleshooting](./flash-build.md#tro
 
 ### Deployment Size Limit
 
-**Problem**: Deployment exceeds RunPod's 500MB limit
+**Problem**: Deployment exceeds Runpod's 500MB limit
 
 **Solution**: Use `--exclude` to skip packages already in your base image:
 
@@ -337,14 +337,14 @@ source .env
 
 ### Environment Not Found After Creation
 
-If you just created an environment but it's not found, wait a few seconds for the API to sync, then retry.
+If you just created an environment but it can't be found, wait a few seconds for the API to sync, then retry.
 
 ## Performance Considerations
 
 ### Build Time
 
 The build phase can take several minutes depending on:
-- Number of dependencies to install
+- The number of dependencies that must be installed
 - Project size and file count
 - Whether dependencies need cross-platform compilation
 
@@ -367,7 +367,7 @@ Endpoint provisioning typically takes 2-5 minutes:
 After deploying:
 
 1. **Test Your Endpoints**: Call your functions to verify deployment
-2. **Monitor Performance**: Check logs and metrics in RunPod Console
+2. **Monitor Performance**: Check logs and metrics in Runpod Console
 3. **Set Up CI/CD**: Automate deployments with GitHub Actions
 4. **Scale Resources**: Adjust resource configs for production load
 5. **Manage Environments**: Use `flash env` commands for environment lifecycle

@@ -151,9 +151,9 @@ flash build
 
 ## Behavior in Deployed Containers
 
-File-based logging is **automatically disabled** in deployed RunPod containers, regardless of environment variable settings. This prevents unnecessary disk I/O and storage usage in production.
+File-based logging is **automatically disabled** in deployed Runpod containers, regardless of environment variable settings. This prevents unnecessary disk I/O and storage usage in production.
 
-Only stdout/stderr logging is active in deployed environments, which is automatically captured by RunPod's logging infrastructure.
+Only stdout/stderr logging is active in deployed environments, which is automatically captured by Runpod's logging infrastructure.
 
 ## Troubleshooting
 

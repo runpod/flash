@@ -281,7 +281,7 @@ Flash provides a command-line interface for project management, development, and
 - **`flash init`** - Initialize a new Flash project with template structure
 - **`flash run`** - Start local development server with auto-reload
 - **`flash build`** - Build deployment artifact with all dependencies
-- **`flash deploy`** - Build and deploy to RunPod serverless in one step
+- **`flash deploy`** - Build and deploy to Runpod serverless in one step
 
 ### Management Commands
 
@@ -509,11 +509,11 @@ When you run `flash build`, the following happens:
 
 Flash automatically handles cross-platform builds, ensuring your deployments work correctly regardless of your development platform:
 
-- **Automatic Platform Targeting**: Dependencies are installed for Linux x86_64 (RunPod's serverless platform), even when building on macOS or Windows
+- **Automatic Platform Targeting**: Dependencies are installed for Linux x86_64 (Runpod's serverless platform), even when building on macOS or Windows
 - **Python Version Matching**: The build uses your current Python version to ensure package compatibility
 - **Binary Wheel Enforcement**: Only pre-built binary wheels are used, preventing platform-specific compilation issues
 
-This means you can build on macOS ARM64, Windows, or any other platform, and the resulting package will run correctly on RunPod serverless.
+This means you can build on macOS ARM64, Windows, or any other platform, and the resulting package will run correctly on Runpod serverless.
 
 #### Cross-Endpoint Function Calls
 
@@ -565,7 +565,7 @@ For information on load-balanced endpoints (required for Mothership and HTTP ser
 
 #### Managing Bundle Size
 
-RunPod serverless has a **500MB deployment limit**. Exceeding this limit will cause deployment failures.
+Runpod serverless has a **500MB deployment limit**. Exceeding this limit will cause deployment failures.
 
 Use `--exclude` to skip packages already in your worker-flash Docker image:
 

@@ -7,7 +7,7 @@
 
 ## Overview
 
-Flash Deploy is a distributed runtime system that enables scalable execution of `@remote` functions across dynamically provisioned RunPod serverless endpoints. It bridges the gap between local development and production cloud deployment through a unified interface.
+Flash Deploy is a distributed runtime system that enables scalable execution of `@remote` functions across dynamically provisioned Runpod serverless endpoints. It bridges the gap between local development and production cloud deployment through a unified interface.
 
 ### System Goals
 
@@ -27,7 +27,7 @@ graph TB
         Manifest["ManifestBuilder<br/>flash_manifest.json"]
     end
 
-    subgraph Cloud["RunPod Cloud"]
+    subgraph Cloud["Runpod Cloud"]
         S3["S3 Storage<br/>artifact.tar.gz"]
 
         subgraph Mothership["Mothership Endpoint<br/>(FLASH_IS_MOTHERSHIP=true)"]
@@ -42,7 +42,7 @@ graph TB
         end
     end
 
-    Database["RunPod State Manager<br/>GraphQL API"]
+    Database["Runpod State Manager<br/>GraphQL API"]
 
     Developer -->|flash build| Build
     Build -->|archive| S3
@@ -89,7 +89,7 @@ flash env create <env_name> [--app <app_name>]
 - `--app <app_name>`: Flash app name (auto-detected if not provided)
 
 **What it does:**
-1. Creates a FlashApp in RunPod (if first environment for the app)
+1. Creates a FlashApp in Runpod (if first environment for the app)
 2. Creates FlashEnvironment with the specified name
 3. Provisions a mothership serverless endpoint
 
@@ -268,14 +268,14 @@ artifact.tar.gz
 sequenceDiagram
     Developer->>CLI: flash deploy --env <env_name>
     CLI->>S3: Upload .flash/artifact.tar.gz
-    CLI->>RunPod: Create endpoints via API<br/>with manifest reference
-    RunPod->>ChildEndpoints: Boot endpoints
+    CLI->>Runpod: Create endpoints via API<br/>with manifest reference
+    Runpod->>ChildEndpoints: Boot endpoints
     ChildEndpoints->>ChildEndpoints: Read manifest from .flash/
     ChildEndpoints->>StateManager: Query for peer endpoints<br/>peer-to-peer discovery
 ```
 
 **Upload Process** (`src/runpod_flash/cli/commands/deploy.py:197-224`):
-1. Archive uploaded to RunPod's built-in S3 storage
+1. Archive uploaded to Runpod's built-in S3 storage
 2. URL generated with temporary access
 3. URL passed to mothership endpoint creation
 
@@ -290,7 +290,7 @@ The mothership runs on each boot to perform reconcile_children() - reconciling d
 
 ```mermaid
 sequenceDiagram
-    RunPod->>Mothership: Boot endpoint
+    Runpod->>Mothership: Boot endpoint
     Mothership->>Mothership: Initialize runtime
     Mothership->>ManifestFetcher: Load manifest from .flash/
     ManifestFetcher->>ManifestFetcher: Read flash_manifest.json
@@ -346,7 +346,7 @@ Each child endpoint boots independently and prepares for function execution.
 
 ```mermaid
 sequenceDiagram
-    RunPod->>Child: Boot with handler_gpu_config.py
+    Runpod->>Child: Boot with handler_gpu_config.py
     Child->>Child: Initialize runtime
     Child->>ManifestFetcher: Load manifest from .flash/
     ManifestFetcher->>ManifestFetcher: Check cache<br/>(TTL: 300s)
@@ -385,7 +385,7 @@ sequenceDiagram
 - `FLASH_RESOURCE_NAME`: This endpoint's resource config name (e.g., "gpu_config")
 - `RUNPOD_API_KEY`: API key for State Manager GraphQL access (peer-to-peer discovery)
 - `FLASH_MANIFEST_PATH`: Optional override for manifest location
-- `RUNPOD_ENDPOINT_ID`: This endpoint's RunPod endpoint ID
+- `RUNPOD_ENDPOINT_ID`: This endpoint's Runpod endpoint ID
 
 **Key Files:**
 - `src/runpod_flash/runtime/manifest_fetcher.py` - Manifest loading with caching
@@ -429,14 +429,14 @@ sequenceDiagram
 
 **Queue-Based** (`src/runpod_flash/runtime/generic_handler.py`):
 
-Uses a factory function `create_handler(function_registry)` that returns a RunPod-compatible handler:
+Uses a factory function `create_handler(function_registry)` that returns a Runpod-compatible handler:
 
 ```python
 def handler(job: Dict[str, Any]) -> Dict[str, Any]:
-    """RunPod serverless handler.
+    """Runpod serverless handler.
 
     Args:
-        job: RunPod job dict with 'input' key
+        job: Runpod job dict with 'input' key
 
     Returns:
         Response dict with 'success', 'result'/'error' keys
@@ -537,7 +537,7 @@ The manifest is the contract between build-time and runtime. It defines all depl
    - Thread-safe with asyncio.Lock
 
 2. **Fetch from source**: If cache expired
-   - Primary: RunPod GraphQL API (via RunpodGraphQLClient)
+   - Primary: Runpod GraphQL API (via RunpodGraphQLClient)
    - Fallback: Local flash_manifest.json file
 
 3. **Update local file**: Persist fetched manifest
@@ -557,7 +557,7 @@ The manifest is the contract between build-time and runtime. It defines all depl
    - Used to determine local vs remote execution
 
 3. **Query State Manager**: Get endpoint URLs via GraphQL
-   - Queries RunPod State Manager GraphQL API directly
+   - Queries Runpod State Manager GraphQL API directly
    - Returns: Resource endpoints for all deployed child endpoints
    - Retries with exponential backoff
 
@@ -569,7 +569,7 @@ The manifest is the contract between build-time and runtime. It defines all depl
 
 ### State Persistence: StateManagerClient
 
-The State Manager persists manifest state in RunPod's infrastructure, enabling:
+The State Manager persists manifest state in Runpod's infrastructure, enabling:
 - Cross-boot reconciliation tracking
 - Peer-to-peer service discovery
 - Manifest synchronization across endpoints
@@ -755,7 +755,7 @@ deserialized = cloudpickle.loads(base64.b64decode(serialized))
 
 **Generic Handler** (Queue-Based):
 
-Uses a factory function `create_handler(function_registry)` that creates a RunPod-compatible handler:
+Uses a factory function `create_handler(function_registry)` that creates a Runpod-compatible handler:
 
 ```python
 # src/runpod_flash/runtime/generic_handler.py - conceptual flow
@@ -982,12 +982,12 @@ graph LR
 - Triggers manifest reconciliation on boot
 
 **RUNPOD_ENDPOINT_ID** (Required on mothership)
-- RunPod serverless endpoint ID
+- Runpod serverless endpoint ID
 - Used to construct mothership URL: `https://{RUNPOD_ENDPOINT_ID}.api.runpod.ai`
-- Set automatically by RunPod platform
+- Set automatically by Runpod platform
 
 **RUNPOD_API_KEY** (Required for State Manager)
-- RunPod API authentication token
+- Runpod API authentication token
 - Used by StateManagerClient for GraphQL queries
 - Enables manifest persistence
 
@@ -1010,7 +1010,7 @@ graph LR
 
 ### Runtime Configuration
 
-**RUNPOD_ENDPOINT_ID** (Set by RunPod)
+**RUNPOD_ENDPOINT_ID** (Set by Runpod)
 - This endpoint's ID
 - Used for logging and identification
 
@@ -1046,7 +1046,7 @@ Flash Deploy uses a dual-layer state system for reliability and consistency.
 
 **Code Reference**: `src/runpod_flash/core/resources/resource_manager.py:46-150`
 
-### Remote State: RunPod State Manager (GraphQL API)
+### Remote State: Runpod State Manager (GraphQL API)
 
 **Purpose**: Persist deployment state across mothership boots
 
@@ -1107,7 +1107,7 @@ On mothership boot:
 
 ### flash build --preview
 
-Local testing of your distributed system without deploying to RunPod.
+Local testing of your distributed system without deploying to Runpod.
 
 ```bash
 flash build --preview
