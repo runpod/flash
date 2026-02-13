@@ -233,14 +233,14 @@ class ServiceRegistry:
 
                     api_key = get_api_key()
 
-                    # Use FLASH_ENVIRONMENT_ID (set during deployment) to query State Manager
-                    # Fallback to RUNPOD_ENDPOINT_ID for backwards compatibility
-                    environment_id = os.getenv("FLASH_ENVIRONMENT_ID") or os.getenv(
-                        "RUNPOD_ENDPOINT_ID"
-                    )
+                    # Query State Manager using the Flash environment ID from deployment
+                    # This ID is set by the mothership provisioner during flash deploy
+                    environment_id = os.getenv("FLASH_ENVIRONMENT_ID")
                     if not environment_id:
                         logger.warning(
-                            "FLASH_ENVIRONMENT_ID not set, cannot query State Manager"
+                            "FLASH_ENVIRONMENT_ID not set in mothership container. "
+                            "Remote function calls will not work. This is set during 'flash deploy'. "
+                            "Did you deploy the mothership endpoint?"
                         )
                         return
 
