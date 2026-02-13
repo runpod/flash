@@ -50,12 +50,14 @@ class SensitiveDataFilter(logging.Filter):
         "authorization",
     }
 
-    # Pattern for generic tokens: 32+ char alphanumeric/underscore/hyphen strings
-    TOKEN_PATTERN = re.compile(r"\b[A-Za-z0-9_-]{32,}\b")
+    # Pattern for generic tokens: 32+ char alphanumeric/underscore/hyphen/dot strings
+    # Excludes pure hex strings (commit SHAs, hashes) which are less likely to be tokens
+    # Using negative lookahead to exclude pure hex: (?![0-9a-fA-F]+$)
+    TOKEN_PATTERN = re.compile(r"(?![0-9a-fA-F]+$)\b[A-Za-z0-9_.-]{32,}\b")
 
-    # Pattern for common API key formats
+    # Pattern for common API key formats - capture prefix, separator, and quotes for proper redaction
     API_KEY_PATTERN = re.compile(
-        r"(?:api[_-]?key|apikey|runpod[_-]?api[_-]?key)\s*[:=]\s*['\"]?([A-Za-z0-9_-]+)['\"]?",
+        r"((?:api[_-]?key|apikey|runpod[_-]?api[_-]?key)\s*[:=]\s*['\"]?)([A-Za-z0-9_-]+)(['\"]?)",
         re.IGNORECASE,
     )
 
@@ -112,7 +114,7 @@ class SensitiveDataFilter(logging.Filter):
 
         # Redact API key patterns
         text = self.API_KEY_PATTERN.sub(
-            lambda m: f"{m.group(0).split('=')[0]}=***REDACTED***", text
+            lambda m: f"{m.group(1)}***REDACTED***{m.group(3)}", text
         )
 
         # Redact generic long tokens
@@ -120,14 +122,18 @@ class SensitiveDataFilter(logging.Filter):
 
         # Redact common password/secret patterns
         # Match field names with : or = separators and redact the value, preserving separator
+        # Handles quoted values (captures until closing quote) and unquoted values (captures until whitespace/comma)
         def redact_password_pattern(match):
             field_name = match.group(1)
-            separator = match.group(2).strip()
+            separator = match.group(2)
             return f"{field_name}{separator}***REDACTED***"
 
+        # Pattern handles: password="value", password=value, password: value, etc.
+        # For quoted values: captures everything until closing quote
+        # For unquoted: captures until whitespace or comma
         text = re.sub(
-            r"(password|passwd|pwd|secret)(\s*[:=]\s*)['\"]?([^'\"\s]+)['\"]?",
-            redact_password_pattern,
+            r"(password|passwd|pwd|secret)(\s*[:=]\s*)(?:\"([^\"]*)\"|'([^']*)'|([^\s,;]+))",
+            lambda m: f"{m.group(1)}{m.group(2)}***REDACTED***",
             text,
             flags=re.IGNORECASE,
         )
