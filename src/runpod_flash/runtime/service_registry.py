@@ -302,19 +302,21 @@ class ServiceRegistry:
                             f"cache TTL {self.cache_ttl}s"
                         )
                 except (ManifestServiceUnavailableError, Exception) as e:
-                    logger.debug(
-                        f"State Manager unavailable ({type(e).__name__}), "
-                        f"using local manifest for cross-endpoint routing"
+                    logger.error(
+                        f"State Manager query failed ({type(e).__name__}: {e}), "
+                        f"falling back to local manifest"
                     )
                     # Fall back to local manifest's resources_endpoints if available
                     if self._manifest and self._manifest.resources_endpoints:
                         self._endpoint_registry = self._manifest.resources_endpoints
-                        logger.debug(
-                            f"Loaded {len(self._endpoint_registry)} endpoints from local manifest"
+                        logger.info(
+                            f"Loaded {len(self._endpoint_registry)} endpoints from local manifest as fallback"
                         )
                     else:
                         self._endpoint_registry = {}
-                        logger.debug("No resources_endpoints in local manifest")
+                        logger.error(
+                            "No resources_endpoints available: State Manager failed and local manifest has no endpoints"
+                        )
 
     async def get_endpoint_for_function(self, function_name: str) -> Optional[str]:
         """Get endpoint URL for a function.
