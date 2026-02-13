@@ -245,7 +245,7 @@ assert FLASH_CPU_IMAGE == "runpod/flash-cpu:latest", f"Unexpected CPU image: {FL
 assert FLASH_LB_IMAGE == "runpod/flash-lb:latest", f"Unexpected LB image: {FLASH_LB_IMAGE}"
 assert FLASH_CPU_LB_IMAGE == "runpod/flash-lb-cpu:latest", f"Unexpected CPU LB image: {FLASH_CPU_LB_IMAGE}"
 assert DEFAULT_WORKERS_MIN == 1
-assert DEFAULT_WORKERS_MAX == 3
+assert DEFAULT_WORKERS_MAX == 1
 
 print("\n✓ All constants have correct default values")
 PYSCRIPT

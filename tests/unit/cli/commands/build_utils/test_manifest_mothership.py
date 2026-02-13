@@ -205,7 +205,7 @@ def root():
                 assert mothership["is_live_resource"] is True
                 assert mothership["imageName"] == FLASH_CPU_LB_IMAGE
                 assert mothership["workersMin"] == 1
-                assert mothership["workersMax"] == 3
+                assert mothership["workersMax"] == 1
 
     def test_manifest_uses_explicit_mothership_config(self):
         """Test explicit mothership.py config takes precedence over auto-detection."""

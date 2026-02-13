@@ -164,7 +164,7 @@ class ServerlessResource(DeployableResource):
     scalerValue: Optional[int] = 4
     templateId: Optional[str] = None
     type: Optional[ServerlessType] = ServerlessType.QB
-    workersMax: Optional[int] = 3
+    workersMax: Optional[int] = 1
     workersMin: Optional[int] = 0
     workersPFBTarget: Optional[int] = 0
 
