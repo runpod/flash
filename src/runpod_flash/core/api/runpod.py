@@ -451,9 +451,7 @@ class RunpodGraphQLClient:
             )
 
         # DIAGNOSTIC: Log the successful mutation and what was uploaded
-        log.info(
-            f"[STATE MANAGER] GraphQL mutation succeeded for build_id={build_id}"
-        )
+        log.info(f"[STATE MANAGER] GraphQL mutation succeeded for build_id={build_id}")
         log.info(
             f"[STATE MANAGER] Uploaded manifest with keys: {list(manifest.keys())}"
         )
