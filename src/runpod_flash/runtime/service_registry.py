@@ -258,21 +258,36 @@ class ServiceRegistry:
                     # Extract resources_endpoints mapping
                     resources_endpoints = full_manifest.get("resources_endpoints", {})
 
+                    # Check if State Manager returned empty endpoints
                     if not resources_endpoints:
-                        logger.error(
-                            f"State Manager returned empty resources_endpoints for environment {environment_id}!"
+                        logger.warning(
+                            f"State Manager returned empty resources_endpoints for environment {environment_id}. "
+                            f"Falling back to local manifest."
                         )
+                        # Fall back to local manifest if available
+                        if self._manifest and self._manifest.resources_endpoints:
+                            self._endpoint_registry = self._manifest.resources_endpoints
+                            self._endpoint_registry_loaded_at = now
+                            logger.info(
+                                f"Using {len(self._endpoint_registry)} endpoints from local manifest as fallback"
+                            )
+                        else:
+                            # No local manifest fallback available
+                            self._endpoint_registry = {}
+                            logger.error(
+                                "No endpoints available: State Manager returned empty and local manifest has no resources_endpoints"
+                            )
                     else:
+                        # State Manager returned valid endpoints
                         logger.info(
                             f"State Manager provided {len(resources_endpoints)} endpoints"
                         )
-
-                    self._endpoint_registry = resources_endpoints
-                    self._endpoint_registry_loaded_at = now
-                    logger.debug(
-                        f"Manifest loaded from State Manager: {len(self._endpoint_registry)} endpoints, "
-                        f"cache TTL {self.cache_ttl}s"
-                    )
+                        self._endpoint_registry = resources_endpoints
+                        self._endpoint_registry_loaded_at = now
+                        logger.debug(
+                            f"Manifest loaded from State Manager: {len(self._endpoint_registry)} endpoints, "
+                            f"cache TTL {self.cache_ttl}s"
+                        )
                 except (ManifestServiceUnavailableError, Exception) as e:
                     logger.debug(
                         f"State Manager unavailable ({type(e).__name__}), "
