@@ -436,12 +436,8 @@ class ManifestBuilder:
                 resources_dict[mothership_name] = mothership_resource
 
         # Extract routes from mothership resources (auto-detected or explicit)
-        # Mothership endpoints are named "mothership" or "mothership-entrypoint"
         for resource_name, resource in resources_dict.items():
-            if resource_name in (
-                "mothership",
-                "mothership-entrypoint",
-            ) and resource.get("functions"):
+            if resource.get("is_mothership") and resource.get("functions"):
                 mothership_routes = {}
                 for func in resource["functions"]:
                     if func.get("http_method") and func.get("http_path"):
