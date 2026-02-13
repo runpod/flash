@@ -246,10 +246,10 @@ class ServiceRegistry:
 
                     # DIAGNOSTIC: Log what environment ID we're querying with
                     logger.info(
-                        f"📥 RUNTIME SYNC: Querying State Manager with environment_id={environment_id}"
+                        f"[RUNTIME SYNC] Querying State Manager with environment_id={environment_id}"
                     )
                     logger.info(
-                        f"📥 RUNTIME SYNC: FLASH_ENVIRONMENT_ID={os.getenv('FLASH_ENVIRONMENT_ID')}, "
+                        f"[RUNTIME SYNC] FLASH_ENVIRONMENT_ID={os.getenv('FLASH_ENVIRONMENT_ID')}, "
                         f"RUNPOD_ENDPOINT_ID={os.getenv('RUNPOD_ENDPOINT_ID')}"
                     )
 
@@ -261,11 +261,11 @@ class ServiceRegistry:
 
                     # DIAGNOSTIC: Log what State Manager returned for troubleshooting
                     logger.info(
-                        f"📥 RUNTIME SYNC: Received manifest with keys: {list(full_manifest.keys())}"
+                        f"[RUNTIME SYNC] Received manifest with keys: {list(full_manifest.keys())}"
                     )
                     resources_endpoints = full_manifest.get("resources_endpoints", {})
                     logger.info(
-                        f"📥 RUNTIME SYNC: resources_endpoints contains {len(resources_endpoints)} entries: "
+                        f"[RUNTIME SYNC] resources_endpoints contains {len(resources_endpoints)} entries: "
                         f"{list(resources_endpoints.keys()) if resources_endpoints else 'EMPTY'}"
                     )
 

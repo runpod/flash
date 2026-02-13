@@ -270,7 +270,7 @@ class StateManagerClient:
 
         # DIAGNOSTIC: Log the environment → build mapping
         logger.info(
-            f"📥 STATE MANAGER: environment_id={mothership_id} → activeBuildId={build_id}"
+            f"[STATE MANAGER] environment_id={mothership_id} → activeBuildId={build_id}"
         )
 
         build = await client.get_flash_build(build_id)
@@ -278,7 +278,7 @@ class StateManagerClient:
 
         # DIAGNOSTIC: Log what we got from State Manager
         logger.info(
-            f"📥 STATE MANAGER: Retrieved build {build_id}, manifest keys: {list(manifest.keys()) if manifest else 'NONE'}"
+            f"[STATE MANAGER] Retrieved build {build_id}, manifest keys: {list(manifest.keys()) if manifest else 'NONE'}"
         )
 
         if not manifest:
@@ -290,12 +290,12 @@ class StateManagerClient:
         # DIAGNOSTIC: Log resources_endpoints availability
         if "resources_endpoints" in manifest:
             logger.info(
-                f"📥 STATE MANAGER: Manifest has {len(manifest['resources_endpoints'])} endpoints: "
+                f"[STATE MANAGER] Manifest has {len(manifest['resources_endpoints'])} endpoints: "
                 f"{list(manifest['resources_endpoints'].keys())}"
             )
         else:
             logger.warning(
-                f"📥 STATE MANAGER: Manifest MISSING resources_endpoints! "
+                f"[STATE MANAGER] Manifest MISSING resources_endpoints! "
                 f"Full manifest keys: {list(manifest.keys())}"
             )
 
