@@ -118,6 +118,16 @@ def _display_post_deployment_guidance(env_name: str) -> None:
                     mothership_url = url
                     mothership_routes = routes.get(resource_name, {})
                     break
+
+            # Fallback: Find mothership routes even if resources_endpoints is empty
+            if not mothership_routes:
+                for resource_name, resource in resources.items():
+                    if resource_name in (
+                        "mothership",
+                        "mothership-entrypoint",
+                    ) or resource.get("is_mothership", False):
+                        mothership_routes = routes.get(resource_name, {})
+                        break
     except (FileNotFoundError, json.JSONDecodeError) as e:
         logger.debug(f"Could not read manifest: {e}")
 
