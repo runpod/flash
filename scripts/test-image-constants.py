@@ -63,7 +63,7 @@ def test_constants_exist():
     test("FLASH_LB_IMAGE defined", FLASH_LB_IMAGE is not None)
     test("FLASH_CPU_LB_IMAGE defined", FLASH_CPU_LB_IMAGE is not None)
     test("DEFAULT_WORKERS_MIN is 1", DEFAULT_WORKERS_MIN == 1)
-    test("DEFAULT_WORKERS_MAX is 3", DEFAULT_WORKERS_MAX == 3)
+    test("DEFAULT_WORKERS_MAX is 1", DEFAULT_WORKERS_MAX == 1)
 
     print(f"  Constants values (with FLASH_IMAGE_TAG={FLASH_IMAGE_TAG}):")
     print(f"    FLASH_GPU_IMAGE: {FLASH_GPU_IMAGE}")

@@ -3,7 +3,7 @@ from runpod_flash import CpuLiveServerless, remote
 cpu_config = CpuLiveServerless(
     name="cpu_worker",
     workersMin=0,
-    workersMax=5,
+    workersMax=1,
     idleTimeout=5,
 )
 
