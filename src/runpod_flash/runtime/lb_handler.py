@@ -36,8 +36,13 @@ async def extract_api_key_middleware(request: Request, call_next):
     """Extract API key from Authorization header and set in context.
 
     This middleware extracts the Bearer token from the Authorization header
-    and makes it available to downstream code via context variables. This
-    enables mothership endpoints to propagate API keys to worker endpoints.
+    and makes it available to downstream code via context variables and request state.
+    This enables mothership endpoints to propagate API keys to worker endpoints and
+    State Manager queries.
+
+    The API key is stored in both:
+    1. contextvars for async functions that respect context propagation
+    2. request.state for explicit access to per-request API key
 
     Args:
         request: Incoming FastAPI request
@@ -45,6 +50,9 @@ async def extract_api_key_middleware(request: Request, call_next):
 
     Returns:
         Response from downstream handlers
+
+    Raises:
+        Any exceptions from downstream handlers are re-raised
     """
     # Extract API key from Authorization header
     auth_header = request.headers.get("Authorization", "")
@@ -54,7 +62,13 @@ async def extract_api_key_middleware(request: Request, call_next):
     if auth_header.startswith("Bearer "):
         api_key = auth_header[7:].strip()  # Remove "Bearer " prefix and trim whitespace
         token = set_api_key(api_key)
+        # Also store in request.state for explicit per-request access
+        request.state.api_key = api_key
         logger.debug("Extracted API key from Authorization header")
+    else:
+        # No Bearer token - request.state.api_key will be undefined
+        # Downstream code should check hasattr(request.state, 'api_key')
+        logger.debug("No Authorization header with Bearer token found")
 
     try:
         response = await call_next(request)
@@ -63,6 +77,7 @@ async def extract_api_key_middleware(request: Request, call_next):
         # Clean up context after request
         if token is not None:
             clear_api_key(token)
+            logger.debug("Cleared API key from context after request")
 
 
 def create_lb_handler(

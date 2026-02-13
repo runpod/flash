@@ -397,3 +397,126 @@ class TestStateManagerClientConcurrency:
             )
 
             assert mock_client.update_build_manifest.call_count == 2
+
+
+class TestStateManagerClientAPIKeyThreading:
+    """Tests for API key threading through StateManagerClient."""
+
+    @pytest.mark.asyncio
+    async def test_api_key_in_init_is_stored(self):
+        """Verify API key passed to __init__ is stored."""
+        client = StateManagerClient(api_key="test-key-123")
+        assert client.api_key == "test-key-123"
+
+    @pytest.mark.asyncio
+    async def test_api_key_passed_to_runpod_graphql_client(self):
+        """Verify API key is passed to RunpodGraphQLClient."""
+        mock_client = AsyncMock(spec=RunpodGraphQLClient)
+        mock_client.__aenter__.return_value = mock_client
+        mock_client.__aexit__.return_value = False
+        mock_client.get_flash_environment.return_value = {"activeBuildId": "build-123"}
+        mock_client.get_flash_build.return_value = {
+            "id": "build-123",
+            "manifest": {"version": "1.0", "resources": {}},
+        }
+
+        with patch(
+            "runpod_flash.runtime.state_manager_client.RunpodGraphQLClient",
+            return_value=mock_client,
+        ) as mock_graphql_class:
+            client = StateManagerClient(api_key="stored-key")
+            await client.get_persisted_manifest("env-123")
+
+            # Verify RunpodGraphQLClient was called with the stored API key
+            mock_graphql_class.assert_called_with(api_key="stored-key")
+
+    @pytest.mark.asyncio
+    async def test_api_key_method_parameter_overrides_instance(self):
+        """Verify API key passed to method overrides instance api_key."""
+        mock_client = AsyncMock(spec=RunpodGraphQLClient)
+        mock_client.__aenter__.return_value = mock_client
+        mock_client.__aexit__.return_value = False
+        mock_client.get_flash_environment.return_value = {"activeBuildId": "build-123"}
+        mock_client.get_flash_build.return_value = {
+            "id": "build-123",
+            "manifest": {"version": "1.0", "resources": {}},
+        }
+
+        with patch(
+            "runpod_flash.runtime.state_manager_client.RunpodGraphQLClient",
+            return_value=mock_client,
+        ) as mock_graphql_class:
+            client = StateManagerClient(api_key="stored-key")
+            await client.get_persisted_manifest("env-123", api_key="override-key")
+
+            # Verify method parameter overrides instance api_key
+            mock_graphql_class.assert_called_with(api_key="override-key")
+
+    @pytest.mark.asyncio
+    async def test_api_key_used_in_update_resource_state(self):
+        """Verify API key is passed to RunpodGraphQLClient in update_resource_state."""
+        mock_client = AsyncMock(spec=RunpodGraphQLClient)
+        mock_client.__aenter__.return_value = mock_client
+        mock_client.__aexit__.return_value = False
+        mock_client.get_flash_environment.return_value = {"activeBuildId": "build-123"}
+        mock_client.get_flash_build.return_value = {
+            "id": "build-123",
+            "manifest": {"resources": {}},
+        }
+        mock_client.update_build_manifest = AsyncMock()
+
+        with patch(
+            "runpod_flash.runtime.state_manager_client.RunpodGraphQLClient",
+            return_value=mock_client,
+        ) as mock_graphql_class:
+            client = StateManagerClient(api_key="update-key")
+            await client.update_resource_state("env-123", "worker1", {"status": "ok"})
+
+            # Verify RunpodGraphQLClient was called with the API key
+            mock_graphql_class.assert_called_with(api_key="update-key")
+
+    @pytest.mark.asyncio
+    async def test_api_key_used_in_remove_resource_state(self):
+        """Verify API key is passed to RunpodGraphQLClient in remove_resource_state."""
+        mock_client = AsyncMock(spec=RunpodGraphQLClient)
+        mock_client.__aenter__.return_value = mock_client
+        mock_client.__aexit__.return_value = False
+        mock_client.get_flash_environment.return_value = {"activeBuildId": "build-123"}
+        mock_client.get_flash_build.return_value = {
+            "id": "build-123",
+            "manifest": {"resources": {"worker1": {}}},
+        }
+        mock_client.update_build_manifest = AsyncMock()
+
+        with patch(
+            "runpod_flash.runtime.state_manager_client.RunpodGraphQLClient",
+            return_value=mock_client,
+        ) as mock_graphql_class:
+            client = StateManagerClient(api_key="remove-key")
+            await client.remove_resource_state("env-123", "worker1")
+
+            # Verify RunpodGraphQLClient was called with the API key
+            mock_graphql_class.assert_called_with(api_key="remove-key")
+
+    @pytest.mark.asyncio
+    async def test_none_api_key_passed_when_not_available(self):
+        """Verify None is passed to RunpodGraphQLClient when no API key available."""
+        mock_client = AsyncMock(spec=RunpodGraphQLClient)
+        mock_client.__aenter__.return_value = mock_client
+        mock_client.__aexit__.return_value = False
+        mock_client.get_flash_environment.return_value = {"activeBuildId": "build-123"}
+        mock_client.get_flash_build.return_value = {
+            "id": "build-123",
+            "manifest": {"version": "1.0", "resources": {}},
+        }
+
+        with patch(
+            "runpod_flash.runtime.state_manager_client.RunpodGraphQLClient",
+            return_value=mock_client,
+        ) as mock_graphql_class:
+            client = StateManagerClient()  # No API key
+            await client.get_persisted_manifest("env-123")  # No API key parameter
+
+            # Verify RunpodGraphQLClient was called with None
+            # It will fall back to context or env var
+            mock_graphql_class.assert_called_with(api_key=None)

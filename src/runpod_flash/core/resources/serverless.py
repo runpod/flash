@@ -17,7 +17,6 @@ from runpod.endpoint.runner import Job
 
 from ..api.runpod import RunpodGraphQLClient
 from ..utils.backoff import get_backoff_delay
-from ...runtime.api_key_context import get_api_key
 from .base import DeployableResource
 from .cloud import runpod
 from .constants import CONSOLE_URL
@@ -201,6 +200,8 @@ class ServerlessResource(DeployableResource):
             raise ValueError("Missing self.id")
 
         # Priority: request context > env var
+        from ...runtime.api_key_context import get_api_key
+
         api_key = get_api_key() or os.getenv("RUNPOD_API_KEY")
         return runpod.Endpoint(self.id, api_key=api_key)
 
@@ -575,6 +576,9 @@ class ServerlessResource(DeployableResource):
         For queue-based endpoints that make remote calls, injects RUNPOD_API_KEY
         into environment variables if not already set.
 
+        For load-balanced endpoints, retrieves API key from request context
+        (set by middleware) to ensure per-request API keys are available.
+
         Returns a DeployableResource object.
         """
         try:
@@ -627,7 +631,18 @@ class ServerlessResource(DeployableResource):
             # Ensure network volume is deployed first
             await self._ensure_network_volume_deployed()
 
-            async with RunpodGraphQLClient() as client:
+            # Get API key from request context for LB endpoints during request processing
+            api_key = None
+            if self.type == ServerlessType.LB:
+                from runpod_flash.runtime.api_key_context import get_api_key
+
+                api_key = get_api_key()
+                if api_key:
+                    log.debug(
+                        f"{self.name}: Using API key from request context for LB deployment"
+                    )
+
+            async with RunpodGraphQLClient(api_key=api_key) as client:
                 payload = self.model_dump(
                     exclude=self._payload_exclude(), exclude_none=True, mode="json"
                 )

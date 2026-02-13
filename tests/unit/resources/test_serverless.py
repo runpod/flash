@@ -88,8 +88,9 @@ class TestServerlessResource:
         # Patch runpod.Endpoint since runpod is now lazy-loaded
         with patch("runpod.Endpoint") as mock_endpoint:
             # Mock context API key to return a test key
+            # Patch at the import location inside the method (runtime.api_key_context)
             with patch(
-                "runpod_flash.core.resources.serverless.get_api_key",
+                "runpod_flash.runtime.api_key_context.get_api_key",
                 return_value="test-api-key",
             ):
                 endpoint = serverless.endpoint

@@ -39,25 +39,30 @@ class StateManagerClient:
     def __init__(
         self,
         max_retries: int = DEFAULT_MAX_RETRIES,
+        api_key: Optional[str] = None,
     ):
         """Initialize State Manager client.
 
         Args:
             max_retries: Maximum retry attempts for operations.
+            api_key: Optional API key. If provided, will be used for all requests.
+                    If not provided, will be retrieved from context or environment.
 
         Raises:
-            RunpodAPIKeyError: If RUNPOD_API_KEY environment variable is not set (raised by RunpodGraphQLClient).
+            RunpodAPIKeyError: If no API key available (from param, context, or env).
         """
         self.max_retries = max_retries
+        self.api_key = api_key
         self._manifest_lock = asyncio.Lock()
 
     async def get_persisted_manifest(
-        self, mothership_id: str
+        self, mothership_id: str, api_key: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
         """Fetch persisted manifest from State Manager.
 
         Args:
             mothership_id: ID of the mothership endpoint.
+            api_key: Optional API key for this request. Overrides instance api_key.
 
         Returns:
             Manifest dict.
@@ -65,11 +70,13 @@ class StateManagerClient:
         Raises:
             ManifestServiceUnavailableError: If State Manager unavailable after retries.
         """
+        # Use provided api_key, fall back to instance api_key, then context/env
+        key_to_use = api_key or self.api_key
         last_exception: Optional[Exception] = None
 
         for attempt in range(self.max_retries):
             try:
-                async with RunpodGraphQLClient() as client:
+                async with RunpodGraphQLClient(api_key=key_to_use) as client:
                     _, manifest = await self._fetch_build_and_manifest(
                         client, mothership_id
                     )
@@ -119,6 +126,7 @@ class StateManagerClient:
         mothership_id: str,
         resource_name: str,
         resource_data: Dict[str, Any],
+        api_key: Optional[str] = None,
     ) -> None:
         """Update single resource entry in State Manager.
 
@@ -129,16 +137,19 @@ class StateManagerClient:
             mothership_id: ID of the mothership endpoint.
             resource_name: Name of the resource.
             resource_data: Resource metadata (config_hash, endpoint_url, status, etc).
+            api_key: Optional API key for this request. Overrides instance api_key.
 
         Raises:
             ManifestServiceUnavailableError: If State Manager unavailable.
         """
+        # Use provided api_key, fall back to instance api_key, then context/env
+        key_to_use = api_key or self.api_key
         last_exception: Optional[Exception] = None
 
         for attempt in range(self.max_retries):
             try:
                 async with self._manifest_lock:
-                    async with RunpodGraphQLClient() as client:
+                    async with RunpodGraphQLClient(api_key=key_to_use) as client:
                         build_id, manifest = await self._fetch_build_and_manifest(
                             client, mothership_id
                         )
@@ -176,7 +187,7 @@ class StateManagerClient:
         )
 
     async def remove_resource_state(
-        self, mothership_id: str, resource_name: str
+        self, mothership_id: str, resource_name: str, api_key: Optional[str] = None
     ) -> None:
         """Remove resource entry from State Manager.
 
@@ -186,16 +197,19 @@ class StateManagerClient:
         Args:
             mothership_id: ID of the mothership endpoint.
             resource_name: Name of the resource.
+            api_key: Optional API key for this request. Overrides instance api_key.
 
         Raises:
             ManifestServiceUnavailableError: If State Manager unavailable.
         """
+        # Use provided api_key, fall back to instance api_key, then context/env
+        key_to_use = api_key or self.api_key
         last_exception: Optional[Exception] = None
 
         for attempt in range(self.max_retries):
             try:
                 async with self._manifest_lock:
-                    async with RunpodGraphQLClient() as client:
+                    async with RunpodGraphQLClient(api_key=key_to_use) as client:
                         build_id, manifest = await self._fetch_build_and_manifest(
                             client, mothership_id
                         )
