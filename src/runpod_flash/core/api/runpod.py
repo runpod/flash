@@ -485,6 +485,19 @@ class RunpodGraphQLClient:
                 f"Expected 'updateFlashBuildManifest' in response, got: {list(result.keys())}"
             )
 
+        # DIAGNOSTIC: Log the successful mutation and what was uploaded
+        log.info(
+            f"📤 STATE MANAGER: GraphQL mutation succeeded for build_id={build_id}"
+        )
+        log.info(
+            f"📤 STATE MANAGER: Uploaded manifest with keys: {list(manifest.keys())}"
+        )
+        if "resources_endpoints" in manifest:
+            log.info(
+                f"📤 STATE MANAGER: Uploaded {len(manifest['resources_endpoints'])} endpoints: "
+                f"{list(manifest['resources_endpoints'].keys())}"
+            )
+
     async def get_flash_artifact_url(self, environment_id: str) -> Dict[str, Any]:
         result = await self.get_flash_environment(
             {"flashEnvironmentId": environment_id}

@@ -159,6 +159,11 @@ async def provision_resources_for_build(
     for resource_name, url in resources_endpoints.items():
         log.info(f"  {resource_name} → {url}")
 
+    # DIAGNOSTIC: Log the full resources_endpoints mapping for debugging
+    log.info(
+        f"📤 DEPLOY SYNC: resources_endpoints mapping: {json.dumps(resources_endpoints, indent=2)}"
+    )
+
     # Update manifest in FlashApp with resources_endpoints
     manifest["resources_endpoints"] = resources_endpoints
     await app.update_build_manifest(build_id, manifest)
@@ -354,6 +359,16 @@ async def reconcile_and_provision_resources(
     for resource_name, url in resources_endpoints.items():
         log.info(f"  {resource_name} → {url}")
 
+    # DIAGNOSTIC: Log what we're uploading to State Manager
+    log.info(
+        f"📤 DEPLOY SYNC: Uploading manifest to State Manager - "
+        f"build_id={build_id}, environment_id={environment_id}"
+    )
+    log.info(
+        f"📤 DEPLOY SYNC: Manifest contains resources_endpoints: "
+        f"{json.dumps(local_manifest.get('resources_endpoints', {}), indent=2)}"
+    )
+
     # Overwrite State Manager manifest with local manifest
     await app.update_build_manifest(build_id, local_manifest)
 
@@ -440,6 +455,9 @@ async def deploy_to_environment(
     build_id = build["id"]
 
     await app.deploy_build_to_environment(build_id, environment_name=env_name)
+
+    # DIAGNOSTIC: Log environment activation
+    log.info(f"📤 DEPLOY: Environment {env_name} activated with build_id={build_id}")
 
     try:
         resources_endpoints = await reconcile_and_provision_resources(

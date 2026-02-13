@@ -268,12 +268,35 @@ class StateManagerClient:
                 f"Environment may not be fully initialized or has no deployed build."
             )
 
+        # DIAGNOSTIC: Log the environment → build mapping
+        logger.info(
+            f"📥 STATE MANAGER: environment_id={mothership_id} → activeBuildId={build_id}"
+        )
+
         build = await client.get_flash_build(build_id)
         manifest = build.get("manifest")
+
+        # DIAGNOSTIC: Log what we got from State Manager
+        logger.info(
+            f"📥 STATE MANAGER: Retrieved build {build_id}, manifest keys: {list(manifest.keys()) if manifest else 'NONE'}"
+        )
+
         if not manifest:
             raise ManifestServiceUnavailableError(
                 f"Manifest not found for build {build.get('id', build_id)}. "
                 f"Build may be corrupted, not yet published, or manifest was not generated."
+            )
+
+        # DIAGNOSTIC: Log resources_endpoints availability
+        if "resources_endpoints" in manifest:
+            logger.info(
+                f"📥 STATE MANAGER: Manifest has {len(manifest['resources_endpoints'])} endpoints: "
+                f"{list(manifest['resources_endpoints'].keys())}"
+            )
+        else:
+            logger.warning(
+                f"📥 STATE MANAGER: Manifest MISSING resources_endpoints! "
+                f"Full manifest keys: {list(manifest.keys())}"
             )
 
         return build_id, manifest
