@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 import shutil
 import subprocess
 import time
@@ -185,6 +186,7 @@ def _parse_resources_from_manifest(manifest: dict) -> dict:
             "is_mothership": resource_data.get("is_mothership", False),
             "imageName": resource_data.get("imageName", FLASH_CPU_LB_IMAGE),
             "functions": resource_data.get("functions", []),
+            "makes_remote_calls": resource_data.get("makes_remote_calls", False),
         }
 
     # Fallback: If no mothership found in manifest, create default
@@ -193,6 +195,7 @@ def _parse_resources_from_manifest(manifest: dict) -> dict:
         resources["mothership"] = {
             "is_mothership": True,
             "imageName": FLASH_CPU_LB_IMAGE,
+            "makes_remote_calls": False,
         }
 
     return resources
@@ -283,9 +286,22 @@ def _start_resource_container(
         f"RUNPOD_ENDPOINT_ID=preview-{resource_name}",
         "-e",
         f"FLASH_RESOURCES_ENDPOINTS={json.dumps(resources_endpoints)}",
-        "-p",
-        f"{port}:80",
     ]
+
+    # Inject RUNPOD_API_KEY for resources that make remote calls
+    makes_remote_calls = resource_config.get("makes_remote_calls", False)
+    if makes_remote_calls:
+        api_key = os.getenv("RUNPOD_API_KEY")
+        if api_key:
+            docker_cmd.extend(["-e", f"RUNPOD_API_KEY={api_key}"])
+            logger.info(f"{resource_name}: Injected RUNPOD_API_KEY for remote calls")
+        else:
+            console.print(
+                f"[yellow]Warning:[/yellow] {resource_name} makes remote calls but "
+                f"RUNPOD_API_KEY is not set. Remote calls will fail."
+            )
+
+    docker_cmd.extend(["-p", f"{port}:80"])
 
     # Use image's default CMD (uvicorn lb_handler:app)
     docker_cmd.append(image)
