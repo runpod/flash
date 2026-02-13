@@ -54,19 +54,12 @@ class TestRemoteDecoratorDeploymentGuard:
         mock_is_local_function = MagicMock(return_value=False)
         mock_config_module = create_mock_resource_config_module(mock_is_local_function)
 
-        # Mock ResourceManager to ensure no fallback path is taken
-        mock_resource_manager = Mock()
-
         with (
             patch(
                 "runpod_flash.runtime.service_registry.ServiceRegistry",
                 mock_service_registry_class,
             ),
             patch("runpod_flash.client.stub_resource", return_value=mock_stub),
-            patch(
-                "runpod_flash.client.ResourceManager",
-                return_value=mock_resource_manager,
-            ),
             patch.dict(
                 sys.modules,
                 {"runpod_flash.runtime._flash_resource_config": mock_config_module},
@@ -87,14 +80,13 @@ class TestRemoteDecoratorDeploymentGuard:
             # Call the function
             await test_func()
 
-            # Verify ServiceRegistry was called to lookup the endpoint
+            # Verify ServiceRegistry was called
             mock_service_registry_instance.get_resource_for_function.assert_called_once_with(
                 "test_func"
             )
 
             # Verify stub was created with the resource from ServiceRegistry
-            # (stub_resource should be called with the mock resource returned by ServiceRegistry)
-            assert mock_stub.called
+            mock_stub.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_remote_decorator_raises_error_when_endpoint_missing_in_deployed_env(
