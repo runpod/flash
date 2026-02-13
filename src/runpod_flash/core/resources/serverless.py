@@ -19,7 +19,7 @@ from ..api.runpod import RunpodGraphQLClient
 from ..utils.backoff import get_backoff_delay
 from .base import DeployableResource
 from .cloud import runpod
-from .constants import CONSOLE_URL
+from .constants import CONSOLE_URL, DEFAULT_WORKERS_MAX, DEFAULT_WORKERS_MIN
 from .environment import EnvironmentVars
 from .cpu import CpuInstanceType
 from .gpu import GpuGroup, GpuType
@@ -166,8 +166,8 @@ class ServerlessResource(DeployableResource):
     scalerValue: Optional[int] = 4
     templateId: Optional[str] = None
     type: Optional[ServerlessType] = ServerlessType.QB
-    workersMax: Optional[int] = 1
-    workersMin: Optional[int] = 0
+    workersMax: Optional[int] = DEFAULT_WORKERS_MAX
+    workersMin: Optional[int] = DEFAULT_WORKERS_MIN
     workersPFBTarget: Optional[int] = 0
 
     # === Runtime Fields ===
