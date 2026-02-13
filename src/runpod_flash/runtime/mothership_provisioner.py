@@ -147,7 +147,6 @@ def filter_resources_by_manifest(
 def create_resource_from_manifest(
     resource_name: str,
     resource_data: Dict[str, Any],
-    mothership_url: str = "",
     flash_environment_id: Optional[str] = None,
 ) -> DeployableResource:
     """Create DeployableResource config from manifest entry.
@@ -155,7 +154,6 @@ def create_resource_from_manifest(
     Args:
         resource_name: Name of the resource
         resource_data: Resource configuration from manifest
-        mothership_url: Optional mothership URL (for future use with child env vars)
         flash_environment_id: Optional flash environment ID to attach
 
     Returns:

@@ -107,7 +107,6 @@ async def provision_resources_for_build(
         resource = create_resource_from_manifest(
             resource_name,
             resource_config,
-            mothership_url="",  # Intentionally left empty during CLI provisioning
         )
         resources_to_provision.append((resource_name, resource))
 
@@ -239,7 +238,6 @@ async def reconcile_and_provision_resources(
         resource = create_resource_from_manifest(
             resource_name,
             resource_config,
-            mothership_url="",
             flash_environment_id=environment_id,
         )
         actions.append(
@@ -263,7 +261,6 @@ async def reconcile_and_provision_resources(
             resource = create_resource_from_manifest(
                 resource_name,
                 local_config,
-                mothership_url="",
                 flash_environment_id=environment_id,
             )
             actions.append(
@@ -416,8 +413,16 @@ def validate_local_manifest() -> Dict[str, Any]:
 
 async def deploy_to_environment(
     app_name: str, env_name: str, build_path: Path
-) -> Dict[str, Any]:
+) -> Dict[str, str]:
     """Deploy current project to environment.
+
+    Args:
+        app_name: Name of the Flash app
+        env_name: Target environment name
+        build_path: Path to the build archive
+
+    Returns:
+        Mapping of resource_name -> endpoint_url (resources_endpoints)
 
     Raises:
         runpod_flash.core.resources.app.FlashEnvironmentNotFoundError: If the environment does not exist
@@ -434,7 +439,7 @@ async def deploy_to_environment(
     build = await app.upload_build(build_path)
     build_id = build["id"]
 
-    result = await app.deploy_build_to_environment(build_id, environment_name=env_name)
+    await app.deploy_build_to_environment(build_id, environment_name=env_name)
 
     try:
         resources_endpoints = await reconcile_and_provision_resources(
@@ -450,7 +455,7 @@ async def deploy_to_environment(
         log.error(f"Resource provisioning failed: {e}")
         raise
 
-    return result
+    return resources_endpoints
 
 
 def rollback_deployment(name: str, target_version: str):
