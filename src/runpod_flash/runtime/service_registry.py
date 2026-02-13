@@ -228,6 +228,11 @@ class ServiceRegistry:
                     return
 
                 try:
+                    # Get API key from request context (set by middleware)
+                    from .api_key_context import get_api_key
+
+                    api_key = get_api_key()
+
                     # Use FLASH_ENVIRONMENT_ID (set during deployment) to query State Manager
                     # Fallback to RUNPOD_ENDPOINT_ID for backwards compatibility
                     environment_id = os.getenv("FLASH_ENVIRONMENT_ID") or os.getenv(
@@ -240,8 +245,9 @@ class ServiceRegistry:
                         return
 
                     # Query State Manager directly for full manifest
+                    # Pass API key explicitly to ensure it's available even if contextvars isn't propagated
                     full_manifest = await self._manifest_client.get_persisted_manifest(
-                        environment_id
+                        environment_id, api_key=api_key
                     )
 
                     # Log what State Manager returned for troubleshooting
