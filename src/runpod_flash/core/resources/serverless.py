@@ -587,9 +587,9 @@ class ServerlessResource(DeployableResource):
                 log.debug(f"{self} exists")
                 return self
 
-            # Inject API key for queue-based endpoints that make remote calls
-            # LB endpoints use Authorization headers from requests, not env vars
-            if self.type == ServerlessType.QB:
+            # Inject API key for endpoints that make remote calls
+            # Both QB and LB endpoints need API keys when calling other endpoints
+            if self.type in (ServerlessType.QB, ServerlessType.LB):
                 env_dict = self.env or {}
 
                 # Check if this resource makes remote calls (from build manifest)

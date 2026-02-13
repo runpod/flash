@@ -1288,3 +1288,168 @@ class TestHealthModels:
         health = ServerlessHealth(workers=workers_health, jobs=jobs_health)
 
         assert health.is_ready is False
+
+
+class TestAPIKeyInjection:
+    """Test RUNPOD_API_KEY injection for endpoints that make remote calls."""
+
+    @pytest.fixture
+    def mock_runpod_client(self):
+        """Mock RunpodGraphQLClient."""
+        client = AsyncMock()
+        client.save_endpoint = AsyncMock(
+            return_value={
+                "id": "endpoint-123",
+                "name": "test-endpoint",
+                "templateId": "template-456",
+            }
+        )
+        return client
+
+    @pytest.fixture
+    def mock_manifest_with_remote_calls(self, tmp_path):
+        """Create a mock manifest with makes_remote_calls=True."""
+        manifest_data = {
+            "version": "1.0",
+            "resources": {
+                "test-endpoint-qb": {"makes_remote_calls": True},
+                "test-endpoint-lb": {"makes_remote_calls": True},
+            },
+        }
+        manifest_path = tmp_path / "flash_manifest.json"
+        import json
+
+        with open(manifest_path, "w") as f:
+            json.dump(manifest_data, f)
+        return manifest_path
+
+    @pytest.mark.asyncio
+    async def test_qb_endpoint_injects_api_key_when_makes_remote_calls(
+        self, mock_runpod_client, mock_manifest_with_remote_calls, tmp_path
+    ):
+        """Test QB endpoints get RUNPOD_API_KEY when makes_remote_calls=True."""
+        from runpod_flash.core.resources.serverless import ServerlessType
+
+        # Change to manifest directory
+        os.chdir(tmp_path)
+
+        serverless = ServerlessResource(
+            name="test-endpoint-qb", gpuCount=1, workersMax=1, workersMin=0
+        )
+        serverless.type = ServerlessType.QB
+
+        with patch(
+            "runpod_flash.core.resources.serverless.RunpodGraphQLClient"
+        ) as mock_client_class:
+            mock_client_class.return_value.__aenter__.return_value = mock_runpod_client
+            mock_client_class.return_value.__aexit__.return_value = None
+
+            with patch.object(ServerlessResource, "is_deployed", return_value=False):
+                with patch.object(
+                    ServerlessResource, "_ensure_network_volume_deployed"
+                ):
+                    with patch.object(
+                        ServerlessResource, "_sync_graphql_object_with_inputs"
+                    ) as mock_sync:
+                        mock_sync.return_value = serverless
+                        with patch.dict(
+                            "os.environ", {"RUNPOD_API_KEY": "test-api-key-123"}
+                        ):
+                            await serverless._do_deploy()
+
+        # Verify API key was injected
+        assert serverless.env is not None
+        assert "RUNPOD_API_KEY" in serverless.env
+        assert serverless.env["RUNPOD_API_KEY"] == "test-api-key-123"
+
+    @pytest.mark.asyncio
+    async def test_lb_endpoint_injects_api_key_when_makes_remote_calls(
+        self, mock_runpod_client, mock_manifest_with_remote_calls, tmp_path
+    ):
+        """Test LB endpoints get RUNPOD_API_KEY when makes_remote_calls=True."""
+        from runpod_flash.core.resources.serverless import ServerlessType
+
+        # Change to manifest directory
+        os.chdir(tmp_path)
+
+        serverless = ServerlessResource(
+            name="test-endpoint-lb", gpuCount=1, workersMax=1, workersMin=0
+        )
+        serverless.type = ServerlessType.LB
+
+        with patch(
+            "runpod_flash.core.resources.serverless.RunpodGraphQLClient"
+        ) as mock_client_class:
+            mock_client_class.return_value.__aenter__.return_value = mock_runpod_client
+            mock_client_class.return_value.__aexit__.return_value = None
+
+            with patch.object(ServerlessResource, "is_deployed", return_value=False):
+                with patch.object(
+                    ServerlessResource, "_ensure_network_volume_deployed"
+                ):
+                    with patch.object(
+                        ServerlessResource, "_sync_graphql_object_with_inputs"
+                    ) as mock_sync:
+                        mock_sync.return_value = serverless
+                        with patch.dict(
+                            "os.environ", {"RUNPOD_API_KEY": "test-api-key-456"}
+                        ):
+                            # Mock get_api_key for LB deployment context
+                            with patch(
+                                "runpod_flash.runtime.api_key_context.get_api_key",
+                                return_value=None,
+                            ):
+                                await serverless._do_deploy()
+
+        # Verify API key was injected for LB endpoint
+        assert serverless.env is not None
+        assert "RUNPOD_API_KEY" in serverless.env
+        assert serverless.env["RUNPOD_API_KEY"] == "test-api-key-456"
+
+    @pytest.mark.asyncio
+    async def test_endpoint_without_remote_calls_no_api_key_injection(
+        self, mock_runpod_client, tmp_path
+    ):
+        """Test endpoints without remote calls don't get API key injected."""
+        from runpod_flash.core.resources.serverless import ServerlessType
+
+        # Create manifest with makes_remote_calls=False
+        manifest_data = {
+            "version": "1.0",
+            "resources": {"test-local-only": {"makes_remote_calls": False}},
+        }
+        manifest_path = tmp_path / "flash_manifest.json"
+        import json
+
+        with open(manifest_path, "w") as f:
+            json.dump(manifest_data, f)
+
+        os.chdir(tmp_path)
+
+        serverless = ServerlessResource(
+            name="test-local-only", gpuCount=1, workersMax=1, workersMin=0
+        )
+        serverless.type = ServerlessType.QB
+
+        with patch(
+            "runpod_flash.core.resources.serverless.RunpodGraphQLClient"
+        ) as mock_client_class:
+            mock_client_class.return_value.__aenter__.return_value = mock_runpod_client
+            mock_client_class.return_value.__aexit__.return_value = None
+
+            with patch.object(ServerlessResource, "is_deployed", return_value=False):
+                with patch.object(
+                    ServerlessResource, "_ensure_network_volume_deployed"
+                ):
+                    with patch.object(
+                        ServerlessResource, "_sync_graphql_object_with_inputs"
+                    ) as mock_sync:
+                        mock_sync.return_value = serverless
+                        with patch.dict(
+                            "os.environ", {"RUNPOD_API_KEY": "should-not-inject"}
+                        ):
+                            await serverless._do_deploy()
+
+        # Verify API key was NOT injected
+        if serverless.env:
+            assert "RUNPOD_API_KEY" not in serverless.env

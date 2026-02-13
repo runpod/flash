@@ -190,6 +190,7 @@ class TestCrossEndpointRoutingIntegration:
             {
                 "FLASH_RESOURCE_NAME": "gpu_config",
                 "RUNPOD_ENDPOINT_ID": "mothership-id",
+                "FLASH_ENVIRONMENT_ID": "env-mothership",
             },
         ):
             endpoint_registry = {

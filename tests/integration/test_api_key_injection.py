@@ -135,8 +135,8 @@ class TestAPIKeyInjection:
                 os.chdir(original_cwd)
 
     @pytest.mark.asyncio
-    async def test_lb_endpoint_never_injects_api_key(self):
-        """Load-balancer endpoints never inject API keys (use Authorization headers)."""
+    async def test_lb_endpoint_with_remote_calls_injects_api_key(self):
+        """LB endpoints with makes_remote_calls=True inject API keys for outgoing calls."""
         manifest = {
             "version": "1.0",
             "project_name": "test",
@@ -175,14 +175,20 @@ class TestAPIKeyInjection:
                         return_value={"id": "endpoint-789", "name": "lb_worker"}
                     )
 
+                    # Mock get_api_key for LB deployment context
                     with patch(
-                        "runpod_flash.core.resources.serverless.RunpodGraphQLClient",
-                        return_value=mock_client,
+                        "runpod_flash.runtime.api_key_context.get_api_key",
+                        return_value=None,
                     ):
-                        await endpoint._do_deploy()
+                        with patch(
+                            "runpod_flash.core.resources.serverless.RunpodGraphQLClient",
+                            return_value=mock_client,
+                        ):
+                            await endpoint._do_deploy()
 
-                    # Assert API key was NOT injected (LB uses Authorization headers)
-                    assert "RUNPOD_API_KEY" not in endpoint.env
+                    # Assert API key was injected for outgoing remote calls
+                    assert "RUNPOD_API_KEY" in endpoint.env
+                    assert endpoint.env["RUNPOD_API_KEY"] == "test-api-key-123"
 
             finally:
                 os.chdir(original_cwd)

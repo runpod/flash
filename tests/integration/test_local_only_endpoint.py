@@ -92,6 +92,7 @@ class TestLocalOnlyEndpointOptimization:
                 {
                     "FLASH_RESOURCE_NAME": "remote_worker",
                     "RUNPOD_ENDPOINT_ID": "ep-123",
+                    "FLASH_ENVIRONMENT_ID": "env-123",
                 },
             ):
                 registry = ServiceRegistry(manifest_path=manifest_path)
@@ -113,7 +114,7 @@ class TestLocalOnlyEndpointOptimization:
 
                 # Assert State Manager was queried
                 mock_state_manager.get_persisted_manifest.assert_called_once_with(
-                    "ep-123", api_key=None
+                    "env-123", api_key=None
                 )
                 assert len(registry._endpoint_registry) == 2
                 assert (
@@ -157,6 +158,7 @@ class TestLocalOnlyEndpointOptimization:
                 {
                     "FLASH_RESOURCE_NAME": "unknown_worker",
                     "RUNPOD_ENDPOINT_ID": "ep-999",
+                    "FLASH_ENVIRONMENT_ID": "env-999",
                 },
             ):
                 registry = ServiceRegistry(manifest_path=manifest_path)
@@ -186,7 +188,11 @@ class TestLocalOnlyEndpointOptimization:
 
             with patch.dict(
                 "os.environ",
-                {"FLASH_RESOURCE_NAME": "any_worker", "RUNPOD_ENDPOINT_ID": "ep-555"},
+                {
+                    "FLASH_RESOURCE_NAME": "any_worker",
+                    "RUNPOD_ENDPOINT_ID": "ep-555",
+                    "FLASH_ENVIRONMENT_ID": "env-555",
+                },
             ):
                 # ServiceRegistry handles missing manifest gracefully
                 registry = ServiceRegistry(manifest_path=manifest_path)
@@ -236,6 +242,7 @@ class TestLocalOnlyEndpointOptimization:
                 {
                     "FLASH_RESOURCE_NAME": "cached_worker",
                     "RUNPOD_ENDPOINT_ID": "ep-cache",
+                    "FLASH_ENVIRONMENT_ID": "env-cache",
                 },
             ):
                 # Short cache TTL for testing
