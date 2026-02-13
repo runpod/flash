@@ -23,7 +23,7 @@ from runpod_flash import CpuLiveLoadBalancer
 mothership = CpuLiveLoadBalancer(
     name="mothership",
     workersMin=1,
-    workersMax=3,
+    workersMax=1,
 )
 
 # Examples of customization:
@@ -47,7 +47,7 @@ mothership = CpuLiveLoadBalancer(
 # mothership = CpuLiveLoadBalancer(
 #     name="my-api-gateway",
 #     workersMin=1,
-#     workersMax=3,
+#     workersMax=1,
 # )
 
 # To disable mothership:

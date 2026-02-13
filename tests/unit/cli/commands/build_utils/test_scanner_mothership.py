@@ -405,7 +405,7 @@ mothership = CpuLiveLoadBalancer()
             assert result is not None
             assert result["name"] == "mothership"  # Default name
             assert result["workersMin"] == 1  # Default min
-            assert result["workersMax"] == 3  # Default max
+            assert result["workersMax"] == 1  # Default max
 
     def test_detect_explicit_mothership_with_comments(self):
         """Test detection works with commented code around mothership."""

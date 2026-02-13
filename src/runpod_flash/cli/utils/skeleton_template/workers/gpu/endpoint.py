@@ -4,7 +4,7 @@ gpu_config = LiveServerless(
     name="gpu_worker",
     gpus=[GpuGroup.ANY],
     workersMin=0,
-    workersMax=3,
+    workersMax=1,
     idleTimeout=5,
 )
 
