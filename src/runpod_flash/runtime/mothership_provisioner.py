@@ -214,6 +214,14 @@ def create_resource_from_manifest(
     if mothership_id:
         env["FLASH_MOTHERSHIP_ID"] = mothership_id
 
+    # Mothership-specific environment variables
+    if resource_data.get("is_mothership"):
+        env["FLASH_IS_MOTHERSHIP"] = "true"
+        if "main_file" in resource_data:
+            env["FLASH_MAIN_FILE"] = resource_data["main_file"]
+        if "app_variable" in resource_data:
+            env["FLASH_APP_VARIABLE"] = resource_data["app_variable"]
+
     prefixed_name = resource_name
 
     # Extract deployment config from manifest
