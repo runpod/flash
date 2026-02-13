@@ -1,6 +1,20 @@
 # flash build
 
-Build Flash application for deployment.
+Build a deployment-ready artifact for your Flash application.
+
+## Overview
+
+The `flash build` command packages your Flash project into a deployable archive (`.flash/artifact.tar.gz`). It scans your codebase for `@remote` decorated functions, resolves dependencies, and creates a manifest that tells Runpod how to provision your serverless endpoints.
+
+### What happens during build
+
+1. **Function discovery:** Finds all `@remote` functions and groups them by their `resource_config`
+2. **Manifest generation:** Creates `.flash/flash_manifest.json` with endpoint definitions and routing info
+3. **Dependency installation:** Installs Python packages for Linux x86_64 (cross-platform compatible)
+4. **Packaging** — Bundles everything into a compressed archive
+
+> **Tip:** Most users should use `flash deploy` instead, which runs build + deploy in one step. Use `flash build` when you need more control over the build process or want to inspect the artifact before deploying.
+
 
 ## Usage
 
@@ -37,16 +51,6 @@ flash build --output my-app.tar.gz
 # Combine options
 flash build --keep-build --output deploy.tar.gz
 ```
-
-## What It Does
-
-The build process packages your Flash application into a self-contained deployment package:
-
-1. **Discovery**: Scans your project for `@remote` decorated functions
-2. **Grouping**: Groups functions by their `resource_config`
-3. **Manifest Creation**: Generates `flash_manifest.json` for service discovery
-4. **Dependency Installation**: Installs all Python dependencies locally
-5. **Packaging**: Creates `.flash/artifact.tar.gz` ready for deployment
 
 ## Build Artifacts
 

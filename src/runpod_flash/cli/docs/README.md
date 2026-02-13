@@ -4,22 +4,37 @@ Command-line interface for Flash - distributed inference and serving framework.
 
 ## Quick Start
 
+If you haven't already, install Flash:
+
 ```bash
-# Create new project
+pip install runpod-flash
+```
+
+Create a new project, navigate to it, and install dependencies:
+
+```bash
 flash init my-project
-
-# Navigate to project
 cd my-project
-
-# Install dependencies
 pip install -r requirements.txt
+```
 
-# Add your Runpod API key to .env
-# RUNPOD_API_KEY=your_key_here
+Add your Runpod API key to `.env`:
+```bash
+echo "RUNPOD_API_KEY=your_api_key_here" > .env
+```
 
-# Run development server
+Start the development server to test your `@remote` functions:
+
+```bash
 flash run
 ```
+
+When you're ready to deploy to Runpod, use:
+
+```bash
+flash deploy
+```
+
 
 ## Commands
 
@@ -115,7 +130,7 @@ flash deploy --preview
 
 ### flash run
 
-Run Flash development server.
+Start a Flash development server for testing/debugging/development.
 
 ```bash
 flash run [OPTIONS]
@@ -125,7 +140,7 @@ flash run [OPTIONS]
 - `--host`: Host to bind to (default: localhost)
 - `--port, -p`: Port to bind to (default: 8888)
 - `--reload/--no-reload`: Enable auto-reload (default: enabled)
-- `--auto-provision`: Auto-provision serverless endpoints on startup (default: disabled)
+- `--auto-provision`: Auto-provision Serverless endpoints on startup (default: disabled)
 
 **Example:**
 ```bash
@@ -175,7 +190,7 @@ flash env delete dev
 
 ### flash app
 
-Manage Flash applications (top-level organizational units).
+Manage Flash apps (cloud-side organizational units that group deployment environments, build artifacts, and configuration).
 
 ```bash
 flash app <subcommand> [OPTIONS]
@@ -223,6 +238,7 @@ flash undeploy [NAME|list] [OPTIONS]
 - `--cleanup-stale`: Remove inactive endpoints from tracking
 
 **Examples:**
+
 ```bash
 # List all tracked endpoints
 flash undeploy list
@@ -241,6 +257,7 @@ flash undeploy --cleanup-stale
 ```
 
 **Status Indicators:**
+
 - 🟢 **Active**: Endpoint is running and healthy
 - 🔴 **Inactive**: Endpoint deleted externally (use --cleanup-stale to remove from tracking)
 - ❓ **Unknown**: Health check failed

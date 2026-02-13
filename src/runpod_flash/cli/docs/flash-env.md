@@ -4,17 +4,21 @@ Manage deployment environments for Flash applications.
 
 ## Overview
 
-Environments are isolated deployment contexts within a Flash app. Each environment has its own:
-- Deployed endpoints and resources
-- Active build version
-- Configuration and state
-- Network volumes (if configured)
+An **environment** is an isolated deployment context within a Flash app. Each environment is a separate "stage" (like `dev`, `staging`, or `production`) that contains its own:
 
-Common use cases:
-- **Development**: Test features before production
-- **Staging**: Pre-production validation environment
-- **Production**: Live user-facing deployment
-- **Testing**: Automated testing and CI/CD integration
+- **Deployed endpoints** — Serverless endpoints provisioned from your `@remote` functions
+- **Active build version** — The specific version of your code running in this environment
+- **Network volumes** — Persistent storage for models, caches, etc.
+- **Deployment state** — Current status (PENDING, DEPLOYING, DEPLOYED, etc.)
+
+Environments enable standard development workflows: test changes in `dev`, validate in `staging`, then deploy to `production`. Each environment is completely independent—deploying to one has no effect on others.
+
+> **Note:** You don't always need to create environments explicitly. When you run `flash deploy --env <name>`, the environment is **automatically created** if it doesn't exist. The `create` subcommand is useful when you want to set up environments before deploying, or in CI/CD pipelines.
+
+**When to use `flash env` commands:**
+- **`list` / `get`** — Checking environment status and what's deployed (common)
+- **`delete`** — Removing environments and their resources (common)
+- **`create`** — Pre-creating environments before deployment (optional)
 
 ## Subcommands
 
@@ -66,6 +70,7 @@ flash env create <name> [OPTIONS]
 - `--app, -a`: Flash app name (auto-detected from current directory)
 
 **Example:**
+
 ```bash
 # Create staging environment
 flash env create staging

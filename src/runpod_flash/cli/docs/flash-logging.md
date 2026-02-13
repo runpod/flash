@@ -1,17 +1,32 @@
 # File-Based Logging
 
-Flash automatically logs CLI activity to local files during development, providing a persistent record of operations for debugging and auditing.
+Automatic logging of Flash CLI activity for debugging and auditing.
 
 ## Overview
 
-File-based logging is enabled by default in local development mode and automatically disabled in deployed containers. Logs are written to daily rotating files with configurable retention.
+Flash automatically logs all CLI operations to local files during development. This gives you a persistent record of what happened, which isuseful for debugging issues, auditing deployments, or understanding what Flash did behind the scenes.
 
-**Key Features:**
-- Automatic daily log rotation at midnight
-- Configurable retention period (default: 30 days)
-- Same format as console output
-- Graceful degradation (continues with stdout-only if file logging fails)
-- Zero configuration required (sensible defaults)
+### How it works
+
+File-based logging is enabled by default in local development mode ([flash run](./flash-run.md)) and automatically disabled in deployed containers ([flash deploy](./flash-deploy.md)).
+
+When you run a `@remote` function, Flash logs the activity to a file:
+
+```
+flash run
+    │
+    ├── Console output (what you see)
+    └── .flash/logs/activity.log (persistent record)
+```
+
+Logs are written in the same format as console output, so you can grep through them or review them in any text editor. (See [Log Format](#log-format) for details.)
+
+### Key features
+
+- **Automatic rotation**: New log file each day at midnight
+- **Configurable retention**: Default 30 days, adjustable via environment
+- **Graceful degradation**: Continues with stdout-only if file logging fails
+- **Zero configuration**: Works out of the box with sensible defaults
 
 ## Log Location
 

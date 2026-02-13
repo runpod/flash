@@ -4,12 +4,20 @@ Manage Flash applications (top-level organizational units).
 
 ## Overview
 
-Flash apps are the top-level organizational units in the Flash deployment hierarchy. Each app contains:
-- **Environments**: Deployment contexts (dev, staging, production)
-- **Builds**: Build artifacts created from your code
-- **Configuration**: App-wide settings and metadata
+A **Flash app** is a cloud-side container that groups everything related to a single project: your deployment environments, build artifacts, and configuration. Think of it as a project namespace in Runpod that keeps your `dev`, `staging`, and `production` deployments organized together.
 
-Apps provide isolation between different projects and enable organized management of multiple deployments.
+
+**When to use `flash app` commands:**
+- **`list` / `get`** — Viewing your apps and their status
+- **`delete`** — Cleaning up apps you no longer need
+- **`create`** — Pre-registering apps before deployment (rare, mainly for CI/CD)
+
+**What an app contains:**
+| Resource | Description |
+|----------|-------------|
+| Environments | Deployment contexts (dev, staging, production) |
+| Builds | Versioned artifacts created from your code |
+| Configuration | App-wide settings and metadata |
 
 ## Subcommands
 
@@ -62,10 +70,9 @@ flash app create my-project
 ╰───────────────────────────────────────────────╯
 ```
 
-**Notes:**
-- App names must be unique within your account
-- Newly created apps have no environments or builds until first deployment
-- Apps are automatically created during first deployment if they don't exist
+App names must be unique within your account.
+
+> **Note:** Most users don't need to run `flash app create` explicitly. Apps are **automatically created** when you first run `flash deploy`. The `create` subcommand exists for CI/CD pipelines and administrative workflows that need to pre-register apps before deployment. See [Flash Deploy](./flash-deploy.md) for details.
 
 ---
 
@@ -460,3 +467,7 @@ flash app get <app-id>
 - [flash env](./flash-env.md) - Manage app environments
 - [flash build](./flash-build.md) - Create build artifacts
 - [flash init](./flash-init.md) - Initialize new Flash project
+
+## Related Documentation
+
+- [Flash Apps & Environments](../../../docs/Flash_Apps_and_Environments.md) - Architectural details on apps and environments

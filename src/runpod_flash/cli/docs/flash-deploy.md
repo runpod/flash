@@ -2,6 +2,29 @@
 
 Build and deploy your Flash application to Runpod Serverless endpoints in one step.
 
+## Overview
+
+The `flash deploy` command is the primary way to get your Flash application running in the cloud. It combines the build process with deployment, taking your local code and turning it into live serverless endpoints on Runpod.
+
+**When to use this command:**
+- Deploying your application for the first time
+- Pushing code updates to an existing environment
+- Setting up new environments (dev, staging, production)
+- Testing your full distributed system with `--preview` before going live
+
+**What happens during deployment:**
+1. **Build** — Packages your code, dependencies, and manifest (same as `flash build`)
+2. **Upload** — Sends the artifact to Runpod's storage
+3. **Provision** — Creates or updates serverless endpoints based on your resource configs
+4. **Configure** — Sets up environment variables, volumes, and service discovery
+5. **Verify** — Confirms endpoints are healthy and displays access information
+
+**Key features:**
+- **One command** — No need to run build and deploy separately
+- **Smart environment handling** — Auto-selects environment if only one exists, prompts if multiple
+- **Incremental updates** — Only updates what changed, preserving endpoint URLs
+- **Preview mode** — Test locally with Docker before deploying to production
+
 ## Usage
 
 ```bash
@@ -127,6 +150,12 @@ See [flash build](./flash-build.md#preview-environment) for more details on prev
 
 ## Environment Management
 
+### What Is an Environment?
+
+An **environment** is an isolated deployment context within a Flash app. Each environment is a separate "stage" (like `dev`, `staging`, or `production`) that contains its own deployed endpoints, build versions, network volumes (if used) and deployment status.
+
+For more details about environment management, see [flash env](./flash-env.md).
+
 ### Automatic Environment Creation
 
 If the specified environment doesn't exist, `flash deploy` creates it automatically:
@@ -174,8 +203,6 @@ flash env get production
 # Delete environment
 flash env delete dev
 ```
-
-See [flash env](./flash-env.md) for complete environment management documentation.
 
 ## Post-Deployment
 
