@@ -128,7 +128,7 @@ class BaseResource(BaseModel):
         # Fallback to resource_id for resources without names
         return self.resource_id
 
-    def __reduce__(self):
+    def __reduce_ex__(self, protocol: int):
         """Custom pickling to handle ContextVar issues with cloudpickle.
 
         When cloudpickle tries to serialize this object, it includes references
@@ -146,10 +146,8 @@ class BaseResource(BaseModel):
 
         state = self.__dict__.copy()
 
-        # Remove cached attributes that will be recomputed
-        state.pop("_cached_resource_id", None)
-
         # Remove any weakrefs from the state dict
+        # This handles cases where threading.Lock or similar objects leak weakrefs
         keys_to_remove = []
         for key, value in state.items():
             # Direct weakref
@@ -173,12 +171,7 @@ class BaseResource(BaseModel):
         return state
 
     def __setstate__(self, state: Dict[str, Any]) -> None:
-        """Restore state from pickling.
-
-        Pydantic models store field values in __dict__, so updating __dict__
-        with the state dict (from model_dump) restores the model correctly.
-        Cached attributes like _cached_resource_id will be recomputed on first access.
-        """
+        """Restore state from pickling."""
         self.__dict__.update(state)
 
 
