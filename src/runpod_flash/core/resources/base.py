@@ -4,6 +4,19 @@ from typing import Optional, Dict, Any
 from pydantic import BaseModel, ConfigDict
 
 
+def _restore_resource(cls, state):
+    """Helper to restore a BaseResource from pickled state.
+
+    This function is used by __reduce_ex__ to reconstruct resource objects
+    in a way that avoids pickling module-level ContextVar objects.
+    """
+    # Create instance without calling __init__ to avoid validation
+    instance = cls.__new__(cls)
+    # Restore state directly
+    instance.__setstate__(state)
+    return instance
+
+
 class BaseResource(BaseModel):
     """Base class for all resources."""
 
@@ -114,6 +127,18 @@ class BaseResource(BaseModel):
             return f"{resource_type}:{name}"
         # Fallback to resource_id for resources without names
         return self.resource_id
+
+    def __reduce_ex__(self, protocol: int):
+        """Custom pickling to handle ContextVar issues with cloudpickle.
+
+        When cloudpickle tries to serialize this object, it includes references
+        to module-level state, including ContextVar objects that cannot be pickled.
+        This method uses a helper function to restore from state without triggering
+        module-level imports that include ContextVar.
+        """
+        # Use helper function to reconstruct from state
+        # This avoids cloudpickle trying to serialize module-level ContextVar
+        return (_restore_resource, (self.__class__, self.__getstate__()))
 
     def __getstate__(self) -> Dict[str, Any]:
         """Get state for pickling, excluding non-pickleable items."""
