@@ -468,7 +468,9 @@ class RemoteDecoratorScanner:
 
 
 def detect_main_app(
-    project_root: Path, explicit_mothership_exists: bool = False
+    project_root: Path,
+    explicit_mothership_exists: bool = False,
+    remote_function_names: Optional[set[str]] = None,
 ) -> Optional[dict]:
     """Detect main.py FastAPI app and return mothership config.
 
@@ -478,12 +480,14 @@ def detect_main_app(
     Args:
         project_root: Root directory of Flash project
         explicit_mothership_exists: If True, skip auto-detection (explicit config takes precedence)
+        remote_function_names: Set of @remote function names to check for in FastAPI routes
 
     Returns:
         Dict with app metadata: {
             'file_path': Path,
             'app_variable': str,
             'has_routes': bool,
+            'fastapi_routes': list of RemoteFunctionMetadata,
         }
         Returns None if no FastAPI app found with custom routes or explicit_mothership_exists is True.
     """
@@ -543,7 +547,23 @@ def detect_main_app(
                                                 encoding="utf-8"
                                             )
                                             router_tree = ast.parse(router_content)
-                                            router_module = router_file.stem
+
+                                            # Compute proper module path from file path
+                                            # For workers/gpu/__init__.py -> workers.gpu
+                                            # For routers/user.py -> routers.user
+                                            try:
+                                                rel_path = router_file.relative_to(
+                                                    project_root
+                                                )
+                                                router_module = str(
+                                                    rel_path.with_suffix("")
+                                                ).replace("/", ".")
+                                                # Remove __init__ suffix for package imports
+                                                if router_module.endswith(".__init__"):
+                                                    router_module = router_module[:-9]
+                                            except ValueError:
+                                                # Fallback if not relative to project_root
+                                                router_module = router_file.stem
 
                                             routes = _extract_router_routes(
                                                 router_tree,
@@ -571,6 +591,15 @@ def detect_main_app(
                                     if route.file_path == Path(module_path):
                                         route.file_path = main_path
 
+                                # 6. Analyze FastAPI routes for remote calls if remote_function_names provided
+                                if remote_function_names:
+                                    _analyze_fastapi_routes_for_remote_calls(
+                                        tree,
+                                        all_fastapi_routes,
+                                        main_path,
+                                        remote_function_names,
+                                    )
+
                                 return {
                                     "file_path": main_path,
                                     "app_variable": app_variable,
@@ -586,6 +615,96 @@ def detect_main_app(
             logger.debug(f"Failed to parse {main_path}: {e}")
 
     return None
+
+
+def _analyze_fastapi_routes_for_remote_calls(
+    tree: ast.AST,
+    routes: List[RemoteFunctionMetadata],
+    main_file: Path,
+    remote_function_names: set[str],
+) -> None:
+    """Analyze FastAPI routes for calls to @remote functions.
+
+    Updates each route's calls_remote_functions flag if it calls any @remote functions.
+
+    Args:
+        tree: AST of the main file containing direct routes
+        routes: List of route metadata to analyze
+        main_file: Path to the main file
+        remote_function_names: Set of @remote function names to look for
+    """
+    # Build function node map for main file routes
+    func_node_map: Dict[str, ast.AST] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            func_node_map.setdefault(node.name, node)
+
+    # Analyze each route
+    for route in routes:
+        try:
+            # For routes from main file (app.get, app.post, etc.)
+            if route.file_path == main_file:
+                node = func_node_map.get(route.function_name)
+                if node is not None:
+                    _analyze_function_calls_for_route(
+                        node, route, remote_function_names
+                    )
+            else:
+                # For routes from router files, need to read and parse the file
+                try:
+                    router_content = route.file_path.read_text(encoding="utf-8")
+                    router_tree = ast.parse(router_content)
+
+                    # Find function node in router file
+                    router_func_map: Dict[str, ast.AST] = {}
+                    for node in ast.walk(router_tree):
+                        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                            router_func_map.setdefault(node.name, node)
+
+                    node = router_func_map.get(route.function_name)
+                    if node is not None:
+                        _analyze_function_calls_for_route(
+                            node, route, remote_function_names
+                        )
+                except (UnicodeDecodeError, SyntaxError):
+                    logger.debug(
+                        f"Could not parse {route.file_path} to analyze remote calls"
+                    )
+        except Exception as e:
+            logger.debug(
+                f"Failed to analyze {route.function_name} for remote calls: {e}"
+            )
+
+
+def _analyze_function_calls_for_route(
+    func_node: ast.AST,
+    route_metadata: RemoteFunctionMetadata,
+    remote_function_names: set[str],
+) -> None:
+    """Analyze a FastAPI route function for calls to @remote functions.
+
+    Args:
+        func_node: AST node for the function
+        route_metadata: Route metadata to update
+        remote_function_names: Set of @remote function names to look for
+    """
+    for node in ast.walk(func_node):
+        if isinstance(node, ast.Call):
+            # Handle direct calls: some_function()
+            if isinstance(node.func, ast.Name):
+                called_name = node.func.id
+                if called_name in remote_function_names:
+                    route_metadata.calls_remote_functions = True
+                    if called_name not in route_metadata.called_remote_functions:
+                        route_metadata.called_remote_functions.append(called_name)
+
+            # Handle attribute calls: obj.some_function()
+            elif isinstance(node.func, ast.Attribute):
+                called_name = node.func.attr
+                if called_name in remote_function_names:
+                    route_metadata.calls_remote_functions = True
+                    if called_name not in route_metadata.called_remote_functions:
+                        route_metadata.called_remote_functions.append(called_name)
 
 
 def _has_custom_routes(tree: ast.AST, app_variable: str) -> bool:
