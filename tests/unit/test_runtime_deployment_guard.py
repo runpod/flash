@@ -54,12 +54,19 @@ class TestRemoteDecoratorDeploymentGuard:
         mock_is_local_function = MagicMock(return_value=False)
         mock_config_module = create_mock_resource_config_module(mock_is_local_function)
 
+        # Mock ResourceManager to ensure no fallback path is taken
+        mock_resource_manager = Mock()
+
         with (
             patch(
                 "runpod_flash.runtime.service_registry.ServiceRegistry",
                 mock_service_registry_class,
             ),
             patch("runpod_flash.client.stub_resource", return_value=mock_stub),
+            patch(
+                "runpod_flash.client.ResourceManager",
+                return_value=mock_resource_manager,
+            ),
             patch.dict(
                 sys.modules,
                 {"runpod_flash.runtime._flash_resource_config": mock_config_module},
