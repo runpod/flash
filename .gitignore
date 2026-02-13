@@ -177,6 +177,7 @@ cython_debug/
 
 # Runpod Flash state
 .runpod/
+.flash/logs/
 
 # Code intelligence
 .code-intel/
