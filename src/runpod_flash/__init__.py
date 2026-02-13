@@ -33,6 +33,10 @@ if TYPE_CHECKING:
         ServerlessType,
         FlashApp,
     )
+    from .core.resources.constants import (
+        DEFAULT_WORKERS_MAX,
+        DEFAULT_WORKERS_MIN,
+    )
 
 
 def __getattr__(name):
@@ -103,6 +107,17 @@ def __getattr__(name):
             "FlashApp": FlashApp,
         }
         return attrs[name]
+    elif name in ("DEFAULT_WORKERS_MIN", "DEFAULT_WORKERS_MAX"):
+        from .core.resources.constants import (
+            DEFAULT_WORKERS_MAX,
+            DEFAULT_WORKERS_MIN,
+        )
+
+        attrs = {
+            "DEFAULT_WORKERS_MIN": DEFAULT_WORKERS_MIN,
+            "DEFAULT_WORKERS_MAX": DEFAULT_WORKERS_MAX,
+        }
+        return attrs[name]
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -126,4 +141,6 @@ __all__ = [
     "ServerlessEndpoint",
     "ServerlessType",
     "FlashApp",
+    "DEFAULT_WORKERS_MIN",
+    "DEFAULT_WORKERS_MAX",
 ]

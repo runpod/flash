@@ -7,6 +7,8 @@ from unittest.mock import patch
 from runpod_flash.cli.commands.build_utils.manifest import ManifestBuilder
 from runpod_flash.cli.commands.build_utils.scanner import RemoteFunctionMetadata
 from runpod_flash.core.resources.constants import (
+    DEFAULT_WORKERS_MAX,
+    DEFAULT_WORKERS_MIN,
     FLASH_CPU_LB_IMAGE,
     FLASH_LB_IMAGE,
 )
@@ -204,8 +206,8 @@ def root():
                 assert mothership["is_load_balanced"] is True
                 assert mothership["is_live_resource"] is True
                 assert mothership["imageName"] == FLASH_CPU_LB_IMAGE
-                assert mothership["workersMin"] == 1
-                assert mothership["workersMax"] == 1
+                assert mothership["workersMin"] == DEFAULT_WORKERS_MIN
+                assert mothership["workersMax"] == DEFAULT_WORKERS_MAX
 
     def test_manifest_uses_explicit_mothership_config(self):
         """Test explicit mothership.py config takes precedence over auto-detection."""

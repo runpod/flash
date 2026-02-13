@@ -16,14 +16,14 @@ To disable mothership deployment:
 Documentation: https://docs.runpod.io/flash/mothership
 """
 
-from runpod_flash import CpuLiveLoadBalancer
+from runpod_flash import DEFAULT_WORKERS_MAX, DEFAULT_WORKERS_MIN, CpuLiveLoadBalancer
 
 # Mothership endpoint configuration
 # This serves your FastAPI app routes from main.py
 mothership = CpuLiveLoadBalancer(
     name="mothership",
-    workersMin=1,
-    workersMax=1,
+    workersMin=DEFAULT_WORKERS_MIN,
+    workersMax=DEFAULT_WORKERS_MAX,
 )
 
 # Examples of customization:
