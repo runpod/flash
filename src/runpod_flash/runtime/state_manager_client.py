@@ -100,21 +100,23 @@ class StateManagerClient:
                 logger.debug(f"Persisted manifest loaded for {flash_environment_id}")
                 return manifest
 
-            except (
-                asyncio.TimeoutError,
-                ManifestServiceUnavailableError,
-                GraphQLError,
-                ConnectionError,
-            ) as e:
+            except Exception as e:
                 last_exception = e
+                logger.debug(
+                    f"State Manager request failed (attempt {attempt + 1}/{self.max_retries}): "
+                    f"{type(e).__name__}: {e}"
+                )
                 if attempt < self.max_retries - 1:
                     backoff = 2**attempt
-                    logger.warning(
-                        f"State Manager request failed (attempt {attempt + 1}): {e}, "
-                        f"retrying in {backoff}s..."
-                    )
+                    logger.debug(f"Retrying State Manager query in {backoff}s...")
                     await asyncio.sleep(backoff)
                     continue
+                else:
+                    # Last attempt failed, will raise below
+                    logger.warning(
+                        f"State Manager unavailable after {self.max_retries} attempts: "
+                        f"{type(e).__name__}: {e}"
+                    )
 
         raise ManifestServiceUnavailableError(
             f"Failed to fetch persisted manifest after {self.max_retries} attempts: "
