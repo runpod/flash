@@ -225,6 +225,12 @@ class ManifestBuilder:
         # Determine if mothership makes remote calls based on actual function analysis
         makes_remote_calls = any(func.calls_remote_functions for func in fastapi_routes)
 
+        # Extract main file and app variable for runtime provisioning
+        # Store only the filename (not absolute path) since container has its own working directory
+        file_path = main_app_config.get("file_path")
+        main_file = file_path.name if file_path else "main.py"
+        app_variable = main_app_config.get("app_variable", "app")
+
         return {
             "resource_type": "CpuLiveLoadBalancer",
             "functions": functions_list,
@@ -232,6 +238,8 @@ class ManifestBuilder:
             "is_live_resource": True,
             "makes_remote_calls": makes_remote_calls,
             "is_mothership": True,
+            "main_file": main_file,
+            "app_variable": app_variable,
             "imageName": FLASH_CPU_LB_IMAGE,
             "workersMin": DEFAULT_WORKERS_MIN,
             "workersMax": DEFAULT_WORKERS_MAX,
@@ -262,8 +270,14 @@ class ManifestBuilder:
         if not main_app_config:
             # No FastAPI app found, use defaults
             fastapi_routes = []
+            main_file = "main.py"
+            app_variable = "app"
         else:
             fastapi_routes = main_app_config.get("fastapi_routes", [])
+            # Store only the filename (not absolute path) since container has its own working directory
+            file_path = main_app_config.get("file_path")
+            main_file = file_path.name if file_path else "main.py"
+            app_variable = main_app_config.get("app_variable", "app")
 
         # Extract FastAPI routes into functions list
         functions_list = _serialize_routes(fastapi_routes)
@@ -285,6 +299,8 @@ class ManifestBuilder:
             "is_live_resource": True,
             "makes_remote_calls": makes_remote_calls,
             "is_mothership": True,
+            "main_file": main_file,
+            "app_variable": app_variable,
             "imageName": image_name,
             "workersMin": explicit_config.get("workersMin", DEFAULT_WORKERS_MIN),
             "workersMax": explicit_config.get("workersMax", DEFAULT_WORKERS_MAX),
