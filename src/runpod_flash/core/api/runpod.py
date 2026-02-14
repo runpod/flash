@@ -156,7 +156,7 @@ class RunpodGraphQLClient:
             raise Exception("Unexpected GraphQL response structure")
 
         template_data = result["saveTemplate"]
-        log.info(
+        log.debug(
             f"Updated template: {template_data.get('id', 'unknown')} - {template_data.get('name', 'unnamed')}"
         )
 
@@ -354,8 +354,6 @@ class RunpodGraphQLClient:
         """
         variables = {"input": input_data}
 
-        log.debug(f"finalizing upload for flash app: {input_data}")
-
         result = await self._execute_graphql(mutation, variables)
         return result["finalizeFlashArtifactUpload"]
 
@@ -460,7 +458,6 @@ class RunpodGraphQLClient:
         """
         variables = {"input": input_data}
 
-        log.debug(f"Fetching flash environment by name for input: {variables}")
         result = await self._execute_graphql(query, variables)
 
         return result["flashEnvironmentByName"]
@@ -512,8 +509,6 @@ class RunpodGraphQLClient:
         """
 
         variables = {"input": input_data}
-
-        log.debug(f"Deploying flash environment with vars: {input_data}")
 
         result = await self._execute_graphql(mutation, variables)
         return result["deployBuildToEnvironment"]

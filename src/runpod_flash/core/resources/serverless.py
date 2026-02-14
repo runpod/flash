@@ -673,7 +673,7 @@ class ServerlessResource(DeployableResource):
                             new_config.template, resolved_template_id
                         )
                         await client.update_template(template_payload)
-                        log.info(
+                        log.debug(
                             f"Updated template '{resolved_template_id}' for endpoint '{self.name}'"
                         )
                     else:
