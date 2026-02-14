@@ -552,7 +552,7 @@ class StateManagerClient:
         Raises:
             ManifestServiceUnavailableError: If State Manager unavailable.
         """
-        # Fetches environment -> active build -> manifest via RunPod GraphQL
+        # Fetches environment -> active build -> manifest via Runpod GraphQL
 
     async def update_resource_state(
         self,
@@ -566,7 +566,7 @@ class StateManagerClient:
 
 **Configuration**:
 - Authentication: API key via `RUNPOD_API_KEY`
-- GraphQL endpoint: RunPod API (via `RunpodGraphQLClient`)
+- GraphQL endpoint: Runpod API (via `RunpodGraphQLClient`)
 - Request timeout: 10 seconds (via `DEFAULT_REQUEST_TIMEOUT`)
 - Retry logic: Exponential backoff with `DEFAULT_MAX_RETRIES` attempts (default: 3)
 - Fetch flow: `get_flash_environment` → `get_flash_build` → `manifest`
@@ -983,7 +983,7 @@ manifest = await client.get_persisted_manifest(mothership_id)
 
 Cross-endpoint routing uses a **peer-to-peer architecture** where all endpoints query State Manager directly for service discovery. This eliminates single points of failure and simplifies the system architecture compared to previous hub-and-spoke models.
 
-**Key Difference**: No mothership endpoint exposing a `/manifest` HTTP endpoint. Instead, all endpoints use `StateManagerClient` to query the RunPod GraphQL API directly.
+**Key Difference**: No mothership endpoint exposing a `/manifest` HTTP endpoint. Instead, all endpoints use `StateManagerClient` to query the Runpod GraphQL API directly.
 
 ### Architecture
 
@@ -993,7 +993,7 @@ flowchart TD
     B["Endpoint B"]
     C["Endpoint C"]
     D["State Manager<br/>GraphQL API"]
-    E["RunPod API Key"]
+    E["Runpod API Key"]
 
     A -->|Query Manifest| D
     B -->|Query Manifest| D
@@ -1030,7 +1030,7 @@ export RUNPOD_ENDPOINT_ID=gpu-endpoint-123
 
 ### StateManagerClient Features
 
-- **GraphQL Query**: Queries RunPod GraphQL API for manifest persistence
+- **GraphQL Query**: Queries Runpod GraphQL API for manifest persistence
 - **Caching**: 300-second TTL cache to minimize API calls
 - **Retry Logic**: Exponential backoff on failures (default 3 attempts)
 - **Thread-Safe**: Uses `asyncio.Lock` for concurrent operations

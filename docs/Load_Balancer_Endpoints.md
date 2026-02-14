@@ -2,7 +2,7 @@
 
 ## Overview
 
-The `LoadBalancerSlsResource` class enables provisioning and management of RunPod load-balanced serverless endpoints. Unlike queue-based endpoints that process requests sequentially, load-balanced endpoints expose HTTP servers directly to clients, enabling REST APIs, webhooks, and real-time communication patterns.
+The `LoadBalancerSlsResource` class enables provisioning and management of Runpod load-balanced serverless endpoints. Unlike queue-based endpoints that process requests sequentially, load-balanced endpoints expose HTTP servers directly to clients, enabling REST APIs, webhooks, and real-time communication patterns.
 
 This resource type is used for specialized endpoints like the Mothership. Cross-endpoint service discovery now uses State Manager GraphQL API (peer-to-peer) rather than HTTP endpoints.
 
@@ -10,7 +10,7 @@ This resource type is used for specialized endpoints like the Mothership. Cross-
 
 ### Problem Statement
 
-RunPod supports two serverless endpoint models:
+Runpod supports two serverless endpoint models:
 
 1. **Queue-Based (QB)**: Sequential processing with automatic retry logic
    - Requests queued and processed one-at-a-time
@@ -49,7 +49,7 @@ graph TD
     A["LoadBalancerSlsResource<br/>instance created"] --> B["Validate LB config<br/>Type=LB, REQUEST_COUNT scaler"]
     B --> C["Check if already<br/>deployed"]
     C -->|Already deployed| D["Return existing<br/>endpoint"]
-    C -->|New deployment| E["Call parent _do_deploy<br/>Create via RunPod API"]
+    C -->|New deployment| E["Call parent _do_deploy<br/>Create via Runpod API"]
     E --> F["Return deployed<br/>endpoint immediately"]
 
     style A fill:#1976d2,stroke:#0d47a1,stroke-width:3px,color:#fff
@@ -66,7 +66,7 @@ ServerlessResource (base class)
 ├── type: ServerlessType = QB (queue-based)
 ├── scalerType: ServerlessScalerType = QUEUE_DELAY
 ├── Standard provisioning flow
-└── Standard health checks (RunPod SDK)
+└── Standard health checks (Runpod SDK)
 
 LoadBalancerSlsResource (LB-specific subclass)
 ├── type: ServerlessType = LB (always, cannot override)
@@ -89,12 +89,12 @@ Load-balanced endpoints require a `/ping` endpoint that responds with:
 ```mermaid
 sequenceDiagram
     participant Deploy as LoadBalancerSlsResource
-    participant RunPod as RunPod API
+    participant Runpod as Runpod API
     participant Worker as LB Endpoint
     participant Ping as /ping Handler
 
-    Deploy->>RunPod: saveEndpoint (type=LB)
-    RunPod->>Worker: Create endpoint
+    Deploy->>Runpod: saveEndpoint (type=LB)
+    Runpod->>Worker: Create endpoint
     Worker->>Ping: Initialize
 
     loop Health Check Polling
@@ -123,7 +123,7 @@ This document focuses on the `LoadBalancerSlsResource` class implementation and 
 
 **Related documentation:**
 - [Using @remote with Load-Balanced Endpoints](Using_Remote_With_LoadBalancer.md) - User guide for writing and testing load-balanced endpoints
-- [LoadBalancer Runtime Architecture](LoadBalancer_Runtime_Architecture.md) - Technical details on what happens when deployed on RunPod, request flows, and execution patterns
+- [LoadBalancer Runtime Architecture](LoadBalancer_Runtime_Architecture.md) - Technical details on what happens when deployed on Runpod, request flows, and execution patterns
 
 **In the user guide, you'll learn:**
 - Quick start with `LiveLoadBalancer` for local development
@@ -204,7 +204,7 @@ LoadBalancerSlsResource(
 ### Health Checks
 
 ```python
-# Synchronous health check (for compatibility with RunPod SDK)
+# Synchronous health check (for compatibility with Runpod SDK)
 is_healthy = endpoint.is_deployed()
 
 # Asynchronous health check (for deployment flow)
@@ -258,7 +258,7 @@ try:
         print("Warning: Endpoint deployed but not yet healthy")
 
 except ValueError as e:
-    # RunPod API error or configuration issue
+    # Runpod API error or configuration issue
     print(f"Deployment error: {e}")
 ```
 
@@ -283,10 +283,10 @@ assert endpoint.type == ServerlessType.LB  # Always LB
 
 | Phase | Duration | Notes |
 |-------|----------|-------|
-| API call | < 1s | RunPod endpoint creation |
+| API call | < 1s | Runpod endpoint creation |
 | Deployment complete | **< 5s** | Returns immediately after API call |
 
-**Note**: Worker initialization (30-60s) and health checks happen asynchronously in the background. The endpoint is considered "deployed" as soon as RunPod creates it. You can manually verify health using `_wait_for_health()` if needed.
+**Note**: Worker initialization (30-60s) and health checks happen asynchronously in the background. The endpoint is considered "deployed" as soon as Runpod creates it. You can manually verify health using `_wait_for_health()` if needed.
 
 ### Manual Health Check (Optional)
 
@@ -317,7 +317,7 @@ Default health check configuration:
 | Latency | Higher (queuing) | Lower (direct) |
 | Custom endpoints | Limited | Full HTTP support |
 | Scalability | Per-function | Per-worker |
-| Health checks | RunPod SDK | `/ping` endpoint |
+| Health checks | Runpod SDK | `/ping` endpoint |
 | Use cases | Batch processing | APIs, webhooks, real-time |
 | Suitable for | Workers | Mothership, services |
 
@@ -347,12 +347,12 @@ LoadBalancerSlsResource (class)
 │   ├── Call _wait_for_health()
 │   └── Return deployed resource or raise TimeoutError
 └── is_deployed()
-    └── Sync wrapper using RunPod SDK
+    └── Sync wrapper using Runpod SDK
 ```
 
 ### Thread Safety
 
-- `is_deployed()` is thread-safe (uses RunPod SDK)
+- `is_deployed()` is thread-safe (uses Runpod SDK)
 - Async methods are safe for concurrent use
 - Health check polling handles multiple concurrent calls
 
@@ -377,7 +377,7 @@ LoadBalancerSlsResource (class)
       print("Endpoint not healthy yet, check logs")
   ```
 - Verify image runs correctly: `docker run my-image:latest`
-- Check logs: `runpod-cli logs <endpoint-id>` or use RunPod dashboard
+- Check logs: `runpod-cli logs <endpoint-id>` or use Runpod dashboard
 
 ### Configuration Validation Errors
 
@@ -397,7 +397,7 @@ endpoint = LoadBalancerSlsResource(
 
 ### API Errors (401, 403, 429)
 
-**Problem**: RunPod GraphQL errors during deployment
+**Problem**: Runpod GraphQL errors during deployment
 
 **Causes**:
 - Missing or invalid RUNPOD_API_KEY
@@ -406,7 +406,7 @@ endpoint = LoadBalancerSlsResource(
 
 **Solution**:
 - Verify API key: `echo $RUNPOD_API_KEY`
-- Check RunPod dashboard permissions
+- Check Runpod dashboard permissions
 - Retry after delay for rate limits
 
 ## Next Steps

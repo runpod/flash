@@ -1,7 +1,7 @@
 # Flash Apps & Environments
 
 ## Overview
-Flash apps are the top-level packaging unit for Flash projects. Each app tracks the source builds you've uploaded, the deployment environments that consume those builds, and metadata needed by the CLI to orchestrate everything on RunPod. Environments sit under an app and describe a concrete runtime surface (workers, endpoints, network volumes) that can be updated independently.
+Flash apps are the top-level packaging unit for Flash projects. Each app tracks the source builds you've uploaded, the deployment environments that consume those builds, and metadata needed by the CLI to orchestrate everything on Runpod. Environments sit under an app and describe a concrete runtime surface (workers, endpoints, network volumes) that can be updated independently.
 
 ## Key Concepts
 - **Flash App**: Logical container created once per project. It owns the ID used for uploads, holds references to environments/builds, and backs the `flash app` CLI.

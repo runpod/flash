@@ -1,7 +1,9 @@
 import asyncio
+import json
 import logging
 import os
 from enum import Enum
+from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Optional, Set
 
 from pydantic import (
@@ -510,9 +512,65 @@ class ServerlessResource(DeployableResource):
         payload["id"] = template_id
         return payload
 
+    def _check_makes_remote_calls(self) -> bool:
+        """Check if resource makes remote calls from build manifest.
+
+        Reads flash_manifest.json to determine if this resource config
+        has makes_remote_calls=True.
+
+        Returns:
+            True if makes remote calls, False if local-only,
+            True (safe default) if manifest not found.
+        """
+        try:
+            manifest_path = Path.cwd() / "flash_manifest.json"
+            if not manifest_path.exists():
+                # Try alternative locations
+                manifest_path = Path("/flash_manifest.json")  # Container path
+
+            if not manifest_path.exists():
+                log.debug("Manifest not found, assuming makes_remote_calls=True")
+                return True  # Safe default
+
+            with open(manifest_path) as f:
+                manifest_data = json.load(f)
+
+            resources = manifest_data.get("resources", {})
+
+            # Strip -fb suffix and live- prefix to match manifest name
+            lookup_name = self.name
+            if lookup_name.endswith("-fb"):
+                lookup_name = lookup_name[:-3]
+            if lookup_name.startswith(LIVE_PREFIX):
+                lookup_name = lookup_name[len(LIVE_PREFIX) :]
+
+            resource_config = resources.get(lookup_name)
+
+            if not resource_config:
+                log.debug(
+                    f"Resource '{lookup_name}' (from '{self.name}') not in manifest, assuming makes_remote_calls=True"
+                )
+                return True  # Safe default
+
+            makes_remote_calls = resource_config.get("makes_remote_calls", True)
+            log.debug(
+                f"Resource '{lookup_name}' (from '{self.name}') makes_remote_calls={makes_remote_calls}"
+            )
+            return makes_remote_calls
+
+        except Exception as e:
+            log.warning(
+                f"Failed to read manifest: {e}, assuming makes_remote_calls=True"
+            )
+            return True  # Safe default on error
+
     async def _do_deploy(self) -> "DeployableResource":
         """
         Deploys the serverless resource using the provided configuration.
+
+        For queue-based endpoints that make remote calls, injects RUNPOD_API_KEY
+        into environment variables if not already set.
+
         Returns a DeployableResource object.
         """
         try:
@@ -521,7 +579,32 @@ class ServerlessResource(DeployableResource):
                 log.debug(f"{self} exists")
                 return self
 
-            # NEW: Ensure network volume is deployed first
+            # Inject API key for queue-based endpoints that make remote calls
+            if self.type == ServerlessType.QB:
+                env_dict = self.env or {}
+
+                # Check if this resource makes remote calls (from build manifest)
+                makes_remote_calls = self._check_makes_remote_calls()
+
+                if makes_remote_calls:
+                    # Inject RUNPOD_API_KEY if not already set
+                    if "RUNPOD_API_KEY" not in env_dict:
+                        api_key = os.getenv("RUNPOD_API_KEY")
+                        if api_key:
+                            env_dict["RUNPOD_API_KEY"] = api_key
+                            log.info(
+                                f"{self.name}: Injected RUNPOD_API_KEY for remote calls "
+                                f"(makes_remote_calls=True)"
+                            )
+                        else:
+                            log.warning(
+                                f"{self.name}: makes_remote_calls=True but RUNPOD_API_KEY not set. "
+                                f"Remote calls to other endpoints will fail."
+                            )
+
+                self.env = env_dict
+
+            # Ensure network volume is deployed first
             await self._ensure_network_volume_deployed()
 
             async with RunpodGraphQLClient() as client:

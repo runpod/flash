@@ -77,6 +77,11 @@ class ServiceRegistry:
             "RUNPOD_ENDPOINT_ID"
         )
 
+        # Determine if this endpoint makes remote calls
+        self._makes_remote_calls = self._check_makes_remote_calls(
+            self._current_endpoint
+        )
+
     def _load_manifest(self, manifest_path: Optional[Path]) -> None:
         """Load flash_manifest.json.
 
@@ -132,8 +137,30 @@ class ServiceRegistry:
             resources={},
         )
 
+    def _check_makes_remote_calls(self, resource_name: Optional[str]) -> bool:
+        """Check if current resource makes remote calls based on local manifest.
+
+        Args:
+            resource_name: Name of the resource config (FLASH_RESOURCE_NAME or RUNPOD_ENDPOINT_ID).
+
+        Returns:
+            True if resource makes remote calls, False if local-only,
+            True (safe default) if manifest/resource not found.
+        """
+        if not resource_name or not self._manifest.resources:
+            return True  # Safe default - allow remote calls
+
+        resource_config = self._manifest.resources.get(resource_name)
+        if not resource_config:
+            return True  # Safe default
+
+        return resource_config.makes_remote_calls
+
     async def _ensure_manifest_loaded(self) -> None:
         """Load manifest from State Manager if cache expired or not loaded.
+
+        Skips State Manager query if this endpoint doesn't make remote calls
+        (makes_remote_calls=False in manifest).
 
         Peer-to-Peer Architecture:
             Each endpoint queries State Manager independently using its own
@@ -154,6 +181,14 @@ class ServiceRegistry:
         Returns:
             None. Updates self._endpoint_registry internally.
         """
+        # Skip if endpoint is local-only
+        if not self._makes_remote_calls:
+            logger.debug(
+                "Endpoint does not make remote calls (makes_remote_calls=False), "
+                "skipping State Manager query"
+            )
+            return
+
         async with self._endpoint_registry_lock:
             now = time.time()
             cache_age = now - self._endpoint_registry_loaded_at
