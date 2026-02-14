@@ -101,7 +101,7 @@ class ResourceManager(SingletonMixin):
                 migrated_configs[key] = self._resource_configs.get(key, "")
 
         if len(migrated) != len(self._resources):
-            log.info(f"Migrated {len(self._resources)} resources to name-based keys")
+            log.debug(f"Migrated {len(self._resources)} resources to name-based keys")
             self._resources = migrated
             self._resource_configs = migrated_configs
             self._save_resources()  # Persist migration
@@ -136,7 +136,7 @@ class ResourceManager(SingletonMixin):
 
         # Save if any hashes were updated
         if updated:
-            log.info("Refreshed config hashes after code changes")
+            log.debug("Refreshed config hashes after code changes")
             self._save_resources()
 
     def _save_resources(self) -> None:
@@ -256,7 +256,7 @@ class ResourceManager(SingletonMixin):
                         deployed_resource = await self._deploy_with_error_context(
                             config
                         )
-                        log.info(f"URL: {deployed_resource.url}")
+                        log.debug(f"URL: {deployed_resource.url}")
                         self._add_resource(resource_key, deployed_resource)
                         return deployed_resource
                     except Exception:
@@ -283,7 +283,7 @@ class ResourceManager(SingletonMixin):
                         f"  Existing config fields: {existing.model_dump(exclude_none=True, exclude={'id'}) if hasattr(existing, 'model_dump') else 'N/A'}\n"
                         f"  New config fields: {config.model_dump(exclude_none=True, exclude={'id'}) if hasattr(config, 'model_dump') else 'N/A'}"
                     )
-                    log.info(
+                    log.debug(
                         f"Config drift detected for '{config.name}': "
                         f"Automatically updating endpoint"
                     )
@@ -304,7 +304,7 @@ class ResourceManager(SingletonMixin):
                             deployed_resource = await self._deploy_with_error_context(
                                 config
                             )
-                            log.info(f"URL: {deployed_resource.url}")
+                            log.debug(f"URL: {deployed_resource.url}")
                             self._add_resource(resource_key, deployed_resource)
                             return deployed_resource
                         except Exception:
@@ -319,7 +319,7 @@ class ResourceManager(SingletonMixin):
 
                 # Config unchanged, reuse existing
                 log.debug(f"{existing} exists, reusing (config unchanged)")
-                log.info(f"URL: {existing.url}")
+                log.debug(f"URL: {existing.url}")
                 return existing
 
             # No existing resource, deploy new one
@@ -329,7 +329,7 @@ class ResourceManager(SingletonMixin):
             )
             try:
                 deployed_resource = await self._deploy_with_error_context(config)
-                log.info(f"URL: {deployed_resource.url}")
+                log.debug(f"URL: {deployed_resource.url}")
                 self._add_resource(resource_key, deployed_resource)
                 return deployed_resource
             except Exception:

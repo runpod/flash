@@ -2,13 +2,12 @@
 
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
-from pathlib import Path
 
 import pytest
 
 from runpod_flash.cli.utils.deployment import (
     provision_resources_for_build,
-    deploy_to_environment,
+    deploy_from_uploaded_build,
     reconcile_and_provision_resources,
 )
 
@@ -204,12 +203,11 @@ async def test_provision_resources_for_build_parallel_execution(
 
 
 @pytest.mark.asyncio
-async def test_deploy_to_environment_success(
+async def test_deploy_from_uploaded_build_success(
     mock_flash_app, mock_deployed_resource, tmp_path
 ):
     """Test successful deployment flow with provisioning."""
     mock_flash_app.get_environment_by_name = AsyncMock()
-    mock_flash_app.upload_build = AsyncMock(return_value={"id": "build-123"})
     mock_flash_app.deploy_build_to_environment = AsyncMock(
         return_value={"success": True}
     )
@@ -222,7 +220,6 @@ async def test_deploy_to_environment_success(
     )
     mock_flash_app.update_build_manifest = AsyncMock()
 
-    build_path = Path("/tmp/build.tar.gz")
     local_manifest = {
         "resources": {
             "cpu": {"resource_type": "ServerlessResource"},
@@ -230,7 +227,6 @@ async def test_deploy_to_environment_success(
         "resources_endpoints": {},
     }
 
-    # Create temporary manifest file
     import json
 
     manifest_dir = tmp_path / ".flash"
@@ -240,13 +236,11 @@ async def test_deploy_to_environment_success(
 
     with (
         patch("pathlib.Path.cwd", return_value=tmp_path),
-        patch("runpod_flash.cli.utils.deployment.FlashApp.from_name") as mock_from_name,
         patch("runpod_flash.cli.utils.deployment.ResourceManager") as mock_manager_cls,
         patch(
             "runpod_flash.cli.utils.deployment.create_resource_from_manifest"
         ) as mock_create_resource,
     ):
-        mock_from_name.return_value = mock_flash_app
         mock_manager = MagicMock()
         mock_manager.get_or_deploy_resource = AsyncMock(
             return_value=mock_deployed_resource
@@ -254,27 +248,32 @@ async def test_deploy_to_environment_success(
         mock_manager_cls.return_value = mock_manager
         mock_create_resource.return_value = MagicMock()
 
-        result = await deploy_to_environment("app-name", "dev", build_path)
+        result = await deploy_from_uploaded_build(
+            mock_flash_app, "build-123", "dev", local_manifest
+        )
 
-        assert result == {"success": True}
+        assert result["success"] is True
+        assert "resources_endpoints" in result
+        assert "local_manifest" in result
         mock_flash_app.get_environment_by_name.assert_awaited_once_with("dev")
-        mock_flash_app.upload_build.assert_awaited_once_with(build_path)
         mock_flash_app.deploy_build_to_environment.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_deploy_to_environment_provisioning_failure(mock_flash_app, tmp_path):
+async def test_deploy_from_uploaded_build_provisioning_failure(
+    mock_flash_app, tmp_path
+):
     """Test deployment when provisioning fails."""
     mock_flash_app.get_environment_by_name = AsyncMock()
-    mock_flash_app.upload_build = AsyncMock(return_value={"id": "build-123"})
-    # State Manager has no resources, so local_manifest resources will be NEW
+    mock_flash_app.deploy_build_to_environment = AsyncMock(
+        return_value={"success": True}
+    )
     mock_flash_app.get_build_manifest = AsyncMock(
         return_value={
             "resources": {},
         }
     )
 
-    build_path = Path("/tmp/build.tar.gz")
     local_manifest = {
         "resources": {
             "cpu": {"resource_type": "ServerlessResource"},
@@ -282,7 +281,6 @@ async def test_deploy_to_environment_provisioning_failure(mock_flash_app, tmp_pa
         "resources_endpoints": {},
     }
 
-    # Create temporary manifest file
     import json
 
     manifest_dir = tmp_path / ".flash"
@@ -292,13 +290,11 @@ async def test_deploy_to_environment_provisioning_failure(mock_flash_app, tmp_pa
 
     with (
         patch("pathlib.Path.cwd", return_value=tmp_path),
-        patch("runpod_flash.cli.utils.deployment.FlashApp.from_name") as mock_from_name,
         patch("runpod_flash.cli.utils.deployment.ResourceManager") as mock_manager_cls,
         patch(
             "runpod_flash.cli.utils.deployment.create_resource_from_manifest"
         ) as mock_create_resource,
     ):
-        mock_from_name.return_value = mock_flash_app
         mock_manager = MagicMock()
         mock_manager.get_or_deploy_resource = AsyncMock(
             side_effect=Exception("Resource deployment failed")
@@ -307,7 +303,9 @@ async def test_deploy_to_environment_provisioning_failure(mock_flash_app, tmp_pa
         mock_create_resource.return_value = MagicMock()
 
         with pytest.raises(RuntimeError) as exc_info:
-            await deploy_to_environment("app-name", "dev", build_path)
+            await deploy_from_uploaded_build(
+                mock_flash_app, "build-123", "dev", local_manifest
+            )
 
         assert "Failed to provision resources" in str(exc_info.value)
 

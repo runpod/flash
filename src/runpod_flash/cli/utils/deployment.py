@@ -216,7 +216,7 @@ async def reconcile_and_provision_resources(
     to_delete = state_resources - local_resources  # Removed resources
 
     if show_progress:
-        print(
+        log.debug(
             f"Reconciliation: {len(to_provision)} new, "
             f"{len(to_update)} existing, {len(to_delete)} to remove"
         )
@@ -274,7 +274,7 @@ async def reconcile_and_provision_resources(
 
     # Delete removed resources
     for resource_name in sorted(to_delete):
-        log.info(f"Resource {resource_name} marked for deletion (not implemented yet)")
+        log.debug(f"Resource {resource_name} marked for deletion (not implemented yet)")
 
     # Execute all actions in parallel with timeout
     if actions:
@@ -308,11 +308,10 @@ async def reconcile_and_provision_resources(
             if endpoint_url:
                 local_manifest["resources_endpoints"][resource_name] = endpoint_url
 
-            if show_progress:
-                action_label = (
-                    "✓ Provisioned" if action_type == "provision" else "✓ Updated"
-                )
-                print(f"{action_label}: {resource_name} → {endpoint_url}")
+            log.debug(
+                f"{'Provisioned' if action_type == 'provision' else 'Updated'}: "
+                f"{resource_name} -> {endpoint_url}"
+            )
 
     # Validate mothership was provisioned
     mothership_resources = [
@@ -338,30 +337,10 @@ async def reconcile_and_provision_resources(
     manifest_path = Path.cwd() / ".flash" / "flash_manifest.json"
     manifest_path.write_text(json.dumps(local_manifest, indent=2))
 
-    if show_progress:
-        print(f"✓ Local manifest updated at {manifest_path.relative_to(Path.cwd())}")
+    log.debug(f"Local manifest updated at {manifest_path.relative_to(Path.cwd())}")
 
     # Overwrite State Manager manifest with local manifest
     await app.update_build_manifest(build_id, local_manifest)
-
-    if show_progress:
-        print("✓ State Manager manifest updated")
-        print()
-
-        # Display mothership in simplified format
-        resources_endpoints = local_manifest.get("resources_endpoints", {})
-        resources = local_manifest.get("resources", {})
-
-        for resource_name in sorted(resources_endpoints.keys()):
-            resource_config = resources.get(resource_name, {})
-            is_mothership = resource_config.get("is_mothership", False)
-
-            if is_mothership:
-                print(f"🚀 Deployed: {app.name}")
-                print(f"   Environment: {environment_name}")
-                print(f"   URL:  {resources_endpoints[resource_name]}")
-                print()
-                break
 
     return local_manifest.get("resources_endpoints", {})
 
@@ -398,26 +377,24 @@ def validate_local_manifest() -> Dict[str, Any]:
     return manifest
 
 
-async def deploy_to_environment(
-    app_name: str, env_name: str, build_path: Path
+async def deploy_from_uploaded_build(
+    app: FlashApp,
+    build_id: str,
+    env_name: str,
+    local_manifest: Dict[str, Any],
 ) -> Dict[str, Any]:
-    """Deploy current project to environment.
+    """Deploy an already-uploaded build to an environment.
 
-    Raises:
-        runpod_flash.core.resources.app.FlashEnvironmentNotFoundError: If the environment does not exist
-        FileNotFoundError: If manifest not found
-        ValueError: If manifest is invalid
+    Args:
+        app: FlashApp instance (already resolved)
+        build_id: ID of the uploaded build
+        env_name: Target environment name
+        local_manifest: Validated local manifest dict
+
+    Returns:
+        Deployment result with resources_endpoints and local_manifest keys
     """
-    # Validate manifest exists before proceeding
-    local_manifest = validate_local_manifest()
-
-    app = await FlashApp.from_name(app_name)
-    # Verify environment exists (will raise FlashEnvironmentNotFoundError if not)
     environment = await app.get_environment_by_name(env_name)
-
-    build = await app.upload_build(build_path)
-    build_id = build["id"]
-
     result = await app.deploy_build_to_environment(build_id, environment_name=env_name)
 
     try:
@@ -427,13 +404,15 @@ async def deploy_to_environment(
             env_name,
             local_manifest,
             environment_id=environment.get("id"),
-            show_progress=True,
+            show_progress=False,
         )
         log.debug(f"Provisioned {len(resources_endpoints)} resources for {env_name}")
     except Exception as e:
         log.error(f"Resource provisioning failed: {e}")
         raise
 
+    result["resources_endpoints"] = resources_endpoints
+    result["local_manifest"] = local_manifest
     return result
 
 

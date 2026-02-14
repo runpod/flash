@@ -403,7 +403,7 @@ class ManifestBuilder:
 
         if explicit_mothership:
             # Use explicit configuration
-            logger.info("Found explicit mothership configuration in mothership.py")
+            logger.debug("Found explicit mothership configuration in mothership.py")
 
             # Check for name conflict
             mothership_name = explicit_mothership.get("name", "mothership")
