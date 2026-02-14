@@ -64,6 +64,10 @@ class SensitiveDataFilter(logging.Filter):
     # Pattern for Bearer tokens in Authorization headers
     BEARER_PATTERN = re.compile(r"(bearer\s+)([A-Za-z0-9_.-]+)", re.IGNORECASE)
 
+    # Pattern for common API key prefixes (OpenAI, Anthropic, etc)
+    # Matches: sk-..., key_..., etc. (32+ chars total)
+    PREFIXED_KEY_PATTERN = re.compile(r"\b(sk-|key_|api_)[A-Za-z0-9_-]{28,}\b")
+
     def filter(self, record: logging.LogRecord) -> bool:
         """Sanitize log record by redacting sensitive data.
 
@@ -129,8 +133,12 @@ class SensitiveDataFilter(logging.Filter):
             lambda m: f"{m.group(1)}***REDACTED***{m.group(3)}", text
         )
 
-        # Redact generic long tokens
-        text = self.TOKEN_PATTERN.sub(self._redact_token, text)
+        # Redact common prefixed API keys (sk-, key_, api_)
+        text = self.PREFIXED_KEY_PATTERN.sub(self._redact_token, text)
+
+        # Generic token pattern disabled - causes false positives with Job IDs, Template IDs, etc.
+        # Specific patterns above catch actual sensitive tokens.
+        # text = self.TOKEN_PATTERN.sub(self._redact_token, text)
 
         # Redact common password/secret patterns
         # Match field names with : or = separators and redact the value, preserving separator
@@ -293,7 +301,7 @@ def setup_logging(
     # Determine format based on final effective level
     if fmt is None:
         if level == logging.DEBUG:
-            fmt = "%(asctime)s | %(levelname)-5s | %(name)s | %(filename)s:%(lineno)d | %(message)s"
+            fmt = "%(asctime)s | %(levelname)-5s | %(message)s"
         else:
             # Default format for INFO level and above
             fmt = "%(asctime)s | %(levelname)-5s | %(message)s"
@@ -322,3 +330,8 @@ def setup_logging(
                 existing_handler.addFilter(sensitive_filter)
 
     root_logger.setLevel(level)
+
+    # Silence httpcore trace logs (connection/request details)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("asyncio").setLevel(logging.WARNING)

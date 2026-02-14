@@ -185,10 +185,8 @@ class FlashApp:
         """
         async with self._hydrate_lock:
             if self._hydrated:
-                log.debug("App is already hydrated while calling hydrate. Returning")
                 return
 
-            log.debug("Hydrating app")
             async with RunpodGraphQLClient() as client:
                 try:
                     result = await client.get_flash_app_by_name(self.name)

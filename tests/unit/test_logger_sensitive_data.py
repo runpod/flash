@@ -127,10 +127,11 @@ class TestSensitiveDataFilter:
         assert sanitized_config["api"]["endpoint"] == "https://api.example.com"
 
     def test_long_token_partial_redaction(self):
-        """Verify long tokens show first/last 4 chars for debugging."""
+        """Verify prefixed API keys show first/last 4 chars for debugging."""
         filter_instance = SensitiveDataFilter()
 
-        long_token = "abcdefghijklmnopqrstuvwxyz0123456789"
+        # Use a prefixed token that will be caught by PREFIXED_KEY_PATTERN
+        long_token = "sk-abcdefghijklmnopqrstuvwxyz0123456789"
         record = logging.LogRecord(
             name="test",
             level=logging.INFO,
@@ -143,7 +144,7 @@ class TestSensitiveDataFilter:
 
         filter_instance.filter(record)
         # Should show first 4 and last 4 chars
-        assert "abcd" in record.msg
+        assert "sk-a" in record.msg
         assert "6789" in record.msg
         assert "***REDACTED***" in record.msg
         assert long_token not in record.msg

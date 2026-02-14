@@ -253,7 +253,7 @@ class TestSetupLogging:
         monkeypatch.delenv("LOG_LEVEL")
 
     def test_debug_format_includes_details(self, tmp_path, monkeypatch):
-        """Verify DEBUG level uses detailed format."""
+        """Verify DEBUG level logging works with clean format."""
         # Change to temp directory
         monkeypatch.chdir(tmp_path)
 
@@ -275,10 +275,9 @@ class TestSetupLogging:
 
         output = stream.getvalue()
 
-        # Verify detailed format includes filename and line number
+        # Verify message is logged
         assert "Debug message" in output
-        assert "test_logger.py" in output  # filename
-        assert "test" in output  # logger name
+        assert "DEBUG" in output
 
         # Cleanup
         cleanup_handlers(root_logger)

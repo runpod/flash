@@ -74,11 +74,11 @@ class RemoteDecoratorScanner:
                 tree = ast.parse(content)
                 self._extract_resource_configs(tree, py_file)
             except UnicodeDecodeError:
-                logger.debug(f"Skipping non-UTF-8 file: {py_file}")
+                pass
             except SyntaxError as e:
                 logger.warning(f"Syntax error in {py_file}: {e}")
-            except Exception as e:
-                logger.debug(f"Failed to parse {py_file}: {e}")
+            except Exception:
+                pass
 
         # Second pass: extract @remote decorated functions
         for py_file in self.py_files:
@@ -87,11 +87,11 @@ class RemoteDecoratorScanner:
                 tree = ast.parse(content)
                 functions.extend(self._extract_remote_functions(tree, py_file))
             except UnicodeDecodeError:
-                logger.debug(f"Skipping non-UTF-8 file: {py_file}")
+                pass
             except SyntaxError as e:
                 logger.warning(f"Syntax error in {py_file}: {e}")
-            except Exception as e:
-                logger.debug(f"Failed to parse {py_file}: {e}")
+            except Exception:
+                pass
 
         # Third pass: analyze function call graphs
         remote_function_names = {f.function_name for f in functions}
@@ -115,11 +115,11 @@ class RemoteDecoratorScanner:
                             node, func_meta, remote_function_names
                         )
             except UnicodeDecodeError:
-                logger.debug(f"Skipping non-UTF-8 file: {py_file}")
+                pass
             except SyntaxError as e:
                 logger.warning(f"Syntax error in {py_file}: {e}")
-            except Exception as e:
-                logger.debug(f"Failed to parse {py_file}: {e}")
+            except Exception:
+                pass
 
         return functions
 

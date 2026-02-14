@@ -128,7 +128,6 @@ def get_file_tree(
         for item in directory.iterdir():
             # Check if should ignore
             if should_ignore(item, spec, base_dir):
-                log.debug(f"Ignoring: {item.relative_to(base_dir)}")
                 continue
 
             if item.is_file():

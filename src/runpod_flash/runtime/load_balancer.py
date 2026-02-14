@@ -85,10 +85,6 @@ class LoadBalancer:
         async with self._lock:
             selected = endpoints[self._round_robin_index % len(endpoints)]
             self._round_robin_index += 1
-        logger.debug(
-            f"Load balancer: ROUND_ROBIN selected {selected} "
-            f"(index {self._round_robin_index - 1})"
-        )
         return selected
 
     async def _least_connections_select(self, endpoints: List[str]) -> str:
@@ -109,10 +105,6 @@ class LoadBalancer:
             # Find endpoint with minimum connections
             selected = min(endpoints, key=lambda e: self._in_flight_requests.get(e, 0))
 
-        logger.debug(
-            f"Load balancer: LEAST_CONNECTIONS selected {selected} "
-            f"({self._in_flight_requests.get(selected, 0)} in-flight)"
-        )
         return selected
 
     async def _random_select(self, endpoints: List[str]) -> str:
@@ -125,7 +117,6 @@ class LoadBalancer:
             Selected endpoint URL
         """
         selected = random.choice(endpoints)
-        logger.debug(f"Load balancer: RANDOM selected {selected}")
         return selected
 
     async def record_request(self, endpoint: str) -> None:
