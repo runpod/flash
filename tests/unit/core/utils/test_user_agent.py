@@ -10,8 +10,8 @@ def test_get_user_agent_format():
 
     ua = get_user_agent()
 
-    # Should match: "Runpod Flash/<version> (Python <py_version>; <OS>)"
-    pattern = r"^Runpod Flash/[\w\.]+ \(Python [\d\.]+; \w+\)$"
+    # Should match: "Runpod Flash/<version> (Python <py_version>; <OS> <OS_version>; <arch>)"
+    pattern = r"^Runpod Flash/[\w\.]+ \(Python [\d\.]+; \w+ [\w\.\-]+; [\w\d_]+\)$"
     assert re.match(pattern, ua), f"User-Agent '{ua}' doesn't match expected format"
 
 
@@ -55,6 +55,26 @@ def test_get_user_agent_contains_os():
     assert os_name in ua, f"User-Agent should contain OS name {os_name}"
 
 
+def test_get_user_agent_contains_os_version():
+    """Test User-Agent includes OS version."""
+    from runpod_flash.core.utils.user_agent import get_user_agent
+
+    ua = get_user_agent()
+    os_version = platform.release()
+
+    assert os_version in ua, f"User-Agent should contain OS version {os_version}"
+
+
+def test_get_user_agent_contains_architecture():
+    """Test User-Agent includes CPU architecture."""
+    from runpod_flash.core.utils.user_agent import get_user_agent
+
+    ua = get_user_agent()
+    arch = platform.machine()
+
+    assert arch in ua, f"User-Agent should contain architecture {arch}"
+
+
 def test_get_user_agent_structure():
     """Test User-Agent has correct structure."""
     from runpod_flash.core.utils.user_agent import get_user_agent
@@ -65,8 +85,8 @@ def test_get_user_agent_structure():
     assert ua.count("(") == 1, "User-Agent should have exactly one opening parenthesis"
     assert ua.count(")") == 1, "User-Agent should have exactly one closing parenthesis"
 
-    # Should have exactly one semicolon (separating Python version and OS)
-    assert ua.count(";") == 1, "User-Agent should have exactly one semicolon"
+    # Should have exactly two semicolons (Python/OS separator, OS/arch separator)
+    assert ua.count(";") == 2, "User-Agent should have exactly two semicolons"
 
 
 def test_get_user_agent_consistency():
