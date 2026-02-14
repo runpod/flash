@@ -3,7 +3,7 @@ Direct GraphQL communication with Runpod API.
 Bypasses the outdated runpod-python SDK limitations.
 """
 
-import json
+import json  # noqa: F401 - used in commented debug logs
 import logging
 import os
 from typing import Any, Dict, Optional, List
@@ -92,19 +92,19 @@ class RunpodGraphQLClient:
 
         payload = {"query": query, "variables": variables or {}}
 
-        log.debug(f"GraphQL Query: {query}")
-        sanitized_vars = _sanitize_for_logging(variables)
-        log.debug(f"GraphQL Variables: {json.dumps(sanitized_vars, indent=2)}")
+        # log.debug(f"GraphQL Query: {query}")
+        # sanitized_vars = _sanitize_for_logging(variables)
+        # log.debug(f"GraphQL Variables: {json.dumps(sanitized_vars, indent=2)}")
 
         try:
             async with session.post(self.GRAPHQL_URL, json=payload) as response:
                 response_data = await response.json()
 
-                log.debug(f"GraphQL Response Status: {response.status}")
-                sanitized_response = _sanitize_for_logging(response_data)
-                log.debug(
-                    f"GraphQL Response: {json.dumps(sanitized_response, indent=2)}"
-                )
+                # log.debug(f"GraphQL Response Status: {response.status}")
+                # sanitized_response = _sanitize_for_logging(response_data)
+                # log.debug(
+                #     f"GraphQL Response: {json.dumps(sanitized_response, indent=2)}"
+                # )
 
                 if response.status >= 400:
                     sanitized_err = _sanitize_for_logging(response_data)
@@ -834,15 +834,15 @@ class RunpodRestClient:
         """Execute a REST API request."""
         session = await self._get_session()
 
-        log.debug(f"REST Request: {method} {url}")
-        log.debug(f"REST Data: {json.dumps(data, indent=2) if data else 'None'}")
+        # log.debug(f"REST Request: {method} {url}")
+        # log.debug(f"REST Data: {json.dumps(data, indent=2) if data else 'None'}")
 
         try:
             async with session.request(method, url, json=data) as response:
                 response_data = await response.json()
 
-                log.debug(f"REST Response Status: {response.status}")
-                log.debug(f"REST Response: {json.dumps(response_data, indent=2)}")
+                # log.debug(f"REST Response Status: {response.status}")
+                # log.debug(f"REST Response: {json.dumps(response_data, indent=2)}")
 
                 if response.status >= 400:
                     raise Exception(
