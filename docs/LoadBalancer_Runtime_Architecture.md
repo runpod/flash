@@ -63,7 +63,7 @@ if __name__ == "__main__":
 - Port: 8000 (internal)
 - Runpod exposes this via HTTPS endpoint URL
 - Health check: Polls `/ping` endpoint every 30 seconds with 15 second timeout per check
-- All HTTP requests to the endpoint include authentication via `RUNPOD_API_KEY` environment variable (if set)
+- Environment: `RUNPOD_API_KEY` env var used for outgoing requests to State Manager and remote endpoint calls (when endpoint makes remote calls)
 
 ### Deployment Lifecycle
 
