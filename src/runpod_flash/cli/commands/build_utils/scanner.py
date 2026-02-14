@@ -910,7 +910,7 @@ def detect_explicit_mothership(project_root: Path) -> Optional[Dict]:
                                 "resource_type": resource_type,
                                 "name": kwargs.get("name", "mothership"),
                                 "workersMin": kwargs.get("workersMin", 1),
-                                "workersMax": kwargs.get("workersMax", 3),
+                                "workersMax": kwargs.get("workersMax", 1),
                                 "is_explicit": True,
                             }
 

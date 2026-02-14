@@ -1,18 +1,36 @@
 # flash undeploy
 
-Manage and delete RunPod serverless endpoints deployed via Flash.
+Manage and delete Runpod serverless endpoints deployed via Flash.
+
+## Overview
+
+The `flash undeploy` command helps you clean up Serverless endpoints that Flash has created when you ran/deployed a `@remote` function using `flash run` or `flash deploy`. It manages endpoints recorded in `.runpod/resources.pkl` and ensures both the cloud resources and local tracking state stay in sync.
+
+### When To Use This Command
+
+- Cleaning up individual endpoints you no longer need
+- Removing endpoints after local development/testing
+
+### `flash undeploy` vs `flash env delete`
+
+| Command | Scope | When to use |
+|---------|-------|----------|
+| `flash undeploy` | Individual endpoints from local tracking | Granular cleanup, development endpoints |
+| `flash env delete` | Entire environment + all its resources | Production cleanup, full teardown |
+
+For production deployments, use `flash env delete` to remove the entire environment and all associated resources automatically.
+
+### How Endpoint Tracking Works
+
+Flash tracks deployed endpoints in `.runpod/resources.pkl`. Endpoints get added to this file when you:
+- Run `flash run --auto-provision` (local development)
+- Run `flash deploy` (production deployment)
 
 ## Synopsis
 
 ```bash
 flash undeploy [NAME|list] [OPTIONS]
 ```
-
-## Description
-
-The `flash undeploy` command manages RunPod serverless endpoints that were deployed using the `@remote` decorator. It provides multiple ways to delete endpoints and clean up tracking state.
-
-When you deploy functions with `@remote`, Flash tracks them in `.runpod/resources.pkl`. The undeploy command helps you manage these endpoints through deletion and cleanup operations.
 
 ## Usage Modes
 
@@ -26,7 +44,7 @@ flash undeploy list
 
 **Output includes:**
 - Name: Endpoint name
-- Endpoint ID: RunPod endpoint identifier
+- Endpoint ID: Runpod endpoint identifier
 - Status: Current health status (Active/Inactive/Unknown)
 - Type: Resource type (Live Serverless, Cpu Live Serverless, etc.)
 - Resource ID: Internal tracking identifier
@@ -48,7 +66,7 @@ flash undeploy my-api
 1. Searches for endpoints matching the name
 2. Shows endpoint details
 3. Prompts for confirmation
-4. Deletes endpoint from RunPod
+4. Deletes endpoint from Runpod
 5. Removes from local tracking
 
 ### Undeploy All
@@ -63,7 +81,7 @@ flash undeploy --all
 1. Shows total count of endpoints
 2. First confirmation: Yes/No prompt
 3. Second confirmation: Type "DELETE ALL" exactly
-4. Deletes all endpoints from RunPod
+4. Deletes all endpoints from Runpod
 5. Removes all from tracking
 
 ### Interactive Selection
@@ -90,7 +108,7 @@ Remove inactive endpoints from tracking without API deletion:
 flash undeploy --cleanup-stale
 ```
 
-**Use case:** When endpoints are deleted via RunPod UI or API (not through Flash), the tracking file becomes stale. This command identifies and removes those orphaned entries.
+**Use case:** When endpoints are deleted via Runpod UI or API (not through Flash), the tracking file becomes stale. This command identifies and removes those orphaned entries.
 
 **Behavior:**
 1. Checks health status of all tracked endpoints
@@ -132,7 +150,7 @@ flash undeploy --interactive
 
 ### Managing External Deletions
 
-If you delete endpoints via RunPod UI:
+If you delete endpoints via Runpod UI:
 
 ```bash
 # Check status - will show as "Inactive"
@@ -150,7 +168,7 @@ The Status column performs a health check API call for each endpoint. This:
 - Identifies endpoints deleted externally
 
 **Why it's valuable:**
-- Catches endpoints deleted via RunPod UI
+- Catches endpoints deleted via Runpod UI
 - Identifies unhealthy endpoints
 - Prevents stale tracking file issues
 
@@ -194,7 +212,7 @@ def my_function(data):
 ```
 
 Flash automatically:
-1. Deploys endpoint to RunPod
+1. Deploys endpoint to Runpod
 2. Tracks in `.runpod/resources.pkl`
 3. Reuses endpoint on subsequent calls
 
@@ -207,7 +225,7 @@ flash undeploy my-api
 
 ### Endpoint shows as "Inactive"
 
-**Cause:** Endpoint was deleted via RunPod UI/API
+**Cause:** Endpoint was deleted via Runpod UI/API
 
 **Solution:**
 ```bash
@@ -230,17 +248,17 @@ flash undeploy list
 **Solution:**
 1. Check `RUNPOD_API_KEY` in `.env`
 2. Verify network connectivity
-3. Check endpoint still exists on RunPod
+3. Check endpoint still exists on Runpod
 
 ## Related Commands
 
 - `flash init` - Initialize new project
 - `flash run` - Run development server
 - `flash build` - Build deployment packages
-- `flash deploy` - Deploy to RunPod
+- `flash deploy` - Deploy to Runpod
 
 ## See Also
 
 - [Flash CLI Overview](./README.md)
-- [RunPod Serverless Documentation](https://docs.runpod.io/serverless/overview)
+- [Runpod Serverless Documentation](https://docs.runpod.io/serverless/overview)
 - [Flash Documentation](../../../README.md)

@@ -22,6 +22,7 @@ from runpod_flash.core.resources.serverless_cpu import CpuServerlessEndpoint
 from runpod_flash.core.resources.gpu import GpuGroup
 from runpod_flash.core.resources.cpu import CpuInstanceType
 from runpod_flash.core.resources.network_volume import NetworkVolume, DataCenter
+from runpod_flash.core.resources.template import PodTemplate
 
 
 class TestServerlessResource:
@@ -42,6 +43,7 @@ class TestServerlessResource:
         """Mock RunpodGraphQLClient."""
         client = AsyncMock()
         client.save_endpoint = AsyncMock()
+        client.update_template = AsyncMock()
         return client
 
     def test_serverless_resource_initialization(self, basic_serverless_config):
@@ -556,6 +558,137 @@ class TestServerlessResourceDeployment:
         assert result.env == serverless.env
         assert result.networkVolume == serverless.networkVolume
         assert serverless.id == "endpoint-sync"
+
+    @pytest.mark.asyncio
+    async def test_deploy_syncs_template_id_to_caller(self, mock_runpod_client):
+        """deploy should hydrate templateId onto the caller object."""
+        serverless = ServerlessResource(name="template-sync", flashboot=False)
+
+        mock_runpod_client.save_endpoint = AsyncMock(
+            return_value={
+                "id": "endpoint-template-sync",
+                "name": "template-sync",
+                "templateId": "tpl-123",
+                "gpuIds": "",
+                "allowedCudaVersions": "",
+            }
+        )
+
+        with patch(
+            "runpod_flash.core.resources.serverless.RunpodGraphQLClient"
+        ) as mock_client_class:
+            mock_client_class.return_value.__aenter__.return_value = mock_runpod_client
+            mock_client_class.return_value.__aexit__.return_value = None
+
+            with patch.object(ServerlessResource, "is_deployed", return_value=False):
+                with patch.object(
+                    ServerlessResource,
+                    "_ensure_network_volume_deployed",
+                    new=AsyncMock(),
+                ):
+                    result = await serverless.deploy()
+
+        assert result.id == "endpoint-template-sync"
+        assert serverless.templateId == "tpl-123"
+
+    @pytest.mark.asyncio
+    async def test_update_restores_input_only_fields(self, mock_runpod_client):
+        """update should preserve input-only fields absent from GraphQL response."""
+        existing = ServerlessResource(name="update-source", flashboot=False)
+        existing.id = "endpoint-existing"
+
+        volume = NetworkVolume(name="vol-update", size=50)
+        volume.id = "vol-update-id"
+        new_config = ServerlessResource(
+            name="update-source",
+            flashboot=False,
+            env={"UPDATED": "true"},
+            networkVolume=volume,
+        )
+
+        # API response does not include input-only fields like env/networkVolume
+        mock_runpod_client.save_endpoint = AsyncMock(
+            return_value={
+                "id": "endpoint-existing",
+                "name": "update-source",
+                "gpuIds": "",
+                "allowedCudaVersions": "",
+            }
+        )
+
+        with patch(
+            "runpod_flash.core.resources.serverless.RunpodGraphQLClient"
+        ) as mock_client_class:
+            mock_client_class.return_value.__aenter__.return_value = mock_runpod_client
+            mock_client_class.return_value.__aexit__.return_value = None
+
+            with patch.object(
+                ServerlessResource,
+                "_ensure_network_volume_deployed",
+                new=AsyncMock(),
+            ):
+                result = await existing.update(new_config)
+
+        # id must be included to update in place rather than create
+        payload = mock_runpod_client.save_endpoint.call_args.args[0]
+        assert payload["id"] == "endpoint-existing"
+
+        # Input-only state from new_config should be restored after update
+        assert result.env == new_config.env
+        assert result.networkVolume == new_config.networkVolume
+
+    @pytest.mark.asyncio
+    async def test_update_calls_save_template_with_resolved_template_id(
+        self, mock_runpod_client
+    ):
+        """update should call saveTemplate separately when template is provided."""
+        existing = ServerlessResource(name="update-template", flashboot=False)
+        existing.id = "endpoint-existing"
+        existing.templateId = "template-existing"
+
+        new_config = ServerlessResource(
+            name="update-template",
+            flashboot=False,
+            template=PodTemplate(name="tpl", imageName="image:v2", dockerArgs="--flag"),
+        )
+
+        mock_runpod_client.save_endpoint = AsyncMock(
+            return_value={
+                "id": "endpoint-existing",
+                "name": "update-template",
+                "templateId": "template-existing",
+                "gpuIds": "",
+                "allowedCudaVersions": "",
+            }
+        )
+        mock_runpod_client.update_template = AsyncMock(
+            return_value={
+                "id": "template-existing",
+                "name": "tpl",
+                "imageName": "image:v2",
+            }
+        )
+
+        with patch(
+            "runpod_flash.core.resources.serverless.RunpodGraphQLClient"
+        ) as mock_client_class:
+            mock_client_class.return_value.__aenter__.return_value = mock_runpod_client
+            mock_client_class.return_value.__aexit__.return_value = None
+
+            with patch.object(
+                ServerlessResource,
+                "_ensure_network_volume_deployed",
+                new=AsyncMock(),
+            ):
+                updated = await existing.update(new_config)
+
+        mock_runpod_client.save_endpoint.assert_called_once()
+        mock_runpod_client.update_template.assert_called_once()
+        template_payload = mock_runpod_client.update_template.call_args.args[0]
+        assert template_payload["id"] == "template-existing"
+        assert template_payload["imageName"] == "image:v2"
+        assert template_payload["volumeInGb"] == 0
+        assert updated.templateId == "template-existing"
 
     @pytest.mark.asyncio
     async def test_deploy_failure_raises_exception(self, mock_runpod_client):

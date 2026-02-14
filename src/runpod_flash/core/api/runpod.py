@@ -69,11 +69,14 @@ class RunpodGraphQLClient:
     async def _get_session(self) -> aiohttp.ClientSession:
         """Get or create an aiohttp session."""
         if self.session is None or self.session.closed:
+            from runpod_flash.core.utils.user_agent import get_user_agent
+
             timeout = aiohttp.ClientTimeout(total=300)  # 5 minute timeout
             connector = aiohttp.TCPConnector(resolver=ThreadedResolver())
             self.session = aiohttp.ClientSession(
                 timeout=timeout,
                 headers={
+                    "User-Agent": get_user_agent(),
                     "Authorization": f"Bearer {self.api_key}",
                     "Content-Type": "application/json",
                 },
@@ -122,6 +125,42 @@ class RunpodGraphQLClient:
         except aiohttp.ClientError as e:
             log.error(f"HTTP client error: {e}")
             raise Exception(f"HTTP request failed: {e}")
+
+    async def update_template(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+        mutation = """
+        mutation saveTemplate($input: SaveTemplateInput) {
+            saveTemplate(input: $input) {
+                id
+                containerDiskInGb
+                dockerArgs
+                env {
+                    key
+                    value
+                }
+                imageName
+                name
+                readme
+            }
+        }
+        """
+
+        variables = {"input": input_data}
+
+        log.debug(
+            f"Updating template with GraphQL: {input_data.get('name', 'unnamed')}"
+        )
+
+        result = await self._execute_graphql(mutation, variables)
+
+        if "saveTemplate" not in result:
+            raise Exception("Unexpected GraphQL response structure")
+
+        template_data = result["saveTemplate"]
+        log.info(
+            f"Updated template: {template_data.get('id', 'unknown')} - {template_data.get('name', 'unnamed')}"
+        )
+
+        return template_data
 
     async def save_endpoint(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -776,10 +815,13 @@ class RunpodRestClient:
     async def _get_session(self) -> aiohttp.ClientSession:
         """Get or create an aiohttp session."""
         if self.session is None or self.session.closed:
+            from runpod_flash.core.utils.user_agent import get_user_agent
+
             timeout = aiohttp.ClientTimeout(total=300)  # 5 minute timeout
             self.session = aiohttp.ClientSession(
                 timeout=timeout,
                 headers={
+                    "User-Agent": get_user_agent(),
                     "Authorization": f"Bearer {self.api_key}",
                     "Content-Type": "application/json",
                 },

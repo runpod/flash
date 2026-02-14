@@ -1,6 +1,6 @@
 # Resource Config Drift Detection
 
-Automatic detection and fixing of configuration drift between local resource definitions and remote RunPod endpoints.
+Automatic detection and fixing of configuration drift between local resource definitions and remote Runpod endpoints.
 
 ## Overview
 
@@ -199,10 +199,10 @@ These changes don't trigger drift:
 
 | Field | Why Ignored |
 |-------|------------|
-| `template` | Assigned by RunPod API |
-| `templateId` | Assigned by RunPod API |
-| `aiKey` | Assigned by RunPod API |
-| `userId` | Assigned by RunPod API |
+| `template` | Assigned by Runpod API |
+| `templateId` | Assigned by Runpod API |
+| `aiKey` | Assigned by Runpod API |
+| `userId` | Assigned by Runpod API |
 | `createdAt` | Timestamp |
 | `activeBuildid` | Computed by API |
 | `env` | Dynamically computed from .env |
