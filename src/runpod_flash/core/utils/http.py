@@ -45,6 +45,7 @@ def get_authenticated_httpx_client(
 
     headers = {
         "User-Agent": get_user_agent(),
+        "Content-Type": "application/json",
     }
     api_key = api_key_override or get_api_key()
     if api_key:
@@ -91,6 +92,7 @@ def get_authenticated_requests_session(
 
     session = requests.Session()
     session.headers["User-Agent"] = get_user_agent()
+    session.headers["Content-Type"] = "application/json"
 
     api_key = api_key_override or get_api_key()
     if api_key:
