@@ -646,14 +646,9 @@ class ServerlessResource(DeployableResource):
 
         try:
             resolved_template_id = self.templateId or new_config.templateId
-            # Log if version-triggering changes detected (informational only)
-            if self._has_structural_changes(new_config):
-                log.debug(
-                    f"{self.name}: Version-triggering changes detected. "
-                    "Server will increment version and recreate workers."
-                )
-            else:
-                log.debug(f"Updating endpoint '{self.name}' (ID: {self.id})")
+            # Check for version-triggering changes
+            if not self._has_structural_changes(new_config):
+                log.info(f"Updating endpoint '{self.name}' (ID: {self.id})")
 
             # Ensure network volume is deployed if specified
             await new_config._ensure_network_volume_deployed()
@@ -752,11 +747,9 @@ class ServerlessResource(DeployableResource):
             # Handle list comparison
             if isinstance(old_val, list) and isinstance(new_val, list):
                 if sorted(str(v) for v in old_val) != sorted(str(v) for v in new_val):
-                    log.debug(f"Structural change in '{field}': {old_val} → {new_val}")
                     return True
             # Handle other types
             elif old_val != new_val:
-                log.debug(f"Structural change in '{field}': {old_val} → {new_val}")
                 return True
 
         return False
