@@ -160,7 +160,7 @@ echo "  environment_id match: $([ "$DEPLOY_ENV_ID" = "$RUNTIME_ENV_ID" ] && echo
 
 **Root Cause:** `FLASH_ENVIRONMENT_ID` environment variable is incorrect at runtime.
 
-**Solution:** Check `mothership_provisioner.py` to verify `FLASH_ENVIRONMENT_ID` is set with the correct value.
+**Solution:** Check `resource_factory.py` to verify `FLASH_ENVIRONMENT_ID` is set with the correct value.
 
 ### Scenario 2: Wrong Build Deployed
 

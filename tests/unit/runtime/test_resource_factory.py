@@ -1,4 +1,4 @@
-"""Unit tests for mothership provisioner module."""
+"""Unit tests for resource factory module."""
 
 import json
 import os
@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
-from runpod_flash.runtime.mothership_provisioner import (
+from runpod_flash.runtime.resource_factory import (
     compute_resource_hash,
     create_resource_from_manifest,
     load_manifest,

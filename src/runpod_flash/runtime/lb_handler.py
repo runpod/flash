@@ -60,15 +60,14 @@ async def extract_api_key_middleware(request: Request, call_next):
     token = None
 
     if auth_header.startswith("Bearer "):
-        api_key = auth_header[7:].strip()  # Remove "Bearer " prefix and trim whitespace
+        api_key = auth_header[7:].strip()
         token = set_api_key(api_key)
-        # Also store in request.state for explicit per-request access
         request.state.api_key = api_key
         logger.debug("Extracted API key from Authorization header")
     else:
         # No Bearer token - request.state.api_key will be undefined
         # Downstream code should check hasattr(request.state, 'api_key')
-        logger.debug("No Authorization header with Bearer token found")
+        logger.debug(f"No Bearer token in Authorization header for {request.url.path}")
 
     try:
         response = await call_next(request)

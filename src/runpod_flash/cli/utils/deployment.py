@@ -10,7 +10,7 @@ from pathlib import Path
 from runpod_flash.config import get_paths
 from runpod_flash.core.resources.app import FlashApp
 from runpod_flash.core.resources.resource_manager import ResourceManager
-from runpod_flash.runtime.mothership_provisioner import create_resource_from_manifest
+from runpod_flash.runtime.resource_factory import create_resource_from_manifest
 
 log = logging.getLogger(__name__)
 
@@ -261,7 +261,18 @@ async def reconcile_and_provision_resources(
         # Check if endpoint exists in state manifest
         has_endpoint = resource_name in state_manifest.get("resources_endpoints", {})
 
-        if local_json != state_json or not has_endpoint:
+        # Check if deployment-critical fields changed (beyond config)
+        local_makes_remote = local_config.get("makes_remote_calls", False)
+        state_makes_remote = state_config.get("makes_remote_calls", False)
+        remote_calls_changed = local_makes_remote != state_makes_remote
+
+        if remote_calls_changed:
+            log.info(
+                f"Resource {resource_name}: makes_remote_calls changed "
+                f"({state_makes_remote} → {local_makes_remote}), forcing redeploy"
+            )
+
+        if local_json != state_json or not has_endpoint or remote_calls_changed:
             # Config changed OR no endpoint - need to provision/update
             resource = create_resource_from_manifest(
                 resource_name,
@@ -272,7 +283,10 @@ async def reconcile_and_provision_resources(
                 ("update", resource_name, manager.get_or_deploy_resource(resource))
             )
         else:
-            # Config unchanged AND endpoint exists - reuse existing endpoint info
+            # Config unchanged AND endpoint exists AND no deployment-critical changes - reuse existing endpoint info
+            log.debug(
+                f"Resource {resource_name}: No changes detected, reusing existing endpoint"
+            )
             if "endpoint_id" in state_config:
                 local_manifest["resources"][resource_name]["endpoint_id"] = (
                     state_config["endpoint_id"]

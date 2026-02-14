@@ -142,6 +142,7 @@ class BaseResource(BaseModel):
 
     def __getstate__(self) -> Dict[str, Any]:
         """Get state for pickling, excluding non-pickleable items."""
+        import types
         import weakref as weakref_module
 
         state = self.__dict__.copy()
@@ -149,7 +150,7 @@ class BaseResource(BaseModel):
         # Remove cached attributes that will be recomputed
         state.pop("_cached_resource_id", None)
 
-        # Remove any weakrefs from the state dict
+        # Remove any weakrefs and non-pickleable objects from state dict
         keys_to_remove = []
         for key, value in state.items():
             # Direct weakref
@@ -157,11 +158,18 @@ class BaseResource(BaseModel):
                 keys_to_remove.append(key)
                 continue
 
-            # Check if value holds weakrefs in its __dict__
+            # Module references (can contain ContextVar)
+            if isinstance(value, types.ModuleType):
+                keys_to_remove.append(key)
+                continue
+
+            # Check if value holds weakrefs or modules in its __dict__
             if hasattr(value, "__dict__"):
                 try:
                     for sub_value in value.__dict__.values():
-                        if isinstance(sub_value, weakref_module.ref):
+                        if isinstance(
+                            sub_value, (weakref_module.ref, types.ModuleType)
+                        ):
                             keys_to_remove.append(key)
                             break
                 except Exception:

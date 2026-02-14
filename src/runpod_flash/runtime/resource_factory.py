@@ -205,6 +205,24 @@ def create_resource_from_manifest(
     if flash_environment_id:
         env["FLASH_ENVIRONMENT_ID"] = flash_environment_id
 
+    # Inject RUNPOD_API_KEY for endpoints that make remote calls
+    if resource_data.get("makes_remote_calls"):
+        from ..runtime.api_key_context import get_api_key
+
+        api_key = get_api_key() or os.getenv("RUNPOD_API_KEY")
+        if api_key:
+            env["RUNPOD_API_KEY"] = api_key
+            key_preview = api_key[:8] + "..." if len(api_key) > 8 else api_key
+            logger.info(
+                f"{resource_name}: ✓ Injected RUNPOD_API_KEY for remote calls "
+                f"(key={key_preview})"
+            )
+        else:
+            logger.warning(
+                f"{resource_name}: ⚠ makes_remote_calls=True but RUNPOD_API_KEY not set. "
+                f"Remote calls to other endpoints will fail."
+            )
+
     # Only set FLASH_MOTHERSHIP_ID when running in mothership context
     # (i.e., when RUNPOD_ENDPOINT_ID is available).
     # During CLI provisioning, RUNPOD_ENDPOINT_ID is not set, so we don't

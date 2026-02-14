@@ -218,6 +218,13 @@ class ServiceRegistry:
             )
             return
 
+        # CRITICAL: Capture API key BEFORE lock acquisition to avoid race conditions.
+        # If captured inside lock, concurrent requests can overwrite context while
+        # this request waits for lock, causing wrong API key to be used.
+        from .api_key_context import get_api_key
+
+        api_key = get_api_key()
+
         async with self._endpoint_registry_lock:
             now = time.time()
             cache_age = now - self._endpoint_registry_loaded_at
@@ -228,11 +235,6 @@ class ServiceRegistry:
                     return
 
                 try:
-                    # Get API key from request context (set by middleware)
-                    from .api_key_context import get_api_key
-
-                    api_key = get_api_key()
-
                     # Query State Manager using the Flash environment ID from deployment
                     # This ID is set by the mothership provisioner during flash deploy
                     environment_id = os.getenv("FLASH_ENVIRONMENT_ID")
@@ -296,7 +298,9 @@ class ServiceRegistry:
                             f"State Manager provided {len(resources_endpoints)} endpoints"
                         )
                         self._endpoint_registry = resources_endpoints
-                        self._endpoint_registry_loaded_at = now
+                        # Update cache timestamp with current time (not the pre-lock 'now')
+                        # to prevent concurrent requests from re-querying
+                        self._endpoint_registry_loaded_at = time.time()
                         logger.debug(
                             f"Manifest loaded from State Manager: {len(self._endpoint_registry)} endpoints, "
                             f"cache TTL {self.cache_ttl}s"

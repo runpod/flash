@@ -500,7 +500,9 @@ class TestStateManagerClientAPIKeyThreading:
 
     @pytest.mark.asyncio
     async def test_none_api_key_passed_when_not_available(self):
-        """Verify None is passed to RunpodGraphQLClient when no API key available."""
+        """Verify API key resolver finds key from environment when not explicitly provided."""
+        import os
+
         mock_client = AsyncMock(spec=RunpodGraphQLClient)
         mock_client.__aenter__.return_value = mock_client
         mock_client.__aexit__.return_value = False
@@ -514,9 +516,10 @@ class TestStateManagerClientAPIKeyThreading:
             "runpod_flash.runtime.state_manager_client.RunpodGraphQLClient",
             return_value=mock_client,
         ) as mock_graphql_class:
-            client = StateManagerClient()  # No API key
+            client = StateManagerClient()  # No explicit API key
             await client.get_persisted_manifest("env-123")  # No API key parameter
 
-            # Verify RunpodGraphQLClient was called with None
-            # It will fall back to context or env var
-            mock_graphql_class.assert_called_with(api_key=None)
+            # With new resolver: finds key from environment and passes it
+            # (RUNPOD_API_KEY is set in test environment)
+            env_key = os.getenv("RUNPOD_API_KEY")
+            mock_graphql_class.assert_called_with(api_key=env_key)

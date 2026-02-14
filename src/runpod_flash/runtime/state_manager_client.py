@@ -70,8 +70,17 @@ class StateManagerClient:
         Raises:
             ManifestServiceUnavailableError: If State Manager unavailable after retries.
         """
-        # Use provided api_key, fall back to instance api_key, then context/env
+        # Use provided api_key, fall back to instance api_key, then resolve
         key_to_use = api_key or self.api_key
+
+        # If still None, use resolver for context/env fallback with logging
+        if not key_to_use:
+            from runpod_flash.core.utils.api_key_resolver import resolve_api_key
+
+            key_to_use, source = resolve_api_key(
+                require_key=True, operation="State Manager query"
+            )
+
         last_exception: Optional[Exception] = None
 
         for attempt in range(self.max_retries):
@@ -100,21 +109,23 @@ class StateManagerClient:
                 logger.debug(f"Persisted manifest loaded for {flash_environment_id}")
                 return manifest
 
-            except (
-                asyncio.TimeoutError,
-                ManifestServiceUnavailableError,
-                GraphQLError,
-                ConnectionError,
-            ) as e:
+            except Exception as e:
                 last_exception = e
+                logger.debug(
+                    f"State Manager request failed (attempt {attempt + 1}/{self.max_retries}): "
+                    f"{type(e).__name__}: {e}"
+                )
                 if attempt < self.max_retries - 1:
                     backoff = 2**attempt
-                    logger.warning(
-                        f"State Manager request failed (attempt {attempt + 1}): {e}, "
-                        f"retrying in {backoff}s..."
-                    )
+                    logger.debug(f"Retrying State Manager query in {backoff}s...")
                     await asyncio.sleep(backoff)
                     continue
+                else:
+                    # Last attempt failed, will raise below
+                    logger.warning(
+                        f"State Manager unavailable after {self.max_retries} attempts: "
+                        f"{type(e).__name__}: {e}"
+                    )
 
         raise ManifestServiceUnavailableError(
             f"Failed to fetch persisted manifest after {self.max_retries} attempts: "
@@ -142,8 +153,17 @@ class StateManagerClient:
         Raises:
             ManifestServiceUnavailableError: If State Manager unavailable.
         """
-        # Use provided api_key, fall back to instance api_key, then context/env
+        # Use provided api_key, fall back to instance api_key, then resolve
         key_to_use = api_key or self.api_key
+
+        # If still None, use resolver for context/env fallback with logging
+        if not key_to_use:
+            from runpod_flash.core.utils.api_key_resolver import resolve_api_key
+
+            key_to_use, source = resolve_api_key(
+                require_key=True, operation="State Manager query"
+            )
+
         last_exception: Optional[Exception] = None
 
         for attempt in range(self.max_retries):
@@ -205,8 +225,17 @@ class StateManagerClient:
         Raises:
             ManifestServiceUnavailableError: If State Manager unavailable.
         """
-        # Use provided api_key, fall back to instance api_key, then context/env
+        # Use provided api_key, fall back to instance api_key, then resolve
         key_to_use = api_key or self.api_key
+
+        # If still None, use resolver for context/env fallback with logging
+        if not key_to_use:
+            from runpod_flash.core.utils.api_key_resolver import resolve_api_key
+
+            key_to_use, source = resolve_api_key(
+                require_key=True, operation="State Manager query"
+            )
+
         last_exception: Optional[Exception] = None
 
         for attempt in range(self.max_retries):

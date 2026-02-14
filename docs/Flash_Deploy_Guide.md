@@ -306,7 +306,7 @@ sequenceDiagram
 
 **Key Components:**
 
-**MothershipsProvisioner** (`src/runpod_flash/runtime/mothership_provisioner.py`):
+**ResourceFactory** (`src/runpod_flash/runtime/resource_factory.py`):
 - `is_mothership()`: Check if endpoint is mothership (FLASH_IS_MOTHERSHIP=true)
 - `reconcile_children()`: Compute diff between desired and current state
 - Verifies child endpoints are deployed and healthy
@@ -334,7 +334,7 @@ sequenceDiagram
 6. **Persist new state**: Update State Manager with current reconciliation results
 
 **Key Files:**
-- `src/runpod_flash/runtime/mothership_provisioner.py` - Reconciliation logic
+- `src/runpod_flash/runtime/resource_factory.py` - Reconciliation logic
 - `src/runpod_flash/core/resources/resource_manager.py` - Resource provisioning
 - `src/runpod_flash/runtime/state_manager_client.py` - State persistence
 
@@ -686,7 +686,7 @@ await StateManagerClient.update_resource_state(mothership_id, resources)
 - If hashes differ: Resource has been modified, trigger update
 - Prevents unnecessary updates when resource unchanged
 
-**Code Reference**: `src/runpod_flash/runtime/mothership_provisioner.py:1-150`
+**Code Reference**: `src/runpod_flash/runtime/resource_factory.py:1-150`
 
 ---
 
@@ -1148,7 +1148,7 @@ docker run -it \
   runpod-flash:latest
 
 # Run provisioner
-python -m runpod_flash.runtime.mothership_provisioner
+python -m runpod_flash.runtime.resource_factory
 ```
 
 ### Debugging Tips
@@ -1211,7 +1211,7 @@ logging.getLogger("runpod_flash.runtime.service_registry").setLevel(logging.DEBU
 |------|---------|
 | `src/runpod_flash/runtime/manifest_fetcher.py` | Manifest loading from local .flash/ directory |
 | `src/runpod_flash/runtime/state_manager_client.py` | GraphQL client for peer-to-peer service discovery |
-| `src/runpod_flash/runtime/mothership_provisioner.py` | Auto-provisioning logic |
+| `src/runpod_flash/runtime/resource_factory.py` | Auto-provisioning logic |
 
 ### Runtime: Execution
 

@@ -182,6 +182,15 @@ class ServerlessResource(DeployableResource):
     template: Optional[PodTemplate] = None
     userId: Optional[str] = None
 
+    @field_serializer("env")
+    def serialize_env(
+        self, value: Optional[Dict[str, str]]
+    ) -> Optional[List[Dict[str, str]]]:
+        """Transform env dict to API format: list of {key, value} objects."""
+        if value is None:
+            return None
+        return [{"key": k, "value": v} for k, v in value.items()]
+
     def __str__(self) -> str:
         return f"{self.__class__.__name__}:{self.id}"
 
@@ -486,9 +495,17 @@ class ServerlessResource(DeployableResource):
             return False
 
     def _payload_exclude(self) -> Set[str]:
-        # flashEnvironmentId is input-only but must be sent when provided
+        """Return fields that should be excluded from API payload.
+
+        Some fields are input-only (used for configuration but not sent to API),
+        but certain fields like flashEnvironmentId and env need to be sent despite
+        being in _input_only, so they are explicitly re-included.
+        """
         exclude_fields = set(self._input_only or set())
         exclude_fields.discard("flashEnvironmentId")
+        exclude_fields.discard(
+            "env"
+        )  # Allow env to be sent to API for container environment
         return exclude_fields
 
     @staticmethod
@@ -527,20 +544,47 @@ class ServerlessResource(DeployableResource):
             True if makes remote calls, False if local-only,
             True (safe default) if manifest not found.
         """
+        log.warning(f"[DEBUG] {self.name}: _check_makes_remote_calls() called")
         try:
-            manifest_path = Path.cwd() / "flash_manifest.json"
-            if not manifest_path.exists():
-                # Try alternative locations
-                manifest_path = Path("/flash_manifest.json")  # Container path
+            # Deployment time: .flash/flash_manifest.json in project directory
+            manifest_path = Path.cwd() / ".flash" / "flash_manifest.json"
+            log.warning(f"[DEBUG] {self.name}: Checking manifest at: {manifest_path}")
 
             if not manifest_path.exists():
-                log.debug("Manifest not found, assuming makes_remote_calls=True")
+                # Fallback for build directory (during tarball creation)
+                manifest_path = Path.cwd() / "flash_manifest.json"
+                log.warning(
+                    f"[DEBUG] {self.name}: First path not found, trying: {manifest_path}"
+                )
+
+            if not manifest_path.exists():
+                # Container runtime: copied to /app during container build
+                manifest_path = Path("/app/flash_manifest.json")
+                log.warning(
+                    f"[DEBUG] {self.name}: Second path not found, trying: {manifest_path}"
+                )
+
+            if not manifest_path.exists():
+                log.warning(
+                    f"[DEBUG] {self.name}: NO MANIFEST FOUND, returning True (safe default)"
+                )
+                log.warning(
+                    "Manifest not found during API key injection check. "
+                    "Searched: .flash/flash_manifest.json, flash_manifest.json, /app/flash_manifest.json. "
+                    "Defaulting to makes_remote_calls=True (safe default)."
+                )
                 return True  # Safe default
+
+            log.warning(f"[DEBUG] {self.name}: Found manifest at: {manifest_path}")
+            log.debug(f"Reading manifest from: {manifest_path}")
 
             with open(manifest_path) as f:
                 manifest_data = json.load(f)
 
             resources = manifest_data.get("resources", {})
+            log.warning(
+                f"[DEBUG] {self.name}: Manifest contains resources: {list(resources.keys())}"
+            )
 
             # Strip -fb suffix and live- prefix to match manifest name
             lookup_name = self.name
@@ -549,21 +593,32 @@ class ServerlessResource(DeployableResource):
             if lookup_name.startswith(LIVE_PREFIX):
                 lookup_name = lookup_name[len(LIVE_PREFIX) :]
 
+            log.warning(
+                f"[DEBUG] {self.name}: Looking up resource with name: '{lookup_name}' (original: '{self.name}')"
+            )
+
             resource_config = resources.get(lookup_name)
 
             if not resource_config:
+                log.warning(
+                    f"[DEBUG] {self.name}: Resource '{lookup_name}' NOT FOUND in manifest, returning True"
+                )
                 log.debug(
                     f"Resource '{lookup_name}' (from '{self.name}') not in manifest, assuming makes_remote_calls=True"
                 )
                 return True  # Safe default
 
             makes_remote_calls = resource_config.get("makes_remote_calls", True)
+            log.warning(
+                f"[DEBUG] {self.name}: Found resource config, makes_remote_calls={makes_remote_calls}"
+            )
             log.debug(
                 f"Resource '{lookup_name}' (from '{self.name}') makes_remote_calls={makes_remote_calls}"
             )
             return makes_remote_calls
 
         except Exception as e:
+            log.warning(f"[DEBUG] {self.name}: EXCEPTION reading manifest: {e}")
             log.warning(
                 f"Failed to read manifest: {e}, assuming makes_remote_calls=True"
             )
@@ -581,52 +636,26 @@ class ServerlessResource(DeployableResource):
 
         Returns a DeployableResource object.
         """
+        log.warning(f"[DEBUG] {self.name}: _do_deploy() called, type={self.type}")
         try:
             # If the resource is already deployed, return it
             if self.is_deployed():
+                log.warning(
+                    f"[DEBUG] {self.name}: Resource already deployed, returning early"
+                )
                 log.debug(f"{self} exists")
                 return self
 
-            # Inject API key for endpoints that make remote calls
-            # Both QB and LB endpoints need API keys when calling other endpoints
-            if self.type in (ServerlessType.QB, ServerlessType.LB):
-                env_dict = self.env or {}
+            log.warning(
+                f"[DEBUG] {self.name}: Resource not deployed, proceeding with deployment"
+            )
+            log.warning(
+                f"[DEBUG] {self.name}: self.env keys at deploy start: {list(self.env.keys()) if self.env else None}"
+            )
 
-                # Check if this resource makes remote calls (from build manifest)
-                makes_remote_calls = self._check_makes_remote_calls()
-
-                if makes_remote_calls:
-                    # Inject RUNPOD_API_KEY if not already set
-                    if "RUNPOD_API_KEY" not in env_dict:
-                        api_key = os.getenv("RUNPOD_API_KEY")
-                        if api_key:
-                            env_dict["RUNPOD_API_KEY"] = api_key
-                            log.info(
-                                f"{self.name}: Injected RUNPOD_API_KEY for remote calls "
-                                f"(makes_remote_calls=True)"
-                            )
-                        else:
-                            log.warning(
-                                f"{self.name}: makes_remote_calls=True but RUNPOD_API_KEY not set. "
-                                f"Remote calls to other endpoints will fail."
-                            )
-
-                self.env = env_dict
-
-            # Inject FLASH_ENVIRONMENT_ID for any endpoint type that needs State Manager queries
-            if self.type in (ServerlessType.QB, ServerlessType.LB):
-                env_dict = self.env or {}
-
-                if "FLASH_ENVIRONMENT_ID" not in env_dict and hasattr(
-                    self, "flash_environment_id"
-                ):
-                    if self.flash_environment_id:
-                        env_dict["FLASH_ENVIRONMENT_ID"] = self.flash_environment_id
-                        log.info(
-                            f"{self.name}: Injected FLASH_ENVIRONMENT_ID for State Manager queries"
-                        )
-
-                self.env = env_dict
+            # NOTE: Environment variables (including RUNPOD_API_KEY and FLASH_ENVIRONMENT_ID)
+            # are now injected in resource_factory.py:create_resource_from_manifest()
+            # before _do_deploy() is called. This provides a single source of truth for all env vars.
 
             # Ensure network volume is deployed first
             await self._ensure_network_volume_deployed()
@@ -643,9 +672,32 @@ class ServerlessResource(DeployableResource):
                     )
 
             async with RunpodGraphQLClient(api_key=api_key) as client:
-                payload = self.model_dump(
-                    exclude=self._payload_exclude(), exclude_none=True, mode="json"
+                exclude_fields = self._payload_exclude()
+                log.warning(
+                    f"[DEBUG] {self.name}: payload_exclude fields: {exclude_fields}"
                 )
+                log.warning(
+                    f"[DEBUG] {self.name}: self.env RIGHT BEFORE model_dump: {list(self.env.keys()) if self.env else None}"
+                )
+                payload = self.model_dump(
+                    exclude=exclude_fields, exclude_none=True, mode="json"
+                )
+                # Log if env is in payload and what keys it contains
+                if "env" in payload:
+                    env_keys = (
+                        [item["key"] for item in payload["env"]]
+                        if isinstance(payload["env"], list)
+                        else list(payload["env"].keys())
+                        if payload["env"]
+                        else []
+                    )
+                    log.warning(
+                        f"[DEBUG] {self.name}: payload contains 'env' with keys: {env_keys}"
+                    )
+                else:
+                    log.warning(
+                        f"[DEBUG] {self.name}: payload does NOT contain 'env' field"
+                    )
                 result = await client.save_endpoint(payload)
 
             if endpoint := self.__class__(**result):
@@ -687,6 +739,48 @@ class ServerlessResource(DeployableResource):
 
             # Ensure network volume is deployed if specified
             await new_config._ensure_network_volume_deployed()
+
+            # Inject API key for endpoints that make remote calls
+            # Both QB and LB endpoints need API keys when calling other endpoints
+            if new_config.type in (ServerlessType.QB, ServerlessType.LB):
+                env_dict = new_config.env or {}
+
+                # Check if this resource makes remote calls (from build manifest)
+                makes_remote_calls = new_config._check_makes_remote_calls()
+
+                if makes_remote_calls:
+                    # Inject RUNPOD_API_KEY if not already set
+                    if "RUNPOD_API_KEY" not in env_dict:
+                        # Use same API key resolution as RunpodGraphQLClient
+                        # Priority: request context > env var
+                        from ...runtime.api_key_context import get_api_key
+
+                        api_key = get_api_key() or os.getenv("RUNPOD_API_KEY")
+                        if api_key:
+                            env_dict["RUNPOD_API_KEY"] = api_key
+                            log.info(
+                                f"{new_config.name}: Injected RUNPOD_API_KEY for remote calls "
+                                f"(makes_remote_calls=True)"
+                            )
+                        else:
+                            log.warning(
+                                f"{new_config.name}: makes_remote_calls=True but RUNPOD_API_KEY not set. "
+                                f"Remote calls to other endpoints will fail."
+                            )
+
+                new_config.env = env_dict
+
+            # Inject FLASH_ENVIRONMENT_ID for any endpoint type that needs State Manager queries
+            if new_config.type in (ServerlessType.QB, ServerlessType.LB):
+                env_dict = new_config.env or {}
+                if "FLASH_ENVIRONMENT_ID" not in env_dict:
+                    flash_env_id = os.getenv("FLASH_ENVIRONMENT_ID")
+                    if flash_env_id:
+                        env_dict["FLASH_ENVIRONMENT_ID"] = flash_env_id
+                        log.debug(
+                            f"{new_config.name}: Injected FLASH_ENVIRONMENT_ID={flash_env_id}"
+                        )
+                new_config.env = env_dict
 
             async with RunpodGraphQLClient() as client:
                 # Include the endpoint ID to trigger update
