@@ -4,6 +4,8 @@ from typing import Optional
 
 import httpx
 import requests
+from aiohttp import ClientSession, ClientTimeout, TCPConnector
+from aiohttp.resolver import ThreadedResolver
 
 from runpod_flash.core.credentials import get_api_key
 
@@ -99,3 +101,50 @@ def get_authenticated_requests_session(
         session.headers["Authorization"] = f"Bearer {api_key}"
 
     return session
+
+
+def get_authenticated_aiohttp_session(
+    timeout: float = 300.0,
+    api_key_override: Optional[str] = None,
+) -> ClientSession:
+    """Create aiohttp ClientSession with RunPod authentication and User-Agent.
+
+    Automatically includes:
+    - User-Agent header identifying flash client and version
+    - Authorization header if RUNPOD_API_KEY is set or api_key_override provided
+    - Content-Type: application/json
+    - 5-minute default timeout (configurable)
+    - TCPConnector with ThreadedResolver for DNS resolution
+
+    Args:
+        timeout: Total timeout in seconds (default: 300s for GraphQL operations)
+        api_key_override: Optional API key to use instead of RUNPOD_API_KEY.
+                         Used for propagating API keys from mothership to worker endpoints.
+
+    Returns:
+        Configured aiohttp.ClientSession with User-Agent, Authorization, and Content-Type headers
+
+    Example:
+        session = get_authenticated_aiohttp_session()
+        async with session.post(url, json=data) as response:
+            result = await response.json()
+    """
+    from .user_agent import get_user_agent
+
+    headers = {
+        "User-Agent": get_user_agent(),
+        "Content-Type": "application/json",
+    }
+
+    api_key = api_key_override or os.environ.get("RUNPOD_API_KEY")
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    timeout_config = ClientTimeout(total=timeout)
+    connector = TCPConnector(resolver=ThreadedResolver())
+
+    return ClientSession(
+        timeout=timeout_config,
+        headers=headers,
+        connector=connector,
+    )
