@@ -69,11 +69,14 @@ class RunpodGraphQLClient:
     async def _get_session(self) -> aiohttp.ClientSession:
         """Get or create an aiohttp session."""
         if self.session is None or self.session.closed:
+            from runpod_flash.core.utils.user_agent import get_user_agent
+
             timeout = aiohttp.ClientTimeout(total=300)  # 5 minute timeout
             connector = aiohttp.TCPConnector(resolver=ThreadedResolver())
             self.session = aiohttp.ClientSession(
                 timeout=timeout,
                 headers={
+                    "User-Agent": get_user_agent(),
                     "Authorization": f"Bearer {self.api_key}",
                     "Content-Type": "application/json",
                 },
@@ -812,10 +815,13 @@ class RunpodRestClient:
     async def _get_session(self) -> aiohttp.ClientSession:
         """Get or create an aiohttp session."""
         if self.session is None or self.session.closed:
+            from runpod_flash.core.utils.user_agent import get_user_agent
+
             timeout = aiohttp.ClientTimeout(total=300)  # 5 minute timeout
             self.session = aiohttp.ClientSession(
                 timeout=timeout,
                 headers={
+                    "User-Agent": get_user_agent(),
                     "Authorization": f"Bearer {self.api_key}",
                     "Content-Type": "application/json",
                 },

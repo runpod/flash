@@ -77,6 +77,28 @@ class TestGetAuthenticatedHttpxClient:
         assert client is not None
         assert client.timeout.read == 0.0
 
+    def test_get_authenticated_httpx_client_includes_user_agent(self, monkeypatch):
+        """Test client includes User-Agent header."""
+        monkeypatch.delenv("RUNPOD_API_KEY", raising=False)
+
+        client = get_authenticated_httpx_client()
+
+        assert client is not None
+        assert "User-Agent" in client.headers
+        assert client.headers["User-Agent"].startswith("Runpod Flash/")
+
+    def test_get_authenticated_httpx_client_user_agent_with_auth(self, monkeypatch):
+        """Test client includes both User-Agent and Authorization headers."""
+        monkeypatch.setenv("RUNPOD_API_KEY", "test-key")
+
+        client = get_authenticated_httpx_client()
+
+        assert client is not None
+        assert "User-Agent" in client.headers
+        assert "Authorization" in client.headers
+        assert client.headers["User-Agent"].startswith("Runpod Flash/")
+        assert client.headers["Authorization"] == "Bearer test-key"
+
 
 class TestGetAuthenticatedRequestsSession:
     """Test the get_authenticated_requests_session utility function."""
@@ -122,4 +144,28 @@ class TestGetAuthenticatedRequestsSession:
         session = get_authenticated_requests_session()
 
         assert isinstance(session, requests.Session)
+        session.close()
+
+    def test_get_authenticated_requests_session_includes_user_agent(self, monkeypatch):
+        """Test session includes User-Agent header."""
+        monkeypatch.delenv("RUNPOD_API_KEY", raising=False)
+
+        session = get_authenticated_requests_session()
+
+        assert session is not None
+        assert "User-Agent" in session.headers
+        assert session.headers["User-Agent"].startswith("Runpod Flash/")
+        session.close()
+
+    def test_get_authenticated_requests_session_user_agent_with_auth(self, monkeypatch):
+        """Test session includes both User-Agent and Authorization headers."""
+        monkeypatch.setenv("RUNPOD_API_KEY", "test-key")
+
+        session = get_authenticated_requests_session()
+
+        assert session is not None
+        assert "User-Agent" in session.headers
+        assert "Authorization" in session.headers
+        assert session.headers["User-Agent"].startswith("Runpod Flash/")
+        assert session.headers["Authorization"] == "Bearer test-key"
         session.close()
