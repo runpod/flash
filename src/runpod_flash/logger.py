@@ -322,3 +322,7 @@ def setup_logging(
                 existing_handler.addFilter(sensitive_filter)
 
     root_logger.setLevel(level)
+
+    # Silence httpcore trace logs (connection/request details)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
