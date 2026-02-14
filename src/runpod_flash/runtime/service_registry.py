@@ -281,14 +281,10 @@ class ServiceRegistry:
                         f"using local manifest for cross-endpoint routing"
                     )
                     # Fall back to local manifest's resources_endpoints if available
-<<<<<<< HEAD
                     if (
                         hasattr(self._manifest, "resources_endpoints")
                         and self._manifest.resources_endpoints
                     ):
-=======
-                    if hasattr(self._manifest, "resources_endpoints") and self._manifest.resources_endpoints:
->>>>>>> d549c4a (feat(service-registry): load endpoints from env, use API key from env var only)
                         self._endpoint_registry = self._manifest.resources_endpoints
                         logger.debug(
                             f"Loaded {len(self._endpoint_registry)} endpoints from local manifest"
