@@ -82,6 +82,29 @@ class ServiceRegistry:
             self._current_endpoint
         )
 
+        # Check for preview mode resources_endpoints from environment
+        self._load_preview_endpoints()
+
+    def _load_preview_endpoints(self) -> None:
+        """Load resources_endpoints from environment for preview mode.
+
+        In preview mode, the CLI passes resources_endpoints as a JSON-encoded
+        environment variable. This allows containers to discover each other
+        via Docker DNS without State Manager queries.
+        """
+        preview_endpoints_json = os.getenv("FLASH_RESOURCES_ENDPOINTS")
+        if preview_endpoints_json:
+            try:
+                self._endpoint_registry = json.loads(preview_endpoints_json)
+                self._endpoint_registry_loaded_at = time.time()
+                logger.info(
+                    f"Loaded {len(self._endpoint_registry)} endpoints from preview environment"
+                )
+            except json.JSONDecodeError as e:
+                logger.warning(
+                    f"Failed to parse FLASH_RESOURCES_ENDPOINTS environment variable: {e}"
+                )
+
     def _load_manifest(self, manifest_path: Optional[Path]) -> None:
         """Load flash_manifest.json.
 
@@ -199,33 +222,69 @@ class ServiceRegistry:
                     return
 
                 try:
-                    mothership_id = os.getenv("RUNPOD_ENDPOINT_ID")
-                    if not mothership_id:
+                    # Query State Manager using the Flash environment ID from deployment
+                    # This ID is set by the provisioner during flash deploy
+                    environment_id = os.getenv("FLASH_ENVIRONMENT_ID")
+                    if not environment_id:
                         logger.warning(
-                            "RUNPOD_ENDPOINT_ID not set, cannot query State Manager"
+                            "FLASH_ENVIRONMENT_ID not set. Remote function calls will not work. "
+                            "This is set during 'flash deploy'. Did you deploy the endpoint?"
                         )
                         return
 
+                    # Per PRD: Use RUNPOD_API_KEY from env var only (not request context)
+                    api_key = os.getenv("RUNPOD_API_KEY")
+
                     # Query State Manager directly for full manifest
                     full_manifest = await self._manifest_client.get_persisted_manifest(
-                        mothership_id
+                        environment_id, api_key=api_key
                     )
 
                     # Extract resources_endpoints mapping
                     resources_endpoints = full_manifest.get("resources_endpoints", {})
 
-                    self._endpoint_registry = resources_endpoints
-                    self._endpoint_registry_loaded_at = now
+                    # Check if State Manager returned empty endpoints
+                    if not resources_endpoints:
+                        logger.warning(
+                            f"State Manager returned empty resources_endpoints for environment {environment_id}. "
+                            f"Falling back to local manifest."
+                        )
+                        # Fall back to local manifest if available
+                        if hasattr(self._manifest, "resources_endpoints") and self._manifest.resources_endpoints:
+                            self._endpoint_registry = self._manifest.resources_endpoints
+                            self._endpoint_registry_loaded_at = now
+                            logger.info(
+                                f"Using {len(self._endpoint_registry)} endpoints from local manifest as fallback"
+                            )
+                        else:
+                            # No local manifest fallback available
+                            self._endpoint_registry = {}
+                            logger.error(
+                                "No endpoints available: State Manager returned empty and local manifest has no resources_endpoints"
+                            )
+                    else:
+                        # State Manager returned valid endpoints
+                        self._endpoint_registry = resources_endpoints
+                        # Update cache timestamp with current time (not the pre-lock 'now')
+                        # to prevent concurrent requests from re-querying
+                        self._endpoint_registry_loaded_at = time.time()
+                        logger.debug(
+                            f"Manifest loaded from State Manager: {len(self._endpoint_registry)} endpoints, "
+                            f"cache TTL {self.cache_ttl}s"
+                        )
+                except (ManifestServiceUnavailableError, Exception) as e:
                     logger.debug(
-                        f"Manifest loaded from State Manager: {len(self._endpoint_registry)} endpoints, "
-                        f"cache TTL {self.cache_ttl}s"
+                        f"State Manager unavailable ({type(e).__name__}), "
+                        f"using local manifest for cross-endpoint routing"
                     )
-                except ManifestServiceUnavailableError as e:
-                    logger.warning(
-                        f"Failed to load manifest from State Manager: {e}. "
-                        f"Cross-endpoint routing unavailable."
-                    )
-                    self._endpoint_registry = {}
+                    # Fall back to local manifest's resources_endpoints if available
+                    if hasattr(self._manifest, "resources_endpoints") and self._manifest.resources_endpoints:
+                        self._endpoint_registry = self._manifest.resources_endpoints
+                        logger.debug(
+                            f"Loaded {len(self._endpoint_registry)} endpoints from local manifest"
+                        )
+                    else:
+                        self._endpoint_registry = {}
 
     async def get_endpoint_for_function(self, function_name: str) -> Optional[str]:
         """Get endpoint URL for a function.
