@@ -152,7 +152,6 @@ class ResourceManager(SingletonMixin):
                     data = (self._resources, self._resource_configs)
                     cloudpickle.dump(data, f)
                     f.flush()  # Ensure data is written to disk
-                    log.debug(f"Saved resources in {RESOURCE_STATE_FILE}")
         except (FileLockError, Exception) as e:
             log.error(f"Failed to save resources to {RESOURCE_STATE_FILE}: {e}")
             raise

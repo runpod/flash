@@ -334,3 +334,4 @@ def setup_logging(
     # Silence httpcore trace logs (connection/request details)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("asyncio").setLevel(logging.WARNING)
