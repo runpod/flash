@@ -47,6 +47,7 @@ class Manifest:
     function_registry: Dict[str, str]
     resources: Dict[str, ResourceConfig]
     routes: Optional[Dict[str, Dict[str, str]]] = None
+    resources_endpoints: Optional[Dict[str, str]] = None
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Manifest":
@@ -62,6 +63,7 @@ class Manifest:
             function_registry=data.get("function_registry", {}),
             resources=resources,
             routes=data.get("routes"),
+            resources_endpoints=data.get("resources_endpoints"),
         )
 
     def to_dict(self) -> Dict[str, Any]:
