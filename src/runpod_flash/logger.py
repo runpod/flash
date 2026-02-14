@@ -293,7 +293,7 @@ def setup_logging(
     # Determine format based on final effective level
     if fmt is None:
         if level == logging.DEBUG:
-            fmt = "%(asctime)s | %(levelname)-5s | %(name)s | %(filename)s:%(lineno)d | %(message)s"
+            fmt = "%(asctime)s | %(levelname)-5s | %(message)s"
         else:
             # Default format for INFO level and above
             fmt = "%(asctime)s | %(levelname)-5s | %(message)s"
