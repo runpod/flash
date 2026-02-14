@@ -37,6 +37,7 @@ class TestServiceRegistry:
                             "is_async": True,
                         },
                     ],
+                    "makes_remote_calls": True,
                 },
                 "cpu_config": {
                     "resource_type": "LiveServerless",
@@ -47,6 +48,7 @@ class TestServiceRegistry:
                             "is_async": False,
                         },
                     ],
+                    "makes_remote_calls": True,
                 },
             },
         }
@@ -117,6 +119,7 @@ class TestServiceRegistry:
             {
                 "FLASH_RESOURCE_NAME": "gpu_config",
                 "RUNPOD_ENDPOINT_ID": "mothership-id",
+                "FLASH_ENVIRONMENT_ID": "test-env-123",
             },
         ):
             registry = ServiceRegistry(manifest_path=manifest_file)
@@ -180,6 +183,7 @@ class TestServiceRegistry:
             {
                 "FLASH_RESOURCE_NAME": "gpu_config",
                 "RUNPOD_ENDPOINT_ID": "mothership-id",
+                "FLASH_ENVIRONMENT_ID": "test-env-123",
             },
         ):
             registry = ServiceRegistry(manifest_path=manifest_file)
@@ -217,7 +221,13 @@ class TestServiceRegistry:
             "cpu_config": "https://cpu.example.com",
         }
 
-        with patch.dict(os.environ, {"RUNPOD_ENDPOINT_ID": "mothership-id"}):
+        with patch.dict(
+            os.environ,
+            {
+                "RUNPOD_ENDPOINT_ID": "mothership-id",
+                "FLASH_ENVIRONMENT_ID": "test-env-123",
+            },
+        ):
             registry = ServiceRegistry(manifest_path=manifest_file, cache_ttl=10)
 
             # Mock the manifest client
@@ -242,7 +252,13 @@ class TestServiceRegistry:
         """Test that manifest cache respects TTL."""
         mock_endpoint_registry = {"gpu_config": "https://gpu.example.com"}
 
-        with patch.dict(os.environ, {"RUNPOD_ENDPOINT_ID": "mothership-id"}):
+        with patch.dict(
+            os.environ,
+            {
+                "RUNPOD_ENDPOINT_ID": "mothership-id",
+                "FLASH_ENVIRONMENT_ID": "test-env-123",
+            },
+        ):
             registry = ServiceRegistry(manifest_path=manifest_file, cache_ttl=1)
 
             # Mock the manifest client
@@ -270,7 +286,13 @@ class TestServiceRegistry:
         """Test forcing manifest refresh."""
         mock_endpoint_registry = {"gpu_config": "https://gpu.example.com"}
 
-        with patch.dict(os.environ, {"RUNPOD_ENDPOINT_ID": "mothership-id"}):
+        with patch.dict(
+            os.environ,
+            {
+                "RUNPOD_ENDPOINT_ID": "mothership-id",
+                "FLASH_ENVIRONMENT_ID": "test-env-123",
+            },
+        ):
             registry = ServiceRegistry(manifest_path=manifest_file, cache_ttl=3600)
 
             # Mock the manifest client

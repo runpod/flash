@@ -42,6 +42,7 @@ class TestCrossEndpointRoutingIntegration:
                     "functions": [
                         {"name": "gpu_task", "module": "workers.gpu", "is_async": True}
                     ],
+                    "makes_remote_calls": True,
                 },
                 "cpu_config": {
                     "resource_type": "LiveServerless",
@@ -57,6 +58,7 @@ class TestCrossEndpointRoutingIntegration:
                             "is_async": False,
                         },
                     ],
+                    "makes_remote_calls": True,
                 },
             },
         }
@@ -190,6 +192,7 @@ class TestCrossEndpointRoutingIntegration:
             {
                 "FLASH_RESOURCE_NAME": "gpu_config",
                 "RUNPOD_ENDPOINT_ID": "mothership-id",
+                "FLASH_ENVIRONMENT_ID": "test-env-123",
             },
         ):
             endpoint_registry = {
