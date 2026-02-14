@@ -296,6 +296,43 @@ def clear_live_provisioning_env(monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.fixture(autouse=True)
+def cleanup_manifest_and_env(monkeypatch: pytest.MonkeyPatch):
+    """Clean up manifest files and runtime environment variables between tests.
+
+    This fixture ensures:
+    1. No flash_manifest.json leftover in cwd from previous tests
+    2. Runtime environment variables (FLASH_ENVIRONMENT_ID, FLASH_RESOURCE_NAME,
+       FLASH_RESOURCES_ENDPOINTS) don't leak between tests
+
+    Args:
+        monkeypatch: Pytest's monkeypatch fixture.
+    """
+    # Remove any manifest file in cwd before test
+    cwd_manifest = Path.cwd() / "flash_manifest.json"
+    manifest_backup = None
+    if cwd_manifest.exists():
+        # Backup if it exists (shouldn't in tests, but be safe)
+        manifest_backup = cwd_manifest.read_text()
+        cwd_manifest.unlink()
+
+    # Clear runtime environment variables
+    monkeypatch.delenv("FLASH_ENVIRONMENT_ID", raising=False)
+    monkeypatch.delenv("FLASH_RESOURCE_NAME", raising=False)
+    monkeypatch.delenv("FLASH_RESOURCES_ENDPOINTS", raising=False)
+    monkeypatch.delenv("FLASH_MANIFEST_PATH", raising=False)
+
+    yield
+
+    # Cleanup after test - remove any manifest created during test
+    if cwd_manifest.exists():
+        cwd_manifest.unlink()
+
+    # Restore backup if it existed
+    if manifest_backup:
+        cwd_manifest.write_text(manifest_backup)
+
+
+@pytest.fixture(autouse=True)
 def reset_singletons():
     """Reset singleton instances between tests.
 

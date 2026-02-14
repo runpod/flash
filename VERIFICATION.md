@@ -243,7 +243,6 @@ export FLASH_CPU_LB_IMAGE=my-registry/runpod-flash-lb-cpu:custom
 ## Files Modified
 
 - `src/runpod_flash/cli/commands/build_utils/manifest.py` - Uses constants
-- `src/runpod_flash/cli/commands/test_mothership.py` - Uses constants
 - `src/runpod_flash/core/resources/constants.py` - Centralizes constants
 - `src/runpod_flash/core/resources/live_serverless.py` - Imports from constants
 - `tests/unit/cli/commands/build_utils/test_manifest_mothership.py` - Updated tests

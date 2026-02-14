@@ -19,6 +19,7 @@ from .core.resources import ResourceManager, ServerlessResource
 from .core.utils.constants import HASH_TRUNCATE_LENGTH, UUID_FALLBACK_LENGTH
 from .core.utils.lru_cache import LRUCache
 from .protos.remote_execution import FunctionRequest
+from .runtime.context import is_deployed_container
 from .runtime.exceptions import SerializationError
 from .runtime.serialization import serialize_args, serialize_kwargs
 from .stubs import stub_resource
@@ -227,11 +228,64 @@ def create_remote_class(
             if self._initialized:
                 return
 
-            # Get remote resource
-            resource_manager = ResourceManager()
-            remote_resource = await resource_manager.get_or_deploy_resource(
-                self._resource_config
-            )
+            # Try ServiceRegistry first for remote endpoint discovery
+            from .runtime.service_registry import ServiceRegistry
+
+            try:
+                service_registry = ServiceRegistry()
+                remote_resource_config = (
+                    await service_registry.get_resource_for_function(
+                        self._class_type.__name__
+                    )
+                )
+
+                if remote_resource_config:
+                    # Remote execution: use endpoint from ServiceRegistry
+                    log.debug(
+                        f"Using remote endpoint for {self._class_type.__name__}: {remote_resource_config.name}"
+                    )
+                    remote_resource = remote_resource_config
+                else:
+                    # ServiceRegistry returned None - endpoint not in manifest
+                    if is_deployed_container():
+                        # In deployed environment: endpoint SHOULD be in manifest
+                        raise RuntimeError(
+                            f"Remote class '{self._class_type.__name__}' endpoint not found in manifest. "
+                            f"Resources must be deployed via 'flash deploy' CLI command before runtime execution. "
+                            f"If you recently added this class, run 'flash deploy' again to update the manifest."
+                        )
+                    else:
+                        # Local development: deploy on-demand for testing
+                        log.debug(
+                            f"Using local/ResourceManager execution for {self._class_type.__name__}"
+                        )
+                        resource_manager = ResourceManager()
+                        remote_resource = await resource_manager.get_or_deploy_resource(
+                            self._resource_config
+                        )
+
+            except RuntimeError:
+                # Re-raise our deployment guard errors
+                raise
+            except (ValueError, Exception) as e:
+                # ServiceRegistry not available or other errors
+                if is_deployed_container():
+                    # In deployed environment: cannot fall back to ResourceManager
+                    raise RuntimeError(
+                        f"Failed to lookup remote class '{self._class_type.__name__}' endpoint in deployed environment. "
+                        f"ServiceRegistry error: {e}. "
+                        f"This typically indicates a State Manager connectivity issue or misconfigured manifest."
+                    ) from e
+                else:
+                    # Local development: fall back to ResourceManager
+                    log.debug(
+                        f"ServiceRegistry lookup failed for {self._class_type.__name__}, using ResourceManager: {e}"
+                    )
+                    resource_manager = ResourceManager()
+                    remote_resource = await resource_manager.get_or_deploy_resource(
+                        self._resource_config
+                    )
+
             self._stub = stub_resource(remote_resource, **self._extra)
 
             # Create the remote instance by calling a method (which will trigger instance creation)

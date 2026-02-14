@@ -27,8 +27,20 @@ class ResourceConfig:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "ResourceConfig":
         """Load ResourceConfig from dict."""
+        # Filter function data to only include fields that FunctionMetadata accepts
+        expected_fields = {
+            "name",
+            "module",
+            "is_async",
+            "is_class",
+            "http_method",
+            "http_path",
+        }
         functions = [
-            FunctionMetadata(**func_data) for func_data in data.get("functions", [])
+            FunctionMetadata(
+                **{k: v for k, v in func_data.items() if k in expected_fields}
+            )
+            for func_data in data.get("functions", [])
         ]
         return cls(
             resource_type=data["resource_type"],
@@ -47,6 +59,7 @@ class Manifest:
     function_registry: Dict[str, str]
     resources: Dict[str, ResourceConfig]
     routes: Optional[Dict[str, Dict[str, str]]] = None
+    resources_endpoints: Optional[Dict[str, str]] = None
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Manifest":
@@ -62,6 +75,7 @@ class Manifest:
             function_registry=data.get("function_registry", {}),
             resources=resources,
             routes=data.get("routes"),
+            resources_endpoints=data.get("resources_endpoints"),
         )
 
     def to_dict(self) -> Dict[str, Any]:

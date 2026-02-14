@@ -117,6 +117,7 @@ class TestServiceRegistry:
             {
                 "FLASH_RESOURCE_NAME": "gpu_config",
                 "RUNPOD_ENDPOINT_ID": "mothership-id",
+                "FLASH_ENVIRONMENT_ID": "env-mothership",
             },
         ):
             registry = ServiceRegistry(manifest_path=manifest_file)
@@ -180,6 +181,7 @@ class TestServiceRegistry:
             {
                 "FLASH_RESOURCE_NAME": "gpu_config",
                 "RUNPOD_ENDPOINT_ID": "mothership-id",
+                "FLASH_ENVIRONMENT_ID": "env-mothership",
             },
         ):
             registry = ServiceRegistry(manifest_path=manifest_file)
@@ -196,11 +198,11 @@ class TestServiceRegistry:
 
             resource = await registry.get_resource_for_function("preprocess")
 
-            # Should return ServerlessResource
+            # Should return LoadBalancerSlsResource with correct endpoint ID
             assert resource is not None
             assert resource.id == "abc123"
-            # Name starts with remote_preprocess (may have random suffix appended)
-            assert resource.name.startswith("remote_preprocess")
+            # Name should be the resource config name from manifest
+            assert resource.name == "cpu_config"
 
     @pytest.mark.asyncio
     async def test_get_resource_for_function_not_in_manifest(self, manifest_file):
@@ -217,7 +219,14 @@ class TestServiceRegistry:
             "cpu_config": "https://cpu.example.com",
         }
 
-        with patch.dict(os.environ, {"RUNPOD_ENDPOINT_ID": "mothership-id"}):
+        with patch.dict(
+            os.environ,
+            {
+                "RUNPOD_ENDPOINT_ID": "mothership-id",
+                "FLASH_RESOURCE_NAME": "gpu_config",
+                "FLASH_ENVIRONMENT_ID": "env-test",
+            },
+        ):
             registry = ServiceRegistry(manifest_path=manifest_file, cache_ttl=10)
 
             # Mock the manifest client
@@ -242,7 +251,14 @@ class TestServiceRegistry:
         """Test that manifest cache respects TTL."""
         mock_endpoint_registry = {"gpu_config": "https://gpu.example.com"}
 
-        with patch.dict(os.environ, {"RUNPOD_ENDPOINT_ID": "mothership-id"}):
+        with patch.dict(
+            os.environ,
+            {
+                "RUNPOD_ENDPOINT_ID": "mothership-id",
+                "FLASH_RESOURCE_NAME": "gpu_config",
+                "FLASH_ENVIRONMENT_ID": "env-test",
+            },
+        ):
             registry = ServiceRegistry(manifest_path=manifest_file, cache_ttl=1)
 
             # Mock the manifest client
@@ -270,7 +286,14 @@ class TestServiceRegistry:
         """Test forcing manifest refresh."""
         mock_endpoint_registry = {"gpu_config": "https://gpu.example.com"}
 
-        with patch.dict(os.environ, {"RUNPOD_ENDPOINT_ID": "mothership-id"}):
+        with patch.dict(
+            os.environ,
+            {
+                "RUNPOD_ENDPOINT_ID": "mothership-id",
+                "FLASH_RESOURCE_NAME": "gpu_config",
+                "FLASH_ENVIRONMENT_ID": "env-test",
+            },
+        ):
             registry = ServiceRegistry(manifest_path=manifest_file, cache_ttl=3600)
 
             # Mock the manifest client
@@ -338,3 +361,183 @@ class TestServiceRegistry:
         # Should not fail, just log warning
         await registry._ensure_manifest_loaded()
         assert registry._endpoint_registry == {}
+
+    def test_load_preview_endpoints_from_environment(self, manifest_file):
+        """Test loading endpoints from FLASH_RESOURCES_ENDPOINTS env var."""
+        preview_endpoints = {
+            "gpu_config": "http://flash-preview-gpu_config:80",
+            "cpu_config": "http://flash-preview-cpu_config:80",
+        }
+
+        with patch.dict(
+            os.environ, {"FLASH_RESOURCES_ENDPOINTS": json.dumps(preview_endpoints)}
+        ):
+            registry = ServiceRegistry(manifest_path=manifest_file)
+
+            # Should have loaded endpoints from environment
+            assert registry._endpoint_registry == preview_endpoints
+
+    def test_load_preview_endpoints_invalid_json(self, manifest_file):
+        """Test handling of invalid JSON in FLASH_RESOURCES_ENDPOINTS."""
+        with patch.dict(os.environ, {"FLASH_RESOURCES_ENDPOINTS": "invalid json{"}):
+            registry = ServiceRegistry(manifest_path=manifest_file)
+
+            # Should handle error gracefully and have empty registry
+            assert registry._endpoint_registry == {}
+
+    def test_load_preview_endpoints_not_set(self, manifest_file):
+        """Test initialization when FLASH_RESOURCES_ENDPOINTS not set."""
+        with patch.dict(os.environ, {}, clear=True):
+            registry = ServiceRegistry(manifest_path=manifest_file)
+
+            # Should have empty registry (no State Manager, no preview endpoints)
+            assert registry._endpoint_registry == {}
+
+    def test_check_makes_remote_calls_true(self):
+        """Test _check_makes_remote_calls returns True when makes_remote_calls is True."""
+        manifest_dict = {
+            "version": "1.0",
+            "project_name": "test_app",
+            "resources": {
+                "mothership": {
+                    "resource_type": "CpuLiveLoadBalancer",
+                    "makes_remote_calls": True,
+                },
+            },
+        }
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(manifest_dict, f)
+            manifest_path = Path(f.name)
+
+        try:
+            with patch.dict(os.environ, {"FLASH_RESOURCE_NAME": "mothership"}):
+                registry = ServiceRegistry(manifest_path=manifest_path)
+                assert registry._check_makes_remote_calls("mothership") is True
+        finally:
+            manifest_path.unlink()
+
+    def test_check_makes_remote_calls_false(self):
+        """Test _check_makes_remote_calls returns False when makes_remote_calls is False."""
+        manifest_dict = {
+            "version": "1.0",
+            "project_name": "test_app",
+            "resources": {
+                "worker": {
+                    "resource_type": "LiveServerless",
+                    "makes_remote_calls": False,
+                },
+            },
+        }
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(manifest_dict, f)
+            manifest_path = Path(f.name)
+
+        try:
+            with patch.dict(os.environ, {"FLASH_RESOURCE_NAME": "worker"}):
+                registry = ServiceRegistry(manifest_path=manifest_path)
+                assert registry._check_makes_remote_calls("worker") is False
+        finally:
+            manifest_path.unlink()
+
+    def test_check_makes_remote_calls_null_returns_true(self):
+        """Test _check_makes_remote_calls returns True (safe default) when makes_remote_calls is null."""
+        manifest_dict = {
+            "version": "1.0",
+            "project_name": "test_app",
+            "resources": {
+                "mothership": {
+                    "resource_type": "CpuLiveLoadBalancer",
+                    "makes_remote_calls": None,
+                },
+            },
+        }
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(manifest_dict, f)
+            manifest_path = Path(f.name)
+
+        try:
+            with patch.dict(os.environ, {"FLASH_RESOURCE_NAME": "mothership"}):
+                registry = ServiceRegistry(manifest_path=manifest_path)
+                assert registry._check_makes_remote_calls("mothership") is True
+        finally:
+            manifest_path.unlink()
+
+    def test_check_makes_remote_calls_missing_resource_returns_true(self):
+        """Test _check_makes_remote_calls returns True (safe default) when resource not found."""
+        manifest_dict = {
+            "version": "1.0",
+            "project_name": "test_app",
+            "resources": {
+                "worker": {
+                    "resource_type": "LiveServerless",
+                    "makes_remote_calls": False,
+                },
+            },
+        }
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(manifest_dict, f)
+            manifest_path = Path(f.name)
+
+        try:
+            registry = ServiceRegistry(manifest_path=manifest_path)
+            # Check for a resource that doesn't exist
+            assert registry._check_makes_remote_calls("nonexistent") is True
+        finally:
+            manifest_path.unlink()
+
+    def test_check_makes_remote_calls_no_resource_name_returns_true(self):
+        """Test _check_makes_remote_calls returns True (safe default) when resource_name is None."""
+        manifest_dict = {
+            "version": "1.0",
+            "project_name": "test_app",
+            "resources": {},
+        }
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(manifest_dict, f)
+            manifest_path = Path(f.name)
+
+        try:
+            registry = ServiceRegistry(manifest_path=manifest_path)
+            assert registry._check_makes_remote_calls(None) is True
+        finally:
+            manifest_path.unlink()
+
+    @pytest.mark.asyncio
+    async def test_ensure_manifest_loaded_skips_if_no_remote_calls(self):
+        """Test that _ensure_manifest_loaded skips State Manager query if makes_remote_calls=False."""
+        manifest_dict = {
+            "version": "1.0",
+            "project_name": "test_app",
+            "resources": {
+                "worker": {
+                    "resource_type": "LiveServerless",
+                    "makes_remote_calls": False,
+                },
+            },
+        }
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(manifest_dict, f)
+            manifest_path = Path(f.name)
+
+        try:
+            with patch.dict(
+                os.environ,
+                {
+                    "FLASH_RESOURCE_NAME": "worker",
+                    "RUNPOD_ENDPOINT_ID": "test-endpoint",
+                },
+                clear=True,
+            ):
+                registry = ServiceRegistry(manifest_path=manifest_path)
+
+                # Mock the manifest client (should not be called)
+                mock_client = AsyncMock()
+                registry._manifest_client = mock_client
+
+                # Should skip State Manager query
+                await registry._ensure_manifest_loaded()
+
+                # Client should NOT have been called
+                mock_client.get_persisted_manifest.assert_not_called()
+        finally:
+            manifest_path.unlink()

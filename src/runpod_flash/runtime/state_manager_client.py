@@ -1,6 +1,7 @@
 """GraphQL client for State Manager API to persist and reconcile manifests."""
 
 import asyncio
+import json
 import logging
 from typing import Any, Dict, Optional
 
@@ -38,25 +39,30 @@ class StateManagerClient:
     def __init__(
         self,
         max_retries: int = DEFAULT_MAX_RETRIES,
+        api_key: Optional[str] = None,
     ):
         """Initialize State Manager client.
 
         Args:
             max_retries: Maximum retry attempts for operations.
+            api_key: Optional API key. If provided, will be used for all requests.
+                    If not provided, will be retrieved from context or environment.
 
         Raises:
-            RunpodAPIKeyError: If RUNPOD_API_KEY environment variable is not set (raised by RunpodGraphQLClient).
+            RunpodAPIKeyError: If no API key available (from param, context, or env).
         """
         self.max_retries = max_retries
+        self.api_key = api_key
         self._manifest_lock = asyncio.Lock()
 
     async def get_persisted_manifest(
-        self, mothership_id: str
+        self, flash_environment_id: str, api_key: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
         """Fetch persisted manifest from State Manager.
 
         Args:
-            mothership_id: ID of the mothership endpoint.
+            flash_environment_id: Flash environment ID (from FLASH_ENVIRONMENT_ID env var).
+            api_key: Optional API key for this request. Overrides instance api_key.
 
         Returns:
             Manifest dict.
@@ -64,33 +70,62 @@ class StateManagerClient:
         Raises:
             ManifestServiceUnavailableError: If State Manager unavailable after retries.
         """
+        # Use provided api_key, fall back to instance api_key, then resolve
+        key_to_use = api_key or self.api_key
+
+        # If still None, use resolver for context/env fallback with logging
+        if not key_to_use:
+            from runpod_flash.core.utils.api_key_resolver import resolve_api_key
+
+            key_to_use, source = resolve_api_key(
+                require_key=True, operation="State Manager query"
+            )
+
         last_exception: Optional[Exception] = None
 
         for attempt in range(self.max_retries):
             try:
-                async with RunpodGraphQLClient() as client:
+                async with RunpodGraphQLClient(api_key=key_to_use) as client:
                     _, manifest = await self._fetch_build_and_manifest(
-                        client, mothership_id
+                        client, flash_environment_id
                     )
 
-                logger.debug(f"Persisted manifest loaded for {mothership_id}")
+                # Log what we're returning to understand State Manager response
+                logger.info(
+                    f"get_persisted_manifest returning manifest with keys: "
+                    f"{list(manifest.keys())}"
+                )
+                if "resources_endpoints" in manifest:
+                    logger.info(
+                        f"Manifest contains resources_endpoints with "
+                        f"{len(manifest['resources_endpoints'])} entries"
+                    )
+                else:
+                    logger.warning(
+                        f"Manifest missing resources_endpoints field! "
+                        f"Full manifest structure: {json.dumps(manifest, indent=2)}"
+                    )
+
+                logger.debug(f"Persisted manifest loaded for {flash_environment_id}")
                 return manifest
 
-            except (
-                asyncio.TimeoutError,
-                ManifestServiceUnavailableError,
-                GraphQLError,
-                ConnectionError,
-            ) as e:
+            except Exception as e:
                 last_exception = e
+                logger.debug(
+                    f"State Manager request failed (attempt {attempt + 1}/{self.max_retries}): "
+                    f"{type(e).__name__}: {e}"
+                )
                 if attempt < self.max_retries - 1:
                     backoff = 2**attempt
-                    logger.warning(
-                        f"State Manager request failed (attempt {attempt + 1}): {e}, "
-                        f"retrying in {backoff}s..."
-                    )
+                    logger.debug(f"Retrying State Manager query in {backoff}s...")
                     await asyncio.sleep(backoff)
                     continue
+                else:
+                    # Last attempt failed, will raise below
+                    logger.warning(
+                        f"State Manager unavailable after {self.max_retries} attempts: "
+                        f"{type(e).__name__}: {e}"
+                    )
 
         raise ManifestServiceUnavailableError(
             f"Failed to fetch persisted manifest after {self.max_retries} attempts: "
@@ -99,9 +134,10 @@ class StateManagerClient:
 
     async def update_resource_state(
         self,
-        mothership_id: str,
+        flash_environment_id: str,
         resource_name: str,
         resource_data: Dict[str, Any],
+        api_key: Optional[str] = None,
     ) -> None:
         """Update single resource entry in State Manager.
 
@@ -109,21 +145,33 @@ class StateManagerClient:
         are deployed concurrently.
 
         Args:
-            mothership_id: ID of the mothership endpoint.
+            flash_environment_id: Flash environment ID (from FLASH_ENVIRONMENT_ID env var).
             resource_name: Name of the resource.
             resource_data: Resource metadata (config_hash, endpoint_url, status, etc).
+            api_key: Optional API key for this request. Overrides instance api_key.
 
         Raises:
             ManifestServiceUnavailableError: If State Manager unavailable.
         """
+        # Use provided api_key, fall back to instance api_key, then resolve
+        key_to_use = api_key or self.api_key
+
+        # If still None, use resolver for context/env fallback with logging
+        if not key_to_use:
+            from runpod_flash.core.utils.api_key_resolver import resolve_api_key
+
+            key_to_use, source = resolve_api_key(
+                require_key=True, operation="State Manager query"
+            )
+
         last_exception: Optional[Exception] = None
 
         for attempt in range(self.max_retries):
             try:
                 async with self._manifest_lock:
-                    async with RunpodGraphQLClient() as client:
+                    async with RunpodGraphQLClient(api_key=key_to_use) as client:
                         build_id, manifest = await self._fetch_build_and_manifest(
-                            client, mothership_id
+                            client, flash_environment_id
                         )
                         resources = manifest.setdefault("resources", {})
                         existing = resources.get(resource_name)
@@ -133,7 +181,7 @@ class StateManagerClient:
                         await client.update_build_manifest(build_id, manifest)
 
                 logger.debug(
-                    f"Updated resource state in State Manager: {mothership_id}/{resource_name}"
+                    f"Updated resource state in State Manager: {flash_environment_id}/{resource_name}"
                 )
                 return
 
@@ -159,7 +207,10 @@ class StateManagerClient:
         )
 
     async def remove_resource_state(
-        self, mothership_id: str, resource_name: str
+        self,
+        flash_environment_id: str,
+        resource_name: str,
+        api_key: Optional[str] = None,
     ) -> None:
         """Remove resource entry from State Manager.
 
@@ -167,27 +218,39 @@ class StateManagerClient:
         are deployed concurrently.
 
         Args:
-            mothership_id: ID of the mothership endpoint.
+            flash_environment_id: Flash environment ID (from FLASH_ENVIRONMENT_ID env var).
             resource_name: Name of the resource.
+            api_key: Optional API key for this request. Overrides instance api_key.
 
         Raises:
             ManifestServiceUnavailableError: If State Manager unavailable.
         """
+        # Use provided api_key, fall back to instance api_key, then resolve
+        key_to_use = api_key or self.api_key
+
+        # If still None, use resolver for context/env fallback with logging
+        if not key_to_use:
+            from runpod_flash.core.utils.api_key_resolver import resolve_api_key
+
+            key_to_use, source = resolve_api_key(
+                require_key=True, operation="State Manager query"
+            )
+
         last_exception: Optional[Exception] = None
 
         for attempt in range(self.max_retries):
             try:
                 async with self._manifest_lock:
-                    async with RunpodGraphQLClient() as client:
+                    async with RunpodGraphQLClient(api_key=key_to_use) as client:
                         build_id, manifest = await self._fetch_build_and_manifest(
-                            client, mothership_id
+                            client, flash_environment_id
                         )
                         resources = manifest.setdefault("resources", {})
                         resources.pop(resource_name, None)
                         await client.update_build_manifest(build_id, manifest)
 
                 logger.debug(
-                    f"Removed resource state from State Manager: {mothership_id}/{resource_name}"
+                    f"Removed resource state from State Manager: {flash_environment_id}/{resource_name}"
                 )
                 return
 
@@ -213,13 +276,13 @@ class StateManagerClient:
         )
 
     async def _fetch_build_and_manifest(
-        self, client: RunpodGraphQLClient, mothership_id: str
+        self, client: RunpodGraphQLClient, flash_environment_id: str
     ) -> tuple[str, Dict[str, Any]]:
-        """Fetch active build ID and manifest for an environment.
+        """Fetch active build ID and manifest for a Flash environment.
 
         Args:
             client: Authenticated GraphQL client.
-            mothership_id: Flash environment ID.
+            flash_environment_id: Flash environment ID (from FLASH_ENVIRONMENT_ID env var).
 
         Returns:
             Tuple of (build_id, manifest_dict).
@@ -228,21 +291,44 @@ class StateManagerClient:
             ManifestServiceUnavailableError: If environment, build, or manifest not found.
         """
         environment = await client.get_flash_environment(
-            {"flashEnvironmentId": mothership_id}
+            {"flashEnvironmentId": flash_environment_id}
         )
         build_id = environment.get("activeBuildId")
         if not build_id:
             raise ManifestServiceUnavailableError(
-                f"Active build not found for environment {mothership_id}. "
+                f"Active build not found for environment {flash_environment_id}. "
                 f"Environment may not be fully initialized or has no deployed build."
             )
 
+        # DIAGNOSTIC: Log the environment → build mapping
+        logger.info(
+            f"[STATE MANAGER] environment_id={flash_environment_id} → activeBuildId={build_id}"
+        )
+
         build = await client.get_flash_build(build_id)
         manifest = build.get("manifest")
+
+        # DIAGNOSTIC: Log what we got from State Manager
+        logger.info(
+            f"[STATE MANAGER] Retrieved build {build_id}, manifest keys: {list(manifest.keys()) if manifest else 'NONE'}"
+        )
+
         if not manifest:
             raise ManifestServiceUnavailableError(
                 f"Manifest not found for build {build.get('id', build_id)}. "
                 f"Build may be corrupted, not yet published, or manifest was not generated."
+            )
+
+        # DIAGNOSTIC: Log resources_endpoints availability
+        if "resources_endpoints" in manifest:
+            logger.info(
+                f"[STATE MANAGER] Manifest has {len(manifest['resources_endpoints'])} endpoints: "
+                f"{list(manifest['resources_endpoints'].keys())}"
+            )
+        else:
+            logger.warning(
+                f"[STATE MANAGER] Manifest MISSING resources_endpoints! "
+                f"Full manifest keys: {list(manifest.keys())}"
             )
 
         return build_id, manifest

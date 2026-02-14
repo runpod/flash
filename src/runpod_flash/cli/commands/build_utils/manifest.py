@@ -71,11 +71,7 @@ class ManifestResource:
     functions: List[ManifestFunction]
     is_load_balanced: bool = False  # Determined by isinstance() at scan time
     is_live_resource: bool = False  # LiveLoadBalancer vs LoadBalancerSlsResource
-    config_variable: Optional[str] = None  # Variable name for test-mothership
-    is_mothership: bool = False  # Special flag for mothership endpoint
-    is_explicit: bool = False  # Flag indicating explicit mothership.py configuration
-    main_file: Optional[str] = None  # Filename of main.py for mothership
-    app_variable: Optional[str] = None  # Variable name of FastAPI app
+    config_variable: Optional[str] = None  # Variable name of resource config
     imageName: Optional[str] = None  # Docker image name for auto-provisioning
     templateId: Optional[str] = None  # RunPod template ID for auto-provisioning
     gpuIds: Optional[list] = None  # GPU types/IDs for auto-provisioning
@@ -226,14 +222,24 @@ class ManifestBuilder:
         fastapi_routes = main_app_config.get("fastapi_routes", [])
         functions_list = _serialize_routes(fastapi_routes)
 
+        # Determine if mothership makes remote calls based on actual function analysis
+        makes_remote_calls = any(func.calls_remote_functions for func in fastapi_routes)
+
+        # Extract main file and app variable for runtime provisioning
+        # Store only the filename (not absolute path) since container has its own working directory
+        file_path = main_app_config.get("file_path")
+        main_file = file_path.name if file_path else "main.py"
+        app_variable = main_app_config.get("app_variable", "app")
+
         return {
             "resource_type": "CpuLiveLoadBalancer",
             "functions": functions_list,
             "is_load_balanced": True,
             "is_live_resource": True,
+            "makes_remote_calls": makes_remote_calls,
             "is_mothership": True,
-            "main_file": main_app_config["file_path"].name,
-            "app_variable": main_app_config["app_variable"],
+            "main_file": main_file,
+            "app_variable": app_variable,
             "imageName": FLASH_CPU_LB_IMAGE,
             "workersMin": DEFAULT_WORKERS_MIN,
             "workersMax": DEFAULT_WORKERS_MAX,
@@ -251,21 +257,33 @@ class ManifestBuilder:
         Returns:
             Dictionary representing the mothership resource for the manifest
         """
+        # Build set of remote function names for route analysis
+        remote_function_names = {f.function_name for f in self.remote_functions}
+
         # Detect FastAPI app details for handler generation
-        main_app_config = detect_main_app(search_dir, explicit_mothership_exists=False)
+        main_app_config = detect_main_app(
+            search_dir,
+            explicit_mothership_exists=False,
+            remote_function_names=remote_function_names,
+        )
 
         if not main_app_config:
             # No FastAPI app found, use defaults
+            fastapi_routes = []
             main_file = "main.py"
             app_variable = "app"
-            fastapi_routes = []
         else:
-            main_file = main_app_config["file_path"].name
-            app_variable = main_app_config["app_variable"]
             fastapi_routes = main_app_config.get("fastapi_routes", [])
+            # Store only the filename (not absolute path) since container has its own working directory
+            file_path = main_app_config.get("file_path")
+            main_file = file_path.name if file_path else "main.py"
+            app_variable = main_app_config.get("app_variable", "app")
 
         # Extract FastAPI routes into functions list
         functions_list = _serialize_routes(fastapi_routes)
+
+        # Determine if mothership makes remote calls based on actual function analysis
+        makes_remote_calls = any(func.calls_remote_functions for func in fastapi_routes)
 
         # Map resource type to image name
         resource_type = explicit_config.get("resource_type", "CpuLiveLoadBalancer")
@@ -279,8 +297,8 @@ class ManifestBuilder:
             "functions": functions_list,
             "is_load_balanced": True,
             "is_live_resource": True,
+            "makes_remote_calls": makes_remote_calls,
             "is_mothership": True,
-            "is_explicit": True,  # Flag to indicate explicit configuration
             "main_file": main_file,
             "app_variable": app_variable,
             "imageName": image_name,
@@ -422,8 +440,13 @@ class ManifestBuilder:
 
         else:
             # Step 2: Fallback to auto-detection
+            # Build set of remote function names for route analysis
+            remote_function_names = {f.function_name for f in self.remote_functions}
+
             main_app_config = detect_main_app(
-                search_dir, explicit_mothership_exists=False
+                search_dir,
+                explicit_mothership_exists=False,
+                remote_function_names=remote_function_names,
             )
 
             if main_app_config and main_app_config["has_routes"]:
@@ -446,7 +469,7 @@ class ManifestBuilder:
                 mothership_resource = self._create_mothership_resource(main_app_config)
                 resources_dict[mothership_name] = mothership_resource
 
-        # Extract routes from mothership resources
+        # Extract routes from mothership resources (auto-detected or explicit)
         for resource_name, resource in resources_dict.items():
             if resource.get("is_mothership") and resource.get("functions"):
                 mothership_routes = {}
