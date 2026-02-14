@@ -405,7 +405,6 @@ class RunpodGraphQLClient:
         """
         variables = {"flashAppName": app_name}
 
-        log.debug(f"Fetching flash app by name for input: {app_name}")
         result = await self._execute_graphql(query, variables)
         return result["flashAppByName"]
 
