@@ -595,7 +595,7 @@ The following parameters can be used with `LiveServerless` (full remote code exe
 | `gpuCount`         | Number of GPUs per worker                       | 1             | 1, 2, 4                             |
 | `workersMin`       | Minimum number of workers                       | 0             | Set to 1 for persistence            |
 | `workersMax`       | Maximum number of workers                       | 3             | Higher for more concurrency         |
-| `idleTimeout`      | Minutes before scaling down                     | 5             | 10, 30, 60                          |
+| `idleTimeout`      | Seconds before scaling down                     | 5             | 10, 30, 60                          |
 | `env`              | Environment variables                           | `None`        | `{"HF_TOKEN": "xyz"}`               |
 | `networkVolumeId`  | Persistent storage ID                           | `None`        | `"vol_abc123"`                      |
 | `executionTimeoutMs`| Max execution time (ms)                        | 0 (no limit)  | 600000 (10 min)                     |
