@@ -1,6 +1,46 @@
 # flash run
 
-Run Flash development server.
+Start the Flash development server for testing/debugging/development.
+
+## Overview
+
+The `flash run` command starts a local development server that hosts your FastAPI app on your machine while deploying `@remote` functions to Runpod Serverless. This hybrid architecture lets you rapidly iterate on your application with hot-reload while testing real GPU/CPU workloads in the cloud.
+
+Use `flash run` when you want to skip the build step and test/develop/debug your remote functions rapidly before deploying your full application with `flash deploy`. (See [Flash Deploy](./flash-deploy.md) for details.)
+
+## Architecture: Local App + Remote Workers
+
+With `flash run`, your system runs in a **hybrid architecture**:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  YOUR MACHINE (localhost:8888)                                  │
+│  ┌─────────────────────────────────────┐                        │
+│  │  FastAPI App (main.py)              │                        │
+│  │  - Your HTTP routes                 │                        │
+│  │  - Orchestrates @remote calls       │─────────┐              │
+│  │  - Hot-reload enabled               │         │              │
+│  └─────────────────────────────────────┘         │              │
+└──────────────────────────────────────────────────│──────────────┘
+                                                   │ HTTPS
+                                                   ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  RUNPOD SERVERLESS                                              │
+│  ┌─────────────────────────┐  ┌─────────────────────────┐       │
+│  │ live-gpu-worker         │  │ live-cpu-worker         │       │
+│  │ (your @remote function) │  │ (your @remote function) │       │
+│  └─────────────────────────┘  └─────────────────────────┘       │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Key points:**
+- **Your FastAPI app runs locally** on your machine (uvicorn at `localhost:8888`)
+- **`@remote` functions run on Runpod** as serverless endpoints
+- **Your machine is the orchestrator** that calls remote endpoints when you invoke `@remote` functions
+- **Hot reload works** because your app code is local—changes are picked up instantly
+- **Endpoints are prefixed with `live-`** to distinguish development endpoints from production (e.g., `gpu-worker` becomes `live-gpu-worker`)
+
+This is different from `flash deploy`, where **everything** (including your FastAPI app) runs on Runpod. See [flash deploy](./flash-deploy.md) for the fully-deployed architecture.
 
 ## Usage
 
@@ -13,7 +53,7 @@ flash run [OPTIONS]
 - `--host`: Host to bind to (default: localhost)
 - `--port, -p`: Port to bind to (default: 8888)
 - `--reload/--no-reload`: Enable auto-reload (default: enabled)
-- `--auto-provision`: Auto-provision deployable resources on startup (default: disabled)
+- `--auto-provision`: Auto-provision Serverless endpoints on startup (default: disabled)
 
 ## Examples
 
@@ -37,10 +77,32 @@ flash run --host 0.0.0.0 --port 8000
 2. Checks for FastAPI app
 3. Starts uvicorn server with hot reload
 4. GPU workers use LiveServerless (no packaging needed)
+### How It Works
+
+When you call a `@remote` function using `flash run`, Flash deploys a **Serverless endpoint** to Runpod. (These are actual cloud resources that incur costs.)
+
+```
+flash run
+    │
+    ├── Starts local server (e.g. localhost:8888)
+    │   └── Hosts your FastAPI mothership
+    │
+    └── On @remote function call:
+        └── Deploys a Serverless endpoint (if not cached)
+            └── Executes on the Runpod cloud
+```
+
+### Provisioning Modes
+
+| Mode | When endpoints are deployed |
+|------|----------------------------|
+| Default | Lazily, on first `@remote` function call |
+| `--auto-provision` | Eagerly, at server startup |
+
 
 ## Auto-Provisioning
 
-Auto-provisioning discovers and deploys serverless endpoints before the development server starts, eliminating the cold-start delay on first request.
+Auto-provisioning discovers and deploys Serverless endpoints before the Flash development server starts, eliminating the cold-start delay on first request.
 
 ### How It Works
 
