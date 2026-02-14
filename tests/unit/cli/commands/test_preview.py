@@ -374,6 +374,7 @@ class TestStartResourceContainer:
                 resource_config=resource_config,
                 build_dir=build_dir,
                 network="test-network",
+                resources_endpoints={},
             )
 
     @patch("runpod_flash.cli.commands.preview.subprocess.run")
@@ -400,6 +401,7 @@ class TestStartResourceContainer:
             resource_config=resource_config,
             build_dir=build_dir,
             network="test-network",
+            resources_endpoints={},
         )
 
         # Verify docker command includes archive mount

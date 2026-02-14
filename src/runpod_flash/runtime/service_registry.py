@@ -250,7 +250,10 @@ class ServiceRegistry:
                             f"Falling back to local manifest."
                         )
                         # Fall back to local manifest if available
-                        if hasattr(self._manifest, "resources_endpoints") and self._manifest.resources_endpoints:
+                        if (
+                            hasattr(self._manifest, "resources_endpoints")
+                            and self._manifest.resources_endpoints
+                        ):
                             self._endpoint_registry = self._manifest.resources_endpoints
                             self._endpoint_registry_loaded_at = now
                             logger.info(
@@ -278,7 +281,10 @@ class ServiceRegistry:
                         f"using local manifest for cross-endpoint routing"
                     )
                     # Fall back to local manifest's resources_endpoints if available
-                    if hasattr(self._manifest, "resources_endpoints") and self._manifest.resources_endpoints:
+                    if (
+                        hasattr(self._manifest, "resources_endpoints")
+                        and self._manifest.resources_endpoints
+                    ):
                         self._endpoint_registry = self._manifest.resources_endpoints
                         logger.debug(
                             f"Loaded {len(self._endpoint_registry)} endpoints from local manifest"
