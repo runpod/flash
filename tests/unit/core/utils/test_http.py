@@ -2,6 +2,7 @@
 
 import requests
 from runpod_flash.core.utils.http import (
+    get_authenticated_aiohttp_session,
     get_authenticated_httpx_client,
     get_authenticated_requests_session,
 )
@@ -99,6 +100,22 @@ class TestGetAuthenticatedHttpxClient:
         assert client.headers["User-Agent"].startswith("Runpod Flash/")
         assert client.headers["Authorization"] == "Bearer test-key"
 
+    def test_includes_content_type_header(self, monkeypatch):
+        """Client includes Content-Type: application/json."""
+        monkeypatch.delenv("RUNPOD_API_KEY", raising=False)
+
+        client = get_authenticated_httpx_client()
+
+        assert client.headers["Content-Type"] == "application/json"
+
+    def test_api_key_override_takes_precedence(self, monkeypatch):
+        """api_key_override parameter overrides environment variable."""
+        monkeypatch.setenv("RUNPOD_API_KEY", "env-key")
+
+        client = get_authenticated_httpx_client(api_key_override="override-key")
+
+        assert client.headers["Authorization"] == "Bearer override-key"
+
 
 class TestGetAuthenticatedRequestsSession:
     """Test the get_authenticated_requests_session utility function."""
@@ -169,3 +186,96 @@ class TestGetAuthenticatedRequestsSession:
         assert session.headers["User-Agent"].startswith("Runpod Flash/")
         assert session.headers["Authorization"] == "Bearer test-key"
         session.close()
+
+    def test_includes_content_type_header(self, monkeypatch):
+        """Session includes Content-Type: application/json."""
+        monkeypatch.delenv("RUNPOD_API_KEY", raising=False)
+
+        session = get_authenticated_requests_session()
+
+        assert session.headers["Content-Type"] == "application/json"
+        session.close()
+
+    def test_api_key_override_takes_precedence(self, monkeypatch):
+        """api_key_override parameter overrides environment variable."""
+        monkeypatch.setenv("RUNPOD_API_KEY", "env-key")
+
+        session = get_authenticated_requests_session(api_key_override="override-key")
+
+        assert session.headers["Authorization"] == "Bearer override-key"
+        session.close()
+
+
+class TestGetAuthenticatedAiohttpSession:
+    """Test aiohttp session factory."""
+
+    async def test_creates_session_with_user_agent(self, monkeypatch):
+        """Session includes User-Agent header."""
+        monkeypatch.delenv("RUNPOD_API_KEY", raising=False)
+
+        session = get_authenticated_aiohttp_session()
+        try:
+            assert "User-Agent" in session.headers
+            assert session.headers["User-Agent"].startswith("Runpod Flash/")
+        finally:
+            await session.close()
+
+    async def test_includes_api_key_when_set(self, monkeypatch):
+        """Session includes Authorization header when RUNPOD_API_KEY set."""
+        monkeypatch.setenv("RUNPOD_API_KEY", "test-key")
+
+        session = get_authenticated_aiohttp_session()
+        try:
+            assert session.headers["Authorization"] == "Bearer test-key"
+        finally:
+            await session.close()
+
+    async def test_api_key_override_takes_precedence(self, monkeypatch):
+        """api_key_override parameter overrides environment variable."""
+        monkeypatch.setenv("RUNPOD_API_KEY", "env-key")
+
+        session = get_authenticated_aiohttp_session(api_key_override="override-key")
+        try:
+            assert session.headers["Authorization"] == "Bearer override-key"
+        finally:
+            await session.close()
+
+    async def test_no_auth_header_when_no_api_key(self, monkeypatch):
+        """No Authorization header when API key not provided."""
+        monkeypatch.delenv("RUNPOD_API_KEY", raising=False)
+
+        session = get_authenticated_aiohttp_session()
+        try:
+            assert "Authorization" not in session.headers
+        finally:
+            await session.close()
+
+    async def test_includes_content_type_header(self, monkeypatch):
+        """Session includes Content-Type: application/json."""
+        monkeypatch.delenv("RUNPOD_API_KEY", raising=False)
+
+        session = get_authenticated_aiohttp_session()
+        try:
+            assert session.headers["Content-Type"] == "application/json"
+        finally:
+            await session.close()
+
+    async def test_custom_timeout(self, monkeypatch):
+        """Custom timeout can be specified."""
+        monkeypatch.delenv("RUNPOD_API_KEY", raising=False)
+
+        session = get_authenticated_aiohttp_session(timeout=60.0)
+        try:
+            assert session.timeout.total == 60.0
+        finally:
+            await session.close()
+
+    async def test_default_timeout_is_300_seconds(self, monkeypatch):
+        """Default timeout is 300s for GraphQL operations."""
+        monkeypatch.delenv("RUNPOD_API_KEY", raising=False)
+
+        session = get_authenticated_aiohttp_session()
+        try:
+            assert session.timeout.total == 300.0
+        finally:
+            await session.close()
