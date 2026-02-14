@@ -568,8 +568,11 @@ class ServerlessResource(DeployableResource):
         """
         Deploys the serverless resource using the provided configuration.
 
-        For queue-based endpoints that make remote calls, injects RUNPOD_API_KEY
-        into environment variables if not already set.
+        For ALL endpoints (QB and LB) that make remote calls, injects RUNPOD_API_KEY
+        and FLASH_ENVIRONMENT_ID into environment variables if not already set.
+
+        Per PRD: All endpoints (load-balancer and queue-based) use RUNPOD_API_KEY
+        from environment variable for remote function calls.
 
         Returns a DeployableResource object.
         """
@@ -579,30 +582,38 @@ class ServerlessResource(DeployableResource):
                 log.debug(f"{self} exists")
                 return self
 
-            # Inject API key for queue-based endpoints that make remote calls
-            if self.type == ServerlessType.QB:
-                env_dict = self.env or {}
+            env_dict = self.env or {}
 
-                # Check if this resource makes remote calls (from build manifest)
-                makes_remote_calls = self._check_makes_remote_calls()
+            # Check if this resource makes remote calls (from build manifest)
+            makes_remote_calls = self._check_makes_remote_calls()
 
-                if makes_remote_calls:
-                    # Inject RUNPOD_API_KEY if not already set
-                    if "RUNPOD_API_KEY" not in env_dict:
-                        api_key = os.getenv("RUNPOD_API_KEY")
-                        if api_key:
-                            env_dict["RUNPOD_API_KEY"] = api_key
-                            log.info(
-                                f"{self.name}: Injected RUNPOD_API_KEY for remote calls "
-                                f"(makes_remote_calls=True)"
-                            )
-                        else:
-                            log.warning(
-                                f"{self.name}: makes_remote_calls=True but RUNPOD_API_KEY not set. "
-                                f"Remote calls to other endpoints will fail."
-                            )
+            if makes_remote_calls:
+                # Inject RUNPOD_API_KEY if not already set
+                if "RUNPOD_API_KEY" not in env_dict:
+                    api_key = os.getenv("RUNPOD_API_KEY")
+                    if api_key:
+                        env_dict["RUNPOD_API_KEY"] = api_key
+                        log.info(
+                            f"{self.name}: Injected RUNPOD_API_KEY for remote calls "
+                            f"(makes_remote_calls=True)"
+                        )
+                    else:
+                        log.warning(
+                            f"{self.name}: makes_remote_calls=True but RUNPOD_API_KEY not set. "
+                            f"Remote calls to other endpoints will fail."
+                        )
 
-                self.env = env_dict
+                # Inject FLASH_ENVIRONMENT_ID if not already set
+                # This is set by the provisioner and enables endpoints to query State Manager
+                if "FLASH_ENVIRONMENT_ID" not in env_dict:
+                    flash_env_id = os.getenv("FLASH_ENVIRONMENT_ID")
+                    if flash_env_id:
+                        env_dict["FLASH_ENVIRONMENT_ID"] = flash_env_id
+                        log.debug(
+                            f"{self.name}: Injected FLASH_ENVIRONMENT_ID for manifest discovery"
+                        )
+
+            self.env = env_dict
 
             # Ensure network volume is deployed first
             await self._ensure_network_volume_deployed()
@@ -649,6 +660,28 @@ class ServerlessResource(DeployableResource):
             # Check for version-triggering changes
             if not self._has_structural_changes(new_config):
                 log.info(f"Updating endpoint '{self.name}' (ID: {self.id})")
+
+            # Inject environment variables for remote calls (same logic as _do_deploy)
+            env_dict = new_config.env or {}
+            makes_remote_calls = new_config._check_makes_remote_calls()
+
+            if makes_remote_calls:
+                if "RUNPOD_API_KEY" not in env_dict:
+                    api_key = os.getenv("RUNPOD_API_KEY")
+                    if api_key:
+                        env_dict["RUNPOD_API_KEY"] = api_key
+                        log.info(
+                            f"{new_config.name}: Injected RUNPOD_API_KEY for remote calls"
+                        )
+                if "FLASH_ENVIRONMENT_ID" not in env_dict:
+                    flash_env_id = os.getenv("FLASH_ENVIRONMENT_ID")
+                    if flash_env_id:
+                        env_dict["FLASH_ENVIRONMENT_ID"] = flash_env_id
+                        log.debug(
+                            f"{new_config.name}: Injected FLASH_ENVIRONMENT_ID for manifest discovery"
+                        )
+
+            new_config.env = env_dict
 
             # Ensure network volume is deployed if specified
             await new_config._ensure_network_volume_deployed()
