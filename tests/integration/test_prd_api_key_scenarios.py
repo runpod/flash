@@ -8,9 +8,8 @@ Tests the three PRD scenarios:
 
 import json
 import os
-import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -72,25 +71,23 @@ class TestPRDScenario1MothershipGPUWorker:
 
                 # Check that manifest correctly identifies remote calls
                 makes_remote = mothership._check_makes_remote_calls()
-                assert (
-                    makes_remote is True
-                ), "Mothership should make remote calls per manifest"
+                assert makes_remote is True, (
+                    "Mothership should make remote calls per manifest"
+                )
 
                 # Simulate deployment (inject env vars)
                 env_dict = {}
                 if makes_remote:
                     env_dict["RUNPOD_API_KEY"] = os.getenv("RUNPOD_API_KEY")
-                    env_dict["FLASH_ENVIRONMENT_ID"] = os.getenv(
-                        "FLASH_ENVIRONMENT_ID"
-                    )
+                    env_dict["FLASH_ENVIRONMENT_ID"] = os.getenv("FLASH_ENVIRONMENT_ID")
 
-                assert (
-                    "RUNPOD_API_KEY" in env_dict
-                ), "Mothership should have API key injected"
+                assert "RUNPOD_API_KEY" in env_dict, (
+                    "Mothership should have API key injected"
+                )
                 assert env_dict["RUNPOD_API_KEY"] == "test-api-key-123"
-                assert (
-                    "FLASH_ENVIRONMENT_ID" in env_dict
-                ), "Mothership should have environment ID injected"
+                assert "FLASH_ENVIRONMENT_ID" in env_dict, (
+                    "Mothership should have environment ID injected"
+                )
 
         finally:
             if manifest_path.exists():
@@ -115,18 +112,18 @@ class TestPRDScenario1MothershipGPUWorker:
                 )
 
                 makes_remote = gpu_worker._check_makes_remote_calls()
-                assert (
-                    makes_remote is False
-                ), "GPU worker shouldn't make remote calls per manifest"
+                assert makes_remote is False, (
+                    "GPU worker shouldn't make remote calls per manifest"
+                )
 
                 # No API key injection for local-only worker
                 env_dict = {}
                 if makes_remote:
                     env_dict["RUNPOD_API_KEY"] = os.getenv("RUNPOD_API_KEY")
 
-                assert (
-                    "RUNPOD_API_KEY" not in env_dict
-                ), "GPU worker should NOT have API key (local-only)"
+                assert "RUNPOD_API_KEY" not in env_dict, (
+                    "GPU worker should NOT have API key (local-only)"
+                )
 
         finally:
             if manifest_path.exists():
@@ -198,9 +195,9 @@ class TestPRDScenario2ChainedWorkers:
                     )
 
                     makes_remote = resource._check_makes_remote_calls()
-                    assert (
-                        makes_remote == expected_remote
-                    ), f"{name} makes_remote_calls should be {expected_remote}"
+                    assert makes_remote == expected_remote, (
+                        f"{name} makes_remote_calls should be {expected_remote}"
+                    )
 
                     # API key injection based on makes_remote_calls
                     env_dict = {}
@@ -208,13 +205,13 @@ class TestPRDScenario2ChainedWorkers:
                         env_dict["RUNPOD_API_KEY"] = os.getenv("RUNPOD_API_KEY")
 
                     if expected_remote:
-                        assert (
-                            "RUNPOD_API_KEY" in env_dict
-                        ), f"{name} should have API key"
+                        assert "RUNPOD_API_KEY" in env_dict, (
+                            f"{name} should have API key"
+                        )
                     else:
-                        assert (
-                            "RUNPOD_API_KEY" not in env_dict
-                        ), f"{name} should NOT have API key"
+                        assert "RUNPOD_API_KEY" not in env_dict, (
+                            f"{name} should NOT have API key"
+                        )
 
         finally:
             if manifest_path.exists():
@@ -277,9 +274,9 @@ class TestPRDScenario3LocalOnly:
                 mock_client.get_persisted_manifest.assert_not_called()
 
                 # Endpoint registry should remain empty (no remote calls needed)
-                assert (
-                    registry._endpoint_registry == {}
-                ), "Local-only endpoint should not load endpoint registry"
+                assert registry._endpoint_registry == {}, (
+                    "Local-only endpoint should not load endpoint registry"
+                )
 
         finally:
             if manifest_path.exists():
@@ -302,18 +299,18 @@ class TestPRDScenario3LocalOnly:
                 )
 
                 makes_remote = mothership._check_makes_remote_calls()
-                assert (
-                    makes_remote is False
-                ), "Local-only mothership shouldn't make remote calls"
+                assert makes_remote is False, (
+                    "Local-only mothership shouldn't make remote calls"
+                )
 
                 # No API key for local-only endpoint
                 env_dict = {}
                 if makes_remote:
                     env_dict["RUNPOD_API_KEY"] = os.getenv("RUNPOD_API_KEY")
 
-                assert (
-                    "RUNPOD_API_KEY" not in env_dict
-                ), "Local-only endpoint should NOT get API key"
+                assert "RUNPOD_API_KEY" not in env_dict, (
+                    "Local-only endpoint should NOT get API key"
+                )
 
         finally:
             if manifest_path.exists():
@@ -365,9 +362,9 @@ class TestResourceNameNormalization:
 
             makes_remote = resource._check_makes_remote_calls()
             # Should find 'worker' in manifest regardless of prefixes/suffixes
-            assert (
-                makes_remote is True
-            ), f"'{resource_name}' should be normalized to '{expected_lookup}' and find makes_remote_calls=True"
+            assert makes_remote is True, (
+                f"'{resource_name}' should be normalized to '{expected_lookup}' and find makes_remote_calls=True"
+            )
 
         finally:
             if manifest_path.exists():
