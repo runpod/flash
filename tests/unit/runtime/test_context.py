@@ -42,6 +42,77 @@ class TestIsDeployedContainer:
         ):
             assert is_deployed_container() is False
 
+    def test_live_provisioning_overrides_endpoint_id(self):
+        """FLASH_IS_LIVE_PROVISIONING=true should override RUNPOD_ENDPOINT_ID."""
+        with patch.dict(
+            os.environ,
+            {
+                "RUNPOD_ENDPOINT_ID": "test-endpoint-123",
+                "FLASH_IS_LIVE_PROVISIONING": "true",
+            },
+        ):
+            assert is_deployed_container() is False
+
+    def test_live_provisioning_overrides_pod_id(self):
+        """FLASH_IS_LIVE_PROVISIONING=true should override RUNPOD_POD_ID."""
+        with patch.dict(
+            os.environ,
+            {
+                "RUNPOD_POD_ID": "test-pod-456",
+                "FLASH_IS_LIVE_PROVISIONING": "true",
+            },
+            clear=True,
+        ):
+            assert is_deployed_container() is False
+
+    def test_live_provisioning_overrides_both_ids(self):
+        """FLASH_IS_LIVE_PROVISIONING=true should override both RunPod IDs."""
+        with patch.dict(
+            os.environ,
+            {
+                "RUNPOD_ENDPOINT_ID": "test-endpoint-123",
+                "RUNPOD_POD_ID": "test-pod-456",
+                "FLASH_IS_LIVE_PROVISIONING": "true",
+            },
+        ):
+            assert is_deployed_container() is False
+
+    def test_live_provisioning_case_insensitive(self):
+        """FLASH_IS_LIVE_PROVISIONING should be case-insensitive."""
+        test_values = ["true", "True", "TRUE", "TrUe"]
+
+        for value in test_values:
+            with patch.dict(
+                os.environ,
+                {
+                    "RUNPOD_ENDPOINT_ID": "test-endpoint-123",
+                    "FLASH_IS_LIVE_PROVISIONING": value,
+                },
+            ):
+                assert is_deployed_container() is False
+
+    def test_live_provisioning_false_does_not_override(self):
+        """FLASH_IS_LIVE_PROVISIONING=false should not override deployment detection."""
+        with patch.dict(
+            os.environ,
+            {
+                "RUNPOD_ENDPOINT_ID": "test-endpoint-123",
+                "FLASH_IS_LIVE_PROVISIONING": "false",
+            },
+        ):
+            assert is_deployed_container() is True
+
+    def test_live_provisioning_empty_does_not_override(self):
+        """Empty FLASH_IS_LIVE_PROVISIONING should not override deployment detection."""
+        with patch.dict(
+            os.environ,
+            {
+                "RUNPOD_ENDPOINT_ID": "test-endpoint-123",
+                "FLASH_IS_LIVE_PROVISIONING": "",
+            },
+        ):
+            assert is_deployed_container() is True
+
 
 class TestIsLocalDevelopment:
     """Tests for is_local_development function."""
@@ -73,3 +144,14 @@ class TestIsLocalDevelopment:
         for env_vars in test_cases:
             with patch.dict(os.environ, env_vars, clear=True):
                 assert is_local_development() == (not is_deployed_container())
+
+    def test_local_with_live_provisioning(self):
+        """Should return True when FLASH_IS_LIVE_PROVISIONING=true even with RunPod IDs."""
+        with patch.dict(
+            os.environ,
+            {
+                "RUNPOD_ENDPOINT_ID": "test-endpoint-123",
+                "FLASH_IS_LIVE_PROVISIONING": "true",
+            },
+        ):
+            assert is_local_development() is True
