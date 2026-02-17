@@ -156,7 +156,7 @@ class ServerlessResource(DeployableResource):
     # === Input Fields ===
     executionTimeoutMs: Optional[int] = 0
     gpuCount: Optional[int] = 1
-    idleTimeout: Optional[int] = 5
+    idleTimeout: Optional[int] = 60
     instanceIds: Optional[List[CpuInstanceType]] = None
     locations: Optional[str] = None
     name: str
