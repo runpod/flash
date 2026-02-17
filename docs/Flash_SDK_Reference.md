@@ -124,7 +124,7 @@ class ResourceConfig:
     # Worker scaling
     workersMin: int = 0                 # Minimum workers to maintain
     workersMax: int = 3                 # Maximum workers allowed
-    idleTimeout: int = 300              # Seconds before idle worker terminates
+    idleTimeout: int = 60               # Seconds before idle worker terminates
 
     # Networking
     networkVolumeId: Optional[str] = None  # Mount persistent storage

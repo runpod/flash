@@ -4,7 +4,7 @@ cpu_config = CpuLiveServerless(
     name="cpu_worker",
     workersMin=0,
     workersMax=1,
-    idleTimeout=5,
+    idleTimeout=60,
 )
 
 
