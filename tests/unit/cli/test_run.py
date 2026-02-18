@@ -30,6 +30,12 @@ def temp_fastapi_app(tmp_path):
 class TestRunCommandEnvironmentVariables:
     """Test flash run command environment variable support."""
 
+    @pytest.fixture(autouse=True)
+    def patch_watcher(self):
+        """Prevent the background watcher thread from blocking tests."""
+        with patch("runpod_flash.cli.commands.run._watch_and_regenerate"):
+            yield
+
     def test_port_from_environment_variable(
         self, runner, temp_fastapi_app, monkeypatch
     ):
@@ -221,3 +227,199 @@ class TestRunCommandEnvironmentVariables:
                     assert "--port" in call_args
                     port_index = call_args.index("--port")
                     assert call_args[port_index + 1] == "7000"
+
+
+class TestRunCommandHotReload:
+    """Test flash run hot-reload behavior."""
+
+    @pytest.fixture(autouse=True)
+    def patch_watcher(self):
+        """Prevent the background watcher thread from blocking tests."""
+        with patch("runpod_flash.cli.commands.run._watch_and_regenerate"):
+            yield
+
+    def _invoke_run(self, runner, monkeypatch, temp_fastapi_app, extra_args=None):
+        """Helper: invoke flash run and return the Popen call args."""
+        monkeypatch.chdir(temp_fastapi_app)
+        monkeypatch.delenv("FLASH_PORT", raising=False)
+        monkeypatch.delenv("FLASH_HOST", raising=False)
+
+        with patch("runpod_flash.cli.commands.run.subprocess.Popen") as mock_popen:
+            mock_process = MagicMock()
+            mock_process.pid = 12345
+            mock_process.wait.side_effect = KeyboardInterrupt()
+            mock_popen.return_value = mock_process
+
+            with patch("runpod_flash.cli.commands.run.os.getpgid", return_value=12345):
+                with patch("runpod_flash.cli.commands.run.os.killpg"):
+                    runner.invoke(app, ["run"] + (extra_args or []))
+
+            return mock_popen.call_args[0][0]
+
+    def test_reload_watches_flash_server_py(
+        self, runner, temp_fastapi_app, monkeypatch
+    ):
+        """Uvicorn watches .flash/server.py, not the whole project."""
+        cmd = self._invoke_run(runner, monkeypatch, temp_fastapi_app)
+
+        assert "--reload" in cmd
+        assert "--reload-dir" in cmd
+        reload_dir_index = cmd.index("--reload-dir")
+        assert cmd[reload_dir_index + 1] == ".flash"
+
+        assert "--reload-include" in cmd
+        reload_include_index = cmd.index("--reload-include")
+        assert cmd[reload_include_index + 1] == "server.py"
+
+    def test_reload_does_not_watch_project_root(
+        self, runner, temp_fastapi_app, monkeypatch
+    ):
+        """Uvicorn reload-dir must not be '.' to prevent double-reload."""
+        cmd = self._invoke_run(runner, monkeypatch, temp_fastapi_app)
+
+        reload_dir_index = cmd.index("--reload-dir")
+        assert cmd[reload_dir_index + 1] != "."
+
+    def test_no_reload_skips_watcher_thread(
+        self, runner, temp_fastapi_app, monkeypatch
+    ):
+        """--no-reload: neither uvicorn reload args nor watcher thread started."""
+        monkeypatch.chdir(temp_fastapi_app)
+
+        with patch("runpod_flash.cli.commands.run.subprocess.Popen") as mock_popen:
+            mock_process = MagicMock()
+            mock_process.pid = 12345
+            mock_process.wait.side_effect = KeyboardInterrupt()
+            mock_popen.return_value = mock_process
+
+            with patch("runpod_flash.cli.commands.run.os.getpgid", return_value=12345):
+                with patch("runpod_flash.cli.commands.run.os.killpg"):
+                    with patch(
+                        "runpod_flash.cli.commands.run.threading.Thread"
+                    ) as mock_thread_cls:
+                        mock_thread = MagicMock()
+                        mock_thread_cls.return_value = mock_thread
+
+                        runner.invoke(app, ["run", "--no-reload"])
+
+            cmd = mock_popen.call_args[0][0]
+            assert "--reload" not in cmd
+            mock_thread.start.assert_not_called()
+
+    def test_watcher_thread_started_on_reload(
+        self, runner, temp_fastapi_app, monkeypatch, patch_watcher
+    ):
+        """When reload=True, the background watcher thread is started."""
+        monkeypatch.chdir(temp_fastapi_app)
+
+        with patch("runpod_flash.cli.commands.run.subprocess.Popen") as mock_popen:
+            mock_process = MagicMock()
+            mock_process.pid = 12345
+            mock_process.wait.side_effect = KeyboardInterrupt()
+            mock_popen.return_value = mock_process
+
+            with patch("runpod_flash.cli.commands.run.os.getpgid", return_value=12345):
+                with patch("runpod_flash.cli.commands.run.os.killpg"):
+                    with patch(
+                        "runpod_flash.cli.commands.run.threading.Thread"
+                    ) as mock_thread_cls:
+                        mock_thread = MagicMock()
+                        mock_thread_cls.return_value = mock_thread
+
+                        runner.invoke(app, ["run"])
+
+            mock_thread.start.assert_called_once()
+
+    def test_watcher_thread_stopped_on_keyboard_interrupt(
+        self, runner, temp_fastapi_app, monkeypatch
+    ):
+        """KeyboardInterrupt sets stop_event and joins the watcher thread."""
+        monkeypatch.chdir(temp_fastapi_app)
+
+        with patch("runpod_flash.cli.commands.run.subprocess.Popen") as mock_popen:
+            mock_process = MagicMock()
+            mock_process.pid = 12345
+            mock_process.wait.side_effect = KeyboardInterrupt()
+            mock_popen.return_value = mock_process
+
+            with patch("runpod_flash.cli.commands.run.os.getpgid", return_value=12345):
+                with patch("runpod_flash.cli.commands.run.os.killpg"):
+                    with patch(
+                        "runpod_flash.cli.commands.run.threading.Thread"
+                    ) as mock_thread_cls:
+                        mock_thread = MagicMock()
+                        mock_thread_cls.return_value = mock_thread
+                        with patch(
+                            "runpod_flash.cli.commands.run.threading.Event"
+                        ) as mock_event_cls:
+                            mock_stop = MagicMock()
+                            mock_event_cls.return_value = mock_stop
+
+                            runner.invoke(app, ["run"])
+
+            mock_stop.set.assert_called_once()
+            mock_thread.join.assert_called_once_with(timeout=2)
+
+
+class TestWatchAndRegenerate:
+    """Unit tests for the _watch_and_regenerate background function."""
+
+    def test_regenerates_server_py_on_py_file_change(self, tmp_path):
+        """When a .py file changes, server.py is regenerated."""
+        import threading
+        from runpod_flash.cli.commands.run import _watch_and_regenerate
+
+        stop = threading.Event()
+
+        with patch(
+            "runpod_flash.cli.commands.run._scan_project_workers", return_value=[]
+        ) as mock_scan:
+            with patch(
+                "runpod_flash.cli.commands.run._generate_flash_server"
+            ) as mock_gen:
+                with patch(
+                    "runpod_flash.cli.commands.run._watchfiles_watch"
+                ) as mock_watch:
+                    # Yield one batch of changes then stop
+                    mock_watch.return_value = iter([{(1, "/path/to/worker.py")}])
+                    stop.set()  # ensures the loop exits after one iteration
+                    _watch_and_regenerate(tmp_path, stop)
+
+        mock_scan.assert_called_once_with(tmp_path)
+        mock_gen.assert_called_once()
+
+    def test_ignores_non_py_changes(self, tmp_path):
+        """Changes to non-.py files do not trigger regeneration."""
+        import threading
+        from runpod_flash.cli.commands.run import _watch_and_regenerate
+
+        stop = threading.Event()
+
+        with patch("runpod_flash.cli.commands.run._scan_project_workers") as mock_scan:
+            with patch(
+                "runpod_flash.cli.commands.run._generate_flash_server"
+            ) as mock_gen:
+                with patch(
+                    "runpod_flash.cli.commands.run._watchfiles_watch"
+                ) as mock_watch:
+                    mock_watch.return_value = iter([{(1, "/path/to/README.md")}])
+                    _watch_and_regenerate(tmp_path, stop)
+
+        mock_scan.assert_not_called()
+        mock_gen.assert_not_called()
+
+    def test_scan_error_does_not_crash_watcher(self, tmp_path):
+        """If regeneration raises, the watcher logs a warning and continues."""
+        import threading
+        from runpod_flash.cli.commands.run import _watch_and_regenerate
+
+        stop = threading.Event()
+
+        with patch(
+            "runpod_flash.cli.commands.run._scan_project_workers",
+            side_effect=RuntimeError("scan failed"),
+        ):
+            with patch("runpod_flash.cli.commands.run._watchfiles_watch") as mock_watch:
+                mock_watch.return_value = iter([{(1, "/path/to/worker.py")}])
+                # Should not raise
+                _watch_and_regenerate(tmp_path, stop)
