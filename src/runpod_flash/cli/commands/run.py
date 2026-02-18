@@ -221,12 +221,20 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
                 handler_name = _sanitize_fn_name(
                     f"_route_{worker.resource_name}_{fn_name}"
                 )
-                lines += [
-                    f'@app.{method}("{full_path}", tags=["{tag}"])',
-                    f"async def {handler_name}(body: dict):",
-                    f"    return await {fn_name}(body)",
-                    "",
-                ]
+                if method in ("get", "head"):
+                    lines += [
+                        f'@app.{method}("{full_path}", tags=["{tag}"])',
+                        f"async def {handler_name}():",
+                        f"    return await {fn_name}()",
+                        "",
+                    ]
+                else:
+                    lines += [
+                        f'@app.{method}("{full_path}", tags=["{tag}"])',
+                        f"async def {handler_name}(body: dict):",
+                        f"    return await {fn_name}(body)",
+                        "",
+                    ]
 
     # Health endpoints
     lines += [

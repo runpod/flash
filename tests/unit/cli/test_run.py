@@ -1,10 +1,12 @@
 """Unit tests for run CLI command."""
 
 import pytest
+from pathlib import Path
 from unittest.mock import patch, MagicMock
 from typer.testing import CliRunner
 
 from runpod_flash.cli.main import app
+from runpod_flash.cli.commands.run import WorkerInfo, _generate_flash_server
 
 
 @pytest.fixture
@@ -423,3 +425,39 @@ class TestWatchAndRegenerate:
                 mock_watch.return_value = iter([{(1, "/path/to/worker.py")}])
                 # Should not raise
                 _watch_and_regenerate(tmp_path, stop)
+
+
+class TestGenerateFlashServer:
+    """Test _generate_flash_server() route code generation."""
+
+    def _make_lb_worker(self, tmp_path: Path, method: str) -> WorkerInfo:
+        return WorkerInfo(
+            file_path=tmp_path / "api.py",
+            url_prefix="/api",
+            module_path="api",
+            resource_name="api",
+            worker_type="LB",
+            functions=["list_routes"],
+            lb_routes=[
+                {"method": method, "path": "/routes/list", "fn_name": "list_routes"}
+            ],
+        )
+
+    def test_get_route_has_no_body_param(self, tmp_path):
+        """GET handler must omit body: dict to satisfy FastAPI/browser constraints."""
+        worker = self._make_lb_worker(tmp_path, "GET")
+        server_path = _generate_flash_server(tmp_path, [worker])
+        content = server_path.read_text()
+
+        # The GET handler must be zero-arg
+        assert "async def _route_api_list_routes():" in content
+        # No body parameter on any GET handler
+        assert "body: dict" not in content
+
+    def test_post_route_keeps_body_param(self, tmp_path):
+        """POST handler must include body: dict for JSON request body."""
+        worker = self._make_lb_worker(tmp_path, "POST")
+        server_path = _generate_flash_server(tmp_path, [worker])
+        content = server_path.read_text()
+
+        assert "async def _route_api_list_routes(body: dict):" in content
