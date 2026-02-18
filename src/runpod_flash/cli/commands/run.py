@@ -5,15 +5,360 @@ import os
 import signal
 import subprocess
 import sys
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import List
 
-import questionary
 import typer
 from rich.console import Console
+from rich.table import Table
+
+from .build_utils.scanner import (
+    RemoteDecoratorScanner,
+    file_to_module_path,
+    file_to_resource_name,
+    file_to_url_prefix,
+)
 
 logger = logging.getLogger(__name__)
 console = Console()
+
+# Resource state file written by ResourceManager in the uvicorn subprocess.
+_RESOURCE_STATE_FILE = Path(".runpod") / "resources.pkl"
+
+
+@dataclass
+class WorkerInfo:
+    """Info about a discovered @remote function for dev server generation."""
+
+    file_path: Path
+    url_prefix: str  # e.g. /longruns/stage1
+    module_path: str  # e.g. longruns.stage1
+    resource_name: str  # e.g. longruns_stage1
+    worker_type: str  # "QB" or "LB"
+    functions: List[str]  # function names
+    lb_routes: List[dict] = field(default_factory=list)  # [{method, path, fn_name}]
+
+
+def _scan_project_workers(project_root: Path) -> List[WorkerInfo]:
+    """Scan the project for all @remote decorated functions.
+
+    Walks all .py files (excluding .flash/, __pycache__, __init__.py) and
+    builds WorkerInfo for each file that contains @remote functions.
+
+    Files with QB functions produce one WorkerInfo per file (QB type).
+    Files with LB functions produce one WorkerInfo per file (LB type).
+    A file can have both QB and LB functions (unusual but supported).
+
+    Args:
+        project_root: Root directory of the Flash project
+
+    Returns:
+        List of WorkerInfo, one entry per discovered source file
+    """
+    scanner = RemoteDecoratorScanner(project_root)
+    remote_functions = scanner.discover_remote_functions()
+
+    # Group by file path
+    by_file: dict[Path, List] = {}
+    for func in remote_functions:
+        by_file.setdefault(func.file_path, []).append(func)
+
+    workers: List[WorkerInfo] = []
+    for file_path, funcs in sorted(by_file.items()):
+        url_prefix = file_to_url_prefix(file_path, project_root)
+        module_path = file_to_module_path(file_path, project_root)
+        resource_name = file_to_resource_name(file_path, project_root)
+
+        qb_funcs = [f for f in funcs if not f.is_load_balanced]
+        lb_funcs = [f for f in funcs if f.is_load_balanced and f.is_lb_route_handler]
+
+        if qb_funcs:
+            workers.append(
+                WorkerInfo(
+                    file_path=file_path,
+                    url_prefix=url_prefix,
+                    module_path=module_path,
+                    resource_name=resource_name,
+                    worker_type="QB",
+                    functions=[f.function_name for f in qb_funcs],
+                )
+            )
+
+        if lb_funcs:
+            lb_routes = [
+                {
+                    "method": f.http_method,
+                    "path": f.http_path,
+                    "fn_name": f.function_name,
+                }
+                for f in lb_funcs
+            ]
+            workers.append(
+                WorkerInfo(
+                    file_path=file_path,
+                    url_prefix=url_prefix,
+                    module_path=module_path,
+                    resource_name=resource_name,
+                    worker_type="LB",
+                    functions=[f.function_name for f in lb_funcs],
+                    lb_routes=lb_routes,
+                )
+            )
+
+    return workers
+
+
+def _ensure_gitignore(project_root: Path) -> None:
+    """Add .flash/ to .gitignore if not already present."""
+    gitignore = project_root / ".gitignore"
+    entry = ".flash/"
+
+    if gitignore.exists():
+        content = gitignore.read_text(encoding="utf-8")
+        if entry in content:
+            return
+        # Append with a newline
+        if not content.endswith("\n"):
+            content += "\n"
+        gitignore.write_text(content + entry + "\n", encoding="utf-8")
+    else:
+        gitignore.write_text(entry + "\n", encoding="utf-8")
+
+
+def _sanitize_fn_name(name: str) -> str:
+    """Sanitize a string for use as a Python function name."""
+    return name.replace("/", "_").replace(".", "_").replace("-", "_")
+
+
+def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Path:
+    """Generate .flash/server.py from the discovered workers.
+
+    Args:
+        project_root: Root of the Flash project
+        workers: List of discovered worker infos
+
+    Returns:
+        Path to the generated server.py
+    """
+    flash_dir = project_root / ".flash"
+    flash_dir.mkdir(exist_ok=True)
+
+    _ensure_gitignore(project_root)
+
+    lines = [
+        '"""Auto-generated Flash dev server. Do not edit — regenerated on each flash run."""',
+        "import sys",
+        "import uuid",
+        "from pathlib import Path",
+        "sys.path.insert(0, str(Path(__file__).parent.parent))",
+        "",
+        "from fastapi import FastAPI",
+        "",
+    ]
+
+    # Collect all imports
+    all_imports: List[str] = []
+    for worker in workers:
+        for fn_name in worker.functions:
+            all_imports.append(f"from {worker.module_path} import {fn_name}")
+
+    if all_imports:
+        lines.extend(all_imports)
+        lines.append("")
+
+    lines += [
+        "app = FastAPI(",
+        '    title="Flash Dev Server",',
+        '    description="Auto-generated by `flash run`. Visit /docs for interactive testing.",',
+        ")",
+        "",
+    ]
+
+    for worker in workers:
+        tag = f"{worker.url_prefix.lstrip('/')} [{worker.worker_type}]"
+        lines.append(f"# {'─' * 60}")
+        lines.append(f"# {worker.worker_type}: {worker.file_path.name}")
+        lines.append(f"# {'─' * 60}")
+
+        if worker.worker_type == "QB":
+            if len(worker.functions) == 1:
+                fn = worker.functions[0]
+                handler_name = _sanitize_fn_name(f"{worker.resource_name}_run")
+                run_path = f"{worker.url_prefix}/run"
+                sync_path = f"{worker.url_prefix}/run_sync"
+                lines += [
+                    f'@app.post("{run_path}", tags=["{tag}"])',
+                    f'@app.post("{sync_path}", tags=["{tag}"])',
+                    f"async def {handler_name}(body: dict):",
+                    f'    result = await {fn}(body.get("input", body))',
+                    '    return {"id": str(uuid.uuid4()), "status": "COMPLETED", "output": result}',
+                    "",
+                ]
+            else:
+                for fn in worker.functions:
+                    handler_name = _sanitize_fn_name(f"{worker.resource_name}_{fn}_run")
+                    run_path = f"{worker.url_prefix}/{fn}/run"
+                    sync_path = f"{worker.url_prefix}/{fn}/run_sync"
+                    lines += [
+                        f'@app.post("{run_path}", tags=["{tag}"])',
+                        f'@app.post("{sync_path}", tags=["{tag}"])',
+                        f"async def {handler_name}(body: dict):",
+                        f'    result = await {fn}(body.get("input", body))',
+                        '    return {"id": str(uuid.uuid4()), "status": "COMPLETED", "output": result}',
+                        "",
+                    ]
+
+        elif worker.worker_type == "LB":
+            for route in worker.lb_routes:
+                method = route["method"].lower()
+                sub_path = route["path"].lstrip("/")
+                fn_name = route["fn_name"]
+                full_path = f"{worker.url_prefix}/{sub_path}"
+                handler_name = _sanitize_fn_name(
+                    f"_route_{worker.resource_name}_{fn_name}"
+                )
+                lines += [
+                    f'@app.{method}("{full_path}", tags=["{tag}"])',
+                    f"async def {handler_name}(body: dict):",
+                    f"    return await {fn_name}(body)",
+                    "",
+                ]
+
+    # Health endpoints
+    lines += [
+        "# Health",
+        '@app.get("/", tags=["health"])',
+        "def home():",
+        '    return {"message": "Flash Dev Server", "docs": "/docs"}',
+        "",
+        '@app.get("/ping", tags=["health"])',
+        "def ping():",
+        '    return {"status": "healthy"}',
+        "",
+    ]
+
+    server_path = flash_dir / "server.py"
+    server_path.write_text("\n".join(lines), encoding="utf-8")
+    return server_path
+
+
+def _print_startup_table(workers: List[WorkerInfo], host: str, port: int) -> None:
+    """Print the startup table showing local paths, resource names, and types."""
+    console.print(f"\n[bold green]Flash Dev Server[/bold green]  http://{host}:{port}")
+    console.print()
+
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("Local path", style="cyan")
+    table.add_column("Resource", style="white")
+    table.add_column("Type", style="yellow")
+
+    for worker in workers:
+        if worker.worker_type == "QB":
+            if len(worker.functions) == 1:
+                table.add_row(
+                    f"POST  {worker.url_prefix}/run",
+                    worker.resource_name,
+                    "QB",
+                )
+                table.add_row(
+                    f"POST  {worker.url_prefix}/run_sync",
+                    worker.resource_name,
+                    "QB",
+                )
+            else:
+                for fn in worker.functions:
+                    table.add_row(
+                        f"POST  {worker.url_prefix}/{fn}/run",
+                        worker.resource_name,
+                        "QB",
+                    )
+                    table.add_row(
+                        f"POST  {worker.url_prefix}/{fn}/run_sync",
+                        worker.resource_name,
+                        "QB",
+                    )
+        elif worker.worker_type == "LB":
+            for route in worker.lb_routes:
+                sub_path = route["path"].lstrip("/")
+                full_path = f"{worker.url_prefix}/{sub_path}"
+                table.add_row(
+                    f"{route['method']}  {full_path}",
+                    worker.resource_name,
+                    "LB",
+                )
+
+    console.print(table)
+    console.print(f"\n  Visit [bold]http://{host}:{port}/docs[/bold] for Swagger UI\n")
+
+
+def _cleanup_live_endpoints() -> None:
+    """Deprovision all Live Serverless endpoints created during this session.
+
+    Reads the resource state file written by the uvicorn subprocess, finds
+    all endpoints with the 'live-' name prefix, and deprovisions them.
+    Best-effort: errors per endpoint are logged but do not prevent cleanup
+    of other endpoints.
+    """
+    if not _RESOURCE_STATE_FILE.exists():
+        return
+
+    try:
+        import asyncio
+        import cloudpickle
+        from ...core.utils.file_lock import file_lock
+
+        with open(_RESOURCE_STATE_FILE, "rb") as f:
+            with file_lock(f, exclusive=False):
+                data = cloudpickle.load(f)
+
+        if isinstance(data, tuple):
+            resources, configs = data
+        else:
+            resources, configs = data, {}
+
+        live_items = {
+            key: resource
+            for key, resource in resources.items()
+            if hasattr(resource, "name")
+            and resource.name
+            and resource.name.startswith("live-")
+        }
+
+        if not live_items:
+            return
+
+        async def _do_cleanup():
+            for key, resource in live_items.items():
+                name = getattr(resource, "name", key)
+                try:
+                    success = await resource._do_undeploy()
+                    if success:
+                        console.print(f"  Deprovisioned: {name}")
+                    else:
+                        logger.warning(f"Failed to deprovision: {name}")
+                except Exception as e:
+                    logger.warning(f"Error deprovisioning {name}: {e}")
+
+        asyncio.run(_do_cleanup())
+
+        # Remove live- entries from persisted state so they don't linger.
+        remaining = {k: v for k, v in resources.items() if k not in live_items}
+        remaining_configs = {k: v for k, v in configs.items() if k not in live_items}
+        try:
+            with open(_RESOURCE_STATE_FILE, "wb") as f:
+                with file_lock(f, exclusive=True):
+                    cloudpickle.dump((remaining, remaining_configs), f)
+        except Exception as e:
+            logger.warning(f"Could not update resource state after cleanup: {e}")
+
+    except Exception as e:
+        logger.warning(f"Live endpoint cleanup failed: {e}")
+
+
+def _is_reload() -> bool:
+    """Check if running in uvicorn reload subprocess."""
+    return "UVICORN_RELOADER_PID" in os.environ
 
 
 def run_command(
@@ -33,68 +378,51 @@ def run_command(
     reload: bool = typer.Option(
         True, "--reload/--no-reload", help="Enable auto-reload"
     ),
-    auto_provision: bool = typer.Option(
-        False,
-        "--auto-provision",
-        help="Auto-provision deployable resources on startup",
-    ),
 ):
-    """Run Flash development server with uvicorn."""
+    """Run Flash development server.
 
-    # Discover entry point
-    entry_point = discover_entry_point()
-    if not entry_point:
-        console.print("[red]Error:[/red] No entry point found")
-        console.print("Create main.py with a FastAPI app")
-        raise typer.Exit(1)
+    Scans the project for @remote decorated functions, generates a dev server
+    at .flash/server.py, and starts uvicorn with hot-reload.
 
-    # Check if entry point has FastAPI app
-    app_location = check_fastapi_app(entry_point)
-    if not app_location:
-        console.print(f"[red]Error:[/red] No FastAPI app found in {entry_point}")
-        console.print("Make sure your main.py contains: app = FastAPI()")
-        raise typer.Exit(1)
+    No main.py or FastAPI boilerplate required. Any .py file with @remote
+    decorated functions is a valid Flash project.
+    """
+    project_root = Path.cwd()
 
-    # Set flag for all flash run sessions to ensure both auto-provisioned
-    # and on-the-fly provisioned resources get the live- prefix
+    # Set flag for live provisioning so stubs get the live- prefix
     if not _is_reload():
         os.environ["FLASH_IS_LIVE_PROVISIONING"] = "true"
 
-    # Auto-provision resources if flag is set and not a reload
-    if auto_provision and not _is_reload():
-        try:
-            resources = _discover_resources(entry_point)
+    # Discover @remote functions
+    workers = _scan_project_workers(project_root)
 
-            if resources:
-                # If many resources found, ask for confirmation
-                if len(resources) > 5:
-                    if not _confirm_large_provisioning(resources):
-                        console.print("[yellow]Auto-provisioning cancelled[/yellow]\n")
-                    else:
-                        _provision_resources(resources)
-                else:
-                    _provision_resources(resources)
-        except Exception as e:
-            logger.error("Auto-provisioning failed", exc_info=True)
-            console.print(
-                f"[yellow]Warning:[/yellow] Resource provisioning failed: {e}"
-            )
-            console.print(
-                "[yellow]Note:[/yellow] Resources will be deployed on-demand when first called"
-            )
+    if not workers:
+        console.print("[red]Error:[/red] No @remote functions found.")
+        console.print("Add @remote decorators to your functions to get started.")
+        console.print("\nExample:")
+        console.print(
+            "  from runpod_flash import LiveServerless, remote\n"
+            "  gpu_config = LiveServerless(name='my_worker')\n"
+            "\n"
+            "  @remote(gpu_config)\n"
+            "  async def process(input_data: dict) -> dict:\n"
+            "      return {'result': input_data}"
+        )
+        raise typer.Exit(1)
 
-    console.print("\n[green]Starting Flash Server[/green]")
-    console.print(f"Entry point: [bold]{app_location}[/bold]")
-    console.print(f"Server: [bold]http://{host}:{port}[/bold]")
-    console.print(f"Auto-reload: [bold]{'enabled' if reload else 'disabled'}[/bold]")
-    console.print("\nPress CTRL+C to stop\n")
+    # Generate .flash/server.py
+    _generate_flash_server(project_root, workers)
 
-    # Build uvicorn command
+    _print_startup_table(workers, host, port)
+
+    # Build uvicorn command using --app-dir so server:app is importable
     cmd = [
         sys.executable,
         "-m",
         "uvicorn",
-        app_location,
+        "server:app",
+        "--app-dir",
+        ".flash",
         "--host",
         host,
         "--port",
@@ -104,13 +432,16 @@ def run_command(
     ]
 
     if reload:
-        cmd.append("--reload")
+        cmd += [
+            "--reload",
+            "--reload-dir",
+            ".",
+            "--reload-include",
+            "*.py",
+        ]
 
-    # Run uvicorn with proper process group handling
     process = None
     try:
-        # Create new process group to ensure all child processes can be killed together
-        # On Unix systems, use process group; on Windows, CREATE_NEW_PROCESS_GROUP
         if sys.platform == "win32":
             process = subprocess.Popen(
                 cmd, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
@@ -118,27 +449,21 @@ def run_command(
         else:
             process = subprocess.Popen(cmd, preexec_fn=os.setsid)
 
-        # Wait for process to complete
         process.wait()
 
     except KeyboardInterrupt:
-        console.print("\n[yellow]Stopping server and cleaning up processes...[/yellow]")
+        console.print("\n[yellow]Stopping server and cleaning up...[/yellow]")
 
-        # Kill the entire process group to ensure all child processes are terminated
         if process:
             try:
                 if sys.platform == "win32":
-                    # Windows: terminate the process
                     process.terminate()
                 else:
-                    # Unix: kill entire process group
                     os.killpg(os.getpgid(process.pid), signal.SIGTERM)
 
-                # Wait briefly for graceful shutdown
                 try:
                     process.wait(timeout=2)
                 except subprocess.TimeoutExpired:
-                    # Force kill if didn't terminate gracefully
                     if sys.platform == "win32":
                         process.kill()
                     else:
@@ -146,9 +471,9 @@ def run_command(
                     process.wait()
 
             except (ProcessLookupError, OSError):
-                # Process already terminated
                 pass
 
+        _cleanup_live_endpoints()
         console.print("[green]Server stopped[/green]")
         raise typer.Exit(0)
 
@@ -162,135 +487,5 @@ def run_command(
                     os.killpg(os.getpgid(process.pid), signal.SIGTERM)
             except (ProcessLookupError, OSError):
                 pass
+        _cleanup_live_endpoints()
         raise typer.Exit(1)
-
-
-def discover_entry_point() -> Optional[str]:
-    """Discover the main entry point file."""
-    candidates = ["main.py", "app.py", "server.py"]
-
-    for candidate in candidates:
-        if Path(candidate).exists():
-            return candidate
-
-    return None
-
-
-def check_fastapi_app(entry_point: str) -> Optional[str]:
-    """
-    Check if entry point has a FastAPI app and return the app location.
-
-    Returns:
-        App location in format "module:app" or None
-    """
-    try:
-        # Read the file
-        content = Path(entry_point).read_text()
-
-        # Check for FastAPI app
-        if "app = FastAPI(" in content or "app=FastAPI(" in content:
-            # Extract module name from file path
-            module = entry_point.replace(".py", "").replace("/", ".")
-            return f"{module}:app"
-
-        return None
-
-    except Exception:
-        return None
-
-
-def _is_reload() -> bool:
-    """Check if running in uvicorn reload subprocess.
-
-    Returns:
-        True if running in a reload subprocess
-    """
-    return "UVICORN_RELOADER_PID" in os.environ
-
-
-def _discover_resources(entry_point: str):
-    """Discover deployable resources in entry point.
-
-    Args:
-        entry_point: Path to entry point file
-
-    Returns:
-        List of discovered DeployableResource instances
-    """
-    from ...core.discovery import ResourceDiscovery
-
-    try:
-        discovery = ResourceDiscovery(entry_point, max_depth=2)
-        resources = discovery.discover()
-
-        # Debug: Log what was discovered
-        if resources:
-            console.print(f"\n[dim]Discovered {len(resources)} resource(s):[/dim]")
-            for res in resources:
-                res_name = getattr(res, "name", "Unknown")
-                res_type = res.__class__.__name__
-                console.print(f"  [dim]• {res_name} ({res_type})[/dim]")
-            console.print()
-
-        return resources
-    except Exception as e:
-        console.print(f"[yellow]Warning:[/yellow] Resource discovery failed: {e}")
-        return []
-
-
-def _confirm_large_provisioning(resources) -> bool:
-    """Show resources and prompt user for confirmation.
-
-    Args:
-        resources: List of resources to provision
-
-    Returns:
-        True if user confirms, False otherwise
-    """
-    try:
-        console.print(
-            f"\n[yellow]Found {len(resources)} resources to provision:[/yellow]"
-        )
-
-        for resource in resources:
-            name = getattr(resource, "name", "Unknown")
-            resource_type = resource.__class__.__name__
-            console.print(f"  • {name} ({resource_type})")
-
-        console.print()
-
-        confirmed = questionary.confirm(
-            "This may take several minutes. Do you want to proceed?"
-        ).ask()
-
-        return confirmed if confirmed is not None else False
-
-    except (KeyboardInterrupt, EOFError):
-        console.print("\n[yellow]Cancelled[/yellow]")
-        return False
-    except Exception as e:
-        console.print(f"[yellow]Warning:[/yellow] Confirmation failed: {e}")
-        return False
-
-
-def _provision_resources(resources):
-    """Provision resources and wait for completion.
-
-    Args:
-        resources: List of resources to provision
-    """
-    import asyncio
-    from ...core.deployment import DeploymentOrchestrator
-
-    try:
-        console.print(f"\n[bold]Provisioning {len(resources)} resource(s)...[/bold]")
-        orchestrator = DeploymentOrchestrator(max_concurrent=3)
-
-        # Run provisioning with progress shown
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(orchestrator.deploy_all(resources, show_progress=True))
-        loop.close()
-
-    except Exception as e:
-        console.print(f"[yellow]Warning:[/yellow] Provisioning failed: {e}")

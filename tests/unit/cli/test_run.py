@@ -15,9 +15,15 @@ def runner():
 
 @pytest.fixture
 def temp_fastapi_app(tmp_path):
-    """Create minimal FastAPI app for testing."""
-    main_file = tmp_path / "main.py"
-    main_file.write_text("from fastapi import FastAPI\napp = FastAPI()")
+    """Create minimal Flash project with @remote function for testing."""
+    worker_file = tmp_path / "worker.py"
+    worker_file.write_text(
+        "from runpod_flash import LiveServerless, remote\n"
+        "gpu_config = LiveServerless(name='test_worker')\n"
+        "@remote(gpu_config)\n"
+        "async def process(data: dict) -> dict:\n"
+        "    return data\n"
+    )
     return tmp_path
 
 
