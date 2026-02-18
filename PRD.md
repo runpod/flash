@@ -1,0 +1,341 @@
+# Flash SDK: Zero-Boilerplate Experience — Product Requirements Document
+
+## 1. Problem Statement
+
+Flash currently forces every project into a FastAPI-first model:
+
+- Users must create `main.py` with a `FastAPI()` instance
+- HTTP routing boilerplate adds no semantic value — the routes simply call `@remote` functions
+- No straightforward path for deploying a standalone QB function without wrapping it in a FastAPI app
+- The "mothership" concept introduces an implicit coordinator with no clear ownership model
+- `flash run` fails unless `main.py` exists with a FastAPI app, blocking the simplest use cases
+
+## 2. Goals
+
+- **Zero boilerplate**: a `@remote`-decorated function in any `.py` file is sufficient for `flash run` and `flash deploy`
+- **File-system-as-namespace**: the project directory structure maps 1:1 to URL paths on the local dev server
+- **Single command**: `flash run` works for all project topologies (one QB function, many files, mixed QB+LB) without any configuration
+- **`flash deploy` requires no additional configuration** beyond the `@remote` declarations themselves
+- **Peer endpoints**: every `@resource_config` is a first-class endpoint; no implicit coordinator
+
+## 3. Non-Goals
+
+- No backward compatibility with `main.py`/FastAPI-first style
+- No implicit "mothership" concept; all endpoints are peers
+- No changes to the QB runtime (`generic_handler.py`) or QB stub behavior
+- No changes to deployed endpoint behavior (RunPod QB/LB APIs are unchanged)
+
+## 4. Developer Experience Specification
+
+### 4.1 Minimum viable QB project
+
+```python
+# gpu_worker.py
+from runpod_flash import LiveServerless, GpuGroup, remote
+
+gpu_config = LiveServerless(name="gpu_worker", gpus=[GpuGroup.ANY])
+
+@remote(gpu_config)
+async def process(input_data: dict) -> dict:
+    return {"result": "processed", "input": input_data}
+```
+
+`flash run` → `POST /gpu_worker/run` and `POST /gpu_worker/run_sync`
+`flash deploy` → standalone QB endpoint at `api.runpod.ai/v2/{id}/run`
+
+### 4.2 LB endpoint
+
+```python
+# api/routes.py
+from runpod_flash import CpuLiveLoadBalancer, remote
+
+lb_config = CpuLiveLoadBalancer(name="api_routes")
+
+@remote(lb_config, method="POST", path="/compute")
+async def compute(input_data: dict) -> dict:
+    return {"result": input_data}
+```
+
+`flash run` → `POST /api/routes/compute`
+`flash deploy` → LB endpoint at `{id}.api.runpod.ai/compute`
+
+### 4.3 Mixed QB + LB (LB calling QB)
+
+```python
+# api/routes.py (LB)
+from runpod_flash import CpuLiveLoadBalancer, remote
+from workers.gpu import heavy_compute  # QB stub
+
+lb_config = CpuLiveLoadBalancer(name="api_routes")
+
+@remote(lb_config, method="POST", path="/process")
+async def process_route(data: dict):
+    return await heavy_compute(data)  # dispatches to QB endpoint
+
+# workers/gpu.py (QB)
+from runpod_flash import LiveServerless, GpuGroup, remote
+
+gpu_config = LiveServerless(name="gpu_worker", gpus=[GpuGroup.ANY])
+
+@remote(gpu_config)
+async def heavy_compute(data: dict) -> dict: ...
+```
+
+## 5. URL Path Specification
+
+### 5.1 File prefix derivation
+
+The local dev server uses the project directory structure as a URL namespace. Each file's URL prefix is its path relative to the project root with `.py` stripped:
+
+```
+File                            Local URL prefix
+──────────────────────────────  ────────────────────────────
+gpu_worker.py               →   /gpu_worker
+longruns/stage1.py          →   /longruns/stage1
+preprocess/first_pass.py    →   /preprocess/first_pass
+workers/gpu/inference.py    →   /workers/gpu/inference
+```
+
+### 5.2 QB route generation
+
+| Condition | Routes |
+|---|---|
+| One `@remote` function in file | `POST {file_prefix}/run` and `POST {file_prefix}/run_sync` |
+| Multiple `@remote` functions in file | `POST {file_prefix}/{fn_name}/run` and `POST {file_prefix}/{fn_name}/run_sync` |
+
+### 5.3 LB route generation
+
+| Condition | Route |
+|---|---|
+| `@remote(lb_config, method="POST", path="/compute")` | `POST {file_prefix}/compute` |
+
+The declared `path=` is appended to the file prefix. The `method=` determines the HTTP verb.
+
+### 5.4 QB request/response envelope
+
+Mirrors RunPod's API for consistency:
+
+```
+POST /gpu_worker/run_sync
+Body:     {"input": {"key": "value"}}
+Response: {"id": "uuid", "status": "COMPLETED", "output": {...}}
+```
+
+## 6. Deployed Topology Specification
+
+Each unique resource config gets its own RunPod endpoint:
+
+| Type | Deployed URL | Example |
+|---|---|---|
+| QB | `https://api.runpod.ai/v2/{endpoint_id}/run` | `https://api.runpod.ai/v2/uoy3n7hkyb052a/run` |
+| QB sync | `https://api.runpod.ai/v2/{endpoint_id}/run_sync` | |
+| LB | `https://{endpoint_id}.api.runpod.ai/{declared_path}` | `https://rzlk6lph6gw7dk.api.runpod.ai/compute` |
+
+## 7. `.flash/` Folder Specification
+
+All generated artifacts go to `.flash/` in the project root. Auto-created, gitignored, never committed.
+
+```
+my_project/
+├── gpu_worker.py
+├── longruns/
+│   └── stage1.py
+└── .flash/
+    ├── server.py        ← generated by flash run
+    └── manifest.json    ← generated by flash build
+```
+
+- `.flash/` is added to `.gitignore` automatically on first `flash run`
+- `server.py` and `manifest.json` are overwritten on each run/build; other files preserved
+- The `.flash/` directory itself is never committed
+
+### 7.1 Dev server launch
+
+Uvicorn is launched with `--app-dir .flash/` so `server:app` is importable. The server inserts the project root into `sys.path` so user modules resolve:
+
+```bash
+uvicorn server:app \
+  --app-dir .flash/ \
+  --reload \
+  --reload-dir . \
+  --reload-include "*.py"
+```
+
+## 8. `flash run` Behavior
+
+1. Scan project for all `@remote` functions (QB and LB) in any `.py` file
+   - Skip: `.flash/`, `__pycache__`, `*.pyc`, `__init__.py`
+2. If none found: print error with usage instructions, exit 1
+3. Generate `.flash/server.py` with routes for all discovered functions
+4. Add `.flash/` to `.gitignore` if not already present
+5. Start uvicorn with `--reload` watching both `.flash/` and project root
+6. Print startup table: local paths → resource names → types
+7. Swagger UI available at `http://localhost:{port}/docs`
+8. On exit (Ctrl+C or SIGTERM): deprovision all Live Serverless endpoints provisioned during this session
+
+### 8.1 Startup table format
+
+```
+Flash Dev Server  http://localhost:8888
+
+  Local path                            Resource               Type
+  ──────────────────────────────────    ───────────────────    ────
+  POST  /gpu_worker/run                 gpu_worker             QB
+  POST  /gpu_worker/run_sync            gpu_worker             QB
+  POST  /longruns/stage1/run            longruns_stage1        QB
+  POST  /preprocess/first_pass/compute  preprocess_first_pass  LB
+
+  Visit http://localhost:8888/docs for Swagger UI
+```
+
+## 9. `flash build` Behavior
+
+1. Scan project for all `@remote` functions (QB and LB)
+2. Build `.flash/manifest.json` with flat resource structure (see §10)
+3. For LB resources: generate deployed handler files using `module_path`
+4. Package build artifact
+
+## 10. Manifest Structure
+
+Resource names are derived from file paths (slashes → underscores):
+
+```json
+{
+  "version": "1.0",
+  "project_name": "my_project",
+  "resources": {
+    "gpu_worker": {
+      "resource_type": "LiveServerless",
+      "file_path": "gpu_worker.py",
+      "local_path_prefix": "/gpu_worker",
+      "module_path": "gpu_worker",
+      "functions": ["gpu_hello"],
+      "is_load_balanced": false,
+      "makes_remote_calls": false
+    },
+    "longruns_stage1": {
+      "resource_type": "LiveServerless",
+      "file_path": "longruns/stage1.py",
+      "local_path_prefix": "/longruns/stage1",
+      "module_path": "longruns.stage1",
+      "functions": ["stage1_process"],
+      "is_load_balanced": false,
+      "makes_remote_calls": false
+    },
+    "preprocess_first_pass": {
+      "resource_type": "CpuLiveLoadBalancer",
+      "file_path": "preprocess/first_pass.py",
+      "local_path_prefix": "/preprocess/first_pass",
+      "module_path": "preprocess.first_pass",
+      "functions": [
+        {"name": "first_pass_fn", "http_method": "POST", "http_path": "/compute"}
+      ],
+      "is_load_balanced": true,
+      "makes_remote_calls": true
+    }
+  }
+}
+```
+
+## 11. `.flash/server.py` Structure
+
+```python
+"""Auto-generated Flash dev server. Do not edit — regenerated on each flash run."""
+import sys
+import uuid
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from fastapi import FastAPI
+
+# QB imports
+from gpu_worker import gpu_hello
+from longruns.stage1 import stage1_process
+
+# LB imports
+from preprocess.first_pass import first_pass_fn
+
+app = FastAPI(
+    title="Flash Dev Server",
+    description="Auto-generated by `flash run`. Visit /docs for interactive testing.",
+)
+
+# QB: gpu_worker.py
+@app.post("/gpu_worker/run", tags=["gpu_worker [QB]"])
+@app.post("/gpu_worker/run_sync", tags=["gpu_worker [QB]"])
+async def gpu_worker_run(body: dict):
+    result = await gpu_hello(body.get("input", body))
+    return {"id": str(uuid.uuid4()), "status": "COMPLETED", "output": result}
+
+# QB: longruns/stage1.py
+@app.post("/longruns/stage1/run", tags=["longruns/stage1 [QB]"])
+@app.post("/longruns/stage1/run_sync", tags=["longruns/stage1 [QB]"])
+async def longruns_stage1_run(body: dict):
+    result = await stage1_process(body.get("input", body))
+    return {"id": str(uuid.uuid4()), "status": "COMPLETED", "output": result}
+
+# LB: preprocess/first_pass.py
+@app.post("/preprocess/first_pass/compute", tags=["preprocess/first_pass [LB]"])
+async def _route_first_pass_compute(body: dict):
+    return await first_pass_fn(body)
+
+# Health
+@app.get("/", tags=["health"])
+def home():
+    return {"message": "Flash Dev Server", "docs": "/docs"}
+
+@app.get("/ping", tags=["health"])
+def ping():
+    return {"status": "healthy"}
+```
+
+Subdirectory imports use dotted module paths: `longruns/stage1.py` → `from longruns.stage1 import fn`.
+
+Multi-function QB files (2+ `@remote` functions) get sub-prefixed routes:
+```
+longruns/stage1.py has: stage1_preprocess, stage1_infer
+→ POST /longruns/stage1/stage1_preprocess/run
+→ POST /longruns/stage1/stage1_preprocess/run_sync
+→ POST /longruns/stage1/stage1_infer/run
+→ POST /longruns/stage1/stage1_infer/run_sync
+```
+
+## 12. Acceptance Criteria
+
+- [ ] A file with one `@remote(QB_config)` function and nothing else is a valid Flash project
+- [ ] `flash run` produces a Swagger UI showing all routes grouped by source file
+- [ ] QB routes accept `{"input": {...}}` and return `{"id": ..., "status": "COMPLETED", "output": {...}}`
+- [ ] Subdirectory files produce URL prefixes matching their relative path
+- [ ] Multiple `@remote` functions in one file each get their own sub-prefixed routes
+- [ ] LB route handler body executes directly (not dispatched remotely)
+- [ ] QB calls inside LB route handler body route to the remote QB endpoint
+- [ ] `flash deploy` creates a RunPod endpoint for each resource config
+- [ ] `flash build` produces `.flash/manifest.json` with `file_path`, `local_path_prefix`, `module_path` per resource
+- [ ] When `flash run` exits, all Live Serverless endpoints provisioned during that session are automatically undeployed
+
+## 13. Edge Cases
+
+- **No `@remote` functions found**: Error with clear message and usage instructions
+- **Multiple `@remote` functions per file (QB)**: Sub-prefixed routes `/{file_prefix}/{fn_name}/run`
+- **`__init__.py` files**: Skipped — not treated as worker files
+- **File path with hyphens** (e.g., `my-worker.py`): Resource name sanitized to `my_worker`, URL prefix `/my-worker` (hyphens valid in URLs, underscores in Python identifiers)
+- **LB function calling another LB function**: Not supported via `@remote` — emit a warning at build time
+- **`.flash/` already exists**: `server.py` and `manifest.json` overwritten; other files preserved
+- **`flash deploy` with no LB endpoints**: QB-only deploy
+- **Subdirectory `__init__.py`** imports needed: Generator checks and warns if missing
+
+## 14. Implementation Files
+
+| File | Change |
+|------|--------|
+| `flash/main/PRD.md` | This document |
+| `src/runpod_flash/client.py` | Passthrough for LB route handlers (`__is_lb_route_handler__`) |
+| `cli/commands/run.py` | Unified server generation; `--app-dir .flash/`; file-path-based route discovery |
+| `cli/commands/build_utils/scanner.py` | Path utilities; `is_lb_route_handler` field; file-based resource identity |
+| `cli/commands/build_utils/manifest.py` | Flat resource structure; `file_path`/`local_path_prefix`/`module_path` fields |
+| `cli/commands/build_utils/lb_handler_generator.py` | Import module by `module_path`, walk `__is_lb_route_handler__`, register routes |
+| `cli/commands/build.py` | Remove main.py requirement from `validate_project_structure` |
+| `core/resources/serverless.py` | Inject `FLASH_MODULE_PATH` env var |
+| `flash-examples/.../01_hello_world/` | Rewrite to bare minimum |
+| `flash-examples/.../00_standalone_worker/` | New |
+| `flash-examples/.../00_multi_resource/` | New |
