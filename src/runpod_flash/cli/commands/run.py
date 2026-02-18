@@ -5,6 +5,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List
@@ -12,6 +13,8 @@ from typing import List
 import typer
 from rich.console import Console
 from rich.table import Table
+from watchfiles import DefaultFilter as _WatchfilesDefaultFilter
+from watchfiles import watch as _watchfiles_watch
 
 from .build_utils.scanner import (
     RemoteDecoratorScanner,
@@ -361,6 +364,33 @@ def _is_reload() -> bool:
     return "UVICORN_RELOADER_PID" in os.environ
 
 
+def _watch_and_regenerate(project_root: Path, stop_event: threading.Event) -> None:
+    """Watch project .py files and regenerate server.py when they change.
+
+    Ignores .flash/ to avoid reacting to our own writes. Runs until
+    stop_event is set.
+    """
+    watch_filter = _WatchfilesDefaultFilter(ignore_paths=[str(project_root / ".flash")])
+
+    try:
+        for changes in _watchfiles_watch(
+            project_root,
+            watch_filter=watch_filter,
+            stop_event=stop_event,
+        ):
+            py_changed = [p for _, p in changes if p.endswith(".py")]
+            if not py_changed:
+                continue
+            try:
+                workers = _scan_project_workers(project_root)
+                _generate_flash_server(project_root, workers)
+                logger.debug("server.py regenerated (%d changed)", len(py_changed))
+            except Exception as e:
+                logger.warning("Failed to regenerate server.py: %s", e)
+    except Exception:
+        pass  # stop_event was set or watchfiles unavailable — both are fine
+
+
 def run_command(
     host: str = typer.Option(
         "localhost",
@@ -435,10 +465,18 @@ def run_command(
         cmd += [
             "--reload",
             "--reload-dir",
-            ".",
+            ".flash",
             "--reload-include",
-            "*.py",
+            "server.py",
         ]
+
+    stop_event = threading.Event()
+    watcher_thread = threading.Thread(
+        target=_watch_and_regenerate,
+        args=(project_root, stop_event),
+        daemon=True,
+        name="flash-watcher",
+    )
 
     process = None
     try:
@@ -449,10 +487,16 @@ def run_command(
         else:
             process = subprocess.Popen(cmd, preexec_fn=os.setsid)
 
+        if reload:
+            watcher_thread.start()
+
         process.wait()
 
     except KeyboardInterrupt:
         console.print("\n[yellow]Stopping server and cleaning up...[/yellow]")
+
+        stop_event.set()
+        watcher_thread.join(timeout=2)
 
         if process:
             try:
@@ -479,6 +523,10 @@ def run_command(
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
+
+        stop_event.set()
+        watcher_thread.join(timeout=2)
+
         if process:
             try:
                 if sys.platform == "win32":
