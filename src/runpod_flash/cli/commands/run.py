@@ -370,6 +370,9 @@ def _watch_and_regenerate(project_root: Path, stop_event: threading.Event) -> No
     Ignores .flash/ to avoid reacting to our own writes. Runs until
     stop_event is set.
     """
+    # Suppress watchfiles' internal debug chatter (filter hits, rust timeouts).
+    logging.getLogger("watchfiles").setLevel(logging.WARNING)
+
     watch_filter = _WatchfilesDefaultFilter(ignore_paths=[str(project_root / ".flash")])
 
     try:
