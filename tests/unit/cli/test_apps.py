@@ -192,7 +192,7 @@ class TestAppsDelete:
             "runpod_flash.cli.commands.apps.asyncio.run",
             side_effect=mock_asyncio_run_coro,
         ):
-            result = runner.invoke(app, ["app", "delete", "--app", "demo"])
+            result = runner.invoke(app, ["app", "delete", "demo"])
 
         assert result.exit_code == 0
         mock_delete.assert_awaited_once_with(app_name="demo")
@@ -212,7 +212,7 @@ class TestAppsDelete:
             "runpod_flash.cli.commands.apps.asyncio.run",
             side_effect=mock_asyncio_run_coro,
         ):
-            result = runner.invoke(app, ["app", "delete", "--app", "demo"])
+            result = runner.invoke(app, ["app", "delete", "demo"])
 
         assert result.exit_code == 1
         printed = " ".join(
@@ -220,25 +220,7 @@ class TestAppsDelete:
         )
         assert "Failed to delete" in printed
 
-    @patch("runpod_flash.cli.commands.apps.discover_flash_project")
-    @patch("runpod_flash.cli.commands.apps.FlashApp.delete", new_callable=AsyncMock)
-    def test_delete_app_uses_discovered_name(
-        self,
-        mock_delete,
-        mock_discover,
-        runner,
-        mock_asyncio_run_coro,
-        patched_console,
-    ):
-        mock_delete.return_value = True
-        mock_discover.return_value = ("/tmp/flash", "derived")
-
-        with patch(
-            "runpod_flash.cli.commands.apps.asyncio.run",
-            side_effect=mock_asyncio_run_coro,
-        ):
-            result = runner.invoke(app, ["app", "delete", "--app", ""])
-
-        assert result.exit_code == 0
-        mock_discover.assert_called_once()
-        mock_delete.assert_awaited_once_with(app_name="derived")
+    def test_delete_app_missing_name_exits_with_error(self, runner):
+        result = runner.invoke(app, ["app", "delete"])
+        assert result.exit_code == 2
+        assert "Missing argument" in result.output

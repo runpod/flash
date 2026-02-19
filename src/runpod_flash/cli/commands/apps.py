@@ -5,7 +5,6 @@ import asyncio
 import typer
 from rich.console import Console
 
-from runpod_flash.cli.utils.app import discover_flash_project
 from runpod_flash.cli.utils.formatting import format_datetime
 from runpod_flash.core.resources.app import FlashApp
 
@@ -33,10 +32,8 @@ def list_command():
     "delete", short_help="Delete an existing flash app and all its associated resources"
 )
 def delete(
-    app_name: str = typer.Option(..., "--app", "-a", help="Flash app name to delete"),
+    app_name: str = typer.Argument(..., help="Name of the flash app to delete"),
 ):
-    if not app_name:
-        _, app_name = discover_flash_project()
     return asyncio.run(delete_flash_app(app_name))
 
 
