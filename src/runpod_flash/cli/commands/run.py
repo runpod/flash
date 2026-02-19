@@ -94,6 +94,7 @@ def _scan_project_workers(project_root: Path) -> List[WorkerInfo]:
                     "method": f.http_method,
                     "path": f.http_path,
                     "fn_name": f.function_name,
+                    "config_variable": f.config_variable,
                 }
                 for f in lb_funcs
             ]
@@ -149,6 +150,8 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
 
     _ensure_gitignore(project_root)
 
+    has_lb_workers = any(w.worker_type == "LB" for w in workers)
+
     lines = [
         '"""Auto-generated Flash dev server. Do not edit — regenerated on each flash run."""',
         "import sys",
@@ -156,15 +159,36 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
         "from pathlib import Path",
         "sys.path.insert(0, str(Path(__file__).parent.parent))",
         "",
-        "from fastapi import FastAPI",
-        "",
     ]
 
-    # Collect all imports
+    if has_lb_workers:
+        lines += [
+            "from fastapi import FastAPI, Request",
+            "from runpod_flash.cli.commands._run_server_helpers import lb_proxy as _lb_proxy",
+            "",
+        ]
+    else:
+        lines += [
+            "from fastapi import FastAPI",
+            "",
+        ]
+
+    # Collect imports — QB functions are called directly, LB config variables are
+    # passed to lb_proxy for on-demand provisioning via ResourceManager.
     all_imports: List[str] = []
     for worker in workers:
-        for fn_name in worker.functions:
-            all_imports.append(f"from {worker.module_path} import {fn_name}")
+        if worker.worker_type == "QB":
+            for fn_name in worker.functions:
+                all_imports.append(f"from {worker.module_path} import {fn_name}")
+        elif worker.worker_type == "LB":
+            # Import the resource config variable (e.g. "api" from api = LiveLoadBalancer(...))
+            config_vars = {
+                r["config_variable"]
+                for r in worker.lb_routes
+                if r.get("config_variable")
+            }
+            for var in sorted(config_vars):
+                all_imports.append(f"from {worker.module_path} import {var}")
 
     if all_imports:
         lines.extend(all_imports)
@@ -217,24 +241,17 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
                 method = route["method"].lower()
                 sub_path = route["path"].lstrip("/")
                 fn_name = route["fn_name"]
+                config_var = route["config_variable"]
                 full_path = f"{worker.url_prefix}/{sub_path}"
                 handler_name = _sanitize_fn_name(
                     f"_route_{worker.resource_name}_{fn_name}"
                 )
-                if method in ("get", "head"):
-                    lines += [
-                        f'@app.{method}("{full_path}", tags=["{tag}"])',
-                        f"async def {handler_name}():",
-                        f"    return await {fn_name}()",
-                        "",
-                    ]
-                else:
-                    lines += [
-                        f'@app.{method}("{full_path}", tags=["{tag}"])',
-                        f"async def {handler_name}(body: dict):",
-                        f"    return await {fn_name}(body)",
-                        "",
-                    ]
+                lines += [
+                    f'@app.{method}("{full_path}", tags=["{tag}"])',
+                    f"async def {handler_name}(request: Request):",
+                    f"    return await _lb_proxy({config_var}, {worker.url_prefix!r}, request)",
+                    "",
+                ]
 
     # Health endpoints
     lines += [
@@ -402,6 +419,73 @@ def _watch_and_regenerate(project_root: Path, stop_event: threading.Event) -> No
         pass  # stop_event was set or watchfiles unavailable — both are fine
 
 
+def _discover_resources(project_root: Path):
+    """Discover deployable resources in project files.
+
+    Uses ResourceDiscovery to find all DeployableResource instances by
+    parsing @remote decorators and importing the referenced config variables.
+
+    Args:
+        project_root: Root directory of the Flash project
+
+    Returns:
+        List of discovered DeployableResource instances
+    """
+    from ...core.discovery import ResourceDiscovery
+
+    py_files = sorted(
+        p
+        for p in project_root.rglob("*.py")
+        if not any(
+            skip in p.parts
+            for skip in (".flash", ".venv", "venv", "__pycache__", ".git")
+        )
+    )
+
+    resources = []
+    for py_file in py_files:
+        try:
+            discovery = ResourceDiscovery(str(py_file), max_depth=0)
+            resources.extend(discovery.discover())
+        except Exception as e:
+            logger.debug("Discovery failed for %s: %s", py_file, e)
+
+    if resources:
+        console.print(f"\n[dim]Discovered {len(resources)} resource(s):[/dim]")
+        for res in resources:
+            res_name = getattr(res, "name", "Unknown")
+            res_type = res.__class__.__name__
+            console.print(f"  [dim]- {res_name} ({res_type})[/dim]")
+        console.print()
+
+    return resources
+
+
+def _provision_resources(resources) -> None:
+    """Provision resources in parallel and wait for completion.
+
+    Args:
+        resources: List of DeployableResource instances to provision
+    """
+    import asyncio
+
+    from ...core.deployment import DeploymentOrchestrator
+
+    try:
+        console.print(f"[bold]Provisioning {len(resources)} resource(s)...[/bold]")
+        orchestrator = DeploymentOrchestrator(max_concurrent=3)
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(orchestrator.deploy_all(resources, show_progress=True))
+        loop.close()
+    except Exception as e:
+        console.print(f"[yellow]Warning:[/yellow] Provisioning failed: {e}")
+        console.print(
+            "[dim]Resources will be provisioned on-demand at first request.[/dim]"
+        )
+
+
 def run_command(
     host: str = typer.Option(
         "localhost",
@@ -419,6 +503,11 @@ def run_command(
     reload: bool = typer.Option(
         True, "--reload/--no-reload", help="Enable auto-reload"
     ),
+    auto_provision: bool = typer.Option(
+        False,
+        "--auto-provision",
+        help="Auto-provision all endpoints on startup (eliminates cold-start on first request)",
+    ),
 ):
     """Run Flash development server.
 
@@ -433,6 +522,19 @@ def run_command(
     # Set flag for live provisioning so stubs get the live- prefix
     if not _is_reload():
         os.environ["FLASH_IS_LIVE_PROVISIONING"] = "true"
+
+    # Auto-provision all endpoints upfront (eliminates cold-start)
+    if auto_provision and not _is_reload():
+        try:
+            resources = _discover_resources(project_root)
+            if resources:
+                _provision_resources(resources)
+        except Exception as e:
+            logger.error("Auto-provisioning failed", exc_info=True)
+            console.print(f"[yellow]Warning:[/yellow] Auto-provisioning failed: {e}")
+            console.print(
+                "[dim]Resources will be provisioned on-demand at first request.[/dim]"
+            )
 
     # Discover @remote functions
     workers = _scan_project_workers(project_root)
