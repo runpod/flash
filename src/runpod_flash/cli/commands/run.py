@@ -164,7 +164,7 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
     if has_lb_workers:
         lines += [
             "from fastapi import FastAPI, Request",
-            "from runpod_flash.cli.commands._run_server_helpers import lb_proxy as _lb_proxy",
+            "from runpod_flash.cli.commands._run_server_helpers import lb_execute as _lb_execute",
             "",
         ]
     else:
@@ -173,8 +173,8 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
             "",
         ]
 
-    # Collect imports — QB functions are called directly, LB config variables are
-    # passed to lb_proxy for on-demand provisioning via ResourceManager.
+    # Collect imports — QB functions are called directly, LB config variables and
+    # functions are passed to lb_execute for dispatch via LoadBalancerSlsStub.
     all_imports: List[str] = []
     for worker in workers:
         if worker.worker_type == "QB":
@@ -189,6 +189,8 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
             }
             for var in sorted(config_vars):
                 all_imports.append(f"from {worker.module_path} import {var}")
+            for fn_name in worker.functions:
+                all_imports.append(f"from {worker.module_path} import {fn_name}")
 
     if all_imports:
         lines.extend(all_imports)
@@ -249,7 +251,7 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
                 lines += [
                     f'@app.{method}("{full_path}", tags=["{tag}"])',
                     f"async def {handler_name}(request: Request):",
-                    f"    return await _lb_proxy({config_var}, {worker.url_prefix!r}, request)",
+                    f"    return await _lb_execute({config_var}, {fn_name}, request)",
                     "",
                 ]
 

@@ -202,7 +202,7 @@ class RunpodGraphQLClient:
 
         variables = {"input": input_data}
 
-        log.debug(f"Saving endpoint with GraphQL: {input_data.get('name', 'unnamed')}")
+        log.debug(f"GraphQL saveEndpoint: {input_data.get('name', 'unnamed')}")
 
         result = await self._execute_graphql(mutation, variables)
 
@@ -211,7 +211,7 @@ class RunpodGraphQLClient:
 
         endpoint_data = result["saveEndpoint"]
         log.debug(
-            f"Saved endpoint: {endpoint_data.get('id', 'unknown')} - {endpoint_data.get('name', 'unnamed')}"
+            f"GraphQL response: {endpoint_data.get('id', 'unknown')} ({endpoint_data.get('name', 'unnamed')})"
         )
 
         return endpoint_data
