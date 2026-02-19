@@ -213,11 +213,9 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
         if worker.worker_type == "QB":
             if len(worker.functions) == 1:
                 fn = worker.functions[0]
-                handler_name = _sanitize_fn_name(f"{worker.resource_name}_run")
-                run_path = f"{worker.url_prefix}/run"
+                handler_name = _sanitize_fn_name(f"{worker.resource_name}_run_sync")
                 sync_path = f"{worker.url_prefix}/run_sync"
                 lines += [
-                    f'@app.post("{run_path}", tags=["{tag}"])',
                     f'@app.post("{sync_path}", tags=["{tag}"])',
                     f"async def {handler_name}(body: dict):",
                     f'    result = await {fn}(body.get("input", body))',
@@ -226,11 +224,11 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
                 ]
             else:
                 for fn in worker.functions:
-                    handler_name = _sanitize_fn_name(f"{worker.resource_name}_{fn}_run")
-                    run_path = f"{worker.url_prefix}/{fn}/run"
+                    handler_name = _sanitize_fn_name(
+                        f"{worker.resource_name}_{fn}_run_sync"
+                    )
                     sync_path = f"{worker.url_prefix}/{fn}/run_sync"
                     lines += [
-                        f'@app.post("{run_path}", tags=["{tag}"])',
                         f'@app.post("{sync_path}", tags=["{tag}"])',
                         f"async def {handler_name}(body: dict):",
                         f'    result = await {fn}(body.get("input", body))',
@@ -248,12 +246,21 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
                 handler_name = _sanitize_fn_name(
                     f"_route_{worker.resource_name}_{fn_name}"
                 )
-                lines += [
-                    f'@app.{method}("{full_path}", tags=["{tag}"])',
-                    f"async def {handler_name}(request: Request):",
-                    f"    return await _lb_execute({config_var}, {fn_name}, request)",
-                    "",
-                ]
+                has_body = method in ("post", "put", "patch", "delete")
+                if has_body:
+                    lines += [
+                        f'@app.{method}("{full_path}", tags=["{tag}"])',
+                        f"async def {handler_name}(body: dict):",
+                        f"    return await _lb_execute({config_var}, {fn_name}, body)",
+                        "",
+                    ]
+                else:
+                    lines += [
+                        f'@app.{method}("{full_path}", tags=["{tag}"])',
+                        f"async def {handler_name}(request: Request):",
+                        f"    return await _lb_execute({config_var}, {fn_name}, dict(request.query_params))",
+                        "",
+                    ]
 
     # Health endpoints
     lines += [
@@ -287,22 +294,12 @@ def _print_startup_table(workers: List[WorkerInfo], host: str, port: int) -> Non
         if worker.worker_type == "QB":
             if len(worker.functions) == 1:
                 table.add_row(
-                    f"POST  {worker.url_prefix}/run",
-                    worker.resource_name,
-                    "QB",
-                )
-                table.add_row(
                     f"POST  {worker.url_prefix}/run_sync",
                     worker.resource_name,
                     "QB",
                 )
             else:
                 for fn in worker.functions:
-                    table.add_row(
-                        f"POST  {worker.url_prefix}/{fn}/run",
-                        worker.resource_name,
-                        "QB",
-                    )
                     table.add_row(
                         f"POST  {worker.url_prefix}/{fn}/run_sync",
                         worker.resource_name,

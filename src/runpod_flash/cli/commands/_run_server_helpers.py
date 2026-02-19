@@ -1,6 +1,8 @@
 """Helpers for the flash run dev server — loaded inside the generated server.py."""
 
-from fastapi import HTTPException, Request
+import inspect
+
+from fastapi import HTTPException
 
 from runpod_flash.core.resources.resource_manager import ResourceManager
 from runpod_flash.stubs.load_balancer_sls import LoadBalancerSlsStub
@@ -8,12 +10,36 @@ from runpod_flash.stubs.load_balancer_sls import LoadBalancerSlsStub
 _resource_manager = ResourceManager()
 
 
-async def lb_execute(resource_config, func, request: Request):
-    """Execute LB function on deployed endpoint via LoadBalancerSlsStub.
+def _map_body_to_params(func, body):
+    """Map an HTTP request body to function parameters.
 
-    Uses the same /execute dispatch path that works on main — provisions
-    the endpoint, serializes the function via cloudpickle, and POSTs to
-    /execute on the deployed container.
+    If the body is a dict whose keys match the function's parameter names,
+    spread it as kwargs.  Otherwise pass the whole body as the value of the
+    first parameter (mirrors how FastAPI maps a JSON body to a single param).
+    """
+    sig = inspect.signature(func)
+    param_names = set(sig.parameters.keys())
+
+    if isinstance(body, dict) and body.keys() <= param_names:
+        return body
+
+    first_param = next(iter(sig.parameters), None)
+    if first_param is None:
+        return {}
+    return {first_param: body}
+
+
+async def lb_execute(resource_config, func, body: dict):
+    """Dispatch an LB route to the deployed endpoint via LoadBalancerSlsStub.
+
+    Provisions the endpoint via ResourceManager, maps the HTTP body to
+    function kwargs, then dispatches through the stub's /execute path
+    which serializes the function via cloudpickle to the remote container.
+
+    Args:
+        resource_config: The resource config object (e.g. LiveLoadBalancer instance).
+        func: The @remote LB route handler function.
+        body: Parsed request body (from FastAPI's automatic JSON parsing).
     """
     try:
         deployed = await _resource_manager.get_or_deploy_resource(resource_config)
@@ -24,17 +50,7 @@ async def lb_execute(resource_config, func, request: Request):
         )
 
     stub = LoadBalancerSlsStub(deployed)
-
-    # Parse HTTP request into function kwargs
-    if request.method in ("POST", "PUT", "PATCH"):
-        try:
-            kwargs = await request.json()
-            if not isinstance(kwargs, dict):
-                kwargs = {"input": kwargs}
-        except Exception:
-            kwargs = {}
-    else:
-        kwargs = dict(request.query_params)
+    kwargs = _map_body_to_params(func, body)
 
     try:
         return await stub(func, None, None, False, **kwargs)
