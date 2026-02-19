@@ -442,13 +442,24 @@ def _discover_resources(project_root: Path):
         )
     )
 
+    # Add project root to sys.path so cross-module imports resolve
+    # (e.g. api/routes.py doing "from longruns.stage1 import stage1_process").
+    root_str = str(project_root)
+    added_to_path = root_str not in sys.path
+    if added_to_path:
+        sys.path.insert(0, root_str)
+
     resources = []
-    for py_file in py_files:
-        try:
-            discovery = ResourceDiscovery(str(py_file), max_depth=0)
-            resources.extend(discovery.discover())
-        except Exception as e:
-            logger.debug("Discovery failed for %s: %s", py_file, e)
+    try:
+        for py_file in py_files:
+            try:
+                discovery = ResourceDiscovery(str(py_file), max_depth=0)
+                resources.extend(discovery.discover())
+            except Exception as e:
+                logger.debug("Discovery failed for %s: %s", py_file, e)
+    finally:
+        if added_to_path:
+            sys.path.remove(root_str)
 
     if resources:
         console.print(f"\n[dim]Discovered {len(resources)} resource(s):[/dim]")
