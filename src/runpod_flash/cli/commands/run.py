@@ -131,8 +131,53 @@ def _ensure_gitignore(project_root: Path) -> None:
 
 
 def _sanitize_fn_name(name: str) -> str:
-    """Sanitize a string for use as a Python function name."""
-    return name.replace("/", "_").replace(".", "_").replace("-", "_")
+    """Sanitize a string for use as a Python function name.
+
+    Replaces non-identifier characters with underscores and prepends '_'
+    if the result starts with a digit (Python identifiers cannot start
+    with digits).
+    """
+    result = name.replace("/", "_").replace(".", "_").replace("-", "_")
+    if result and result[0].isdigit():
+        result = "_" + result
+    return result
+
+
+def _has_numeric_module_segments(module_path: str) -> bool:
+    """Check if any segment in a dotted module path starts with a digit.
+
+    Python identifiers cannot start with digits, so ``from 01_foo import bar``
+    is a SyntaxError. Callers should use ``importlib.import_module()`` instead.
+    """
+    return any(seg and seg[0].isdigit() for seg in module_path.split("."))
+
+
+def _module_parent_subdir(module_path: str) -> str | None:
+    """Return the parent sub-directory for a dotted module path, or None for top-level.
+
+    Example: ``01_getting_started.03_mixed.pipeline`` → ``01_getting_started/03_mixed``
+    """
+    parts = module_path.rsplit(".", 1)
+    if len(parts) == 1:
+        return None
+    return parts[0].replace(".", "/")
+
+
+def _make_import_line(module_path: str, name: str) -> str:
+    """Build an import statement for *name* from *module_path*.
+
+    Uses a regular ``from … import …`` when the module path is a valid
+    Python identifier chain. Falls back to ``_flash_import()`` (a generated
+    helper in server.py) when any segment starts with a digit. The helper
+    temporarily scopes ``sys.path`` so sibling imports in the target module
+    resolve to the correct directory.
+    """
+    if _has_numeric_module_segments(module_path):
+        subdir = _module_parent_subdir(module_path)
+        if subdir:
+            return f'{name} = _flash_import("{module_path}", "{name}", "{subdir}")'
+        return f'{name} = _flash_import("{module_path}", "{name}")'
+    return f"from {module_path} import {name}"
 
 
 def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Path:
@@ -157,9 +202,40 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
         "import sys",
         "import uuid",
         "from pathlib import Path",
-        "sys.path.insert(0, str(Path(__file__).parent.parent))",
+        "_project_root = Path(__file__).parent.parent",
+        "sys.path.insert(0, str(_project_root))",
         "",
     ]
+
+    # When modules live in directories with numeric prefixes (e.g. 01_hello/),
+    # we cannot use ``from … import …`` — Python identifiers cannot start with
+    # digits.  Instead we emit a small ``_flash_import`` helper that uses
+    # ``importlib.import_module()`` *and* temporarily scopes ``sys.path`` so
+    # that sibling imports inside the loaded module (e.g. ``from cpu_worker
+    # import …``) resolve to the correct directory rather than a same-named
+    # file from a different example subdirectory.
+    needs_importlib = any(_has_numeric_module_segments(w.module_path) for w in workers)
+
+    if needs_importlib:
+        lines += [
+            "import importlib as _importlib",
+            "",
+            "",
+            "def _flash_import(module_path, name, subdir=None):",
+            '    """Import *name* from *module_path* with scoped sys.path for sibling imports."""',
+            "    _path = str(_project_root / subdir) if subdir else None",
+            "    if _path:",
+            "        sys.path.insert(0, _path)",
+            "    try:",
+            "        return getattr(_importlib.import_module(module_path), name)",
+            "    finally:",
+            "        if _path:",
+            "            try:",
+            "                sys.path.remove(_path)",
+            "            except ValueError:",
+            "                pass",
+            "",
+        ]
 
     if has_lb_workers:
         lines += [
@@ -179,7 +255,7 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
     for worker in workers:
         if worker.worker_type == "QB":
             for fn_name in worker.functions:
-                all_imports.append(f"from {worker.module_path} import {fn_name}")
+                all_imports.append(_make_import_line(worker.module_path, fn_name))
         elif worker.worker_type == "LB":
             # Import the resource config variable (e.g. "api" from api = LiveLoadBalancer(...))
             config_vars = {
@@ -188,9 +264,9 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
                 if r.get("config_variable")
             }
             for var in sorted(config_vars):
-                all_imports.append(f"from {worker.module_path} import {var}")
+                all_imports.append(_make_import_line(worker.module_path, var))
             for fn_name in worker.functions:
-                all_imports.append(f"from {worker.module_path} import {fn_name}")
+                all_imports.append(_make_import_line(worker.module_path, fn_name))
 
     if all_imports:
         lines.extend(all_imports)
