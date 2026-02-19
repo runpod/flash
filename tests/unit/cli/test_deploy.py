@@ -60,6 +60,7 @@ class TestDeployCommand:
         patched_console,
     ):
         mock_discover.return_value = (Path("/tmp/project"), "my-app")
+        mock_deploy_to_env.return_value = {}
         mock_build.return_value = Path("/tmp/project/.flash/artifact.tar.gz")
         mock_deploy.return_value = {"success": True}
 
@@ -108,6 +109,7 @@ class TestDeployCommand:
         patched_console,
     ):
         mock_discover.return_value = (Path("/tmp/project"), "my-app")
+        mock_deploy_to_env.return_value = {}
         mock_build.return_value = Path("/tmp/project/.flash/artifact.tar.gz")
         mock_deploy.return_value = {"success": True}
 
@@ -200,6 +202,7 @@ class TestDeployCommand:
         patched_console,
     ):
         mock_discover.return_value = (Path("/tmp/project"), "my-app")
+        mock_deploy_to_env.return_value = {}
         mock_build.return_value = Path("/tmp/project/.flash/artifact.tar.gz")
         mock_deploy.return_value = {"success": True}
         mock_from_name.side_effect = Exception("GraphQL errors: app not found")
@@ -271,6 +274,7 @@ class TestDeployCommand:
         patched_console,
     ):
         mock_discover.return_value = (Path("/tmp/project"), "my-app")
+        mock_deploy_to_env.return_value = {}
         mock_build.return_value = Path("/tmp/project/.flash/artifact.tar.gz")
         mock_deploy.return_value = {"success": True}
 
@@ -319,6 +323,7 @@ class TestDeployCommand:
         patched_console,
     ):
         mock_discover.return_value = (Path("/tmp/project"), "my-app")
+        mock_deploy_to_env.return_value = {}
         mock_build.return_value = Path("/tmp/project/.flash/artifact.tar.gz")
         mock_deploy.return_value = {"success": True}
 
@@ -365,6 +370,7 @@ class TestDeployCommand:
         patched_console,
     ):
         mock_discover.return_value = (Path("/tmp/project"), "my-app")
+        mock_deploy_to_env.return_value = {}
         mock_build.return_value = Path("/tmp/project/.flash/artifact.tar.gz")
         mock_deploy.return_value = {"success": True}
 
@@ -418,6 +424,7 @@ class TestDeployCommand:
         patched_console,
     ):
         mock_discover.return_value = (Path("/tmp/project"), "default-app")
+        mock_deploy_to_env.return_value = {}
         mock_build.return_value = Path("/tmp/project/.flash/artifact.tar.gz")
         mock_deploy.return_value = {"success": True}
 
