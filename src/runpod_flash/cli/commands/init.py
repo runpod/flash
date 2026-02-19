@@ -35,7 +35,9 @@ def init_command(
     should_overwrite = force
 
     if conflicts and not force:
-        console.print("[yellow]Warning:[/yellow] The following files will be overwritten:\n")
+        console.print(
+            "[yellow]Warning:[/yellow] The following files will be overwritten:\n"
+        )
         for conflict in conflicts:
             console.print(f"  {conflict}")
         console.print()
@@ -80,5 +82,7 @@ def init_command(
     step_num += 1
     console.print(f"  {step_num}. flash run")
 
-    console.print("\n  [dim]API keys: https://docs.runpod.io/get-started/api-keys[/dim]")
+    console.print(
+        "\n  [dim]API keys: https://docs.runpod.io/get-started/api-keys[/dim]"
+    )
     console.print("  [dim]Docs: http://localhost:8888/docs (after running)[/dim]")

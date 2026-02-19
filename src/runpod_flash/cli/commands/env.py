@@ -99,7 +99,9 @@ async def _list_environments(app_name: str):
         console.print(f"  Run [bold]flash deploy[/bold] to create one.\n")
         return
 
-    console.print(f"\n  [bold]{app_name}[/bold]  {len(envs)} environment{'s' if len(envs) != 1 else ''}\n")
+    console.print(
+        f"\n  [bold]{app_name}[/bold]  {len(envs)} environment{'s' if len(envs) != 1 else ''}\n"
+    )
     for env in envs:
         name = env.get("name", "(unnamed)")
         state = env.get("state", "UNKNOWN")
@@ -191,7 +193,9 @@ async def _get_environment(app_name: str, env_name: str):
         console.print(f"    Run [bold]flash deploy --env {env_name}[/bold] to deploy.")
     else:
         console.print(f"\n  [bold]Commands[/bold]")
-        console.print(f"    [dim]flash deploy --env {env_name}[/dim]  Update deployment")
+        console.print(
+            f"    [dim]flash deploy --env {env_name}[/dim]  Update deployment"
+        )
         console.print(f"    [dim]flash env delete {env_name}[/dim]    Tear down")
 
     console.print()

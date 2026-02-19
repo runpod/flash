@@ -307,7 +307,6 @@ def run_build(
             console.print("[red]Error:[/red] Failed to install dependencies")
             raise typer.Exit(1)
 
-
     # bundle local runpod_flash if requested
     if use_local_flash:
         if _bundle_local_runpod_flash(build_dir):

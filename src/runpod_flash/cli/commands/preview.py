@@ -393,9 +393,7 @@ def _display_preview_info(containers: list[ContainerInfo]) -> None:
         console.print(f"  curl {mothership.url}/ping")
 
     console.print(f"\n[bold]Networking:[/bold]")
-    console.print(
-        "  Containers communicate via Docker DNS on internal port 80"
-    )
+    console.print("  Containers communicate via Docker DNS on internal port 80")
 
     console.print(f"\n[yellow]Press Ctrl+C to stop[/yellow]\n")
 

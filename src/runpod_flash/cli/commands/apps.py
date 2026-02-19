@@ -63,7 +63,9 @@ async def list_flash_apps():
         for env in environments:
             state = env.get("state", "UNKNOWN")
             env_name = env.get("name", "?")
-            console.print(f"    {state_dot(state)} {env_name}  [dim]{state.lower()}[/dim]")
+            console.print(
+                f"    {state_dot(state)} {env_name}  [dim]{state.lower()}[/dim]"
+            )
 
         console.print()
 
@@ -72,7 +74,9 @@ async def create_flash_app(app_name: str):
     with console.status(f"Creating flash app: {app_name}"):
         app = await FlashApp.create(app_name)
 
-    console.print(f"[green]✓[/green] Created app [bold]{app_name}[/bold]  [dim]{app.id}[/dim]")
+    console.print(
+        f"[green]✓[/green] Created app [bold]{app_name}[/bold]  [dim]{app.id}[/dim]"
+    )
 
 
 async def get_flash_app(app_name: str):
@@ -114,7 +118,9 @@ async def get_flash_app(app_name: str):
             created = format_datetime(build.get("createdAt"))
             console.print(f"    {build_id}  [dim]{created}[/dim]")
         if len(builds) > max_shown:
-            console.print(f"    [dim]… and {len(builds) - max_shown} older builds[/dim]")
+            console.print(
+                f"    [dim]… and {len(builds) - max_shown} older builds[/dim]"
+            )
     else:
         console.print("    [dim]None yet — run [/dim][bold]flash build[/bold]")
 

@@ -40,7 +40,9 @@ class TestEnvList:
 
         assert result.exit_code == 0
         printed = " ".join(
-            str(call.args[0]) for call in patched_console.print.call_args_list if call.args
+            str(call.args[0])
+            for call in patched_console.print.call_args_list
+            if call.args
         )
         assert "No environments" in printed
         assert "demo" in printed
@@ -71,7 +73,9 @@ class TestEnvList:
 
         assert result.exit_code == 0
         printed = " ".join(
-            str(call.args[0]) for call in patched_console.print.call_args_list if call.args
+            str(call.args[0])
+            for call in patched_console.print.call_args_list
+            if call.args
         )
         assert "dev" in printed
         assert "build-1" in printed
@@ -129,7 +133,9 @@ class TestEnvCreate:
         assert result.exit_code == 0
         mock_create.assert_awaited_once_with("demo", "dev")
         printed = " ".join(
-            str(call.args[0]) for call in patched_console.print.call_args_list if call.args
+            str(call.args[0])
+            for call in patched_console.print.call_args_list
+            if call.args
         )
         assert "dev" in printed
         assert "env-123" in printed
@@ -162,7 +168,9 @@ class TestEnvGet:
 
         assert result.exit_code == 0
         printed = " ".join(
-            str(call.args[0]) for call in patched_console.print.call_args_list if call.args
+            str(call.args[0])
+            for call in patched_console.print.call_args_list
+            if call.args
         )
         assert "dev" in printed
         assert "ep-1" in printed
@@ -196,7 +204,9 @@ class TestEnvGet:
 
         assert result.exit_code == 0
         printed = " ".join(
-            str(call.args[0]) for call in patched_console.print.call_args_list if call.args
+            str(call.args[0])
+            for call in patched_console.print.call_args_list
+            if call.args
         )
         assert "dev" in printed
         # no endpoint or nv sections when empty
@@ -247,7 +257,9 @@ class TestEnvDelete:
         mock_questionary.confirm.assert_called_once()
         flash_app.delete_environment.assert_awaited_once_with("dev")
         printed = " ".join(
-            str(call.args[0]) for call in patched_console.print.call_args_list if call.args
+            str(call.args[0])
+            for call in patched_console.print.call_args_list
+            if call.args
         )
         assert "Deleted" in printed
 
@@ -331,6 +343,8 @@ class TestEnvDelete:
         assert result.exit_code == 1
         flash_app.delete_environment.assert_awaited_once_with("dev")
         printed = " ".join(
-            str(call.args[0]) for call in patched_console.print.call_args_list if call.args
+            str(call.args[0])
+            for call in patched_console.print.call_args_list
+            if call.args
         )
         assert "Failed to delete" in printed

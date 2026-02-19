@@ -262,7 +262,6 @@ class ResourceManager(SingletonMixin):
                 stored_config_hash = self._resource_configs.get(resource_key, "")
 
                 if stored_config_hash != new_config_hash:
-
                     # Attempt update (will redeploy if structural changes detected)
                     if hasattr(existing, "update"):
                         updated_resource = await existing.update(config)

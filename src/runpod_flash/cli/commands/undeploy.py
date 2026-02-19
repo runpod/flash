@@ -124,14 +124,14 @@ def list_command():
     if unknown_count > 0:
         parts.append(f"[yellow]{unknown_count} unknown[/yellow]")
 
-    console.print(f"\n  {total} endpoint{'s' if total != 1 else ''}  {', '.join(parts)}")
+    console.print(
+        f"\n  {total} endpoint{'s' if total != 1 else ''}  {', '.join(parts)}"
+    )
 
     console.print(f"\n  [bold]Commands[/bold]")
     console.print("    [dim]flash undeploy <name>[/dim]         Remove an endpoint")
     console.print("    [dim]flash undeploy --all[/dim]          Remove all endpoints")
-    console.print(
-        "    [dim]flash undeploy --interactive[/dim]  Checkbox selection"
-    )
+    console.print("    [dim]flash undeploy --interactive[/dim]  Checkbox selection")
     console.print()
 
 
@@ -175,9 +175,7 @@ def _cleanup_stale_endpoints(
         )
 
         removed_count += 1
-        console.print(
-            f"  [green]Removed[/green] {resource.name}"
-        )
+        console.print(f"  [green]Removed[/green] {resource.name}")
 
     console.print(f"\n[green]Cleaned up {removed_count} endpoint(s)[/green]")
 
@@ -264,9 +262,7 @@ def _undeploy_by_name(name: str, resources: dict, skip_confirm: bool = False):
 
     if not matches:
         console.print(f"[red]Error:[/red] No endpoint found with name '{name}'")
-        console.print(
-            "\n  [dim]flash undeploy list[/dim]  Show available endpoints"
-        )
+        console.print("\n  [dim]flash undeploy list[/dim]  Show available endpoints")
         raise typer.Exit(1)
 
     console.print()
