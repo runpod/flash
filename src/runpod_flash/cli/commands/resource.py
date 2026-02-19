@@ -50,11 +50,10 @@ def _render_resource_report(resource_manager: ResourceManager):
     resources = resource_manager._resources
 
     if not resources:
-        return Text("No resources tracked.\n  Use @remote decorator to deploy.")
+        return Text("No resources tracked.")
 
     lines = Text()
-    lines.append("Resources", style="bold")
-    lines.append(f"  ({len(resources)})\n\n", style="dim")
+    lines.append("\nResources\n\n", style="bold")
 
     active_count = 0
     error_count = 0
@@ -81,9 +80,9 @@ def _render_resource_report(resource_manager: ResourceManager):
 
         lines.append(f"  {display_uid}", style="bold")
         lines.append(f"  {status_text}", style=color)
-        lines.append(f"  {resource_type}", style="dim")
+        lines.append(f"  {resource_type}")
         if url:
-            lines.append(f"  {url}", style="dim")
+            lines.append(f"  {url}")
         lines.append("\n")
 
     total = len(resources)
@@ -93,7 +92,7 @@ def _render_resource_report(resource_manager: ResourceManager):
         parts.append(f"{idle_count} idle")
     if error_count > 0:
         parts.append(f"{error_count} error")
-    summary = ", ".join(parts)
-    lines.append(f"\n{total} resources ({summary})\n", style="dim")
+
+    lines.append(f"\n{total} resources ({', '.join(parts)})\n")
 
     return lines

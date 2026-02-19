@@ -97,14 +97,13 @@ async def _list_environments(app_name: str):
         console.print(f"No environments found for '{app_name}'.")
         return
 
-    console.print(f"[bold]Environments[/bold]  [dim]({app_name})[/dim]\n")
+    console.print(f"\n[bold]Environments[/bold]  ({app_name})\n")
     for env in envs:
         name = env.get("name", "(unnamed)")
         env_id = env.get("id", "")
-        build = env.get("activeBuildId", "-")
-        created = env.get("createdAt", "")
-        console.print(f"  [bold]{name}[/bold]  [dim]{env_id}[/dim]")
-        console.print(f"    [dim]build {build}  created {created}[/dim]")
+        build = env.get("activeBuildId") or "-"
+        created = env.get("createdAt") or ""
+        console.print(f"  [bold]{name}[/bold]  {env_id}  build {build}  {created}")
 
 
 def create_command(
@@ -127,10 +126,7 @@ async def _create_environment(app_name: str, env_name: str):
 
     console.print(
         f"[green]Created[/green] environment [bold]{env_name}[/bold]  "
-        f"[dim]{env.get('id')}[/dim]"
-    )
-    console.print(
-        f"  [dim]app {app_name}  status {env.get('state', 'PENDING')}[/dim]"
+        f"{env.get('id')}  {env.get('state', 'PENDING')}"
     )
 
 
@@ -151,27 +147,22 @@ async def _get_environment(app_name: str, env_name: str):
     state = env.get("state", "UNKNOWN")
     state_color = "green" if state == "HEALTHY" else "yellow"
 
-    console.print(f"[bold]{env.get('name')}[/bold]  [{state_color}]{state}[/{state_color}]")
-    console.print(f"  [dim]id     {env.get('id')}[/dim]")
-    console.print(f"  [dim]build  {env.get('activeBuildId', 'None')}[/dim]")
+    console.print(f"\n[bold]{env.get('name')}[/bold]  [{state_color}]{state}[/{state_color}]")
+    console.print(f"  {env.get('id')}  build {env.get('activeBuildId') or 'None'}")
     if env.get("createdAt"):
-        console.print(f"  [dim]created {env.get('createdAt')}[/dim]")
+        console.print(f"  created {env.get('createdAt')}")
 
     endpoints = env.get("endpoints") or []
     if endpoints:
-        console.print(f"\n[bold]Endpoints[/bold]  [dim]({len(endpoints)})[/dim]")
+        console.print(f"\n[bold]Endpoints[/bold]")
         for ep in endpoints:
-            console.print(
-                f"  [bold]{ep.get('name', '-')}[/bold]  [dim]{ep.get('id', '-')}[/dim]"
-            )
+            console.print(f"  {ep.get('name', '-')}  {ep.get('id', '-')}")
 
     network_volumes = env.get("networkVolumes") or []
     if network_volumes:
-        console.print(f"\n[bold]Network Volumes[/bold]  [dim]({len(network_volumes)})[/dim]")
+        console.print(f"\n[bold]Network Volumes[/bold]")
         for nv in network_volumes:
-            console.print(
-                f"  [bold]{nv.get('name', '-')}[/bold]  [dim]{nv.get('id', '-')}[/dim]"
-            )
+            console.print(f"  {nv.get('name', '-')}  {nv.get('id', '-')}")
 
 
 def delete_command(
@@ -190,12 +181,7 @@ def delete_command(
         console.print(f"[red]Error:[/red] Failed to fetch environment info: {e}")
         raise typer.Exit(1)
 
-    console.print(
-        f"Deleting [bold]{env_name}[/bold]  [dim]{env.get('id')}[/dim]"
-    )
-    console.print(
-        f"  [dim]app {app_name}  build {env.get('activeBuildId', 'None')}[/dim]"
-    )
+    console.print(f"\nDeleting [bold]{env_name}[/bold]  {env.get('id')}")
 
     try:
         confirmed = questionary.confirm(

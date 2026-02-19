@@ -37,7 +37,7 @@ def init_command(
     if conflicts and not force:
         console.print("[yellow]Warning:[/yellow] The following files will be overwritten:\n")
         for conflict in conflicts:
-            console.print(f"  [dim]{conflict}[/dim]")
+            console.print(f"  {conflict}")
         console.print()
 
         proceed = typer.confirm("Continue and overwrite these files?", default=False)
@@ -55,42 +55,30 @@ def init_command(
     with console.status(status_msg):
         create_project_skeleton(project_dir, should_overwrite)
 
-    console.print(
-        f"[green]Created[/green] [bold]{actual_project_name}[/bold]\n"
-    )
+    console.print(f"[green]Created[/green] [bold]{actual_project_name}[/bold]\n")
 
-    if is_current_dir:
-        console.print("[bold]Structure:[/bold]")
-        console.print("  [dim]./[/dim]")
-    else:
-        console.print("[bold]Structure:[/bold]")
-        console.print(f"  [dim]{actual_project_name}/[/dim]")
-
-    console.print("  [dim]├── main.py              Flash Server (FastAPI)[/dim]")
-    console.print("  [dim]├── mothership.py        Mothership endpoint config[/dim]")
-    console.print("  [dim]├── pyproject.toml       Python project config[/dim]")
-    console.print("  [dim]├── workers/[/dim]")
-    console.print("  [dim]│   ├── gpu/             GPU worker[/dim]")
-    console.print("  [dim]│   └── cpu/             CPU worker[/dim]")
-    console.print("  [dim]├── .env.example[/dim]")
-    console.print("  [dim]├── requirements.txt[/dim]")
-    console.print("  [dim]└── README.md[/dim]")
+    prefix = "./" if is_current_dir else f"{actual_project_name}/"
+    console.print(f"  {prefix}")
+    console.print("  ├── main.py              FastAPI server")
+    console.print("  ├── mothership.py        Mothership config")
+    console.print("  ├── pyproject.toml")
+    console.print("  ├── workers/")
+    console.print("  │   ├── gpu/")
+    console.print("  │   └── cpu/")
+    console.print("  ├── .env.example")
+    console.print("  ├── requirements.txt")
+    console.print("  └── README.md")
 
     console.print("\n[bold]Next steps:[/bold]")
     step_num = 1
     if not is_current_dir:
-        console.print(f"  [dim]{step_num}. cd {actual_project_name}[/dim]")
+        console.print(f"  {step_num}. cd {actual_project_name}")
         step_num += 1
-    console.print(f"  [dim]{step_num}. Review and customize mothership.py (optional)[/dim]")
+    console.print(f"  {step_num}. pip install -r requirements.txt")
     step_num += 1
-    console.print(f"  [dim]{step_num}. pip install -r requirements.txt[/dim]")
+    console.print(f"  {step_num}. cp .env.example .env && add RUNPOD_API_KEY")
     step_num += 1
-    console.print(f"  [dim]{step_num}. cp .env.example .env[/dim]")
-    step_num += 1
-    console.print(f"  [dim]{step_num}. Add your RUNPOD_API_KEY to .env[/dim]")
-    step_num += 1
-    console.print(f"  [dim]{step_num}. flash run[/dim]")
+    console.print(f"  {step_num}. flash run")
 
-    console.print("\n[bold]API key:[/bold]")
-    console.print("  [dim]https://docs.runpod.io/get-started/api-keys[/dim]")
-    console.print("\n[dim]Visit http://localhost:8888/docs after running[/dim]")
+    console.print("\n  [dim]API keys: https://docs.runpod.io/get-started/api-keys[/dim]")
+    console.print("  [dim]Docs: http://localhost:8888/docs (after running)[/dim]")

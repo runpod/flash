@@ -380,24 +380,22 @@ def _display_preview_info(containers: list[ContainerInfo]) -> None:
     """
     sorted_containers = sorted(containers, key=lambda c: (not c.is_mothership, c.name))
 
-    console.print(f"\n[bold]Preview[/bold]  [dim]({len(containers)} containers)[/dim]\n")
+    console.print(f"\n[bold]Preview[/bold]  ({len(containers)} containers)\n")
     for container in sorted_containers:
         container_type = "mothership" if container.is_mothership else "worker"
         console.print(
-            f"  [bold]{container.name}[/bold]  {container.url}  "
-            f"[dim]:{container.port}  {container_type}[/dim]"
+            f"  [bold]{container.name}[/bold]  {container.url}  {container_type}"
         )
 
     mothership = next((c for c in containers if c.is_mothership), None)
     if mothership:
         console.print(f"\n[bold]Try it:[/bold]")
-        console.print(f"  [dim]curl {mothership.url}/ping[/dim]")
+        console.print(f"  curl {mothership.url}/ping")
 
     console.print(f"\n[bold]Networking:[/bold]")
     console.print(
-        "  [dim]Containers communicate via Docker DNS on internal port 80[/dim]"
+        "  Containers communicate via Docker DNS on internal port 80"
     )
-    console.print("  [dim]Example: http://flash-preview-gpu_config:80[/dim]")
 
     console.print(f"\n[yellow]Press Ctrl+C to stop[/yellow]\n")
 

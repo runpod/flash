@@ -93,15 +93,12 @@ def list_command():
 
     if not resources:
         console.print("No endpoints found.")
-        console.print(
-            "  [dim]Endpoints are tracked when you use @remote decorator.[/dim]"
-        )
         return
 
     active_count = 0
     inactive_count = 0
 
-    console.print(f"[bold]Endpoints[/bold]  [dim]({len(resources)})[/dim]\n")
+    console.print(f"\n[bold]Endpoints[/bold]\n")
     for resource_id, resource in resources.items():
         color, status_text = _get_resource_status(resource)
         if status_text == "active":
@@ -111,13 +108,10 @@ def list_command():
 
         name = getattr(resource, "name", "N/A")
         endpoint_id = getattr(resource, "id", "N/A")
-        resource_type = _get_resource_type(resource)
 
         console.print(
-            f"  [bold]{name}[/bold]  [{color}]{status_text}[/{color}]  "
-            f"[dim]{endpoint_id}[/dim]"
+            f"  [bold]{name}[/bold]  [{color}]{status_text}[/{color}]  {endpoint_id}"
         )
-        console.print(f"    [dim]{resource_type}  {resource_id[:12]}...[/dim]")
 
     total = len(resources)
     unknown_count = total - active_count - inactive_count
@@ -128,8 +122,8 @@ def list_command():
         parts.append(f"{inactive_count} inactive")
     if unknown_count > 0:
         parts.append(f"{unknown_count} unknown")
-    summary = ", ".join(parts)
-    console.print(f"\n[dim]{total} endpoint{'s' if total != 1 else ''} ({summary})[/dim]")
+
+    console.print(f"\n{total} endpoint{'s' if total != 1 else ''} ({', '.join(parts)})")
 
     console.print("\n[bold]Commands:[/bold]")
     console.print("  [dim]flash undeploy <name>[/dim]         Remove an endpoint")
@@ -148,10 +142,7 @@ def _cleanup_stale_endpoints(
         resources: Dictionary of resource_id -> DeployableResource
         manager: ResourceManager instance for removing resources
     """
-    console.print("[bold]Cleanup stale endpoints[/bold]")
-    console.print(
-        "  [dim]Removes endpoints from tracking that are no longer active[/dim]\n"
-    )
+    console.print("[bold]Cleanup stale endpoints[/bold]\n")
 
     inactive = []
     with console.status("Checking endpoint status..."):
@@ -166,7 +157,7 @@ def _cleanup_stale_endpoints(
 
     console.print(f"Found [yellow]{len(inactive)}[/yellow] inactive endpoint(s):")
     for resource_id, resource in inactive:
-        console.print(f"  [bold]{resource.name}[/bold]  [dim]{getattr(resource, 'id', 'N/A')}[/dim]")
+        console.print(f"  {resource.name}  {getattr(resource, 'id', 'N/A')}")
 
     if not Confirm.ask(
         "\n[yellow]Remove these from tracking?[/yellow]",
@@ -183,10 +174,10 @@ def _cleanup_stale_endpoints(
 
         removed_count += 1
         console.print(
-            f"  [green]Removed[/green] [bold]{resource.name}[/bold] from tracking"
+            f"  [green]Removed[/green] {resource.name}"
         )
 
-    console.print(f"\n[green]Cleaned up {removed_count} inactive endpoint(s)[/green]")
+    console.print(f"\n[green]Cleaned up {removed_count} endpoint(s)[/green]")
 
 
 def undeploy_command(
@@ -228,7 +219,6 @@ def undeploy_command(
         # Remove stale endpoint tracking (already deleted externally)
         flash undeploy --cleanup-stale
     """
-    # Handle "list" as a special case
     if name == "list":
         list_command()
         return
@@ -238,15 +228,12 @@ def undeploy_command(
 
     if not resources:
         console.print("No endpoints found to undeploy.")
-        console.print("  [dim]Use @remote decorator to deploy endpoints.[/dim]")
         return
 
-    # Handle cleanup-stale mode
     if cleanup_stale:
         _cleanup_stale_endpoints(resources, manager)
         return
 
-    # Handle different modes
     if interactive:
         _interactive_undeploy(resources, skip_confirm=force)
     elif all:
@@ -257,7 +244,6 @@ def undeploy_command(
         console.print(
             "[red]Error:[/red] Please specify a name, use --all/--interactive, or run `flash undeploy list`"
         )
-        # exit 0: treat usage help display as successful operation for better ux
         raise typer.Exit(0)
 
 
@@ -284,7 +270,7 @@ def _undeploy_by_name(name: str, resources: dict, skip_confirm: bool = False):
     console.print()
     for resource_id, resource in matches:
         endpoint_id = getattr(resource, "id", "N/A")
-        console.print(f"  [bold]{resource.name}[/bold]  [dim]{endpoint_id}[/dim]")
+        console.print(f"  [bold]{resource.name}[/bold]  {endpoint_id}")
     console.print("\n  [yellow]This action cannot be undone.[/yellow]\n")
 
     if not skip_confirm:
@@ -304,14 +290,12 @@ def _undeploy_by_name(name: str, resources: dict, skip_confirm: bool = False):
     manager = _get_resource_manager()
     results = []
     for resource_id, resource in matches:
-        with console.status(f"Deleting [bold]{resource.name}[/bold]..."):
+        with console.status(f"Deleting {resource.name}..."):
             result = asyncio.run(manager.undeploy_resource(resource_id, resource.name))
         if result["success"]:
-            console.print(f"  [green]Deleted[/green] [bold]{resource.name}[/bold]")
+            console.print(f"  [green]Deleted[/green] {resource.name}")
         else:
-            console.print(
-                f"  [red]Failed[/red] to delete [bold]{resource.name}[/bold]"
-            )
+            console.print(f"  [red]Failed[/red] {resource.name}")
         results.append(result)
 
     _print_undeploy_summary(results)
@@ -328,7 +312,7 @@ def _undeploy_all(resources: dict, skip_confirm: bool = False):
     for resource_id, resource in resources.items():
         name = getattr(resource, "name", "N/A")
         endpoint_id = getattr(resource, "id", "N/A")
-        console.print(f"  [bold]{name}[/bold]  [dim]{endpoint_id}[/dim]")
+        console.print(f"  [bold]{name}[/bold]  {endpoint_id}")
     console.print(
         f"\n  [yellow]All {len(resources)} endpoint(s) will be deleted. "
         f"This action cannot be undone.[/yellow]\n"
@@ -358,12 +342,12 @@ def _undeploy_all(resources: dict, skip_confirm: bool = False):
     results = []
     for resource_id, resource in resources.items():
         name = getattr(resource, "name", "N/A")
-        with console.status(f"Deleting [bold]{name}[/bold]..."):
+        with console.status(f"Deleting {name}..."):
             result = asyncio.run(manager.undeploy_resource(resource_id, name))
         if result["success"]:
-            console.print(f"  [green]Deleted[/green] [bold]{name}[/bold]")
+            console.print(f"  [green]Deleted[/green] {name}")
         else:
-            console.print(f"  [red]Failed[/red] to delete [bold]{name}[/bold]")
+            console.print(f"  [red]Failed[/red] {name}")
         results.append(result)
 
     _print_undeploy_summary(results)
@@ -405,7 +389,7 @@ def _interactive_undeploy(resources: dict, skip_confirm: bool = False):
             selected_resources.append((resource_id, resource))
             name = getattr(resource, "name", "N/A")
             endpoint_id = getattr(resource, "id", "N/A")
-            console.print(f"  [bold]{name}[/bold]  [dim]{endpoint_id}[/dim]")
+            console.print(f"  [bold]{name}[/bold]  {endpoint_id}")
         console.print("\n  [yellow]This action cannot be undone.[/yellow]\n")
 
         if not skip_confirm:
@@ -425,12 +409,12 @@ def _interactive_undeploy(resources: dict, skip_confirm: bool = False):
     results = []
     for resource_id, resource in selected_resources:
         name = getattr(resource, "name", "N/A")
-        with console.status(f"Deleting [bold]{name}[/bold]..."):
+        with console.status(f"Deleting {name}..."):
             result = asyncio.run(manager.undeploy_resource(resource_id, name))
         if result["success"]:
-            console.print(f"  [green]Deleted[/green] [bold]{name}[/bold]")
+            console.print(f"  [green]Deleted[/green] {name}")
         else:
-            console.print(f"  [red]Failed[/red] to delete [bold]{name}[/bold]")
+            console.print(f"  [red]Failed[/red] {name}")
         results.append(result)
 
     _print_undeploy_summary(results)
@@ -452,4 +436,4 @@ def _print_undeploy_summary(results: list[dict]):
         )
         for result in results:
             if not result["success"]:
-                console.print(f"  [dim]{result['message']}[/dim]")
+                console.print(f"  {result['message']}")
