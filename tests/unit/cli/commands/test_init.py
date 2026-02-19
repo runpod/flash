@@ -193,10 +193,10 @@ class TestInitCommandOutput:
 
         init_command(".")
 
-        # Check that status was called with "current directory" message
+        # Check that status was called with initialization message
         mock_context["console"].status.assert_called_once()
         status_msg = mock_context["console"].status.call_args[0][0]
-        assert "current directory" in status_msg
+        assert "Initializing" in status_msg or "Flash project" in status_msg
 
 
 class TestInitCommandProjectNameHandling:

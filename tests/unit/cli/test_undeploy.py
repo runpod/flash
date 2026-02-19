@@ -259,7 +259,7 @@ class TestUndeployCommand:
             result = runner.invoke(app, ["undeploy", "test-api-1"])
 
             assert result.exit_code == 0
-            assert "Successfully" in result.stdout
+            assert "Deleted" in result.stdout
 
     @patch("runpod_flash.cli.commands.undeploy.asyncio.run")
     def test_undeploy_all_flag(
@@ -301,7 +301,7 @@ class TestUndeployCommand:
             result = runner.invoke(app, ["undeploy", "--all"])
 
             assert result.exit_code == 0
-            assert "Successfully" in result.stdout
+            assert "Deleted" in result.stdout
 
     def test_undeploy_all_wrong_confirmation(self, runner, sample_resources):
         """Test undeploy --all with wrong confirmation text."""
@@ -340,10 +340,10 @@ class TestResourceStatusHelpers:
         mock_resource = MagicMock()
         mock_resource.is_deployed.return_value = True
 
-        icon, text = _get_resource_status(mock_resource)
+        color, text = _get_resource_status(mock_resource)
 
-        assert icon == "🟢"
-        assert text == "Active"
+        assert color == "green"
+        assert text == "active"
 
     def test_get_resource_status_inactive(self):
         """Test _get_resource_status for inactive resource."""
@@ -352,10 +352,10 @@ class TestResourceStatusHelpers:
         mock_resource = MagicMock()
         mock_resource.is_deployed.return_value = False
 
-        icon, text = _get_resource_status(mock_resource)
+        color, text = _get_resource_status(mock_resource)
 
-        assert icon == "🔴"
-        assert text == "Inactive"
+        assert color == "red"
+        assert text == "inactive"
 
     def test_get_resource_status_exception(self):
         """Test _get_resource_status when exception occurs."""
@@ -364,10 +364,10 @@ class TestResourceStatusHelpers:
         mock_resource = MagicMock()
         mock_resource.is_deployed.side_effect = Exception("API Error")
 
-        icon, text = _get_resource_status(mock_resource)
+        color, text = _get_resource_status(mock_resource)
 
-        assert icon == "❓"
-        assert text == "Unknown"
+        assert color == "yellow"
+        assert text == "unknown"
 
     def test_get_resource_type(self, sample_resources):
         """Test _get_resource_type returns formatted type."""

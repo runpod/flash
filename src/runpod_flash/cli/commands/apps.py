@@ -1,14 +1,11 @@
 """Deployment environment management commands."""
 
-import typer
-from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
 import asyncio
 
+import typer
+from rich.console import Console
+
 from runpod_flash.cli.utils.app import discover_flash_project
-
-
 from runpod_flash.core.resources.app import FlashApp
 
 console = Console()
@@ -48,78 +45,62 @@ async def list_flash_apps():
         console.print("No Flash apps found.")
         return
 
-    table = Table(show_header=True, header_style="bold")
-    table.add_column("Name", style="bold")
-    table.add_column("ID", overflow="fold")
-    table.add_column("Environments", overflow="fold")
-    table.add_column("Builds", overflow="fold")
-
+    console.print(f"[bold]Apps[/bold]  [dim]({len(apps)})[/dim]\n")
     for app in apps:
+        name = app.get("name", "(unnamed)")
+        app_id = app.get("id", "")
         environments = app.get("flashEnvironments") or []
-        env_summary = ", ".join(env.get("name", "?") for env in environments) or "—"
+        env_names = ", ".join(env.get("name", "?") for env in environments) or "-"
         builds = app.get("flashBuilds") or []
-        build_summary = ", ".join(build.get("id", "?") for build in builds) or "—"
-        table.add_row(
-            app.get("name", "(unnamed)"), app.get("id", "—"), env_summary, build_summary
+        console.print(f"  [bold]{name}[/bold]  [dim]{app_id}[/dim]")
+        console.print(
+            f"    [dim]envs {env_names}  builds {len(builds)}[/dim]"
         )
-
-    console.print(table)
 
 
 async def create_flash_app(app_name: str):
     with console.status(f"Creating flash app: {app_name}"):
         app = await FlashApp.create(app_name)
 
-    panel_content = (
-        f"Flash app '[bold]{app_name}[/bold]' created successfully\n\nApp ID: {app.id}"
+    console.print(
+        f"[green]Created[/green] app [bold]{app_name}[/bold]  [dim]{app.id}[/dim]"
     )
-    console.print(Panel(panel_content, title="✅ App Created", expand=False))
 
 
 async def get_flash_app(app_name: str):
     with console.status(f"Fetching flash app: {app_name}"):
         app = await FlashApp.from_name(app_name)
-        # Fetch environments and builds in parallel for better performance
         envs, builds = await asyncio.gather(app.list_environments(), app.list_builds())
 
-    main_info = f"Name: {app.name}\n"
-    main_info += f"ID: {app.id}\n"
-    main_info += f"Environments: {len(envs)}\n"
-    main_info += f"Builds: {len(builds)}"
-
-    console.print(Panel(main_info, title=f"📱 Flash App: {app_name}", expand=False))
+    console.print(f"[bold]{app.name}[/bold]  [dim]{app.id}[/dim]")
 
     if envs:
-        env_table = Table(title="Environments")
-        env_table.add_column("Name", style="cyan")
-        env_table.add_column("ID", overflow="fold")
-        env_table.add_column("State", style="yellow")
-        env_table.add_column("Active Build", overflow="fold")
-        env_table.add_column("Created", style="dim")
-
+        console.print(f"\n[bold]Environments[/bold]  [dim]({len(envs)})[/dim]")
         for env in envs:
-            env_table.add_row(
-                env.get("name"),
-                env.get("id", "-"),
-                env.get("state", "UNKNOWN"),
-                env.get("activeBuildId", "-"),
-                env.get("createdAt", "-"),
+            state = env.get("state", "UNKNOWN")
+            state_color = "green" if state == "HEALTHY" else "yellow"
+            console.print(
+                f"  [bold]{env.get('name')}[/bold]  "
+                f"[{state_color}]{state}[/{state_color}]  "
+                f"[dim]{env.get('id', '-')}[/dim]"
             )
-        console.print(env_table)
+            console.print(
+                f"    [dim]build {env.get('activeBuildId', '-')}  "
+                f"created {env.get('createdAt', '-')}[/dim]"
+            )
+    else:
+        console.print("\n[dim]No environments[/dim]")
 
     if builds:
-        build_table = Table(title="Builds")
-        build_table.add_column("ID", overflow="fold")
-        build_table.add_column("Object Key", overflow="fold")
-        build_table.add_column("Created", style="dim")
-
+        console.print(f"\n[bold]Builds[/bold]  [dim]({len(builds)})[/dim]")
         for build in builds:
-            build_table.add_row(
-                build.get("id"),
-                build.get("objectKey", "-"),
-                build.get("createdAt", "-"),
+            console.print(
+                f"  [bold]{build.get('id')}[/bold]  "
+                f"[dim]{build.get('objectKey', '-')}  "
+                f"created {build.get('createdAt', '-')}[/dim]"
             )
-        console.print(build_table)
+    else:
+        console.print("\n[dim]No builds[/dim]")
 
 
 async def delete_flash_app(app_name: str):
@@ -127,9 +108,9 @@ async def delete_flash_app(app_name: str):
         success = await FlashApp.delete(app_name=app_name)
 
     if success:
-        console.print(f"✅ Flash app '{app_name}' deleted successfully")
+        console.print(f"[green]Deleted[/green] app [bold]{app_name}[/bold]")
     else:
-        console.print(f"❌ Failed to delete flash app '{app_name}'")
+        console.print(f"[red]Error:[/red] Failed to delete app '{app_name}'")
         raise typer.Exit(1)
 
 

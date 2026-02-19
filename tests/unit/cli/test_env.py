@@ -3,8 +3,6 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from rich.panel import Panel
-from rich.table import Table
 from typer.testing import CliRunner
 
 from runpod_flash.cli.main import app
@@ -68,10 +66,12 @@ class TestEnvList:
             result = runner.invoke(app, ["env", "list", "--app", "demo"])
 
         assert result.exit_code == 0
-        table = patched_console.print.call_args_list[-1].args[0]
-        assert isinstance(table, Table)
-        assert table.columns[0]._cells[0] == "dev"
-        assert table.columns[2]._cells[0] == "build-1"
+        printed = " ".join(
+            str(call.args[0]) for call in patched_console.print.call_args_list
+        )
+        assert "dev" in printed
+        assert "env-1" in printed
+        assert "build-1" in printed
 
     @patch("runpod_flash.cli.commands.env.discover_flash_project")
     @patch("runpod_flash.cli.commands.env.FlashApp.from_name", new_callable=AsyncMock)
@@ -125,11 +125,11 @@ class TestEnvCreate:
 
         assert result.exit_code == 0
         mock_create.assert_awaited_once_with("demo", "dev")
-        panel = patched_console.print.call_args_list[0].args[0]
-        assert isinstance(panel, Panel)
-        assert "[bold]dev[/bold]" in panel.renderable
-        table = patched_console.print.call_args_list[1].args[0]
-        assert isinstance(table, Table)
+        printed = " ".join(
+            str(call.args[0]) for call in patched_console.print.call_args_list
+        )
+        assert "dev" in printed
+        assert "env-123" in printed
 
 
 class TestEnvGet:
@@ -158,13 +158,14 @@ class TestEnvGet:
             result = runner.invoke(app, ["env", "get", "dev", "--app", "demo"])
 
         assert result.exit_code == 0
-        panel = patched_console.print.call_args_list[0].args[0]
-        assert isinstance(panel, Panel)
-        endpoint_table = patched_console.print.call_args_list[1].args[0]
-        network_table = patched_console.print.call_args_list[2].args[0]
-        assert isinstance(endpoint_table, Table)
-        assert endpoint_table.columns[1].header == "Endpoint ID"
-        assert isinstance(network_table, Table)
+        printed = " ".join(
+            str(call.args[0]) for call in patched_console.print.call_args_list
+        )
+        assert "dev" in printed
+        assert "ep-1" in printed
+        assert "nv-1" in printed
+        assert "Endpoints" in printed
+        assert "Network Volumes" in printed
 
     @patch("runpod_flash.cli.commands.env.FlashApp.from_name", new_callable=AsyncMock)
     def test_get_without_children(
@@ -191,9 +192,13 @@ class TestEnvGet:
             result = runner.invoke(app, ["env", "get", "dev", "--app", "demo"])
 
         assert result.exit_code == 0
-        # Only the panel should be printed when there are no child resources
-        assert len(patched_console.print.call_args_list) == 1
-        assert isinstance(patched_console.print.call_args.args[0], Panel)
+        printed = " ".join(
+            str(call.args[0]) for call in patched_console.print.call_args_list
+        )
+        assert "dev" in printed
+        # no endpoint or nv sections when empty
+        assert "Endpoints" not in printed
+        assert "Network Volumes" not in printed
 
 
 class TestEnvDelete:
@@ -238,7 +243,10 @@ class TestEnvDelete:
         assert result.exit_code == 0
         mock_questionary.confirm.assert_called_once()
         flash_app.delete_environment.assert_awaited_once_with("dev")
-        patched_console.print.assert_any_call("Environment 'dev' deleted successfully")
+        printed = " ".join(
+            str(call.args[0]) for call in patched_console.print.call_args_list
+        )
+        assert "Deleted" in printed
 
     @patch(
         "runpod_flash.cli.commands.env._fetch_environment_info",
@@ -277,7 +285,7 @@ class TestEnvDelete:
         assert result.exit_code == 0
         mock_questionary.confirm.assert_called_once()
         flash_app.delete_environment.assert_not_called()
-        patched_console.print.assert_any_call("Deletion cancelled")
+        patched_console.print.assert_any_call("[yellow]Cancelled[/yellow]")
 
     @patch(
         "runpod_flash.cli.commands.env._fetch_environment_info",
@@ -319,6 +327,7 @@ class TestEnvDelete:
 
         assert result.exit_code == 1
         flash_app.delete_environment.assert_awaited_once_with("dev")
-        patched_console.print.assert_any_call(
-            "[red]Failed to delete environment 'dev'[/red]"
+        printed = " ".join(
+            str(call.args[0]) for call in patched_console.print.call_args_list
         )
+        assert "Failed to delete" in printed

@@ -18,19 +18,13 @@ def mock_resource_manager():
 class TestGenerateResourceTableEmpty:
     """Tests for generate_resource_table with empty resources."""
 
-    def test_empty_resources_returns_panel(self, mock_resource_manager):
-        """Test that empty resources returns panel object."""
-        mock_resource_manager._resources = {}
-
+    def test_empty_resources_returns_renderable(self, mock_resource_manager):
+        """Test that empty resources returns a renderable."""
         result = generate_resource_table(mock_resource_manager)
-
         assert result is not None
-        assert hasattr(result, "title") or hasattr(result, "expand")
 
     def test_empty_resources_no_error(self, mock_resource_manager):
         """Test that empty resources doesn't raise error."""
-        mock_resource_manager._resources = {}
-
         try:
             generate_resource_table(mock_resource_manager)
         except Exception as e:
@@ -41,15 +35,13 @@ class TestGenerateResourceTableSingleResource:
     """Tests for generate_resource_table with single resource."""
 
     def test_single_active_resource_no_error(self, mock_resource_manager):
-        """Test table with single active resource doesn't error."""
+        """Test with single active resource doesn't error."""
         resource = MagicMock()
         resource.is_deployed.return_value = True
         resource.__class__.__name__ = "ServerlessEndpoint"
         resource.url = "https://example.com/endpoint-123"
 
-        mock_resource_manager._resources = {
-            "endpoint-001": resource,
-        }
+        mock_resource_manager._resources = {"endpoint-001": resource}
 
         try:
             result = generate_resource_table(mock_resource_manager)
@@ -58,15 +50,13 @@ class TestGenerateResourceTableSingleResource:
             pytest.fail(f"generate_resource_table raised {type(e).__name__}: {e}")
 
     def test_single_inactive_resource_no_error(self, mock_resource_manager):
-        """Test table with single inactive resource doesn't error."""
+        """Test with single inactive resource doesn't error."""
         resource = MagicMock()
         resource.is_deployed.return_value = False
         resource.__class__.__name__ = "ServerlessEndpoint"
         resource.url = "https://example.com/endpoint-456"
 
-        mock_resource_manager._resources = {
-            "endpoint-002": resource,
-        }
+        mock_resource_manager._resources = {"endpoint-002": resource}
 
         try:
             result = generate_resource_table(mock_resource_manager)
@@ -75,15 +65,13 @@ class TestGenerateResourceTableSingleResource:
             pytest.fail(f"generate_resource_table raised {type(e).__name__}: {e}")
 
     def test_resource_is_deployed_exception_handled(self, mock_resource_manager):
-        """Test table handles is_deployed exception."""
+        """Test handles is_deployed exception."""
         resource = MagicMock()
         resource.is_deployed.side_effect = Exception("Connection failed")
         resource.__class__.__name__ = "ServerlessEndpoint"
         resource.url = "https://example.com/endpoint-789"
 
-        mock_resource_manager._resources = {
-            "endpoint-003": resource,
-        }
+        mock_resource_manager._resources = {"endpoint-003": resource}
 
         try:
             result = generate_resource_table(mock_resource_manager)
@@ -97,9 +85,7 @@ class TestGenerateResourceTableSingleResource:
         resource.is_deployed.return_value = True
         resource.__class__.__name__ = "LoadBalancer"
 
-        mock_resource_manager._resources = {
-            "lb-001": resource,
-        }
+        mock_resource_manager._resources = {"lb-001": resource}
 
         try:
             result = generate_resource_table(mock_resource_manager)
@@ -114,9 +100,7 @@ class TestGenerateResourceTableSingleResource:
         resource.__class__.__name__ = "ServerlessEndpoint"
         resource.url = ""
 
-        mock_resource_manager._resources = {
-            "endpoint-empty-url": resource,
-        }
+        mock_resource_manager._resources = {"endpoint-empty-url": resource}
 
         try:
             result = generate_resource_table(mock_resource_manager)
@@ -129,7 +113,7 @@ class TestGenerateResourceTableMultipleResources:
     """Tests for generate_resource_table with multiple resources."""
 
     def test_multiple_resources_mixed_status_no_error(self, mock_resource_manager):
-        """Test table with mixed statuses doesn't error."""
+        """Test with mixed statuses doesn't error."""
         active_resource = MagicMock()
         active_resource.is_deployed.return_value = True
         active_resource.__class__.__name__ = "ServerlessEndpoint"
@@ -152,7 +136,7 @@ class TestGenerateResourceTableMultipleResources:
             pytest.fail(f"generate_resource_table raised {type(e).__name__}: {e}")
 
     def test_multiple_resources_all_active_no_error(self, mock_resource_manager):
-        """Test table with all active resources doesn't error."""
+        """Test with all active resources doesn't error."""
         resources = {}
         for i in range(3):
             resource = MagicMock()
@@ -176,11 +160,9 @@ class TestGenerateResourceTableMultipleResources:
         resource.__class__.__name__ = "ServerlessEndpoint"
         resource.url = "https://example.com"
 
-        long_id = "a" * 30  # 30 character ID
+        long_id = "a" * 30
 
-        mock_resource_manager._resources = {
-            long_id: resource,
-        }
+        mock_resource_manager._resources = {long_id: resource}
 
         try:
             result = generate_resource_table(mock_resource_manager)
@@ -195,11 +177,7 @@ class TestGenerateResourceTableMultipleResources:
         resource.__class__.__name__ = "ServerlessEndpoint"
         resource.url = "https://example.com"
 
-        short_id = "endpoint-123"  # 12 characters
-
-        mock_resource_manager._resources = {
-            short_id: resource,
-        }
+        mock_resource_manager._resources = {"endpoint-123": resource}
 
         try:
             result = generate_resource_table(mock_resource_manager)
@@ -233,7 +211,6 @@ class TestGenerateResourceTableSummary:
         """Test summary with mixed status resources."""
         resources = {}
 
-        # 2 active
         for i in range(2):
             resource = MagicMock()
             resource.is_deployed.return_value = True
@@ -241,14 +218,12 @@ class TestGenerateResourceTableSummary:
             resource.url = f"https://example.com/active-{i}"
             resources[f"endpoint-{i}"] = resource
 
-        # 1 inactive
         resource = MagicMock()
         resource.is_deployed.return_value = False
         resource.__class__.__name__ = "ServerlessEndpoint"
         resource.url = "https://example.com/inactive"
         resources["endpoint-2"] = resource
 
-        # 2 unknown (exception)
         for i in range(3, 5):
             resource = MagicMock()
             resource.is_deployed.side_effect = Exception("Error")
@@ -304,10 +279,7 @@ def test_report_command_static_mode(mock_console, mock_resource_manager_class):
 
     report_command(live=False)
 
-    # Verify ResourceManager was instantiated
     mock_resource_manager_class.assert_called_once()
-
-    # Verify console.print was called
     mock_console.print.assert_called_once()
 
 
@@ -327,7 +299,6 @@ def test_report_command_live_mode(
     mock_live_class.return_value.__enter__ = MagicMock(return_value=mock_live_instance)
     mock_live_class.return_value.__exit__ = MagicMock(return_value=False)
 
-    # Make it break after first iteration
     call_count = [0]
 
     def sleep_side_effect(duration):
@@ -339,10 +310,7 @@ def test_report_command_live_mode(
 
     report_command(live=True, refresh=2)
 
-    # Verify Live was used
     mock_live_class.assert_called_once()
-
-    # Verify console printed "stopped" message
     assert any("stopped" in str(c).lower() for c in mock_console.print.call_args_list)
 
 
@@ -356,7 +324,6 @@ def test_report_command_with_custom_refresh(mock_console, mock_resource_manager_
 
     report_command(live=False, refresh=5)
 
-    # Verify it ran without error with custom refresh value
     mock_resource_manager_class.assert_called_once()
     mock_console.print.assert_called_once()
 
@@ -373,22 +340,20 @@ def test_report_command_instantiates_resource_manager(
 
     report_command(live=False)
 
-    # Verify ResourceManager() was called (instantiated)
     mock_resource_manager_class.assert_called_once_with()
 
 
-@patch("runpod_flash.cli.commands.resource.generate_resource_table")
+@patch("runpod_flash.cli.commands.resource._render_resource_report")
 @patch("runpod_flash.cli.commands.resource.ResourceManager")
 @patch("runpod_flash.cli.commands.resource.console")
-def test_report_command_calls_generate_table(
-    mock_console, mock_resource_manager_class, mock_generate_table
+def test_report_command_calls_render_report(
+    mock_console, mock_resource_manager_class, mock_render
 ):
-    """Test that report_command calls generate_resource_table."""
+    """Test that report_command calls _render_resource_report."""
     mock_manager_instance = MagicMock()
     mock_resource_manager_class.return_value = mock_manager_instance
-    mock_generate_table.return_value = MagicMock()
+    mock_render.return_value = MagicMock()
 
     report_command(live=False)
 
-    # Verify generate_resource_table was called with manager
-    mock_generate_table.assert_called_once_with(mock_manager_instance)
+    mock_render.assert_called_once_with(mock_manager_instance)

@@ -10,7 +10,6 @@ from pathlib import Path
 
 import typer
 from rich.console import Console
-from rich.table import Table
 
 from runpod_flash.core.resources.constants import FLASH_CPU_LB_IMAGE
 
@@ -379,42 +378,28 @@ def _display_preview_info(containers: list[ContainerInfo]) -> None:
     Args:
         containers: List of ContainerInfo objects
     """
-    table = Table(title="Preview Environment Running", show_header=True)
-    table.add_column("Resource", style="cyan")
-    table.add_column("Port", style="magenta")
-    table.add_column("URL", style="green")
-    table.add_column("Type", style="blue")
-
-    # Sort: mothership first, then others
     sorted_containers = sorted(containers, key=lambda c: (not c.is_mothership, c.name))
 
+    console.print(f"\n[bold]Preview[/bold]  [dim]({len(containers)} containers)[/dim]\n")
     for container in sorted_containers:
-        container_type = "Mothership" if container.is_mothership else "Worker"
-        table.add_row(
-            container.name, str(container.port), container.url, container_type
+        container_type = "mothership" if container.is_mothership else "worker"
+        console.print(
+            f"  [bold]{container.name}[/bold]  {container.url}  "
+            f"[dim]:{container.port}  {container_type}[/dim]"
         )
 
-    console.print()
-    console.print(table)
-    console.print()
-
-    # Display usage instructions
-    console.print("[bold]Access your application:[/bold]")
     mothership = next((c for c in containers if c.is_mothership), None)
     if mothership:
-        console.print(f"  [dim]Main: {mothership.url}[/dim]")
-        console.print(f"  [dim]Health: curl {mothership.url}/ping[/dim]")
+        console.print(f"\n[bold]Try it:[/bold]")
+        console.print(f"  [dim]curl {mothership.url}/ping[/dim]")
 
-    console.print()
-    console.print("[bold]Container communication:[/bold]")
+    console.print(f"\n[bold]Networking:[/bold]")
     console.print(
         "  [dim]Containers communicate via Docker DNS on internal port 80[/dim]"
     )
     console.print("  [dim]Example: http://flash-preview-gpu_config:80[/dim]")
 
-    console.print()
-    console.print("[bold][yellow]Press Ctrl+C to stop and cleanup[/yellow][/bold]")
-    console.print()
+    console.print(f"\n[yellow]Press Ctrl+C to stop[/yellow]\n")
 
 
 def _wait_for_shutdown() -> None:
