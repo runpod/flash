@@ -356,19 +356,30 @@ def _cleanup_live_endpoints() -> None:
         if not live_items:
             return
 
+        import time
+
         async def _do_cleanup():
+            undeployed = 0
             for key, resource in live_items.items():
                 name = getattr(resource, "name", key)
                 try:
                     success = await resource._do_undeploy()
                     if success:
                         console.print(f"  Deprovisioned: {name}")
+                        undeployed += 1
                     else:
                         logger.warning(f"Failed to deprovision: {name}")
                 except Exception as e:
                     logger.warning(f"Error deprovisioning {name}: {e}")
+            return undeployed
 
-        asyncio.run(_do_cleanup())
+        t0 = time.monotonic()
+        undeployed = asyncio.run(_do_cleanup())
+        elapsed = time.monotonic() - t0
+        console.print(
+            f"  Cleanup completed: {undeployed}/{len(live_items)} "
+            f"resource(s) undeployed in {elapsed:.1f}s"
+        )
 
         # Remove live- entries from persisted state so they don't linger.
         remaining = {k: v for k, v in resources.items() if k not in live_items}
