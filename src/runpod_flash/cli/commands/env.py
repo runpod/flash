@@ -183,9 +183,11 @@ async def _get_environment(app_name: str, env_name: str):
 
     endpoints = env.get("endpoints") or []
     if endpoints:
-        endpoint_table = Table(title="Associated Endpoints")
-        endpoint_table.add_column("Name", style="cyan")
-        endpoint_table.add_column("ID", overflow="fold")
+        endpoint_table = Table(
+            title="Associated Endpoints", show_header=True, header_style="bold"
+        )
+        endpoint_table.add_column("Name", style="cyan", no_wrap=True)
+        endpoint_table.add_column("Endpoint ID", style="magenta", overflow="fold")
 
         for endpoint in endpoints:
             endpoint_table.add_row(

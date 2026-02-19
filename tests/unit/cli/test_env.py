@@ -163,6 +163,7 @@ class TestEnvGet:
         endpoint_table = patched_console.print.call_args_list[1].args[0]
         network_table = patched_console.print.call_args_list[2].args[0]
         assert isinstance(endpoint_table, Table)
+        assert endpoint_table.columns[1].header == "Endpoint ID"
         assert isinstance(network_table, Table)
 
     @patch("runpod_flash.cli.commands.env.FlashApp.from_name", new_callable=AsyncMock)
