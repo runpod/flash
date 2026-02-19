@@ -448,20 +448,28 @@ class TestGenerateFlashServer:
             ],
         )
 
-    def test_lb_route_generates_execute_handler(self, tmp_path):
-        """All LB routes (any method) generate a stub-based execute handler."""
-        for method in ("GET", "POST", "DELETE", "PUT", "PATCH"):
+    def test_post_lb_route_generates_body_param(self, tmp_path):
+        """POST/PUT/PATCH/DELETE LB routes use body: dict for OpenAPI docs."""
+        for method in ("POST", "PUT", "PATCH", "DELETE"):
             worker = self._make_lb_worker(tmp_path, method)
             content = _generate_flash_server(tmp_path, [worker]).read_text()
-            assert "async def _route_api_list_routes(request: Request):" in content
-            assert "_lb_execute(" in content
-            assert "body: dict" not in content
+            assert "async def _route_api_list_routes(body: dict):" in content
+            assert "_lb_execute(api_config, list_routes, body)" in content
 
-    def test_lb_config_and_function_passed_to_execute(self, tmp_path):
-        """Both config variable and function are passed to lb_execute."""
+    def test_get_lb_route_uses_query_params(self, tmp_path):
+        """GET LB routes pass query params as a dict."""
+        worker = self._make_lb_worker(tmp_path, "GET")
+        content = _generate_flash_server(tmp_path, [worker]).read_text()
+        assert "async def _route_api_list_routes(request: Request):" in content
+        assert (
+            "_lb_execute(api_config, list_routes, dict(request.query_params))"
+            in content
+        )
+
+    def test_lb_config_var_and_function_imported(self, tmp_path):
+        """LB config vars and functions are both imported for remote dispatch."""
         worker = self._make_lb_worker(tmp_path)
         content = _generate_flash_server(tmp_path, [worker]).read_text()
-        assert "_lb_execute(api_config, list_routes, request)" in content
         assert "from api import api_config" in content
         assert "from api import list_routes" in content
 
@@ -485,3 +493,62 @@ class TestGenerateFlashServer:
         content = _generate_flash_server(tmp_path, [worker]).read_text()
         assert "from worker import process" in content
         assert "await process(" in content
+
+
+class TestMapBodyToParams:
+    """Tests for _map_body_to_params — maps HTTP body to function arguments."""
+
+    def test_body_keys_match_params_spreads_as_kwargs(self):
+        from runpod_flash.cli.commands._run_server_helpers import _map_body_to_params
+
+        def process(name: str, value: int):
+            pass
+
+        result = _map_body_to_params(process, {"name": "test", "value": 42})
+        assert result == {"name": "test", "value": 42}
+
+    def test_body_keys_mismatch_wraps_in_first_param(self):
+        from runpod_flash.cli.commands._run_server_helpers import _map_body_to_params
+
+        def run_pipeline(input_data: dict):
+            pass
+
+        body = {"text": "hello", "mode": "fast"}
+        result = _map_body_to_params(run_pipeline, body)
+        assert result == {"input_data": {"text": "hello", "mode": "fast"}}
+
+    def test_non_dict_body_wraps_in_first_param(self):
+        from runpod_flash.cli.commands._run_server_helpers import _map_body_to_params
+
+        def run_pipeline(input_data):
+            pass
+
+        result = _map_body_to_params(run_pipeline, [1, 2, 3])
+        assert result == {"input_data": [1, 2, 3]}
+
+    def test_no_params_returns_empty(self):
+        from runpod_flash.cli.commands._run_server_helpers import _map_body_to_params
+
+        def no_args():
+            pass
+
+        result = _map_body_to_params(no_args, {"key": "val"})
+        assert result == {}
+
+    def test_partial_key_match_wraps_in_first_param(self):
+        from runpod_flash.cli.commands._run_server_helpers import _map_body_to_params
+
+        def process(name: str, value: int):
+            pass
+
+        result = _map_body_to_params(process, {"name": "test", "extra": "bad"})
+        assert result == {"name": {"name": "test", "extra": "bad"}}
+
+    def test_empty_dict_body_spreads_as_empty_kwargs(self):
+        from runpod_flash.cli.commands._run_server_helpers import _map_body_to_params
+
+        def run_pipeline(input_data: dict):
+            pass
+
+        result = _map_body_to_params(run_pipeline, {})
+        assert result == {}
