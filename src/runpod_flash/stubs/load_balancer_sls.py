@@ -75,10 +75,10 @@ class LoadBalancerSlsStub:
         Returns:
             True if /execute should be used, False if user route should be used
         """
-        from ..core.resources.live_serverless import LiveLoadBalancer
+        from ..core.resources.live_serverless import LiveServerlessMixin
 
-        # Always use /execute for LiveLoadBalancer (local development)
-        if isinstance(self.server, LiveLoadBalancer):
+        # Always use /execute for live resources (local development)
+        if isinstance(self.server, LiveServerlessMixin):
             log.debug(f"Using /execute endpoint for LiveLoadBalancer: {func.__name__}")
             return True
 

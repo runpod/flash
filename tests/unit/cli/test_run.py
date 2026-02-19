@@ -448,29 +448,29 @@ class TestGenerateFlashServer:
             ],
         )
 
-    def test_lb_route_generates_proxy_handler(self, tmp_path):
-        """All LB routes (any method) generate a proxy handler, not a local call."""
+    def test_lb_route_generates_execute_handler(self, tmp_path):
+        """All LB routes (any method) generate a stub-based execute handler."""
         for method in ("GET", "POST", "DELETE", "PUT", "PATCH"):
             worker = self._make_lb_worker(tmp_path, method)
             content = _generate_flash_server(tmp_path, [worker]).read_text()
             assert "async def _route_api_list_routes(request: Request):" in content
-            assert "_lb_proxy(" in content
+            assert "_lb_execute(" in content
             assert "body: dict" not in content
 
-    def test_lb_config_variable_passed_to_proxy(self, tmp_path):
-        """The resource config variable is passed to lb_proxy, not a string name."""
+    def test_lb_config_and_function_passed_to_execute(self, tmp_path):
+        """Both config variable and function are passed to lb_execute."""
         worker = self._make_lb_worker(tmp_path)
         content = _generate_flash_server(tmp_path, [worker]).read_text()
-        # Config variable is passed as a Python reference, not a quoted string
-        assert "_lb_proxy(api_config," in content
+        assert "_lb_execute(api_config, list_routes, request)" in content
         assert "from api import api_config" in content
+        assert "from api import list_routes" in content
 
-    def test_lb_proxy_import_present_when_lb_routes_exist(self, tmp_path):
-        """server.py imports _lb_proxy when there are LB workers."""
+    def test_lb_execute_import_present_when_lb_routes_exist(self, tmp_path):
+        """server.py imports _lb_execute when there are LB workers."""
         worker = self._make_lb_worker(tmp_path)
         content = _generate_flash_server(tmp_path, [worker]).read_text()
-        assert "_lb_proxy" in content
-        assert "lb_proxy" in content
+        assert "_lb_execute" in content
+        assert "lb_execute" in content
 
     def test_qb_function_still_imported_directly(self, tmp_path):
         """QB workers still import and call functions directly."""
