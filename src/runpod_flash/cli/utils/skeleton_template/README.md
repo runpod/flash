@@ -128,7 +128,7 @@ The `@remote` decorator transparently executes functions on serverless infrastru
 
 ### Resource Scaling
 Both workers scale to zero when idle to minimize costs:
-- **idleTimeout**: Minutes before scaling down (default: 5)
+- **idleTimeout**: Seconds before scaling down (default: 60)
 - **workersMin**: 0 = completely scales to zero
 - **workersMax**: Maximum concurrent workers
 

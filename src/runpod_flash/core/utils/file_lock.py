@@ -102,7 +102,6 @@ def file_lock(
                     _acquire_fallback_lock(file_handle, exclusive, timeout)
 
                 lock_acquired = True
-                log.debug(f"File lock acquired (exclusive={exclusive})")
 
             except (OSError, IOError, FileLockError) as e:
                 # Check timeout
@@ -127,8 +126,6 @@ def file_lock(
                     _release_unix_lock(file_handle)
                 else:
                     _release_fallback_lock(file_handle)
-
-                log.debug("File lock released")
 
             except Exception as e:
                 log.error(f"Error releasing file lock: {e}")

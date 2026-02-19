@@ -177,6 +177,7 @@ async def reconcile_and_provision_resources(
     environment_name: str,
     local_manifest: Dict[str, Any],
     environment_id: str | None = None,
+    show_progress: bool = True,
 ) -> Dict[str, str]:
     """Reconcile local manifest with State Manager and provision resources.
 
@@ -213,10 +214,11 @@ async def reconcile_and_provision_resources(
     to_update = local_resources & state_resources  # Existing resources
     to_delete = state_resources - local_resources  # Removed resources
 
-    log.debug(
-        f"Reconciliation: {len(to_provision)} new, "
-        f"{len(to_update)} existing, {len(to_delete)} to remove"
-    )
+    if show_progress:
+        log.debug(
+            f"Reconciliation: {len(to_provision)} new, "
+            f"{len(to_update)} existing, {len(to_delete)} to remove"
+        )
 
     # Create resource manager
     manager = ResourceManager()
@@ -401,6 +403,7 @@ async def deploy_from_uploaded_build(
             env_name,
             local_manifest,
             environment_id=environment.get("id"),
+            show_progress=False,
         )
         log.debug(f"Provisioned {len(resources_endpoints)} resources for {env_name}")
     except Exception as e:

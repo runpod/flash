@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.2.0](https://github.com/runpod/flash/compare/v1.1.1...v1.2.0) (2026-02-17)
+
+
+### Features
+
+* add API key propagation for cross-endpoint calls ([#193](https://github.com/runpod/flash/issues/193)) ([f87c9c1](https://github.com/runpod/flash/commit/f87c9c1cef7dfd1f427b278ea50fcc03f4e36372))
+* add file-based logging for local CLI usage ([#197](https://github.com/runpod/flash/issues/197)) ([665bcfa](https://github.com/runpod/flash/commit/665bcfa108f95ebc040c82d9496cc6c6df484d36))
+* add User-Agent header with version, OS, and arch ([#202](https://github.com/runpod/flash/issues/202)) ([5632907](https://github.com/runpod/flash/commit/5632907baae9681658d82ab649cb15c47d5d85b8))
+* AE-2089: update sls endpoint template params ([#198](https://github.com/runpod/flash/issues/198)) ([656fa46](https://github.com/runpod/flash/commit/656fa4608ccae1e89e1ac28e6dae6b60e18ca175))
+* cleanup flash deploy/undeploy/build command output format ([#191](https://github.com/runpod/flash/issues/191)) ([c99b486](https://github.com/runpod/flash/commit/c99b486d301043e7982b7f995f1754fb89379ff8))
+* **logger:** add sensitive data filter to prevent logging API keys and tokens ([#200](https://github.com/runpod/flash/issues/200)) ([10967a4](https://github.com/runpod/flash/commit/10967a43c40ee5c7823c461eb2647b9472dde30b))
+
+
+### Bug Fixes
+
+* **docs:** change idleTimeout from minutes to seconds ([#205](https://github.com/runpod/flash/issues/205)) ([51693c7](https://github.com/runpod/flash/commit/51693c7e2dd0c9d803f3c49de1d0009ded285d5d))
+* prevent false deployment attempts in Flash environments ([#192](https://github.com/runpod/flash/issues/192)) ([f07c9fb](https://github.com/runpod/flash/commit/f07c9fb92003d4603fbf8cdc17b956c368009353))
+* **runtime:** restore on-demand provisioning for flash run ([#206](https://github.com/runpod/flash/issues/206)) ([5859f4b](https://github.com/runpod/flash/commit/5859f4b78476a070db2100b689dfd94caf5fc93f))
+
+
+### Code Refactoring
+
+* remove noisy debug logs from flash (AE-1966) ([#204](https://github.com/runpod/flash/issues/204)) ([826f169](https://github.com/runpod/flash/commit/826f1695ab2bbe620da290783194b8456fbb77cb))
+
+
+### Documentation
+
+* update CLI documentation for deploy, env, and app commands ([#195](https://github.com/runpod/flash/issues/195)) ([4126b37](https://github.com/runpod/flash/commit/4126b3704e625878d11bdd257fa6cc0fbe6bc709))
+
 ## [1.1.1](https://github.com/runpod/flash/compare/v1.1.0...v1.1.1) (2026-02-09)
 
 

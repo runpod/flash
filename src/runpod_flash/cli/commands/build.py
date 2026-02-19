@@ -307,22 +307,14 @@ def run_build(
             console.print("[red]Error:[/red] Failed to install dependencies")
             raise typer.Exit(1)
 
+
     # bundle local runpod_flash if requested
     if use_local_flash:
         if _bundle_local_runpod_flash(build_dir):
             _remove_runpod_flash_from_requirements(build_dir)
 
-        # Generate resource configuration files
-        # IMPORTANT: Must happen AFTER bundle_local_runpod_flash to avoid being overwritten
-        # These files tell each resource which functions are local vs remote
-        from .build_utils.resource_config_generator import (
-            generate_all_resource_configs,
-        )
-
-        generate_all_resource_configs(manifest, build_dir)
-
-        # Clean up Python bytecode before archiving
-        cleanup_python_bytecode(build_dir)
+    # clean up and create archive
+    cleanup_python_bytecode(build_dir)
 
     archive_name = output_name or "artifact.tar.gz"
     archive_path = project_dir / ".flash" / archive_name

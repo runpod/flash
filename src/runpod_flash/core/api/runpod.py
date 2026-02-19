@@ -3,7 +3,7 @@ Direct GraphQL communication with Runpod API.
 Bypasses the outdated runpod-python SDK limitations.
 """
 
-import json
+import json  # noqa: F401 - used in commented debug logs
 import logging
 import os
 from typing import Any, Dict, Optional, List
@@ -92,19 +92,19 @@ class RunpodGraphQLClient:
 
         payload = {"query": query, "variables": variables or {}}
 
-        log.debug(f"GraphQL Query: {query}")
-        sanitized_vars = _sanitize_for_logging(variables)
-        log.debug(f"GraphQL Variables: {json.dumps(sanitized_vars, indent=2)}")
+        # log.debug(f"GraphQL Query: {query}")
+        # sanitized_vars = _sanitize_for_logging(variables)
+        # log.debug(f"GraphQL Variables: {json.dumps(sanitized_vars, indent=2)}")
 
         try:
             async with session.post(self.GRAPHQL_URL, json=payload) as response:
                 response_data = await response.json()
 
-                log.debug(f"GraphQL Response Status: {response.status}")
-                sanitized_response = _sanitize_for_logging(response_data)
-                log.debug(
-                    f"GraphQL Response: {json.dumps(sanitized_response, indent=2)}"
-                )
+                # log.debug(f"GraphQL Response Status: {response.status}")
+                # sanitized_response = _sanitize_for_logging(response_data)
+                # log.debug(
+                #     f"GraphQL Response: {json.dumps(sanitized_response, indent=2)}"
+                # )
 
                 if response.status >= 400:
                     sanitized_err = _sanitize_for_logging(response_data)
@@ -156,7 +156,7 @@ class RunpodGraphQLClient:
             raise Exception("Unexpected GraphQL response structure")
 
         template_data = result["saveTemplate"]
-        log.info(
+        log.debug(
             f"Updated template: {template_data.get('id', 'unknown')} - {template_data.get('name', 'unnamed')}"
         )
 
@@ -354,8 +354,6 @@ class RunpodGraphQLClient:
         """
         variables = {"input": input_data}
 
-        log.debug(f"finalizing upload for flash app: {input_data}")
-
         result = await self._execute_graphql(mutation, variables)
         return result["finalizeFlashArtifactUpload"]
 
@@ -407,7 +405,6 @@ class RunpodGraphQLClient:
         """
         variables = {"flashAppName": app_name}
 
-        log.debug(f"Fetching flash app by name for input: {app_name}")
         result = await self._execute_graphql(query, variables)
         return result["flashAppByName"]
 
@@ -460,7 +457,6 @@ class RunpodGraphQLClient:
         """
         variables = {"input": input_data}
 
-        log.debug(f"Fetching flash environment by name for input: {variables}")
         result = await self._execute_graphql(query, variables)
 
         return result["flashEnvironmentByName"]
@@ -512,8 +508,6 @@ class RunpodGraphQLClient:
         """
 
         variables = {"input": input_data}
-
-        log.debug(f"Deploying flash environment with vars: {input_data}")
 
         result = await self._execute_graphql(mutation, variables)
         return result["deployBuildToEnvironment"]
@@ -834,15 +828,15 @@ class RunpodRestClient:
         """Execute a REST API request."""
         session = await self._get_session()
 
-        log.debug(f"REST Request: {method} {url}")
-        log.debug(f"REST Data: {json.dumps(data, indent=2) if data else 'None'}")
+        # log.debug(f"REST Request: {method} {url}")
+        # log.debug(f"REST Data: {json.dumps(data, indent=2) if data else 'None'}")
 
         try:
             async with session.request(method, url, json=data) as response:
                 response_data = await response.json()
 
-                log.debug(f"REST Response Status: {response.status}")
-                log.debug(f"REST Response: {json.dumps(response_data, indent=2)}")
+                # log.debug(f"REST Response Status: {response.status}")
+                # log.debug(f"REST Response: {json.dumps(response_data, indent=2)}")
 
                 if response.status >= 400:
                     raise Exception(
