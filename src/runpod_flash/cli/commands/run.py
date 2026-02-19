@@ -316,7 +316,10 @@ def _print_startup_table(workers: List[WorkerInfo], host: str, port: int) -> Non
                 )
 
     console.print(table)
-    console.print(f"\n  Visit [bold]http://{host}:{port}/docs[/bold] for Swagger UI\n")
+    console.print(f"\n  Visit [bold]http://{host}:{port}/docs[/bold] for Swagger UI")
+    console.print(
+        "  Press [bold]Ctrl+C[/bold] to stop — provisioned endpoints are cleaned up automatically\n"
+    )
 
 
 def _cleanup_live_endpoints() -> None:
