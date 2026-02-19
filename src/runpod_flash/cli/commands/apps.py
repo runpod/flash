@@ -111,13 +111,17 @@ async def get_flash_app(app_name: str):
     else:
         console.print("    [dim]None yet — run [/dim][bold]flash deploy[/bold]")
 
-    # builds
-    console.print(f"\n  [bold]Builds[/bold]")
+    # builds — show most recent, summarize the rest
+    max_shown = 5
+    console.print(f"\n  [bold]Builds ({len(builds)})[/bold]")
     if builds:
-        for build in builds:
+        recent = builds[:max_shown]
+        for build in recent:
             build_id = build.get("id", "")
             created = format_datetime(build.get("createdAt"))
             console.print(f"    {build_id}  [dim]{created}[/dim]")
+        if len(builds) > max_shown:
+            console.print(f"    [dim]… and {len(builds) - max_shown} older builds[/dim]")
     else:
         console.print("    [dim]None yet — run [/dim][bold]flash build[/bold]")
 
