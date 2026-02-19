@@ -87,7 +87,7 @@ async def get_flash_app(app_name: str):
     console.print(f"\n  [bold]{app.name}[/bold]  [dim]{app.id}[/dim]")
 
     # environments
-    console.print(f"\n  [bold]Environments[/bold]")
+    console.print("\n  [bold]Environments[/bold]")
     if envs:
         for env in envs:
             state = env.get("state", "UNKNOWN")

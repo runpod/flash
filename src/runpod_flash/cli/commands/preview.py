@@ -389,13 +389,13 @@ def _display_preview_info(containers: list[ContainerInfo]) -> None:
 
     mothership = next((c for c in containers if c.is_mothership), None)
     if mothership:
-        console.print(f"\n[bold]Try it:[/bold]")
+        console.print("\n[bold]Try it:[/bold]")
         console.print(f"  curl {mothership.url}/ping")
 
-    console.print(f"\n[bold]Networking:[/bold]")
+    console.print("\n[bold]Networking:[/bold]")
     console.print("  Containers communicate via Docker DNS on internal port 80")
 
-    console.print(f"\n[yellow]Press Ctrl+C to stop[/yellow]\n")
+    console.print("\n[yellow]Press Ctrl+C to stop[/yellow]\n")
 
 
 def _wait_for_shutdown() -> None:

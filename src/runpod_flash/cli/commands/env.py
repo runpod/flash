@@ -96,7 +96,7 @@ async def _list_environments(app_name: str):
 
     if not envs:
         console.print(f"\nNo environments for [bold]{app_name}[/bold].")
-        console.print(f"  Run [bold]flash deploy[/bold] to create one.\n")
+        console.print("  Run [bold]flash deploy[/bold] to create one.\n")
         return
 
     console.print(
@@ -175,24 +175,24 @@ async def _get_environment(app_name: str, env_name: str):
     network_volumes = env.get("networkVolumes") or []
 
     if endpoints:
-        console.print(f"\n  [bold]Endpoints[/bold]")
+        console.print("\n  [bold]Endpoints[/bold]")
         for ep in endpoints:
             console.print(
                 f"    ▸ [bold]{ep.get('name', '-')}[/bold]  [dim]{ep.get('id', '')}[/dim]"
             )
 
     if network_volumes:
-        console.print(f"\n  [bold]Network Volumes[/bold]")
+        console.print("\n  [bold]Network Volumes[/bold]")
         for nv in network_volumes:
             console.print(
                 f"    ▸ [bold]{nv.get('name', '-')}[/bold]  [dim]{nv.get('id', '')}[/dim]"
             )
 
     if not endpoints and not network_volumes:
-        console.print(f"\n    No resources deployed yet.")
+        console.print("\n    No resources deployed yet.")
         console.print(f"    Run [bold]flash deploy --env {env_name}[/bold] to deploy.")
     else:
-        console.print(f"\n  [bold]Commands[/bold]")
+        console.print("\n  [bold]Commands[/bold]")
         console.print(
             f"    [dim]flash deploy --env {env_name}[/dim]  Update deployment"
         )

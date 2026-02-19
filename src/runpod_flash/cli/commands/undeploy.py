@@ -128,7 +128,7 @@ def list_command():
         f"\n  {total} endpoint{'s' if total != 1 else ''}  {', '.join(parts)}"
     )
 
-    console.print(f"\n  [bold]Commands[/bold]")
+    console.print("\n  [bold]Commands[/bold]")
     console.print("    [dim]flash undeploy <name>[/dim]         Remove an endpoint")
     console.print("    [dim]flash undeploy --all[/dim]          Remove all endpoints")
     console.print("    [dim]flash undeploy --interactive[/dim]  Checkbox selection")
@@ -170,7 +170,7 @@ def _cleanup_stale_endpoints(
 
     removed_count = 0
     for resource_id, resource in inactive:
-        result = asyncio.run(
+        asyncio.run(
             manager.undeploy_resource(resource_id, resource.name, force_remove=True)
         )
 
