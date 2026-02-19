@@ -98,7 +98,7 @@ def list_command():
     active_count = 0
     inactive_count = 0
 
-    console.print(f"\n[bold]Endpoints[/bold]\n")
+    console.print()
     for resource_id, resource in resources.items():
         color, status_text = _get_resource_status(resource)
         if status_text == "active":
@@ -110,27 +110,29 @@ def list_command():
         endpoint_id = getattr(resource, "id", "N/A")
 
         console.print(
-            f"  [bold]{name}[/bold]  [{color}]{status_text}[/{color}]  {endpoint_id}"
+            f"  [{color}]●[/{color}] [bold]{name}[/bold]  "
+            f"[{color}]{status_text}[/{color}]  [dim]{endpoint_id}[/dim]"
         )
 
     total = len(resources)
     unknown_count = total - active_count - inactive_count
     parts = []
     if active_count > 0:
-        parts.append(f"{active_count} active")
+        parts.append(f"[green]{active_count} active[/green]")
     if inactive_count > 0:
-        parts.append(f"{inactive_count} inactive")
+        parts.append(f"[red]{inactive_count} inactive[/red]")
     if unknown_count > 0:
-        parts.append(f"{unknown_count} unknown")
+        parts.append(f"[yellow]{unknown_count} unknown[/yellow]")
 
-    console.print(f"\n{total} endpoint{'s' if total != 1 else ''} ({', '.join(parts)})")
+    console.print(f"\n  {total} endpoint{'s' if total != 1 else ''}  {', '.join(parts)}")
 
-    console.print("\n[bold]Commands:[/bold]")
-    console.print("  [dim]flash undeploy <name>[/dim]         Remove an endpoint")
-    console.print("  [dim]flash undeploy --all[/dim]          Remove all endpoints")
+    console.print(f"\n  [bold]Commands[/bold]")
+    console.print("    [dim]flash undeploy <name>[/dim]         Remove an endpoint")
+    console.print("    [dim]flash undeploy --all[/dim]          Remove all endpoints")
     console.print(
-        "  [dim]flash undeploy --interactive[/dim]  Checkbox selection"
+        "    [dim]flash undeploy --interactive[/dim]  Checkbox selection"
     )
+    console.print()
 
 
 def _cleanup_stale_endpoints(

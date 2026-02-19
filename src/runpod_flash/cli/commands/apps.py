@@ -10,6 +10,8 @@ from runpod_flash.core.resources.app import FlashApp
 
 console = Console()
 
+STATE_STYLE = {"HEALTHY": "green", "BUILDING": "cyan", "ERROR": "red"}
+
 apps_app = typer.Typer(short_help="Manage existing apps", name="app")
 
 
@@ -37,6 +39,11 @@ def delete(
     return asyncio.run(delete_flash_app(app_name))
 
 
+def _state_dot(state: str) -> str:
+    color = STATE_STYLE.get(state, "yellow")
+    return f"[{color}]●[/{color}]"
+
+
 async def list_flash_apps():
     apps = await FlashApp.list()
     if not apps:
@@ -44,9 +51,7 @@ async def list_flash_apps():
         console.print("  Run [bold]flash deploy[/bold] to create one.\n")
         return
 
-    state_colors = {"HEALTHY": "green", "BUILDING": "cyan", "ERROR": "red"}
-
-    console.print(f"\n[bold]Apps ({len(apps)})[/bold]\n")
+    console.print()
     for app_data in apps:
         name = app_data.get("name", "(unnamed)")
         app_id = app_data.get("id", "")
@@ -58,15 +63,15 @@ async def list_flash_apps():
         console.print(
             f"  [bold]{name}[/bold]  "
             f"{env_count} env{'s' if env_count != 1 else ''}, "
-            f"{build_count} build{'s' if build_count != 1 else ''}"
+            f"{build_count} build{'s' if build_count != 1 else ''}  "
+            f"[dim]{app_id}[/dim]"
         )
 
-        if environments:
-            for env in environments:
-                state = env.get("state", "UNKNOWN")
-                color = state_colors.get(state, "yellow")
-                env_name = env.get("name", "?")
-                console.print(f"    {env_name}  [{color}]{state}[/{color}]")
+        for env in environments:
+            state = env.get("state", "UNKNOWN")
+            env_name = env.get("name", "?")
+            console.print(f"    {_state_dot(state)} {env_name}  [dim]{state.lower()}[/dim]")
+
         console.print()
 
 
@@ -74,7 +79,7 @@ async def create_flash_app(app_name: str):
     with console.status(f"Creating flash app: {app_name}"):
         app = await FlashApp.create(app_name)
 
-    console.print(f"[green]Created[/green] app [bold]{app_name}[/bold]  {app.id}")
+    console.print(f"[green]✓[/green] Created app [bold]{app_name}[/bold]  [dim]{app.id}[/dim]")
 
 
 async def get_flash_app(app_name: str):
@@ -82,34 +87,41 @@ async def get_flash_app(app_name: str):
         app = await FlashApp.from_name(app_name)
         envs, builds = await asyncio.gather(app.list_environments(), app.list_builds())
 
-    console.print(f"\n[bold]{app.name}[/bold]  {app.id}")
+    console.print(f"\n  [bold]{app.name}[/bold]  [dim]{app.id}[/dim]")
 
+    # environments
+    console.print(f"\n  [bold]Environments[/bold]")
     if envs:
-        console.print(f"\n[bold]Environments ({len(envs)})[/bold]")
         for env in envs:
             state = env.get("state", "UNKNOWN")
-            state_color = {"HEALTHY": "green", "BUILDING": "cyan", "ERROR": "red"}.get(
-                state, "yellow"
-            )
+            color = STATE_STYLE.get(state, "yellow")
             name = env.get("name", "(unnamed)")
+            build_id = env.get("activeBuildId")
             created = format_datetime(env.get("createdAt"))
-            build_id = env.get("activeBuildId") or "none"
-            console.print(
-                f"  [bold]{name}[/bold]  [{state_color}]{state}[/{state_color}]  "
-                f"build {build_id}"
-            )
-            console.print(f"    {env.get('id', '-')}  created {created}")
-    else:
-        console.print("\n  No environments. Run [bold]flash deploy[/bold] to create one.")
 
-    if builds:
-        console.print(f"\n[bold]Builds ({len(builds)})[/bold]")
-        for build in builds:
             console.print(
-                f"  {build.get('id')}  {format_datetime(build.get('createdAt'))}"
+                f"    {_state_dot(state)} [bold]{name}[/bold]  "
+                f"[{color}]{state.lower()}[/{color}]"
             )
+            parts = []
+            if build_id:
+                parts.append(f"build {build_id}")
+            parts.append(f"created {created}")
+            console.print(f"      [dim]{'  ·  '.join(parts)}[/dim]")
     else:
-        console.print("\n  No builds. Run [bold]flash build[/bold] to create one.")
+        console.print("    [dim]None yet — run [/dim][bold]flash deploy[/bold]")
+
+    # builds
+    console.print(f"\n  [bold]Builds[/bold]")
+    if builds:
+        for build in builds:
+            build_id = build.get("id", "")
+            created = format_datetime(build.get("createdAt"))
+            console.print(f"    {build_id}  [dim]{created}[/dim]")
+    else:
+        console.print("    [dim]None yet — run [/dim][bold]flash build[/bold]")
+
+    console.print()
 
 
 async def delete_flash_app(app_name: str):
@@ -117,9 +129,9 @@ async def delete_flash_app(app_name: str):
         success = await FlashApp.delete(app_name=app_name)
 
     if success:
-        console.print(f"[green]Deleted[/green] app [bold]{app_name}[/bold]")
+        console.print(f"[green]✓[/green] Deleted app [bold]{app_name}[/bold]")
     else:
-        console.print(f"[red]Error:[/red] Failed to delete app '{app_name}'")
+        console.print(f"[red]✗[/red] Failed to delete app '{app_name}'")
         raise typer.Exit(1)
 
 

@@ -48,7 +48,7 @@ class TestAppsCreate:
         assert result.exit_code == 0
         mock_create.assert_awaited_once_with("demo-app")
         printed = " ".join(
-            str(call.args[0]) for call in patched_console.print.call_args_list
+            str(call.args[0]) for call in patched_console.print.call_args_list if call.args
         )
         assert "demo-app" in printed
         assert "app-987" in printed
@@ -84,7 +84,7 @@ class TestAppsList:
 
         assert result.exit_code == 0
         printed = " ".join(
-            str(call.args[0]) for call in patched_console.print.call_args_list
+            str(call.args[0]) for call in patched_console.print.call_args_list if call.args
         )
         assert "No Flash apps found" in printed
 
@@ -156,7 +156,7 @@ class TestAppsGet:
         flash_app.list_environments.assert_awaited_once()
         flash_app.list_builds.assert_awaited_once()
         printed = " ".join(
-            str(call.args[0]) for call in patched_console.print.call_args_list
+            str(call.args[0]) for call in patched_console.print.call_args_list if call.args
         )
         assert "demo" in printed
         assert "Environments" in printed
@@ -181,10 +181,10 @@ class TestAppsGet:
 
         assert result.exit_code == 0
         printed = " ".join(
-            str(call.args[0]) for call in patched_console.print.call_args_list
+            str(call.args[0]) for call in patched_console.print.call_args_list if call.args
         )
-        assert "No environments" in printed
-        assert "No builds" in printed
+        assert "None yet" in printed
+        assert "flash deploy" in printed
 
 
 class TestAppsDelete:
@@ -203,7 +203,7 @@ class TestAppsDelete:
         assert result.exit_code == 0
         mock_delete.assert_awaited_once_with(app_name="demo")
         printed = " ".join(
-            str(call.args[0]) for call in patched_console.print.call_args_list
+            str(call.args[0]) for call in patched_console.print.call_args_list if call.args
         )
         assert "Deleted" in printed
         assert "demo" in printed
@@ -222,7 +222,7 @@ class TestAppsDelete:
 
         assert result.exit_code == 1
         printed = " ".join(
-            str(call.args[0]) for call in patched_console.print.call_args_list
+            str(call.args[0]) for call in patched_console.print.call_args_list if call.args
         )
         assert "Failed to delete" in printed
 
