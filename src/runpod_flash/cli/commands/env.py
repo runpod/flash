@@ -7,18 +7,11 @@ import typer
 from rich.console import Console
 
 from ..utils.app import discover_flash_project
-from ..utils.formatting import format_datetime
+from ..utils.formatting import STATE_STYLE, format_datetime, state_dot
 
 from runpod_flash.core.resources.app import FlashApp
 
 console = Console()
-
-STATE_STYLE = {"HEALTHY": "green", "BUILDING": "cyan", "ERROR": "red"}
-
-
-def _state_dot(state: str) -> str:
-    color = STATE_STYLE.get(state, "yellow")
-    return f"[{color}]●[/{color}]"
 
 
 def _get_resource_manager():
@@ -115,7 +108,7 @@ async def _list_environments(app_name: str):
         created = format_datetime(env.get("createdAt"))
 
         console.print(
-            f"    {_state_dot(state)} [bold]{name}[/bold]  "
+            f"    {state_dot(state)} [bold]{name}[/bold]  "
             f"[{color}]{state.lower()}[/{color}]"
         )
         parts = []
@@ -169,7 +162,7 @@ async def _get_environment(app_name: str, env_name: str):
     color = STATE_STYLE.get(state, "yellow")
 
     console.print(
-        f"\n  {_state_dot(state)} [bold]{env.get('name')}[/bold]  "
+        f"\n  {state_dot(state)} [bold]{env.get('name')}[/bold]  "
         f"[{color}]{state.lower()}[/{color}]"
     )
     console.print(f"    [dim]id[/dim]     {env.get('id')}")

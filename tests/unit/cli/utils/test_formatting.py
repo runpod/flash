@@ -1,6 +1,6 @@
 """Tests for CLI formatting utilities."""
 
-from runpod_flash.cli.utils.formatting import format_datetime
+from runpod_flash.cli.utils.formatting import format_datetime, state_dot
 
 
 class TestFormatDatetime:
@@ -34,3 +34,22 @@ class TestFormatDatetime:
         # should have some tz abbreviation at the end
         parts = result.split()
         assert len(parts) >= 5
+
+    def test_no_leading_zeros(self):
+        # jan 5 should be "5" not "05"
+        result = format_datetime("2025-01-05T09:05:00Z")
+        assert " 5 " in result or result.startswith("Sun, Jan 5")
+
+
+class TestStateDot:
+    def test_healthy(self):
+        assert "[green]●[/green]" in state_dot("HEALTHY")
+
+    def test_building(self):
+        assert "[cyan]●[/cyan]" in state_dot("BUILDING")
+
+    def test_error(self):
+        assert "[red]●[/red]" in state_dot("ERROR")
+
+    def test_unknown_defaults_yellow(self):
+        assert "[yellow]●[/yellow]" in state_dot("WHATEVER")

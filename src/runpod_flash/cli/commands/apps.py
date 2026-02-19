@@ -5,12 +5,10 @@ import asyncio
 import typer
 from rich.console import Console
 
-from runpod_flash.cli.utils.formatting import format_datetime
+from runpod_flash.cli.utils.formatting import STATE_STYLE, format_datetime, state_dot
 from runpod_flash.core.resources.app import FlashApp
 
 console = Console()
-
-STATE_STYLE = {"HEALTHY": "green", "BUILDING": "cyan", "ERROR": "red"}
 
 apps_app = typer.Typer(short_help="Manage existing apps", name="app")
 
@@ -39,11 +37,6 @@ def delete(
     return asyncio.run(delete_flash_app(app_name))
 
 
-def _state_dot(state: str) -> str:
-    color = STATE_STYLE.get(state, "yellow")
-    return f"[{color}]●[/{color}]"
-
-
 async def list_flash_apps():
     apps = await FlashApp.list()
     if not apps:
@@ -70,7 +63,7 @@ async def list_flash_apps():
         for env in environments:
             state = env.get("state", "UNKNOWN")
             env_name = env.get("name", "?")
-            console.print(f"    {_state_dot(state)} {env_name}  [dim]{state.lower()}[/dim]")
+            console.print(f"    {state_dot(state)} {env_name}  [dim]{state.lower()}[/dim]")
 
         console.print()
 
@@ -100,7 +93,7 @@ async def get_flash_app(app_name: str):
             created = format_datetime(env.get("createdAt"))
 
             console.print(
-                f"    {_state_dot(state)} [bold]{name}[/bold]  "
+                f"    {state_dot(state)} [bold]{name}[/bold]  "
                 f"[{color}]{state.lower()}[/{color}]"
             )
             parts = []

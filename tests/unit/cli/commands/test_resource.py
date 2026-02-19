@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from runpod_flash.cli.commands.resource import generate_resource_table, report_command
+from runpod_flash.cli.commands.resource import _render_resource_report, report_command
 
 
 @pytest.fixture
@@ -16,23 +16,23 @@ def mock_resource_manager():
 
 
 class TestGenerateResourceTableEmpty:
-    """Tests for generate_resource_table with empty resources."""
+    """Tests for _render_resource_report with empty resources."""
 
     def test_empty_resources_returns_renderable(self, mock_resource_manager):
         """Test that empty resources returns a renderable."""
-        result = generate_resource_table(mock_resource_manager)
+        result = _render_resource_report(mock_resource_manager)
         assert result is not None
 
     def test_empty_resources_no_error(self, mock_resource_manager):
         """Test that empty resources doesn't raise error."""
         try:
-            generate_resource_table(mock_resource_manager)
+            _render_resource_report(mock_resource_manager)
         except Exception as e:
-            pytest.fail(f"generate_resource_table raised {type(e).__name__}: {e}")
+            pytest.fail(f"_render_resource_report raised {type(e).__name__}: {e}")
 
 
 class TestGenerateResourceTableSingleResource:
-    """Tests for generate_resource_table with single resource."""
+    """Tests for _render_resource_report with single resource."""
 
     def test_single_active_resource_no_error(self, mock_resource_manager):
         """Test with single active resource doesn't error."""
@@ -44,10 +44,10 @@ class TestGenerateResourceTableSingleResource:
         mock_resource_manager._resources = {"endpoint-001": resource}
 
         try:
-            result = generate_resource_table(mock_resource_manager)
+            result = _render_resource_report(mock_resource_manager)
             assert result is not None
         except Exception as e:
-            pytest.fail(f"generate_resource_table raised {type(e).__name__}: {e}")
+            pytest.fail(f"_render_resource_report raised {type(e).__name__}: {e}")
 
     def test_single_inactive_resource_no_error(self, mock_resource_manager):
         """Test with single inactive resource doesn't error."""
@@ -59,10 +59,10 @@ class TestGenerateResourceTableSingleResource:
         mock_resource_manager._resources = {"endpoint-002": resource}
 
         try:
-            result = generate_resource_table(mock_resource_manager)
+            result = _render_resource_report(mock_resource_manager)
             assert result is not None
         except Exception as e:
-            pytest.fail(f"generate_resource_table raised {type(e).__name__}: {e}")
+            pytest.fail(f"_render_resource_report raised {type(e).__name__}: {e}")
 
     def test_resource_is_deployed_exception_handled(self, mock_resource_manager):
         """Test handles is_deployed exception."""
@@ -74,10 +74,10 @@ class TestGenerateResourceTableSingleResource:
         mock_resource_manager._resources = {"endpoint-003": resource}
 
         try:
-            result = generate_resource_table(mock_resource_manager)
+            result = _render_resource_report(mock_resource_manager)
             assert result is not None
         except Exception as e:
-            pytest.fail(f"generate_resource_table raised {type(e).__name__}: {e}")
+            pytest.fail(f"_render_resource_report raised {type(e).__name__}: {e}")
 
     def test_resource_without_url_attribute_handled(self, mock_resource_manager):
         """Test resource without url attribute is handled."""
@@ -88,10 +88,10 @@ class TestGenerateResourceTableSingleResource:
         mock_resource_manager._resources = {"lb-001": resource}
 
         try:
-            result = generate_resource_table(mock_resource_manager)
+            result = _render_resource_report(mock_resource_manager)
             assert result is not None
         except Exception as e:
-            pytest.fail(f"generate_resource_table raised {type(e).__name__}: {e}")
+            pytest.fail(f"_render_resource_report raised {type(e).__name__}: {e}")
 
     def test_resource_with_empty_url(self, mock_resource_manager):
         """Test resource with empty string URL."""
@@ -103,14 +103,14 @@ class TestGenerateResourceTableSingleResource:
         mock_resource_manager._resources = {"endpoint-empty-url": resource}
 
         try:
-            result = generate_resource_table(mock_resource_manager)
+            result = _render_resource_report(mock_resource_manager)
             assert result is not None
         except Exception as e:
-            pytest.fail(f"generate_resource_table raised {type(e).__name__}: {e}")
+            pytest.fail(f"_render_resource_report raised {type(e).__name__}: {e}")
 
 
 class TestGenerateResourceTableMultipleResources:
-    """Tests for generate_resource_table with multiple resources."""
+    """Tests for _render_resource_report with multiple resources."""
 
     def test_multiple_resources_mixed_status_no_error(self, mock_resource_manager):
         """Test with mixed statuses doesn't error."""
@@ -130,10 +130,10 @@ class TestGenerateResourceTableMultipleResources:
         }
 
         try:
-            result = generate_resource_table(mock_resource_manager)
+            result = _render_resource_report(mock_resource_manager)
             assert result is not None
         except Exception as e:
-            pytest.fail(f"generate_resource_table raised {type(e).__name__}: {e}")
+            pytest.fail(f"_render_resource_report raised {type(e).__name__}: {e}")
 
     def test_multiple_resources_all_active_no_error(self, mock_resource_manager):
         """Test with all active resources doesn't error."""
@@ -148,10 +148,10 @@ class TestGenerateResourceTableMultipleResources:
         mock_resource_manager._resources = resources
 
         try:
-            result = generate_resource_table(mock_resource_manager)
+            result = _render_resource_report(mock_resource_manager)
             assert result is not None
         except Exception as e:
-            pytest.fail(f"generate_resource_table raised {type(e).__name__}: {e}")
+            pytest.fail(f"_render_resource_report raised {type(e).__name__}: {e}")
 
     def test_long_resource_id_handling(self, mock_resource_manager):
         """Test that long resource IDs are handled (truncated)."""
@@ -165,10 +165,10 @@ class TestGenerateResourceTableMultipleResources:
         mock_resource_manager._resources = {long_id: resource}
 
         try:
-            result = generate_resource_table(mock_resource_manager)
+            result = _render_resource_report(mock_resource_manager)
             assert result is not None
         except Exception as e:
-            pytest.fail(f"generate_resource_table raised {type(e).__name__}: {e}")
+            pytest.fail(f"_render_resource_report raised {type(e).__name__}: {e}")
 
     def test_short_resource_id_no_error(self, mock_resource_manager):
         """Test short resource IDs work."""
@@ -180,14 +180,14 @@ class TestGenerateResourceTableMultipleResources:
         mock_resource_manager._resources = {"endpoint-123": resource}
 
         try:
-            result = generate_resource_table(mock_resource_manager)
+            result = _render_resource_report(mock_resource_manager)
             assert result is not None
         except Exception as e:
-            pytest.fail(f"generate_resource_table raised {type(e).__name__}: {e}")
+            pytest.fail(f"_render_resource_report raised {type(e).__name__}: {e}")
 
 
 class TestGenerateResourceTableSummary:
-    """Tests for generate_resource_table summary calculation."""
+    """Tests for _render_resource_report summary calculation."""
 
     def test_summary_all_active_no_error(self, mock_resource_manager):
         """Test summary with all active resources."""
@@ -202,10 +202,10 @@ class TestGenerateResourceTableSummary:
         mock_resource_manager._resources = resources
 
         try:
-            result = generate_resource_table(mock_resource_manager)
+            result = _render_resource_report(mock_resource_manager)
             assert result is not None
         except Exception as e:
-            pytest.fail(f"generate_resource_table raised {type(e).__name__}: {e}")
+            pytest.fail(f"_render_resource_report raised {type(e).__name__}: {e}")
 
     def test_summary_mixed_status_no_error(self, mock_resource_manager):
         """Test summary with mixed status resources."""
@@ -234,10 +234,10 @@ class TestGenerateResourceTableSummary:
         mock_resource_manager._resources = resources
 
         try:
-            result = generate_resource_table(mock_resource_manager)
+            result = _render_resource_report(mock_resource_manager)
             assert result is not None
         except Exception as e:
-            pytest.fail(f"generate_resource_table raised {type(e).__name__}: {e}")
+            pytest.fail(f"_render_resource_report raised {type(e).__name__}: {e}")
 
 
 class TestGenerateResourceTableResourceTypes:
@@ -263,10 +263,10 @@ class TestGenerateResourceTableResourceTypes:
         mock_resource_manager._resources = resources
 
         try:
-            result = generate_resource_table(mock_resource_manager)
+            result = _render_resource_report(mock_resource_manager)
             assert result is not None
         except Exception as e:
-            pytest.fail(f"generate_resource_table raised {type(e).__name__}: {e}")
+            pytest.fail(f"_render_resource_report raised {type(e).__name__}: {e}")
 
 
 @patch("runpod_flash.cli.commands.resource.ResourceManager")

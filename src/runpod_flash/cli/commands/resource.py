@@ -38,11 +38,6 @@ def report_command(
         console.print(output)
 
 
-def generate_resource_table(resource_manager: ResourceManager):
-    """Generate resource report. Kept for backward compatibility."""
-    return _render_resource_report(resource_manager)
-
-
 def _render_resource_report(resource_manager: ResourceManager):
     """Build a rich renderable for the current resource state."""
     from rich.text import Text
