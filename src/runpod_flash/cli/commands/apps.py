@@ -6,6 +6,7 @@ import typer
 from rich.console import Console
 
 from runpod_flash.cli.utils.app import discover_flash_project
+from runpod_flash.cli.utils.formatting import format_datetime
 from runpod_flash.core.resources.app import FlashApp
 
 console = Console()
@@ -81,7 +82,7 @@ async def get_flash_app(app_name: str):
                 f"{env.get('id', '-')}"
             )
             build_id = env.get("activeBuildId") or "-"
-            created = env.get("createdAt") or "-"
+            created = format_datetime(env.get("createdAt"))
             console.print(f"    build {build_id}  created {created}")
     else:
         console.print("\nNo environments")
@@ -90,7 +91,7 @@ async def get_flash_app(app_name: str):
         console.print(f"\n[bold]Builds[/bold]")
         for build in builds:
             console.print(
-                f"  {build.get('id')}  {build.get('createdAt', '-')}"
+                f"  {build.get('id')}  {format_datetime(build.get('createdAt'))}"
             )
     else:
         console.print("\nNo builds")

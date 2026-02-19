@@ -7,6 +7,7 @@ import typer
 from rich.console import Console
 
 from ..utils.app import discover_flash_project
+from ..utils.formatting import format_datetime
 
 from runpod_flash.core.resources.app import FlashApp
 
@@ -102,7 +103,7 @@ async def _list_environments(app_name: str):
         name = env.get("name", "(unnamed)")
         env_id = env.get("id", "")
         build = env.get("activeBuildId") or "-"
-        created = env.get("createdAt") or ""
+        created = format_datetime(env.get("createdAt"))
         console.print(f"  [bold]{name}[/bold]  {env_id}  build {build}  {created}")
 
 
@@ -150,7 +151,7 @@ async def _get_environment(app_name: str, env_name: str):
     console.print(f"\n[bold]{env.get('name')}[/bold]  [{state_color}]{state}[/{state_color}]")
     console.print(f"  {env.get('id')}  build {env.get('activeBuildId') or 'None'}")
     if env.get("createdAt"):
-        console.print(f"  created {env.get('createdAt')}")
+        console.print(f"  created {format_datetime(env.get('createdAt'))}")
 
     endpoints = env.get("endpoints") or []
     if endpoints:
