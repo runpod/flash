@@ -83,7 +83,10 @@ class TestAppsList:
             result = runner.invoke(app, ["app", "list"])
 
         assert result.exit_code == 0
-        patched_console.print.assert_called_with("No Flash apps found.")
+        printed = " ".join(
+            str(call.args[0]) for call in patched_console.print.call_args_list
+        )
+        assert "No Flash apps found" in printed
 
     @patch("runpod_flash.cli.commands.apps.FlashApp.list", new_callable=AsyncMock)
     def test_list_apps_with_data(
@@ -109,10 +112,13 @@ class TestAppsList:
 
         assert result.exit_code == 0
         printed = " ".join(
-            str(call.args[0]) for call in patched_console.print.call_args_list
+            str(call.args[0])
+            for call in patched_console.print.call_args_list
+            if call.args
         )
         assert "demo" in printed
-        assert "app-1" in printed
+        assert "dev" in printed
+        assert "prod" in printed
 
 
 class TestAppsGet:

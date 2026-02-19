@@ -39,7 +39,11 @@ class TestEnvList:
             result = runner.invoke(app, ["env", "list", "--app", "demo"])
 
         assert result.exit_code == 0
-        patched_console.print.assert_called_with("No environments found for 'demo'.")
+        printed = " ".join(
+            str(call.args[0]) for call in patched_console.print.call_args_list
+        )
+        assert "No environments" in printed
+        assert "demo" in printed
         mock_from_name.assert_awaited_once_with("demo")
 
     @patch("runpod_flash.cli.commands.env.FlashApp.from_name", new_callable=AsyncMock)

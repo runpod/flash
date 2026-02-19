@@ -95,16 +95,22 @@ async def _list_environments(app_name: str):
     envs = await app.list_environments()
 
     if not envs:
-        console.print(f"No environments found for '{app_name}'.")
+        console.print(f"\nNo environments for [bold]{app_name}[/bold].")
+        console.print(f"  Run [bold]flash deploy[/bold] to create one.\n")
         return
 
-    console.print(f"\n[bold]Environments[/bold]  ({app_name})\n")
+    state_colors = {"HEALTHY": "green", "BUILDING": "cyan", "ERROR": "red"}
+
+    console.print(f"\n[bold]{app_name}[/bold]  {len(envs)} environment{'s' if len(envs) != 1 else ''}\n")
     for env in envs:
         name = env.get("name", "(unnamed)")
-        env_id = env.get("id", "")
-        build = env.get("activeBuildId") or "-"
+        state = env.get("state", "UNKNOWN")
+        color = state_colors.get(state, "yellow")
+        build = env.get("activeBuildId") or "none"
         created = format_datetime(env.get("createdAt"))
-        console.print(f"  [bold]{name}[/bold]  {env_id}  build {build}  {created}")
+
+        console.print(f"  [bold]{name}[/bold]  [{color}]{state}[/{color}]  build {build}")
+        console.print(f"    {env.get('id', '')}  created {created}")
 
 
 def create_command(
@@ -146,24 +152,37 @@ async def _get_environment(app_name: str, env_name: str):
     env = await app.get_environment_by_name(env_name)
 
     state = env.get("state", "UNKNOWN")
-    state_color = "green" if state == "HEALTHY" else "yellow"
+    state_color = {"HEALTHY": "green", "BUILDING": "cyan", "ERROR": "red"}.get(
+        state, "yellow"
+    )
 
     console.print(f"\n[bold]{env.get('name')}[/bold]  [{state_color}]{state}[/{state_color}]")
-    console.print(f"  {env.get('id')}  build {env.get('activeBuildId') or 'None'}")
-    if env.get("createdAt"):
-        console.print(f"  created {format_datetime(env.get('createdAt'))}")
+    console.print(f"  app    {app_name}")
+    console.print(f"  id     {env.get('id')}")
+    console.print(f"  build  {env.get('activeBuildId') or 'none'}")
 
     endpoints = env.get("endpoints") or []
-    if endpoints:
-        console.print(f"\n[bold]Endpoints[/bold]")
-        for ep in endpoints:
-            console.print(f"  {ep.get('name', '-')}  {ep.get('id', '-')}")
-
     network_volumes = env.get("networkVolumes") or []
+
+    if endpoints:
+        console.print(f"\n[bold]Endpoints ({len(endpoints)})[/bold]")
+        for ep in endpoints:
+            ep_id = ep.get("id", "")
+            ep_name = ep.get("name", "-")
+            console.print(f"  [bold]{ep_name}[/bold]  {ep_id}")
+
     if network_volumes:
-        console.print(f"\n[bold]Network Volumes[/bold]")
+        console.print(f"\n[bold]Network Volumes ({len(network_volumes)})[/bold]")
         for nv in network_volumes:
-            console.print(f"  {nv.get('name', '-')}  {nv.get('id', '-')}")
+            console.print(f"  [bold]{nv.get('name', '-')}[/bold]  {nv.get('id', '-')}")
+
+    if not endpoints and not network_volumes:
+        console.print("\n  No resources deployed yet.")
+        console.print(f"  Run [bold]flash deploy --env {env_name}[/bold] to deploy.")
+    else:
+        console.print(f"\n[bold]Commands:[/bold]")
+        console.print(f"  [dim]flash deploy --env {env_name}[/dim]  Update deployment")
+        console.print(f"  [dim]flash env delete {env_name}[/dim]    Tear down")
 
 
 def delete_command(

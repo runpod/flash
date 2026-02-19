@@ -40,18 +40,34 @@ def delete(
 async def list_flash_apps():
     apps = await FlashApp.list()
     if not apps:
-        console.print("No Flash apps found.")
+        console.print("\nNo Flash apps found.")
+        console.print("  Run [bold]flash deploy[/bold] to create one.\n")
         return
 
-    console.print(f"\n[bold]Apps[/bold]\n")
-    for app in apps:
-        name = app.get("name", "(unnamed)")
-        app_id = app.get("id", "")
-        environments = app.get("flashEnvironments") or []
-        env_names = ", ".join(env.get("name", "?") for env in environments) or "-"
-        builds = app.get("flashBuilds") or []
-        console.print(f"  [bold]{name}[/bold]  {app_id}")
-        console.print(f"    envs: {env_names}  builds: {len(builds)}")
+    state_colors = {"HEALTHY": "green", "BUILDING": "cyan", "ERROR": "red"}
+
+    console.print(f"\n[bold]Apps ({len(apps)})[/bold]\n")
+    for app_data in apps:
+        name = app_data.get("name", "(unnamed)")
+        app_id = app_data.get("id", "")
+        environments = app_data.get("flashEnvironments") or []
+        builds = app_data.get("flashBuilds") or []
+
+        env_count = len(environments)
+        build_count = len(builds)
+        console.print(
+            f"  [bold]{name}[/bold]  "
+            f"{env_count} env{'s' if env_count != 1 else ''}, "
+            f"{build_count} build{'s' if build_count != 1 else ''}"
+        )
+
+        if environments:
+            for env in environments:
+                state = env.get("state", "UNKNOWN")
+                color = state_colors.get(state, "yellow")
+                env_name = env.get("name", "?")
+                console.print(f"    {env_name}  [{color}]{state}[/{color}]")
+        console.print()
 
 
 async def create_flash_app(app_name: str):
@@ -69,29 +85,31 @@ async def get_flash_app(app_name: str):
     console.print(f"\n[bold]{app.name}[/bold]  {app.id}")
 
     if envs:
-        console.print(f"\n[bold]Environments[/bold]")
+        console.print(f"\n[bold]Environments ({len(envs)})[/bold]")
         for env in envs:
             state = env.get("state", "UNKNOWN")
-            state_color = "green" if state == "HEALTHY" else "yellow"
-            console.print(
-                f"  [bold]{env.get('name')}[/bold]  "
-                f"[{state_color}]{state}[/{state_color}]  "
-                f"{env.get('id', '-')}"
+            state_color = {"HEALTHY": "green", "BUILDING": "cyan", "ERROR": "red"}.get(
+                state, "yellow"
             )
-            build_id = env.get("activeBuildId") or "-"
+            name = env.get("name", "(unnamed)")
             created = format_datetime(env.get("createdAt"))
-            console.print(f"    build {build_id}  created {created}")
+            build_id = env.get("activeBuildId") or "none"
+            console.print(
+                f"  [bold]{name}[/bold]  [{state_color}]{state}[/{state_color}]  "
+                f"build {build_id}"
+            )
+            console.print(f"    {env.get('id', '-')}  created {created}")
     else:
-        console.print("\nNo environments")
+        console.print("\n  No environments. Run [bold]flash deploy[/bold] to create one.")
 
     if builds:
-        console.print(f"\n[bold]Builds[/bold]")
+        console.print(f"\n[bold]Builds ({len(builds)})[/bold]")
         for build in builds:
             console.print(
                 f"  {build.get('id')}  {format_datetime(build.get('createdAt'))}"
             )
     else:
-        console.print("\nNo builds")
+        console.print("\n  No builds. Run [bold]flash build[/bold] to create one.")
 
 
 async def delete_flash_app(app_name: str):
