@@ -528,4 +528,4 @@ A test/development variant of LoadBalancerSlsResource:
 - Review `docs/LoadBalancer_Runtime_Architecture.md` for runtime execution and request flows
 - Check examples in `flash-examples/` repository for more patterns
 - Use `flash build --help` to see build options
-- Use `flash run --help` to see local testing options
+- Use `flash dev --help` to see local testing options

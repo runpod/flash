@@ -3,8 +3,6 @@
 import time
 import typer
 from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
 from rich.live import Live
 
 from ...core.resources.resource_manager import ResourceManager
@@ -25,84 +23,71 @@ def report_command(
     if live:
         try:
             with Live(
-                generate_resource_table(resource_manager),
+                _render_resource_report(resource_manager),
                 console=console,
                 refresh_per_second=1 / refresh,
                 screen=True,
             ) as live_display:
                 while True:
                     time.sleep(refresh)
-                    live_display.update(generate_resource_table(resource_manager))
+                    live_display.update(_render_resource_report(resource_manager))
         except KeyboardInterrupt:
-            console.print("\n📊 Live monitoring stopped")
+            console.print("\nStopped")
     else:
-        table = generate_resource_table(resource_manager)
-        console.print(table)
+        output = _render_resource_report(resource_manager)
+        console.print(output)
 
 
-def generate_resource_table(resource_manager: ResourceManager) -> Panel:
-    """Generate a formatted table of resources."""
+def _render_resource_report(resource_manager: ResourceManager):
+    """Build a rich renderable for the current resource state."""
+    from rich.text import Text
 
     resources = resource_manager._resources
 
     if not resources:
-        return Panel(
-            "📊 No resources currently tracked\n\n"
-            "Resources will appear here after running your Flash applications.",
-            title="Resource Status Report",
-            expand=False,
-        )
+        return Text("No resources tracked.")
 
-    table = Table(title="Resource Status Report")
-    table.add_column("Resource ID", style="cyan", no_wrap=True)
-    table.add_column("Status", justify="center")
-    table.add_column("Type", style="magenta")
-    table.add_column("URL", style="blue")
-    table.add_column("Health", justify="center")
+    lines = Text()
+    lines.append("\nResources\n\n", style="bold")
 
     active_count = 0
-    error_count = 0
+    inactive_count = 0
 
     for uid, resource in resources.items():
-        # Determine status
         try:
             is_deployed = resource.is_deployed()
             if is_deployed:
-                status = "🟢 Active"
+                color, status_text = "green", "active"
                 active_count += 1
             else:
-                status = "🔴 Inactive"
-                error_count += 1
+                color, status_text = "red", "inactive"
+                inactive_count += 1
         except Exception:
-            status = "🟡 Unknown"
+            color, status_text = "yellow", "unknown"
 
-        # Get resource info
         resource_type = resource.__class__.__name__
-
         try:
-            url = resource.url if hasattr(resource, "url") else "N/A"
+            url = resource.url if hasattr(resource, "url") else ""
         except Exception:
-            url = "N/A"
+            url = ""
 
-        # Health check (simplified for now)
-        health = "✓" if status == "🟢 Active" else "✗"
+        display_uid = uid[:20] + "..." if len(uid) > 20 else uid
 
-        table.add_row(
-            uid[:20] + "..." if len(uid) > 20 else uid,
-            status,
-            resource_type,
-            url,
-            health,
-        )
+        lines.append(f"  {display_uid}", style="bold")
+        lines.append(f"  {status_text}", style=color)
+        lines.append(f"  {resource_type}")
+        if url:
+            lines.append(f"  {url}")
+        lines.append("\n")
 
-    # Summary
     total = len(resources)
-    idle_count = total - active_count - error_count
-    summary = f"Total: {total} resources ({active_count} active"
-    if idle_count > 0:
-        summary += f", {idle_count} idle"
-    if error_count > 0:
-        summary += f", {error_count} error"
-    summary += ")"
+    unknown_count = total - active_count - inactive_count
+    parts = [f"{active_count} active"]
+    if inactive_count > 0:
+        parts.append(f"{inactive_count} inactive")
+    if unknown_count > 0:
+        parts.append(f"{unknown_count} unknown")
 
-    return Panel(table, subtitle=summary, expand=False)
+    lines.append(f"\n{total} resources ({', '.join(parts)})\n")
+
+    return lines

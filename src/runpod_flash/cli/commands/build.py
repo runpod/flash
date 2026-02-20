@@ -203,6 +203,7 @@ def run_build(
         output_name: Custom archive name (default: artifact.tar.gz)
         exclude: Comma-separated packages to exclude
         use_local_flash: Bundle local runpod_flash source
+        verbose: Show archive and build directory paths in summary
 
     Returns:
         Path to the created artifact archive

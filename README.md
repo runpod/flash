@@ -135,7 +135,7 @@ Computed on: NVIDIA GeForce RTX 4090
 
 ## Create Flash API endpoints
 
-You can use Flash to deploy and serve API endpoints that compute responses using GPU and CPU Serverless workers. Use `flash run` for local development of `@remote` functions, then `flash deploy` to deploy your full application to Runpod Serverless for production.
+You can use Flash to deploy and serve API endpoints that compute responses using GPU and CPU Serverless workers. Use `flash dev` for local development of `@remote` functions, then `flash deploy` to deploy your full application to Runpod Serverless for production.
 
 These endpoints use the same Python `@remote` decorators [demonstrated above](#get-started)
 
@@ -179,7 +179,7 @@ This template includes:
     - Pre-configured worker scaling limits using the `LiveServerless()` object.
     - A `@remote` decorated function that returns a response from a worker.
 
-When you run `flash run`, it auto-discovers all `@remote` functions and generates a local development server at `.flash/server.py`. Queue-based workers are exposed at `/{file_prefix}/run_sync` (e.g., `/gpu_worker/run_sync`).
+When you run `flash dev`, it auto-discovers all `@remote` functions and builds a local development server programmatically. Queue-based workers are exposed at `/{file_prefix}/run_sync` (e.g., `/gpu_worker/run_sync`).
 
 ### Step 3: Install Python dependencies
 
@@ -219,10 +219,10 @@ Save the file and close it.
 
 ### Step 5: Start the local API server
 
-Use `flash run` to start the API server:
+Use `flash dev` to start the API server:
 
 ```bash
-flash run
+flash dev
 ```
 
 Open a new terminal tab or window and test your GPU API using cURL:
@@ -233,23 +233,23 @@ curl -X POST http://localhost:8888/gpu_worker/run_sync \
     -d '{"message": "Hello from the GPU!"}'
 ```
 
-If you switch back to the terminal tab where you used `flash run`, you'll see the details of the job's progress.
+If you switch back to the terminal tab where you used `flash dev`, you'll see the details of the job's progress.
 
-For more `flash run` options and configuration, see the [flash run documentation](src/runpod_flash/cli/docs/flash-run.md).
+For more `flash dev` options and configuration, see the [flash dev documentation](src/runpod_flash/cli/docs/flash-dev.md).
 
 ### Faster testing with auto-provisioning
 
 For development with multiple endpoints, use `--auto-provision` to deploy all resources before testing:
 
 ```bash
-flash run --auto-provision
+flash dev --auto-provision
 ```
 
 This eliminates cold-start delays by provisioning all serverless endpoints upfront. Endpoints are cached and reused across server restarts, making subsequent runs much faster. Resources are identified by name, so the same endpoint won't be re-deployed if configuration hasn't changed.
 
 ### Step 6: Open the API explorer
 
-Besides starting the API server, `flash run` also starts an interactive API explorer. Point your web browser at [http://localhost:8888/docs](http://localhost:8888/docs) to explore the API.
+Besides starting the API server, `flash dev` also starts an interactive API explorer. Point your web browser at [http://localhost:8888/docs](http://localhost:8888/docs) to explore the API.
 
 To run remote functions in the explorer:
 
@@ -264,7 +264,7 @@ To customize your API:
 
 1. Create new `.py` files with `@remote` decorated functions.
 2. Test the scripts individually by running `python your_worker.py`.
-3. Run `flash run` to auto-discover all `@remote` functions and serve them.
+3. Run `flash dev` to auto-discover all `@remote` functions and serve them.
 
 ## CLI Reference
 
@@ -273,7 +273,7 @@ Flash provides a command-line interface for project management, development, and
 ### Main Commands
 
 - **`flash init`** - Initialize a new Flash project with template structure
-- **`flash run`** - Start local development server to test your `@remote` functions with auto-reload
+- **`flash dev`** - Start local development server to test your `@remote` functions with auto-reload
 - **`flash build`** - Build deployment artifact with all dependencies
 - **`flash deploy`** - Build and deploy your application to Runpod Serverless in one step
 
@@ -291,7 +291,7 @@ Flash provides a command-line interface for project management, development, and
 # Initialize and run locally
 flash init my-project
 cd my-project
-flash run --auto-provision
+flash dev --auto-provision
 
 # Build and deploy to production
 flash build
@@ -315,7 +315,7 @@ For complete CLI documentation including all options, examples, and troubleshoot
 
 Individual command references:
 - [flash init](src/runpod_flash/cli/docs/flash-init.md) - Project initialization
-- [flash run](src/runpod_flash/cli/docs/flash-run.md) - Development server
+- [flash dev](src/runpod_flash/cli/docs/flash-dev.md) - Development server
 - [flash build](src/runpod_flash/cli/docs/flash-build.md) - Build artifacts
 - [flash deploy](src/runpod_flash/cli/docs/flash-deploy.md) - Deployment
 - [flash env](src/runpod_flash/cli/docs/flash-env.md) - Environment management

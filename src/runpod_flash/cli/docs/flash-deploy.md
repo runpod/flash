@@ -61,11 +61,11 @@ With `flash deploy`, your **entire application** runs on Runpod Serverless—all
 - **No `live-` prefix** on endpoint names (these are production endpoints)
 - **No hot reload:** code changes require a new deployment
 
-This is different from `flash run`, where your FastAPI app runs locally on your machine. See [flash run](./flash-run.md) for the hybrid development architecture.
+This is different from `flash dev`, where your FastAPI app runs locally on your machine. See [flash dev](./flash-dev.md) for the hybrid development architecture.
 
-### flash run vs flash deploy
+### flash dev vs flash deploy
 
-| Aspect | `flash run` | `flash deploy` |
+| Aspect | `flash dev` | `flash deploy` |
 |--------|-------------|----------------|
 | **App runs on** | Your machine (localhost) | Runpod Serverless |
 | **`@remote` functions run on** | Runpod Serverless | Runpod Serverless |
@@ -454,4 +454,4 @@ After deploying:
 - [flash env](./flash-env.md) - Manage deployment environments
 - [flash app](./flash-app.md) - Manage Flash applications
 - [flash undeploy](./flash-undeploy.md) - Remove deployed endpoints
-- [flash run](./flash-run.md) - Local development server
+- [flash dev](./flash-dev.md) - Local development server

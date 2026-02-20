@@ -5,8 +5,6 @@ from typing import Optional
 
 import typer
 from rich.console import Console
-from rich.panel import Panel
-from rich.table import Table
 
 from ..utils.skeleton import create_project_skeleton, detect_file_conflicts
 
@@ -21,99 +19,70 @@ def init_command(
 ):
     """Create new Flash project with Flash Server and GPU workers."""
 
-    # Determine target directory and initialization mode
     if project_name is None or project_name == ".":
-        # Initialize in current directory
         project_dir = Path.cwd()
         is_current_dir = True
-        # Use current directory name as project name
         actual_project_name = project_dir.name
     else:
-        # Create new directory
         project_dir = Path(project_name)
         is_current_dir = False
         actual_project_name = project_name
 
-    # Create project directory if needed
     if not is_current_dir:
         project_dir.mkdir(parents=True, exist_ok=True)
 
-    # Check for file conflicts in target directory
     conflicts = detect_file_conflicts(project_dir)
-    should_overwrite = force  # Start with force flag value
+    should_overwrite = force
 
     if conflicts and not force:
-        # Show warning and prompt user
         console.print(
-            Panel(
-                "[yellow]Warning: The following files will be overwritten:[/yellow]\n\n"
-                + "\n".join(f"  • {conflict}" for conflict in conflicts),
-                title="File Conflicts Detected",
-                expand=False,
-            )
+            "[yellow]Warning:[/yellow] The following files will be overwritten:\n"
         )
+        for conflict in conflicts:
+            console.print(f"  {conflict}")
+        console.print()
 
-        # Prompt user for confirmation
         proceed = typer.confirm("Continue and overwrite these files?", default=False)
         if not proceed:
-            console.print("[yellow]Initialization aborted.[/yellow]")
+            console.print("[yellow]Cancelled[/yellow]")
             raise typer.Exit(0)
 
-        # User confirmed, so we should overwrite
         should_overwrite = True
 
-    # Create project skeleton
     status_msg = (
-        "Initializing Flash project in current directory..."
+        "Initializing Flash project..."
         if is_current_dir
         else f"Creating Flash project '{project_name}'..."
     )
     with console.status(status_msg):
         create_project_skeleton(project_dir, should_overwrite)
 
-    # Success output
-    if is_current_dir:
-        panel_content = f"Flash project '[bold]{actual_project_name}[/bold]' initialized in current directory!\n\n"
-        panel_content += "Project structure:\n"
-        panel_content += "  ./\n"
-    else:
-        panel_content = f"Flash project '[bold]{actual_project_name}[/bold]' created successfully!\n\n"
-        panel_content += "Project structure:\n"
-        panel_content += f"  {actual_project_name}/\n"
+    console.print(f"[green]Created[/green] [bold]{actual_project_name}[/bold]\n")
 
-    panel_content += "  ├── gpu_worker.py        # GPU serverless worker\n"
-    panel_content += "  ├── cpu_worker.py        # CPU serverless worker\n"
-    panel_content += "  ├── lb_worker.py         # CPU load-balanced API\n"
-    panel_content += "  ├── pyproject.toml\n"
-    panel_content += "  ├── .env.example\n"
-    panel_content += "  ├── requirements.txt\n"
-    panel_content += "  └── README.md\n"
+    prefix = "./" if is_current_dir else f"{actual_project_name}/"
+    console.print(f"  {prefix}")
+    console.print("  ├── main.py              FastAPI server")
+    console.print("  ├── mothership.py        Mothership config")
+    console.print("  ├── pyproject.toml")
+    console.print("  ├── workers/")
+    console.print("  │   ├── gpu/")
+    console.print("  │   └── cpu/")
+    console.print("  ├── .env.example")
+    console.print("  ├── requirements.txt")
+    console.print("  └── README.md")
 
-    title = "Project Initialized" if is_current_dir else "Project Created"
-    console.print(Panel(panel_content, title=title, expand=False))
-
-    # Next steps
     console.print("\n[bold]Next steps:[/bold]")
-    steps_table = Table(show_header=False, box=None, padding=(0, 1))
-    steps_table.add_column("Step", style="bold cyan")
-    steps_table.add_column("Description")
-
     step_num = 1
     if not is_current_dir:
-        steps_table.add_row(f"{step_num}.", f"cd {actual_project_name}")
+        console.print(f"  {step_num}. cd {actual_project_name}")
         step_num += 1
-
-    steps_table.add_row(f"{step_num}.", "pip install -r requirements.txt")
+    console.print(f"  {step_num}. pip install -r requirements.txt")
     step_num += 1
-    steps_table.add_row(f"{step_num}.", "cp .env.example .env")
+    console.print(f"  {step_num}. cp .env.example .env && add RUNPOD_API_KEY")
     step_num += 1
-    steps_table.add_row(f"{step_num}.", "Add your RUNPOD_API_KEY to .env")
-    step_num += 1
-    steps_table.add_row(f"{step_num}.", "flash dev")
+    console.print(f"  {step_num}. flash dev")
 
-    console.print(steps_table)
-
-    console.print("\n[bold]Get your API key:[/bold]")
-    console.print("  https://docs.runpod.io/get-started/api-keys")
-    console.print("\nVisit http://localhost:8888/docs after running")
-    console.print("\nCheck out the README.md for more")
+    console.print(
+        "\n  [dim]API keys: https://docs.runpod.io/get-started/api-keys[/dim]"
+    )
+    console.print("  [dim]Docs: http://localhost:8888/docs (after running)[/dim]")

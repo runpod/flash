@@ -17,7 +17,7 @@
 
 * **docs:** change idleTimeout from minutes to seconds ([#205](https://github.com/runpod/flash/issues/205)) ([51693c7](https://github.com/runpod/flash/commit/51693c7e2dd0c9d803f3c49de1d0009ded285d5d))
 * prevent false deployment attempts in Flash environments ([#192](https://github.com/runpod/flash/issues/192)) ([f07c9fb](https://github.com/runpod/flash/commit/f07c9fb92003d4603fbf8cdc17b956c368009353))
-* **runtime:** restore on-demand provisioning for flash run ([#206](https://github.com/runpod/flash/issues/206)) ([5859f4b](https://github.com/runpod/flash/commit/5859f4b78476a070db2100b689dfd94caf5fc93f))
+* **runtime:** restore on-demand provisioning for flash dev ([#206](https://github.com/runpod/flash/issues/206)) ([5859f4b](https://github.com/runpod/flash/commit/5859f4b78476a070db2100b689dfd94caf5fc93f))
 
 
 ### Code Refactoring
@@ -172,7 +172,7 @@
 ### Features
 
 * AE-1512: deploy() and undeploy() deployable resources directly ([#126](https://github.com/runpod/runpod-flash/issues/126)) ([3deac3a](https://github.com/runpod/runpod-flash/commit/3deac3a91b84fa4cf07cf553c46431907290a61c))
-* **cli:** Add --auto-provision flag to flash run command ([#125](https://github.com/runpod/runpod-flash/issues/125)) ([ee5793c](https://github.com/runpod/runpod-flash/commit/ee5793c33537acc15e26b680e3bac5aedb3c0735))
+* **cli:** Add --auto-provision flag to flash dev command ([#125](https://github.com/runpod/runpod-flash/issues/125)) ([ee5793c](https://github.com/runpod/runpod-flash/commit/ee5793c33537acc15e26b680e3bac5aedb3c0735))
 
 
 ### Code Refactoring

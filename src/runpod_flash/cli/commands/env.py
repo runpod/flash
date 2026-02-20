@@ -5,10 +5,9 @@ import asyncio
 import questionary
 import typer
 from rich.console import Console
-from rich.panel import Panel
-from rich.table import Table
 
 from ..utils.app import discover_flash_project
+from ..utils.formatting import STATE_STYLE, format_datetime, state_dot
 
 from runpod_flash.core.resources.app import FlashApp
 
@@ -96,24 +95,31 @@ async def _list_environments(app_name: str):
     envs = await app.list_environments()
 
     if not envs:
-        console.print(f"No environments found for '{app_name}'.")
+        console.print(f"\nNo environments for [bold]{app_name}[/bold].")
+        console.print("  Run [bold]flash deploy[/bold] to create one.\n")
         return
 
-    table = Table(show_header=True, header_style="bold")
-    table.add_column("Name", style="bold")
-    table.add_column("ID", overflow="fold")
-    table.add_column("Active Build", overflow="fold")
-    table.add_column("Created At", overflow="fold")
-
+    console.print(
+        f"\n  [bold]{app_name}[/bold]  {len(envs)} environment{'s' if len(envs) != 1 else ''}\n"
+    )
     for env in envs:
-        table.add_row(
-            env.get("name"),
-            env.get("id"),
-            env.get("activeBuildId", "-"),
-            env.get("createdAt"),
-        )
+        name = env.get("name", "(unnamed)")
+        state = env.get("state", "UNKNOWN")
+        color = STATE_STYLE.get(state, "yellow")
+        build = env.get("activeBuildId")
+        created = format_datetime(env.get("createdAt"))
 
-    console.print(table)
+        console.print(
+            f"    {state_dot(state)} [bold]{name}[/bold]  "
+            f"[{color}]{state.lower()}[/{color}]"
+        )
+        parts = []
+        if build:
+            parts.append(f"build {build}")
+        parts.append(f"created {created}")
+        console.print(f"      [dim]{'  ·  '.join(parts)}[/dim]")
+
+    console.print()
 
 
 def create_command(
@@ -134,27 +140,10 @@ def create_command(
 async def _create_environment(app_name: str, env_name: str):
     app, env = await FlashApp.create_environment_and_app(app_name, env_name)
 
-    panel_content = (
-        f"Environment '[bold]{env_name}[/bold]' created successfully\n\n"
-        f"App: {app_name}\n"
-        f"Environment ID: {env.get('id')}\n"
-        f"Status: {env.get('state', 'PENDING')}"
+    console.print(
+        f"[green]✓[/green] Created environment [bold]{env_name}[/bold]  "
+        f"[dim]{env.get('id')}[/dim]"
     )
-    console.print(Panel(panel_content, title="Environment Created", expand=False))
-
-    table = Table(show_header=True, header_style="bold")
-    table.add_column("Name", style="bold")
-    table.add_column("ID", overflow="fold")
-    table.add_column("Status", overflow="fold")
-    table.add_column("Created At", overflow="fold")
-
-    table.add_row(
-        env.get("name"),
-        env.get("id"),
-        env.get("state", "PENDING"),
-        env.get("createdAt", "Just now"),
-    )
-    console.print(table)
 
 
 def get_command(
@@ -171,41 +160,45 @@ async def _get_environment(app_name: str, env_name: str):
     app = await FlashApp.from_name(app_name)
     env = await app.get_environment_by_name(env_name)
 
-    main_info = f"Environment: {env.get('name')}\n"
-    main_info += f"ID: {env.get('id')}\n"
-    main_info += f"State: {env.get('state', 'UNKNOWN')}\n"
-    main_info += f"Active Build: {env.get('activeBuildId', 'None')}\n"
+    state = env.get("state", "UNKNOWN")
+    color = STATE_STYLE.get(state, "yellow")
 
-    if env.get("createdAt"):
-        main_info += f"Created: {env.get('createdAt')}\n"
-
-    console.print(Panel(main_info, title=f"Environment: {env_name}", expand=False))
+    console.print(
+        f"\n  {state_dot(state)} [bold]{env.get('name')}[/bold]  "
+        f"[{color}]{state.lower()}[/{color}]"
+    )
+    console.print(f"    [dim]id[/dim]     {env.get('id')}")
+    console.print(f"    [dim]app[/dim]    {app_name}")
+    console.print(f"    [dim]build[/dim]  {env.get('activeBuildId') or 'none'}")
 
     endpoints = env.get("endpoints") or []
-    if endpoints:
-        endpoint_table = Table(title="Associated Endpoints")
-        endpoint_table.add_column("Name", style="cyan")
-        endpoint_table.add_column("ID", overflow="fold")
-
-        for endpoint in endpoints:
-            endpoint_table.add_row(
-                endpoint.get("name", "-"),
-                endpoint.get("id", "-"),
-            )
-        console.print(endpoint_table)
-
     network_volumes = env.get("networkVolumes") or []
-    if network_volumes:
-        nv_table = Table(title="Associated Network Volumes")
-        nv_table.add_column("Name", style="cyan")
-        nv_table.add_column("ID", overflow="fold")
 
-        for nv in network_volumes:
-            nv_table.add_row(
-                nv.get("name", "-"),
-                nv.get("id", "-"),
+    if endpoints:
+        console.print("\n  [bold]Endpoints[/bold]")
+        for ep in endpoints:
+            console.print(
+                f"    ▸ [bold]{ep.get('name', '-')}[/bold]  [dim]{ep.get('id', '')}[/dim]"
             )
-        console.print(nv_table)
+
+    if network_volumes:
+        console.print("\n  [bold]Network Volumes[/bold]")
+        for nv in network_volumes:
+            console.print(
+                f"    ▸ [bold]{nv.get('name', '-')}[/bold]  [dim]{nv.get('id', '')}[/dim]"
+            )
+
+    if not endpoints and not network_volumes:
+        console.print("\n    No resources deployed yet.")
+        console.print(f"    Run [bold]flash deploy --env {env_name}[/bold] to deploy.")
+    else:
+        console.print("\n  [bold]Commands[/bold]")
+        console.print(
+            f"    [dim]flash deploy --env {env_name}[/dim]  Update deployment"
+        )
+        console.print(f"    [dim]flash env delete {env_name}[/dim]    Tear down")
+
+    console.print()
 
 
 def delete_command(
@@ -221,16 +214,10 @@ def delete_command(
     try:
         env = asyncio.run(_fetch_environment_info(app_name, env_name))
     except Exception as e:
-        console.print(f"[red]Error:[/red] Failed to fetch environment info: {e}")
+        console.print(f"[red]✗[/red] Failed to fetch environment info: {e}")
         raise typer.Exit(1)
 
-    panel_content = (
-        f"Environment '[bold]{env_name}[/bold]' will be deleted\n\n"
-        f"Environment ID: {env.get('id')}\n"
-        f"App: {app_name}\n"
-        f"Active Build: {env.get('activeBuildId', 'None')}"
-    )
-    console.print(Panel(panel_content, title="Delete Confirmation", expand=False))
+    console.print(f"\nDeleting [bold]{env_name}[/bold]  [dim]{env.get('id')}[/dim]")
 
     try:
         confirmed = questionary.confirm(
@@ -239,10 +226,10 @@ def delete_command(
         ).ask()
 
         if not confirmed:
-            console.print("Deletion cancelled")
+            console.print("[yellow]Cancelled[/yellow]")
             raise typer.Exit(0)
     except KeyboardInterrupt:
-        console.print("\nDeletion cancelled")
+        console.print("\n[yellow]Cancelled[/yellow]")
         raise typer.Exit(0)
 
     asyncio.run(_delete_environment(app_name, env_name))
@@ -263,7 +250,7 @@ async def _delete_environment(app_name: str, env_name: str):
         success = await app.delete_environment(env_name)
 
     if success:
-        console.print(f"Environment '{env_name}' deleted successfully")
+        console.print(f"[green]✓[/green] Deleted environment [bold]{env_name}[/bold]")
     else:
-        console.print(f"[red]Failed to delete environment '{env_name}'[/red]")
+        console.print(f"[red]✗[/red] Failed to delete environment '{env_name}'")
         raise typer.Exit(1)

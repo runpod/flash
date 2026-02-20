@@ -189,3 +189,5 @@ cython_debug/
 # dev only
 .envrc
 test_app/
+pytest-results.xml
+coverage.xml
