@@ -479,6 +479,7 @@ class ServerlessResource(DeployableResource):
             # endpoint exists but the health API hasn't registered it yet.
             # Trusting the cached ID is correct here; actual failures surface
             # on the first real run/run_sync call.
+            # Case-insensitive check; unset env var defaults to "" via getenv.
             if os.getenv("FLASH_IS_LIVE_PROVISIONING", "").lower() == "true":
                 return True
 
@@ -495,6 +496,11 @@ class ServerlessResource(DeployableResource):
         # When templateId is already set, exclude template from the payload.
         # RunPod rejects requests that contain both fields simultaneously.
         if self.templateId:
+            if self.template is not None:
+                raise ValueError(
+                    "Invalid state: both 'templateId' and 'template' are set. "
+                    "Only one may be provided."
+                )
             exclude_fields.add("template")
         return exclude_fields
 

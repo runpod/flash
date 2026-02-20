@@ -102,5 +102,9 @@ async def lb_execute(resource_config, func, body: dict):
         raise HTTPException(status_code=504, detail=str(e))
     except ConnectionError as e:
         raise HTTPException(status_code=502, detail=str(e))
+    except HTTPException:
+        raise
+    except (ValueError, KeyError, TypeError) as e:
+        raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

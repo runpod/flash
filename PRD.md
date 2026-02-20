@@ -100,8 +100,8 @@ workers/gpu/inference.py    →   /workers/gpu/inference
 
 | Condition | Routes |
 |---|---|
-| One `@remote` function in file | `POST {file_prefix}/run` and `POST {file_prefix}/run_sync` |
-| Multiple `@remote` functions in file | `POST {file_prefix}/{fn_name}/run` and `POST {file_prefix}/{fn_name}/run_sync` |
+| One `@remote` function in file | `POST {file_prefix}/run_sync` |
+| Multiple `@remote` functions in file | `POST {file_prefix}/{fn_name}/run_sync` |
 
 ### 5.3 LB route generation
 
@@ -180,9 +180,8 @@ Flash Dev Server  http://localhost:8888
 
   Local path                            Resource               Type
   ──────────────────────────────────    ───────────────────    ────
-  POST  /gpu_worker/run                 gpu_worker             QB
   POST  /gpu_worker/run_sync            gpu_worker             QB
-  POST  /longruns/stage1/run            longruns_stage1        QB
+  POST  /longruns/stage1/run_sync       longruns_stage1        QB
   POST  /preprocess/first_pass/compute  preprocess_first_pass  LB
 
   Visit http://localhost:8888/docs for Swagger UI
@@ -261,14 +260,12 @@ app = FastAPI(
 )
 
 # QB: gpu_worker.py
-@app.post("/gpu_worker/run", tags=["gpu_worker [QB]"])
 @app.post("/gpu_worker/run_sync", tags=["gpu_worker [QB]"])
 async def gpu_worker_run(body: dict):
     result = await gpu_hello(body.get("input", body))
     return {"id": str(uuid.uuid4()), "status": "COMPLETED", "output": result}
 
 # QB: longruns/stage1.py
-@app.post("/longruns/stage1/run", tags=["longruns/stage1 [QB]"])
 @app.post("/longruns/stage1/run_sync", tags=["longruns/stage1 [QB]"])
 async def longruns_stage1_run(body: dict):
     result = await stage1_process(body.get("input", body))
@@ -316,7 +313,7 @@ longruns/stage1.py has: stage1_preprocess, stage1_infer
 ## 13. Edge Cases
 
 - **No `@remote` functions found**: Error with clear message and usage instructions
-- **Multiple `@remote` functions per file (QB)**: Sub-prefixed routes `/{file_prefix}/{fn_name}/run`
+- **Multiple `@remote` functions per file (QB)**: Sub-prefixed routes `/{file_prefix}/{fn_name}/run_sync`
 - **`__init__.py` files**: Skipped — not treated as worker files
 - **File path with hyphens** (e.g., `my-worker.py`): Resource name sanitized to `my_worker`, URL prefix `/my-worker` (hyphens valid in URLs, underscores in Python identifiers)
 - **LB function calling another LB function**: Not supported via `@remote` — emit a warning at build time

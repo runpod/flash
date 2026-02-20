@@ -207,8 +207,10 @@ class ManifestBuilder:
             str, Dict[str, str]
         ] = {}  # resource_name -> {route_key -> function_name}
 
-        # Determine project root for path derivation
-        project_root = self.build_dir.parent if self.build_dir else Path.cwd()
+        # Determine project root for path derivation.
+        # build_dir is .flash/.build which *contains* the copied project files,
+        # so use it directly (not its parent, which would be .flash/).
+        project_root = self.build_dir if self.build_dir else Path.cwd()
 
         for resource_name, functions in sorted(resources.items()):
             # Use actual resource type from first function in group

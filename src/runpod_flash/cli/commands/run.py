@@ -287,9 +287,12 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
             "    try:",
             "        return getattr(_importlib.import_module(module_path), name)",
             "    finally:",
-            "        if _path:",
+            "        if _path is not None:",
             "            try:",
-            "                sys.path.remove(_path)",
+            "                if sys.path and sys.path[0] == _path:",
+            "                    sys.path.pop(0)",
+            "                else:",
+            "                    sys.path.remove(_path)",
             "            except ValueError:",
             "                pass",
             "",
@@ -612,68 +615,74 @@ def _cleanup_live_endpoints() -> None:
     if not _RESOURCE_STATE_FILE.exists():
         return
 
-    try:
-        import asyncio
-        import cloudpickle
-        from ...core.utils.file_lock import file_lock
+    import asyncio
+    import cloudpickle
+    from ...core.utils.file_lock import file_lock
 
+    # Load persisted resource state. If this fails (lock error, corruption),
+    # log and return — don't let it prevent the rest of shutdown.
+    try:
         with open(_RESOURCE_STATE_FILE, "rb") as f:
             with file_lock(f, exclusive=False):
                 data = cloudpickle.load(f)
-
-        if isinstance(data, tuple):
-            resources, configs = data
-        else:
-            resources, configs = data, {}
-
-        live_items = {
-            key: resource
-            for key, resource in resources.items()
-            if hasattr(resource, "name")
-            and resource.name
-            and resource.name.startswith("live-")
-        }
-
-        if not live_items:
-            return
-
-        import time
-
-        async def _do_cleanup():
-            undeployed = 0
-            for key, resource in live_items.items():
-                name = getattr(resource, "name", key)
-                try:
-                    success = await resource._do_undeploy()
-                    if success:
-                        console.print(f"  Deprovisioned: {name}")
-                        undeployed += 1
-                    else:
-                        logger.warning(f"Failed to deprovision: {name}")
-                except Exception as e:
-                    logger.warning(f"Error deprovisioning {name}: {e}")
-            return undeployed
-
-        t0 = time.monotonic()
-        undeployed = asyncio.run(_do_cleanup())
-        elapsed = time.monotonic() - t0
-        console.print(
-            f"  Cleanup completed: {undeployed}/{len(live_items)} "
-            f"resource(s) undeployed in {elapsed:.1f}s"
-        )
-
-        # Remove live- entries from persisted state so they don't linger.
-        remaining = {k: v for k, v in resources.items() if k not in live_items}
-        remaining_configs = {k: v for k, v in configs.items() if k not in live_items}
-        try:
-            with open(_RESOURCE_STATE_FILE, "wb") as f:
-                with file_lock(f, exclusive=True):
-                    cloudpickle.dump((remaining, remaining_configs), f)
-        except Exception as e:
-            logger.warning(f"Could not update resource state after cleanup: {e}")
-
     except Exception as e:
-        logger.warning(f"Live endpoint cleanup failed: {e}")
+        logger.warning(f"Could not read resource state for cleanup: {e}")
+        return
+
+    if isinstance(data, tuple):
+        resources, configs = data
+    else:
+        resources, configs = data, {}
+
+    live_items = {
+        key: resource
+        for key, resource in resources.items()
+        if hasattr(resource, "name")
+        and resource.name
+        and resource.name.startswith("live-")
+    }
+
+    if not live_items:
+        return
+
+    import time
+
+    async def _do_cleanup():
+        undeployed = 0
+        for key, resource in live_items.items():
+            name = getattr(resource, "name", key)
+            try:
+                success = await resource._do_undeploy()
+                if success:
+                    console.print(f"  Deprovisioned: {name}")
+                    undeployed += 1
+                else:
+                    logger.warning(f"Failed to deprovision: {name}")
+            except Exception as e:
+                logger.warning(f"Error deprovisioning {name}: {e}")
+        return undeployed
+
+    t0 = time.monotonic()
+    loop = asyncio.new_event_loop()
+    try:
+        undeployed = loop.run_until_complete(_do_cleanup())
+    finally:
+        loop.close()
+    elapsed = time.monotonic() - t0
+    console.print(
+        f"  Cleanup completed: {undeployed}/{len(live_items)} "
+        f"resource(s) undeployed in {elapsed:.1f}s"
+    )
+
+    # Remove live- entries from persisted state so they don't linger.
+    remaining = {k: v for k, v in resources.items() if k not in live_items}
+    remaining_configs = {k: v for k, v in configs.items() if k not in live_items}
+    try:
+        with open(_RESOURCE_STATE_FILE, "wb") as f:
+            with file_lock(f, exclusive=True):
+                cloudpickle.dump((remaining, remaining_configs), f)
+    except Exception as e:
+        logger.warning(f"Could not update resource state after cleanup: {e}")
 
 
 def _is_reload() -> bool:
@@ -707,8 +716,11 @@ def _watch_and_regenerate(project_root: Path, stop_event: threading.Event) -> No
                 logger.debug("server.py regenerated (%d changed)", len(py_changed))
             except Exception as e:
                 logger.warning("Failed to regenerate server.py: %s", e)
-    except Exception:
-        pass  # stop_event was set or watchfiles unavailable — both are fine
+    except ModuleNotFoundError as e:
+        logger.warning("File watching disabled: %s", e)
+    except Exception as e:
+        if not stop_event.is_set():
+            logger.exception("Unexpected error in file watcher: %s", e)
 
 
 def _discover_resources(project_root: Path):
@@ -887,12 +899,14 @@ def run_command(
         ]
 
     stop_event = threading.Event()
-    watcher_thread = threading.Thread(
-        target=_watch_and_regenerate,
-        args=(project_root, stop_event),
-        daemon=True,
-        name="flash-watcher",
-    )
+    watcher_thread = None
+    if reload:
+        watcher_thread = threading.Thread(
+            target=_watch_and_regenerate,
+            args=(project_root, stop_event),
+            daemon=True,
+            name="flash-watcher",
+        )
 
     process = None
     try:
@@ -903,7 +917,7 @@ def run_command(
         else:
             process = subprocess.Popen(cmd, preexec_fn=os.setsid)
 
-        if reload:
+        if watcher_thread is not None:
             watcher_thread.start()
 
         process.wait()
@@ -912,7 +926,7 @@ def run_command(
         console.print("\n[yellow]Stopping server and cleaning up...[/yellow]")
 
         stop_event.set()
-        if watcher_thread.is_alive():
+        if watcher_thread is not None and watcher_thread.is_alive():
             watcher_thread.join(timeout=2)
 
         if process:
@@ -942,7 +956,7 @@ def run_command(
         console.print(f"[red]Error:[/red] {e}")
 
         stop_event.set()
-        if watcher_thread.is_alive():
+        if watcher_thread is not None and watcher_thread.is_alive():
             watcher_thread.join(timeout=2)
 
         if process:

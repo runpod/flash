@@ -56,7 +56,7 @@ def detect_remote_dependencies(source: str, func_globals: dict[str, Any]) -> lis
     remote_deps = [
         name
         for name in sorted(called_names)
-        if hasattr(func_globals.get(name), "__remote_config__")
+        if name in func_globals and hasattr(func_globals[name], "__remote_config__")
     ]
     return remote_deps
 
@@ -85,29 +85,45 @@ async def resolve_dependencies(
     if not dep_names:
         return []
 
+    import asyncio
+
     from ..core.resources import ResourceManager
 
     resource_manager = ResourceManager()
-    resolved: list[RemoteDependency] = []
 
+    # Gather metadata needed for each dependency before parallel provisioning.
+    dep_info: list[tuple[str, Any, str, list[str], list[str]]] = []
     for name in dep_names:
         dep_func = func_globals[name]
         config = dep_func.__remote_config__
-
-        resource_config = config["resource_config"]
-        remote_resource = await resource_manager.get_or_deploy_resource(resource_config)
-
-        # Get source of the dependency function
         unwrapped = inspect.unwrap(dep_func)
         dep_source, _ = get_function_source(unwrapped)
+        dep_info.append(
+            (
+                name,
+                config["resource_config"],
+                dep_source,
+                config.get("dependencies") or [],
+                config.get("system_dependencies") or [],
+            )
+        )
 
+    # Provision all endpoints in parallel.
+    remote_resources = await asyncio.gather(
+        *(resource_manager.get_or_deploy_resource(rc) for _, rc, _, _, _ in dep_info)
+    )
+
+    resolved: list[RemoteDependency] = []
+    for (name, _, dep_source, deps, sys_deps), remote_resource in zip(
+        dep_info, remote_resources
+    ):
         resolved.append(
             RemoteDependency(
                 name=name,
                 endpoint_id=remote_resource.id,
                 source=dep_source,
-                dependencies=config.get("dependencies") or [],
-                system_dependencies=config.get("system_dependencies") or [],
+                dependencies=deps,
+                system_dependencies=sys_deps,
             )
         )
         log.debug(
