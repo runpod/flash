@@ -40,6 +40,10 @@ def temp_project(tmp_path):
 
 def _run_cli(runner, project_dir, extra_args=None):
     """Invoke ``flash dev`` with subprocess mocked and return the Popen command."""
+    saved_env = {
+        k: os.environ.get(k)
+        for k in ("FLASH_PROJECT_ROOT", "FLASH_IS_LIVE_PROVISIONING")
+    }
     with patch("runpod_flash.cli.commands.run.subprocess.Popen") as mock_popen:
         mock_process = MagicMock()
         mock_process.pid = 12345
@@ -54,6 +58,11 @@ def _run_cli(runner, project_dir, extra_args=None):
                     runner.invoke(app, ["dev"] + (extra_args or []))
                 finally:
                     os.chdir(old_cwd)
+                    for k, v in saved_env.items():
+                        if v is None:
+                            os.environ.pop(k, None)
+                        else:
+                            os.environ[k] = v
 
         return mock_popen.call_args[0][0]
 
@@ -105,8 +114,31 @@ class TestRunCommandFlags:
         assert "--reload-dir" not in cmd
 
     def test_sets_project_root_env_var(self, runner, temp_project):
-        _run_cli(runner, temp_project)
-        assert os.environ.get("FLASH_PROJECT_ROOT") == str(temp_project)
+        """FLASH_PROJECT_ROOT is set when Popen is called (inherited by child)."""
+        captured_env = {}
+
+        def capture_popen(cmd, **kwargs):
+            captured_env["FLASH_PROJECT_ROOT"] = os.environ.get("FLASH_PROJECT_ROOT")
+            mock_process = MagicMock()
+            mock_process.pid = 12345
+            mock_process.wait.side_effect = KeyboardInterrupt()
+            return mock_process
+
+        with patch(
+            "runpod_flash.cli.commands.run.subprocess.Popen", side_effect=capture_popen
+        ):
+            with patch("runpod_flash.cli.commands.run.os.getpgid", return_value=12345):
+                with patch("runpod_flash.cli.commands.run.os.killpg"):
+                    old_cwd = os.getcwd()
+                    try:
+                        os.chdir(temp_project)
+                        runner.invoke(app, ["dev"])
+                    finally:
+                        os.chdir(old_cwd)
+                        os.environ.pop("FLASH_PROJECT_ROOT", None)
+                        os.environ.pop("FLASH_IS_LIVE_PROVISIONING", None)
+
+        assert captured_env["FLASH_PROJECT_ROOT"] == str(temp_project)
 
 
 # ---------------------------------------------------------------------------
