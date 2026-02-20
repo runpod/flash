@@ -79,7 +79,11 @@ class LoadBalancerSlsStub:
 
         # Always use /execute for live resources (local development)
         if isinstance(self.server, LiveServerlessMixin):
-            log.debug(f"Using /execute endpoint for LiveLoadBalancer: {func.__name__}")
+            log.debug(
+                "Using /execute endpoint for live resource %s (type=%s)",
+                func.__name__,
+                type(self.server).__name__,
+            )
             return True
 
         # Check if function has routing metadata

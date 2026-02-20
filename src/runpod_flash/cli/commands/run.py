@@ -13,8 +13,22 @@ from typing import List
 import typer
 from rich.console import Console
 from rich.table import Table
-from watchfiles import DefaultFilter as _WatchfilesDefaultFilter
-from watchfiles import watch as _watchfiles_watch
+
+try:
+    from watchfiles import DefaultFilter as _WatchfilesDefaultFilter
+    from watchfiles import watch as _watchfiles_watch
+except ModuleNotFoundError:
+
+    def _watchfiles_watch(*_a, **_kw):  # type: ignore[misc]
+        raise ModuleNotFoundError(
+            "watchfiles is required for flash run --reload. "
+            "Install it with: pip install watchfiles"
+        )
+
+    class _WatchfilesDefaultFilter:  # type: ignore[no-redef]
+        def __init__(self, **_kw):
+            pass
+
 
 from .build_utils.scanner import (
     RemoteDecoratorScanner,
@@ -709,7 +723,8 @@ def run_command(
         console.print("\n[yellow]Stopping server and cleaning up...[/yellow]")
 
         stop_event.set()
-        watcher_thread.join(timeout=2)
+        if watcher_thread.is_alive():
+            watcher_thread.join(timeout=2)
 
         if process:
             try:
@@ -738,7 +753,8 @@ def run_command(
         console.print(f"[red]Error:[/red] {e}")
 
         stop_event.set()
-        watcher_thread.join(timeout=2)
+        if watcher_thread.is_alive():
+            watcher_thread.join(timeout=2)
 
         if process:
             try:
