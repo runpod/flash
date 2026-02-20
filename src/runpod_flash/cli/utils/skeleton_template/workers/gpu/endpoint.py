@@ -1,11 +1,11 @@
-from runpod_flash import GpuGroup, LiveServerless, remote
+from runpod_flash import DEFAULT_WORKERS_MAX, DEFAULT_WORKERS_MIN, GpuGroup, LiveServerless, remote
 
 gpu_config = LiveServerless(
     name="gpu_worker",
     gpus=[GpuGroup.ANY],
-    workersMin=0,
-    workersMax=1,
-    idleTimeout=60,
+    workersMin=DEFAULT_WORKERS_MIN,
+    workersMax=DEFAULT_WORKERS_MAX,
+    idleTimeout=5,
 )
 
 
