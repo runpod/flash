@@ -495,12 +495,9 @@ class ServerlessResource(DeployableResource):
         exclude_fields.discard("flashEnvironmentId")
         # When templateId is already set, exclude template from the payload.
         # RunPod rejects requests that contain both fields simultaneously.
+        # Both can coexist after deploy mutates config (sets templateId while
+        # template remains from initialization) — templateId takes precedence.
         if self.templateId:
-            if self.template is not None:
-                raise ValueError(
-                    "Invalid state: both 'templateId' and 'template' are set. "
-                    "Only one may be provided."
-                )
             exclude_fields.add("template")
         return exclude_fields
 
@@ -679,6 +676,9 @@ class ServerlessResource(DeployableResource):
                 endpoint = await self._sync_graphql_object_with_inputs(endpoint)
                 self.id = endpoint.id
                 self.templateId = endpoint.templateId
+                self.template = (
+                    None  # templateId takes precedence; clear to avoid conflict
+                )
                 return endpoint
 
             raise ValueError("Deployment failed, no endpoint was returned.")

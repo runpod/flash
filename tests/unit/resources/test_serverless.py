@@ -973,6 +973,24 @@ class TestServerlessResourceEdgeCases:
 
         assert "template" in excluded
 
+    def test_payload_exclude_tolerates_both_template_id_and_template(self):
+        """_payload_exclude does not raise when both templateId and template are set.
+
+        After deploy mutates the config object, both fields can coexist.
+        templateId takes precedence and template should be excluded.
+        """
+        serverless = ServerlessResource(name="test")
+        serverless.templateId = "tmpl-123"
+        serverless.template = PodTemplate(
+            name="test-template",
+            imageName="runpod/test:latest",
+            containerDiskInGb=20,
+        )
+
+        excluded = serverless._payload_exclude()
+
+        assert "template" in excluded
+
     def test_payload_exclude_does_not_exclude_template_without_template_id(self):
         """_payload_exclude does not exclude template when templateId is absent."""
         serverless = ServerlessResource(name="test")
