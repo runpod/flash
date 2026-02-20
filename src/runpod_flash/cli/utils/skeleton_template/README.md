@@ -103,7 +103,7 @@ cpu_config = CpuLiveServerless(name="cpu_worker")
 
 @remote(resource_config=cpu_config)
 async def cpu_hello(input_data: dict = {}) -> dict:
-    return {"message": "Hello from CPU!"} + input_data
+    return {"message": "Hello from CPU!", **input_data}
 ```
 
 ### Load-Balanced (LB) Workers

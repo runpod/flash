@@ -40,7 +40,7 @@ async def process(input_data: dict) -> dict:
     return {"result": "processed", "input": input_data}
 ```
 
-`flash run` → `POST /gpu_worker/run` and `POST /gpu_worker/run_sync`
+`flash run` → `POST /gpu_worker/run_sync`
 `flash deploy` → standalone QB endpoint at `api.runpod.ai/v2/{id}/run`
 
 ### 4.2 LB endpoint
