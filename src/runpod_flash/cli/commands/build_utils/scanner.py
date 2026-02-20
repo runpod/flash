@@ -3,12 +3,68 @@
 import ast
 import importlib
 import logging
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
+
+
+def file_to_url_prefix(file_path: Path, project_root: Path) -> str:
+    """Derive the local dev server URL prefix from a source file path.
+
+    Args:
+        file_path: Absolute path to the Python source file
+        project_root: Absolute path to the project root directory
+
+    Returns:
+        URL prefix starting with "/" (e.g., /longruns/stage1)
+
+    Example:
+        longruns/stage1.py  →  /longruns/stage1
+    """
+    rel = file_path.relative_to(project_root).with_suffix("")
+    return "/" + str(rel).replace(os.sep, "/")
+
+
+def file_to_resource_name(file_path: Path, project_root: Path) -> str:
+    """Derive the manifest resource name from a source file path.
+
+    Slashes and hyphens are replaced with underscores to produce a valid
+    Python identifier suitable for use as a resource name.
+
+    Args:
+        file_path: Absolute path to the Python source file
+        project_root: Absolute path to the project root directory
+
+    Returns:
+        Resource name using underscores (e.g., longruns_stage1)
+
+    Example:
+        longruns/stage1.py  →  longruns_stage1
+        my-worker.py        →  my_worker
+    """
+    rel = file_path.relative_to(project_root).with_suffix("")
+    return str(rel).replace(os.sep, "_").replace("/", "_").replace("-", "_")
+
+
+def file_to_module_path(file_path: Path, project_root: Path) -> str:
+    """Derive the Python dotted module path from a source file path.
+
+    Args:
+        file_path: Absolute path to the Python source file
+        project_root: Absolute path to the project root directory
+
+    Returns:
+        Dotted module path (e.g., longruns.stage1)
+
+    Example:
+        longruns/stage1.py  →  longruns.stage1
+    """
+    rel = file_path.relative_to(project_root).with_suffix("")
+    return str(rel).replace(os.sep, ".").replace("/", ".")
 
 
 @dataclass
@@ -35,6 +91,18 @@ class RemoteFunctionMetadata:
     called_remote_functions: List[str] = field(
         default_factory=list
     )  # Names of @remote functions called
+    is_lb_route_handler: bool = (
+        False  # LB @remote with method= and path= — runs directly as HTTP handler
+    )
+    class_methods: List[str] = field(
+        default_factory=list
+    )  # Public methods for @remote classes
+    param_names: List[str] = field(
+        default_factory=list
+    )  # Function params excluding self
+    class_method_params: Dict[str, List[str]] = field(
+        default_factory=dict
+    )  # method_name -> param_names (for classes)
 
 
 class RemoteDecoratorScanner:
@@ -62,7 +130,9 @@ class RemoteDecoratorScanner:
                 rel_path = f.relative_to(self.project_dir)
                 # Check if first part of path is in excluded_root_dirs
                 if rel_path.parts and rel_path.parts[0] not in excluded_root_dirs:
-                    self.py_files.append(f)
+                    # Exclude __init__.py — not valid worker entry points
+                    if f.name != "__init__.py":
+                        self.py_files.append(f)
             except (ValueError, IndexError):
                 # Include files that can't be made relative
                 self.py_files.append(f)
@@ -220,6 +290,39 @@ class RemoteDecoratorScanner:
                             {"is_load_balanced": False, "is_live_resource": False},
                         )
 
+                        # An LB route handler is an LB @remote function that has
+                        # both method= and path= declared. Its body runs directly
+                        # on the LB endpoint — it is NOT a remote dispatch stub.
+                        is_lb_route_handler = (
+                            flags["is_load_balanced"]
+                            and http_method is not None
+                            and http_path is not None
+                        )
+
+                        # Extract public methods for @remote classes
+                        class_methods: List[str] = []
+                        class_method_params: Dict[str, List[str]] = {}
+                        if is_class:
+                            for n in node.body:
+                                if isinstance(
+                                    n, (ast.FunctionDef, ast.AsyncFunctionDef)
+                                ) and not n.name.startswith("_"):
+                                    class_methods.append(n.name)
+                                    class_method_params[n.name] = [
+                                        arg.arg
+                                        for arg in n.args.args
+                                        if arg.arg != "self"
+                                    ]
+
+                        # Extract param names for functions (not classes)
+                        param_names: List[str] = []
+                        if not is_class and isinstance(
+                            node, (ast.FunctionDef, ast.AsyncFunctionDef)
+                        ):
+                            param_names = [
+                                arg.arg for arg in node.args.args if arg.arg != "self"
+                            ]
+
                         metadata = RemoteFunctionMetadata(
                             function_name=node.name,
                             module_path=module_path,
@@ -235,6 +338,10 @@ class RemoteDecoratorScanner:
                             config_variable=self.resource_variables.get(
                                 resource_config_name
                             ),
+                            is_lb_route_handler=is_lb_route_handler,
+                            class_methods=class_methods,
+                            param_names=param_names,
+                            class_method_params=class_method_params,
                         )
                         functions.append(metadata)
 

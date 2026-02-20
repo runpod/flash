@@ -159,6 +159,20 @@ def remote(
             "system_dependencies": system_dependencies,
         }
 
+        # LB route handler passthrough — return the function unwrapped.
+        #
+        # When @remote is applied to an LB resource (LiveLoadBalancer,
+        # CpuLiveLoadBalancer, LoadBalancerSlsResource) with method= and path=,
+        # the decorated function IS the HTTP route handler. Its body executes
+        # directly on the LB endpoint server; it is not dispatched to a remote
+        # process. QB @remote calls inside its body still use their own stubs.
+        is_lb_route_handler = is_lb_resource and method is not None and path is not None
+        if is_lb_route_handler:
+            routing_config["is_lb_route_handler"] = True
+            func_or_class.__remote_config__ = routing_config
+            func_or_class.__is_lb_route_handler__ = True
+            return func_or_class
+
         # Local execution mode - execute without provisioning remote servers
         if local:
             func_or_class.__remote_config__ = routing_config

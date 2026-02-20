@@ -85,13 +85,13 @@ class TestDetectFileConflicts:
     def test_detect_conflict_with_existing_file(self, tmp_path):
         """Test that existing files are detected as conflicts."""
         # Create a file that exists in the template
-        (tmp_path / "main.py").write_text("# existing file")
+        (tmp_path / "gpu_worker.py").write_text("# existing file")
 
         conflicts = detect_file_conflicts(tmp_path)
 
-        # Should detect main.py as a conflict
+        # Should detect gpu_worker.py as a conflict
         conflict_names = [str(c) for c in conflicts]
-        assert "main.py" in conflict_names
+        assert "gpu_worker.py" in conflict_names
 
     def test_detect_conflict_with_hidden_file(self, tmp_path):
         """Test that existing hidden files are detected as conflicts."""
@@ -138,7 +138,9 @@ class TestCreateProjectSkeleton:
         assert len(created_files) > 0
 
         # Check that key files exist
-        assert (tmp_path / "main.py").exists()
+        assert (tmp_path / "gpu_worker.py").exists()
+        assert (tmp_path / "cpu_worker.py").exists()
+        assert (tmp_path / "lb_worker.py").exists()
         assert (tmp_path / "README.md").exists()
         assert (tmp_path / "requirements.txt").exists()
 
@@ -146,13 +148,6 @@ class TestCreateProjectSkeleton:
         assert (tmp_path / ".env.example").exists()
         assert (tmp_path / ".gitignore").exists()
         assert (tmp_path / ".flashignore").exists()
-
-        # Check that workers directory structure exists
-        assert (tmp_path / "workers").is_dir()
-        assert (tmp_path / "workers" / "cpu").is_dir()
-        assert (tmp_path / "workers" / "gpu").is_dir()
-        assert (tmp_path / "workers" / "cpu" / "__init__.py").exists()
-        assert (tmp_path / "workers" / "gpu" / "__init__.py").exists()
 
     def test_create_skeleton_with_project_name_substitution(self, tmp_path):
         """Test that {{project_name}} placeholder is replaced."""
@@ -169,14 +164,14 @@ class TestCreateProjectSkeleton:
     def test_create_skeleton_skips_existing_files_without_force(self, tmp_path):
         """Test that existing files are not overwritten without force flag."""
         # Create an existing file with specific content
-        existing_content = "# This is my custom main.py"
-        (tmp_path / "main.py").write_text(existing_content)
+        existing_content = "# This is my custom gpu_worker.py"
+        (tmp_path / "gpu_worker.py").write_text(existing_content)
 
         # Create skeleton without force
         create_project_skeleton(tmp_path, force=False)
 
         # Existing file should not be overwritten
-        assert (tmp_path / "main.py").read_text() == existing_content
+        assert (tmp_path / "gpu_worker.py").read_text() == existing_content
 
         # But other files should be created
         assert (tmp_path / ".env.example").exists()
@@ -184,16 +179,16 @@ class TestCreateProjectSkeleton:
     def test_create_skeleton_overwrites_with_force(self, tmp_path):
         """Test that existing files are overwritten with force=True."""
         # Create an existing file
-        existing_content = "# This is my custom main.py"
-        (tmp_path / "main.py").write_text(existing_content)
+        existing_content = "# This is my custom gpu_worker.py"
+        (tmp_path / "gpu_worker.py").write_text(existing_content)
 
         # Create skeleton with force
         create_project_skeleton(tmp_path, force=True)
 
         # Existing file should be overwritten
-        new_content = (tmp_path / "main.py").read_text()
+        new_content = (tmp_path / "gpu_worker.py").read_text()
         assert new_content != existing_content
-        assert "# This is my custom main.py" not in new_content
+        assert "# This is my custom gpu_worker.py" not in new_content
 
     def test_create_skeleton_ignores_pycache(self, tmp_path):
         """Test that __pycache__ directories are not copied."""
@@ -225,7 +220,7 @@ class TestCreateProjectSkeleton:
 
         # All parent directories should exist
         assert project_dir.exists()
-        assert (project_dir / "main.py").exists()
+        assert (project_dir / "gpu_worker.py").exists()
 
     def test_create_skeleton_returns_created_files_list(self, tmp_path):
         """Test that function returns list of created files."""
@@ -236,14 +231,14 @@ class TestCreateProjectSkeleton:
         assert all(isinstance(f, str) for f in created_files)
 
         # Should contain expected files
-        assert "main.py" in created_files
+        assert "gpu_worker.py" in created_files
         assert ".env.example" in created_files
         assert "README.md" in created_files
 
     def test_create_skeleton_handles_readonly_files_gracefully(self, tmp_path):
         """Test handling of read-only files during creation."""
         # Create a read-only file
-        readonly_file = tmp_path / "main.py"
+        readonly_file = tmp_path / "gpu_worker.py"
         readonly_file.write_text("# readonly")
         readonly_file.chmod(0o444)
 
@@ -287,7 +282,9 @@ class TestEndToEndScenarios:
 
         # Verify all expected files exist
         expected_files = [
-            "main.py",
+            "gpu_worker.py",
+            "cpu_worker.py",
+            "lb_worker.py",
             "README.md",
             "requirements.txt",
             ".env.example",
@@ -297,14 +294,10 @@ class TestEndToEndScenarios:
         for filename in expected_files:
             assert (tmp_path / filename).exists(), f"{filename} should exist"
 
-        # Verify workers structure
-        assert (tmp_path / "workers" / "cpu" / "endpoint.py").exists()
-        assert (tmp_path / "workers" / "gpu" / "endpoint.py").exists()
-
     def test_full_init_workflow_with_conflicts(self, tmp_path):
         """Test complete workflow when conflicts exist."""
         # Create some existing files
-        (tmp_path / "main.py").write_text("# my custom main")
+        (tmp_path / "gpu_worker.py").write_text("# my custom worker")
         (tmp_path / ".env.example").write_text("MY_VAR=123")
 
         # Detect conflicts
@@ -312,14 +305,14 @@ class TestEndToEndScenarios:
         assert len(conflicts) == 2
 
         conflict_names = [str(c) for c in conflicts]
-        assert "main.py" in conflict_names
+        assert "gpu_worker.py" in conflict_names
         assert ".env.example" in conflict_names
 
         # Create skeleton without force (should preserve existing)
         create_project_skeleton(tmp_path, force=False)
 
         # Check that existing files were preserved
-        assert (tmp_path / "main.py").read_text() == "# my custom main"
+        assert (tmp_path / "gpu_worker.py").read_text() == "# my custom worker"
         assert (tmp_path / ".env.example").read_text() == "MY_VAR=123"
 
         # But new files should be created

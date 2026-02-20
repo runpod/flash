@@ -23,6 +23,7 @@ except ImportError:
 from runpod_flash.core.resources.constants import MAX_TARBALL_SIZE_MB
 
 from ..utils.ignore import get_file_tree, load_ignore_patterns
+from .build_utils.lb_handler_generator import LBHandlerGenerator
 from .build_utils.manifest import ManifestBuilder
 from .build_utils.scanner import RemoteDecoratorScanner
 
@@ -240,6 +241,9 @@ def run_build(
             manifest_path = build_dir / "flash_manifest.json"
             manifest_path.write_text(json.dumps(manifest, indent=2))
 
+            lb_generator = LBHandlerGenerator(manifest, build_dir)
+            lb_generator.generate_handlers()
+
             flash_dir = project_dir / ".flash"
             deployment_manifest_path = flash_dir / "flash_manifest.json"
             shutil.copy2(manifest_path, deployment_manifest_path)
@@ -426,28 +430,19 @@ def validate_project_structure(project_dir: Path) -> bool:
     """
     Validate that directory is a Flash project.
 
+    A Flash project is any directory containing Python files. The
+    RemoteDecoratorScanner validates that @remote functions exist.
+
     Args:
         project_dir: Directory to validate
 
     Returns:
         True if valid Flash project
     """
-    main_py = project_dir / "main.py"
-
-    if not main_py.exists():
-        console.print(f"[red]Error:[/red] main.py not found in {project_dir}")
+    py_files = list(project_dir.rglob("*.py"))
+    if not py_files:
+        console.print(f"[red]Error:[/red] No Python files found in {project_dir}")
         return False
-
-    # Check if main.py has FastAPI app
-    try:
-        content = main_py.read_text(encoding="utf-8")
-        if "FastAPI" not in content:
-            console.print(
-                "[yellow]Warning:[/yellow] main.py does not appear to have a FastAPI app"
-            )
-    except Exception:
-        pass
-
     return True
 
 

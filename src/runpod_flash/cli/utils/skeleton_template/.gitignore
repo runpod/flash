@@ -36,6 +36,7 @@ wheels/
 .env.local
 
 # Flash
+.flash/
 .runpod/
 dist/
 

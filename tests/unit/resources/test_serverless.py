@@ -467,6 +467,32 @@ class TestServerlessResourceDeployment:
 
         assert serverless.is_deployed() is False
 
+    def test_is_deployed_skips_health_check_during_live_provisioning(self, monkeypatch):
+        """During flash run, is_deployed returns True based on ID alone."""
+        monkeypatch.setenv("FLASH_IS_LIVE_PROVISIONING", "true")
+        serverless = ServerlessResource(name="test")
+        serverless.id = "ep-live-123"
+
+        # health() must NOT be called — no mock needed, any call would raise
+        assert serverless.is_deployed() is True
+
+    def test_is_deployed_uses_health_check_outside_live_provisioning(self, monkeypatch):
+        """Outside flash run, is_deployed falls back to health check."""
+        monkeypatch.delenv("FLASH_IS_LIVE_PROVISIONING", raising=False)
+        serverless = ServerlessResource(name="test")
+        serverless.id = "ep-123"
+
+        mock_endpoint = MagicMock()
+        mock_endpoint.health.return_value = {"workers": {}}
+
+        with patch.object(
+            type(serverless),
+            "endpoint",
+            new_callable=lambda: property(lambda self: mock_endpoint),
+        ):
+            assert serverless.is_deployed() is True
+            mock_endpoint.health.assert_called_once()
+
     @pytest.mark.asyncio
     async def test_deploy_already_deployed(self):
         """Test deploy returns early when already deployed."""
@@ -937,6 +963,42 @@ class TestServerlessResourceEdgeCases:
             result = serverless.is_deployed()
 
             assert result is False
+
+    def test_payload_exclude_adds_template_when_template_id_set(self):
+        """_payload_exclude excludes template field when templateId is already set."""
+        serverless = ServerlessResource(name="test")
+        serverless.templateId = "tmpl-123"
+
+        excluded = serverless._payload_exclude()
+
+        assert "template" in excluded
+
+    def test_payload_exclude_tolerates_both_template_id_and_template(self):
+        """_payload_exclude does not raise when both templateId and template are set.
+
+        After deploy mutates the config object, both fields can coexist.
+        templateId takes precedence and template should be excluded.
+        """
+        serverless = ServerlessResource(name="test")
+        serverless.templateId = "tmpl-123"
+        serverless.template = PodTemplate(
+            name="test-template",
+            imageName="runpod/test:latest",
+            containerDiskInGb=20,
+        )
+
+        excluded = serverless._payload_exclude()
+
+        assert "template" in excluded
+
+    def test_payload_exclude_does_not_exclude_template_without_template_id(self):
+        """_payload_exclude does not exclude template when templateId is absent."""
+        serverless = ServerlessResource(name="test")
+        serverless.templateId = None
+
+        excluded = serverless._payload_exclude()
+
+        assert "template" not in excluded
 
     def test_reverse_sync_from_backend_response(self):
         """Test reverse sync when receiving backend response with gpuIds."""

@@ -259,10 +259,10 @@ class LoadBalancerSlsResource(ServerlessResource):
             self.env["FLASH_IS_MOTHERSHIP"] = "true"
 
             # Call parent deploy (creates endpoint via RunPod API)
-            log.debug(f"Deploying LB endpoint {self.name}...")
+            log.info(f"Deploying LB endpoint: {self.name}")
             deployed = await super()._do_deploy()
 
-            log.debug(f"LB endpoint {self.name} ({deployed.id}) deployed successfully")
+            log.info(f"Deployed: {self.name} ({deployed.url})")
             return deployed
 
         except Exception as e:

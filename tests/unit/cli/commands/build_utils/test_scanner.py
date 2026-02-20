@@ -878,3 +878,252 @@ async def process_data():
         assert routes[0].http_path == "/api/process"
         assert routes[0].is_async is True
         assert routes[0].http_method == "POST"
+
+
+def test_class_methods_extraction():
+    """Test that public methods are extracted from @remote classes."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project_dir = Path(tmpdir)
+
+        test_file = project_dir / "gpu_worker.py"
+        test_file.write_text(
+            """
+from runpod_flash import LiveServerless, remote
+
+gpu_config = LiveServerless(name="gpu_worker")
+
+@remote(gpu_config)
+class SimpleSD:
+    def __init__(self):
+        self.model = None
+
+    def generate_image(self, prompt):
+        return {"image": "base64..."}
+
+    def upscale(self, image):
+        return {"image": "upscaled..."}
+
+    def _load_model(self):
+        pass
+
+    def __repr__(self):
+        return "SimpleSD"
+"""
+        )
+
+        scanner = RemoteDecoratorScanner(project_dir)
+        functions = scanner.discover_remote_functions()
+
+        assert len(functions) == 1
+        meta = functions[0]
+        assert meta.function_name == "SimpleSD"
+        assert meta.is_class is True
+        assert meta.class_methods == ["generate_image", "upscale"]
+
+
+def test_class_methods_excludes_private_and_dunder():
+    """Test that _private and __dunder__ methods are excluded from class_methods."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project_dir = Path(tmpdir)
+
+        test_file = project_dir / "worker.py"
+        test_file.write_text(
+            """
+from runpod_flash import LiveServerless, remote
+
+config = LiveServerless(name="worker")
+
+@remote(config)
+class MyWorker:
+    def __init__(self):
+        pass
+
+    def __repr__(self):
+        return "MyWorker"
+
+    def _internal_helper(self):
+        pass
+
+    async def process(self, data):
+        return data
+"""
+        )
+
+        scanner = RemoteDecoratorScanner(project_dir)
+        functions = scanner.discover_remote_functions()
+
+        assert len(functions) == 1
+        assert functions[0].class_methods == ["process"]
+
+
+def test_class_with_no_public_methods():
+    """Test @remote class with only private/dunder methods has empty class_methods."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project_dir = Path(tmpdir)
+
+        test_file = project_dir / "worker.py"
+        test_file.write_text(
+            """
+from runpod_flash import LiveServerless, remote
+
+config = LiveServerless(name="worker")
+
+@remote(config)
+class EmptyWorker:
+    def __init__(self):
+        pass
+
+    def __call__(self, data):
+        return data
+"""
+        )
+
+        scanner = RemoteDecoratorScanner(project_dir)
+        functions = scanner.discover_remote_functions()
+
+        assert len(functions) == 1
+        assert functions[0].class_methods == []
+
+
+def test_function_has_empty_class_methods():
+    """Test that regular @remote functions have empty class_methods list."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project_dir = Path(tmpdir)
+
+        test_file = project_dir / "worker.py"
+        test_file.write_text(
+            """
+from runpod_flash import LiveServerless, remote
+
+config = LiveServerless(name="worker")
+
+@remote(config)
+async def my_function(data):
+    return data
+"""
+        )
+
+        scanner = RemoteDecoratorScanner(project_dir)
+        functions = scanner.discover_remote_functions()
+
+        assert len(functions) == 1
+        assert functions[0].is_class is False
+        assert functions[0].class_methods == []
+
+
+def test_param_names_single_param():
+    """Test that param_names extracts a single parameter."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project_dir = Path(tmpdir)
+
+        test_file = project_dir / "worker.py"
+        test_file.write_text(
+            """
+from runpod_flash import LiveServerless, remote
+
+config = LiveServerless(name="worker")
+
+@remote(config)
+async def process(data):
+    return data
+"""
+        )
+
+        scanner = RemoteDecoratorScanner(project_dir)
+        functions = scanner.discover_remote_functions()
+
+        assert len(functions) == 1
+        assert functions[0].param_names == ["data"]
+
+
+def test_param_names_zero_params():
+    """Test that param_names is empty for zero-parameter functions."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project_dir = Path(tmpdir)
+
+        test_file = project_dir / "worker.py"
+        test_file.write_text(
+            """
+from runpod_flash import LiveServerless, remote
+
+config = LiveServerless(name="worker")
+
+@remote(config)
+async def list_images() -> dict:
+    return {"images": []}
+"""
+        )
+
+        scanner = RemoteDecoratorScanner(project_dir)
+        functions = scanner.discover_remote_functions()
+
+        assert len(functions) == 1
+        assert functions[0].param_names == []
+
+
+def test_param_names_multiple_params():
+    """Test that param_names extracts multiple parameters."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project_dir = Path(tmpdir)
+
+        test_file = project_dir / "worker.py"
+        test_file.write_text(
+            """
+from runpod_flash import LiveServerless, remote
+
+config = LiveServerless(name="worker")
+
+@remote(config)
+async def transform(text: str, operation: str = "uppercase") -> dict:
+    return {"result": text}
+"""
+        )
+
+        scanner = RemoteDecoratorScanner(project_dir)
+        functions = scanner.discover_remote_functions()
+
+        assert len(functions) == 1
+        assert functions[0].param_names == ["text", "operation"]
+
+
+def test_class_method_params_extraction():
+    """Test that class_method_params extracts params for each public method."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project_dir = Path(tmpdir)
+
+        test_file = project_dir / "worker.py"
+        test_file.write_text(
+            """
+from runpod_flash import LiveServerless, remote
+
+config = LiveServerless(name="worker")
+
+@remote(config)
+class ImageProcessor:
+    def __init__(self):
+        pass
+
+    def generate(self, prompt: str, width: int = 512):
+        return {}
+
+    def list_models(self):
+        return []
+
+    def _internal(self):
+        pass
+"""
+        )
+
+        scanner = RemoteDecoratorScanner(project_dir)
+        functions = scanner.discover_remote_functions()
+
+        assert len(functions) == 1
+        meta = functions[0]
+        assert meta.is_class is True
+        assert meta.class_methods == ["generate", "list_models"]
+        assert meta.class_method_params == {
+            "generate": ["prompt", "width"],
+            "list_models": [],
+        }
+        # Classes should have empty param_names
+        assert meta.param_names == []

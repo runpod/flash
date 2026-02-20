@@ -21,14 +21,12 @@ REQUIRED_TEMPLATE_FILES=(
     "runpod_flash/cli/utils/skeleton_template/.env.example"
     "runpod_flash/cli/utils/skeleton_template/.gitignore"
     "runpod_flash/cli/utils/skeleton_template/.flashignore"
-    "runpod_flash/cli/utils/skeleton_template/main.py"
+    "runpod_flash/cli/utils/skeleton_template/cpu_worker.py"
+    "runpod_flash/cli/utils/skeleton_template/gpu_worker.py"
+    "runpod_flash/cli/utils/skeleton_template/lb_worker.py"
+    "runpod_flash/cli/utils/skeleton_template/pyproject.toml"
     "runpod_flash/cli/utils/skeleton_template/README.md"
     "runpod_flash/cli/utils/skeleton_template/requirements.txt"
-    "runpod_flash/cli/utils/skeleton_template/workers/__init__.py"
-    "runpod_flash/cli/utils/skeleton_template/workers/cpu/__init__.py"
-    "runpod_flash/cli/utils/skeleton_template/workers/cpu/endpoint.py"
-    "runpod_flash/cli/utils/skeleton_template/workers/gpu/__init__.py"
-    "runpod_flash/cli/utils/skeleton_template/workers/gpu/endpoint.py"
 )
 
 MISSING_IN_WHEEL=0
@@ -77,7 +75,7 @@ flash init test_project > /dev/null 2>&1
 # Verify critical files exist
 echo ""
 echo "Verifying created files..."
-REQUIRED_FILES=(".env.example" ".gitignore" ".flashignore" "main.py" "README.md" "requirements.txt")
+REQUIRED_FILES=(".env.example" ".gitignore" ".flashignore" "cpu_worker.py" "gpu_worker.py" "lb_worker.py" "pyproject.toml" "README.md" "requirements.txt")
 MISSING_IN_OUTPUT=0
 
 for file in "${REQUIRED_FILES[@]}"; do
@@ -93,15 +91,6 @@ for file in "${REQUIRED_FILES[@]}"; do
         MISSING_IN_OUTPUT=$((MISSING_IN_OUTPUT + 1))
     fi
 done
-
-# Verify workers directory structure
-if [ -d "test_project/workers/cpu" ] && [ -d "test_project/workers/gpu" ]; then
-    echo "[OK] workers/cpu/"
-    echo "[OK] workers/gpu/"
-else
-    echo "[MISSING] workers directory structure"
-    MISSING_IN_OUTPUT=$((MISSING_IN_OUTPUT + 1))
-fi
 
 # Cleanup
 deactivate

@@ -9,43 +9,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from runpod_flash.core.resources.constants import (
-    DEFAULT_WORKERS_MAX,
-    DEFAULT_WORKERS_MIN,
-    FLASH_CPU_LB_IMAGE,
-    FLASH_LB_IMAGE,
+from .scanner import (
+    RemoteFunctionMetadata,
+    file_to_module_path,
+    file_to_url_prefix,
 )
-
-from .scanner import RemoteFunctionMetadata, detect_explicit_mothership, detect_main_app
 
 logger = logging.getLogger(__name__)
 
 RESERVED_PATHS = ["/execute", "/ping"]
-
-
-def _serialize_routes(routes: List[RemoteFunctionMetadata]) -> List[Dict[str, Any]]:
-    """Convert RemoteFunctionMetadata to manifest dict format.
-
-    Args:
-        routes: List of route metadata objects
-
-    Returns:
-        List of dicts with route information for manifest
-    """
-    return [
-        {
-            "name": route.function_name,
-            "module": route.module_path,
-            "is_async": route.is_async,
-            "is_class": route.is_class,
-            "is_load_balanced": route.is_load_balanced,
-            "is_live_resource": route.is_live_resource,
-            "config_variable": route.config_variable,
-            "http_method": route.http_method,
-            "http_path": route.http_path,
-        }
-        for route in routes
-    ]
 
 
 @dataclass
@@ -213,83 +185,13 @@ class ManifestBuilder:
 
         return config
 
-    def _create_mothership_resource(self, main_app_config: dict) -> Dict[str, Any]:
-        """Create implicit mothership resource from main.py.
-
-        Args:
-            main_app_config: Dict with 'file_path', 'app_variable', 'has_routes', 'fastapi_routes' keys
-
-        Returns:
-            Dictionary representing the mothership resource for the manifest
-        """
-        # Extract FastAPI routes if present
-        fastapi_routes = main_app_config.get("fastapi_routes", [])
-        functions_list = _serialize_routes(fastapi_routes)
-
-        return {
-            "resource_type": "CpuLiveLoadBalancer",
-            "functions": functions_list,
-            "is_load_balanced": True,
-            "is_live_resource": True,
-            "is_mothership": True,
-            "main_file": main_app_config["file_path"].name,
-            "app_variable": main_app_config["app_variable"],
-            "imageName": FLASH_CPU_LB_IMAGE,
-            "workersMin": DEFAULT_WORKERS_MIN,
-            "workersMax": DEFAULT_WORKERS_MAX,
-        }
-
-    def _create_mothership_from_explicit(
-        self, explicit_config: dict, search_dir: Path
-    ) -> Dict[str, Any]:
-        """Create mothership resource from explicit mothership.py configuration.
-
-        Args:
-            explicit_config: Configuration dict from detect_explicit_mothership()
-            search_dir: Project directory
-
-        Returns:
-            Dictionary representing the mothership resource for the manifest
-        """
-        # Detect FastAPI app details for handler generation
-        main_app_config = detect_main_app(search_dir, explicit_mothership_exists=False)
-
-        if not main_app_config:
-            # No FastAPI app found, use defaults
-            main_file = "main.py"
-            app_variable = "app"
-            fastapi_routes = []
-        else:
-            main_file = main_app_config["file_path"].name
-            app_variable = main_app_config["app_variable"]
-            fastapi_routes = main_app_config.get("fastapi_routes", [])
-
-        # Extract FastAPI routes into functions list
-        functions_list = _serialize_routes(fastapi_routes)
-
-        # Map resource type to image name
-        resource_type = explicit_config.get("resource_type", "CpuLiveLoadBalancer")
-        if resource_type == "LiveLoadBalancer":
-            image_name = FLASH_LB_IMAGE  # GPU load balancer
-        else:
-            image_name = FLASH_CPU_LB_IMAGE  # CPU load balancer
-
-        return {
-            "resource_type": resource_type,
-            "functions": functions_list,
-            "is_load_balanced": True,
-            "is_live_resource": True,
-            "is_mothership": True,
-            "is_explicit": True,  # Flag to indicate explicit configuration
-            "main_file": main_file,
-            "app_variable": app_variable,
-            "imageName": image_name,
-            "workersMin": explicit_config.get("workersMin", DEFAULT_WORKERS_MIN),
-            "workersMax": explicit_config.get("workersMax", DEFAULT_WORKERS_MAX),
-        }
-
     def build(self) -> Dict[str, Any]:
-        """Build the manifest dictionary."""
+        """Build the manifest dictionary.
+
+        Resources are keyed by resource_config_name for runtime compatibility.
+        Each resource entry includes file_path, local_path_prefix, and module_path
+        for the dev server and LB handler generator.
+        """
         # Group functions by resource_config_name
         resources: Dict[str, List[RemoteFunctionMetadata]] = {}
 
@@ -305,6 +207,11 @@ class ManifestBuilder:
             str, Dict[str, str]
         ] = {}  # resource_name -> {route_key -> function_name}
 
+        # Determine project root for path derivation.
+        # build_dir is .flash/.build which *contains* the copied project files,
+        # so use it directly (not its parent, which would be .flash/).
+        project_root = self.build_dir if self.build_dir else Path.cwd()
+
         for resource_name, functions in sorted(resources.items()):
             # Use actual resource type from first function in group
             resource_type = (
@@ -314,6 +221,27 @@ class ManifestBuilder:
             # Extract flags from first function (determined by isinstance() at scan time)
             is_load_balanced = functions[0].is_load_balanced if functions else False
             is_live_resource = functions[0].is_live_resource if functions else False
+
+            # Derive path fields from the first function's source file.
+            # All functions in a resource share the same source file per convention.
+            first_file = functions[0].file_path if functions else None
+            file_path_str = ""
+            local_path_prefix = ""
+            resource_module_path = functions[0].module_path if functions else ""
+
+            if first_file and first_file.exists():
+                try:
+                    file_path_str = str(first_file.relative_to(project_root))
+                    local_path_prefix = file_to_url_prefix(first_file, project_root)
+                    resource_module_path = file_to_module_path(first_file, project_root)
+                except ValueError:
+                    # File is outside project root — fall back to module_path
+                    file_path_str = str(first_file)
+                    local_path_prefix = "/" + functions[0].module_path.replace(".", "/")
+            elif first_file:
+                # File path may be relative (in test scenarios)
+                file_path_str = str(first_file)
+                local_path_prefix = "/" + functions[0].module_path.replace(".", "/")
 
             # Validate and collect routing for LB endpoints
             resource_routes = {}
@@ -374,6 +302,9 @@ class ManifestBuilder:
 
             resources_dict[resource_name] = {
                 "resource_type": resource_type,
+                "file_path": file_path_str,
+                "local_path_prefix": local_path_prefix,
+                "module_path": resource_module_path,
                 "functions": functions_list,
                 "is_load_balanced": is_load_balanced,
                 "is_live_resource": is_live_resource,
@@ -394,68 +325,6 @@ class ManifestBuilder:
                         f"resources '{function_registry[f.function_name]}' and '{resource_name}'"
                     )
                 function_registry[f.function_name] = resource_name
-
-        # === MOTHERSHIP DETECTION (EXPLICIT THEN FALLBACK) ===
-        search_dir = self.build_dir if self.build_dir else Path.cwd()
-
-        # Step 1: Check for explicit mothership.py
-        explicit_mothership = detect_explicit_mothership(search_dir)
-
-        if explicit_mothership:
-            # Use explicit configuration
-            logger.debug("Found explicit mothership configuration in mothership.py")
-
-            # Check for name conflict
-            mothership_name = explicit_mothership.get("name", "mothership")
-            if mothership_name in resources_dict:
-                logger.warning(
-                    f"Project has a @remote resource named '{mothership_name}'. "
-                    f"Using 'mothership-entrypoint' for explicit mothership endpoint."
-                )
-                mothership_name = "mothership-entrypoint"
-
-            # Create mothership resource from explicit config
-            mothership_resource = self._create_mothership_from_explicit(
-                explicit_mothership, search_dir
-            )
-            resources_dict[mothership_name] = mothership_resource
-
-        else:
-            # Step 2: Fallback to auto-detection
-            main_app_config = detect_main_app(
-                search_dir, explicit_mothership_exists=False
-            )
-
-            if main_app_config and main_app_config["has_routes"]:
-                logger.warning(
-                    "Auto-detected FastAPI app in main.py (no mothership.py found). "
-                    "Consider running 'flash init' to create explicit mothership configuration."
-                )
-
-                # Check for name conflict
-                if "mothership" in resources_dict:
-                    logger.warning(
-                        "Project has a @remote resource named 'mothership'. "
-                        "Using 'mothership-entrypoint' for auto-generated mothership endpoint."
-                    )
-                    mothership_name = "mothership-entrypoint"
-                else:
-                    mothership_name = "mothership"
-
-                # Create mothership resource from auto-detection (legacy behavior)
-                mothership_resource = self._create_mothership_resource(main_app_config)
-                resources_dict[mothership_name] = mothership_resource
-
-        # Extract routes from mothership resources
-        for resource_name, resource in resources_dict.items():
-            if resource.get("is_mothership") and resource.get("functions"):
-                mothership_routes = {}
-                for func in resource["functions"]:
-                    if func.get("http_method") and func.get("http_path"):
-                        route_key = f"{func['http_method']} {func['http_path']}"
-                        mothership_routes[route_key] = func["name"]
-                if mothership_routes:
-                    routes_dict[resource_name] = mothership_routes
 
         manifest = {
             "version": "1.0",

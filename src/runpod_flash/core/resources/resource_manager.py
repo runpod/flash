@@ -245,7 +245,6 @@ class ResourceManager(SingletonMixin):
                         deployed_resource = await self._deploy_with_error_context(
                             config
                         )
-                        log.debug(f"URL: {deployed_resource.url}")
                         self._add_resource(resource_key, deployed_resource)
                         return deployed_resource
                     except Exception:
@@ -278,7 +277,6 @@ class ResourceManager(SingletonMixin):
                             deployed_resource = await self._deploy_with_error_context(
                                 config
                             )
-                            log.debug(f"URL: {deployed_resource.url}")
                             self._add_resource(resource_key, deployed_resource)
                             return deployed_resource
                         except Exception:
@@ -292,13 +290,11 @@ class ResourceManager(SingletonMixin):
                             raise
 
                 # Config unchanged, reuse existing
-                log.info(f"URL: {existing.url}")
                 return existing
 
             # No existing resource, deploy new one
             try:
                 deployed_resource = await self._deploy_with_error_context(config)
-                log.debug(f"URL: {deployed_resource.url}")
                 self._add_resource(resource_key, deployed_resource)
                 return deployed_resource
             except Exception:
