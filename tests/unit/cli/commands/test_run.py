@@ -107,10 +107,9 @@ def test_codegen_class_single_method():
         content = server_path.read_text()
 
         assert "_instance_StableDiffusion = StableDiffusion()" in content
-        assert (
-            'result = await _instance_StableDiffusion.generate(body.get("input", body))'
-            in content
-        )
+        assert "_call_with_body(_instance_StableDiffusion.generate, body)" in content
+        assert "body: _sd_worker_StableDiffusion_generate_Input" in content
+        assert "_make_input_model" in content
         assert '"/sd_worker/run_sync"' in content
         # Single method: no method name in URL
         assert '"/sd_worker/generate/run_sync"' not in content
@@ -148,11 +147,10 @@ def test_codegen_class_multiple_methods():
         assert "_instance_SimpleSD = SimpleSD()" in content
         assert '"/gpu_worker/generate_image/run_sync"' in content
         assert '"/gpu_worker/upscale/run_sync"' in content
-        assert (
-            'await _instance_SimpleSD.generate_image(body.get("input", body))'
-            in content
-        )
-        assert 'await _instance_SimpleSD.upscale(body.get("input", body))' in content
+        assert "_call_with_body(_instance_SimpleSD.generate_image, body)" in content
+        assert "_call_with_body(_instance_SimpleSD.upscale, body)" in content
+        assert "body: _gpu_worker_SimpleSD_generate_image_Input" in content
+        assert "body: _gpu_worker_SimpleSD_upscale_Input" in content
 
 
 def test_codegen_mixed_function_and_class():
@@ -185,11 +183,12 @@ def test_codegen_mixed_function_and_class():
         assert '"/worker/process/run_sync"' in content
         assert '"/worker/predict/run_sync"' in content
         assert "_instance_MyModel = MyModel()" in content
-        assert 'await _instance_MyModel.predict(body.get("input", body))' in content
+        assert "_call_with_body(_instance_MyModel.predict, body)" in content
+        assert "_call_with_body(process, body)" in content
 
 
-def test_codegen_function_only_unchanged():
-    """Test that function-only workers still generate the same code as before."""
+def test_codegen_function_only():
+    """Test that function-only workers use Pydantic model and _call_with_body."""
     with tempfile.TemporaryDirectory() as tmpdir:
         project_root = Path(tmpdir)
 
@@ -209,7 +208,9 @@ def test_codegen_function_only_unchanged():
 
         # Single function: short URL
         assert '"/simple/run_sync"' in content
-        assert 'await process(body.get("input", body))' in content
+        assert "_call_with_body(process, body)" in content
+        assert "_simple_process_Input = _make_input_model(" in content
+        assert "body: _simple_process_Input" in content
         # No instance creation
         assert "_instance_" not in content
 
@@ -241,7 +242,7 @@ def test_codegen_zero_param_function():
 
 
 def test_codegen_multi_param_function():
-    """Test generated code uses await fn(**body.get(...)) for multi-param functions."""
+    """Test generated code uses _call_with_body for multi-param functions."""
     with tempfile.TemporaryDirectory() as tmpdir:
         project_root = Path(tmpdir)
 
@@ -260,11 +261,13 @@ def test_codegen_multi_param_function():
         server_path = _generate_flash_server(project_root, workers)
         content = server_path.read_text()
 
-        assert 'await transform(**body.get("input", body))' in content
+        assert "_call_with_body(transform, body)" in content
+        assert "_worker_transform_Input = _make_input_model(" in content
+        assert "body: _worker_transform_Input" in content
 
 
 def test_codegen_single_param_function():
-    """Test generated code uses await fn(body.get(...)) for single-param functions."""
+    """Test generated code uses _call_with_body for single-param functions."""
     with tempfile.TemporaryDirectory() as tmpdir:
         project_root = Path(tmpdir)
 
@@ -283,7 +286,8 @@ def test_codegen_single_param_function():
         server_path = _generate_flash_server(project_root, workers)
         content = server_path.read_text()
 
-        assert 'await process(body.get("input", body))' in content
+        assert "_call_with_body(process, body)" in content
+        assert "body: _worker_process_Input" in content
 
 
 def test_codegen_zero_param_class_method():
@@ -318,7 +322,7 @@ def test_codegen_zero_param_class_method():
 
 
 def test_codegen_multi_param_class_method():
-    """Test generated code uses **body spread for multi-param class methods."""
+    """Test generated code uses _call_with_body for multi-param class methods."""
     with tempfile.TemporaryDirectory() as tmpdir:
         project_root = Path(tmpdir)
 
@@ -343,14 +347,14 @@ def test_codegen_multi_param_class_method():
         server_path = _generate_flash_server(project_root, workers)
         content = server_path.read_text()
 
-        assert (
-            'await _instance_ImageProcessor.generate(**body.get("input", body))'
-            in content
-        )
+        assert "_call_with_body(_instance_ImageProcessor.generate, body)" in content
+        assert "body: _worker_ImageProcessor_generate_Input" in content
+        # Model creation uses _class_type to get original method signature
+        assert "_class_type" in content
 
 
 def test_codegen_backward_compat_no_method_params():
-    """Test that missing method_params in class_remotes falls back to 1-param pattern."""
+    """Test that missing method_params in class_remotes uses _call_with_body."""
     with tempfile.TemporaryDirectory() as tmpdir:
         project_root = Path(tmpdir)
 
@@ -371,8 +375,9 @@ def test_codegen_backward_compat_no_method_params():
         server_path = _generate_flash_server(project_root, workers)
         content = server_path.read_text()
 
-        # Should fall back to 1-param pattern when method_params not provided
-        assert 'await _instance_OldStyle.process(body.get("input", body))' in content
+        # Should use _call_with_body when method_params not provided (params=None)
+        assert "_call_with_body(_instance_OldStyle.process, body)" in content
+        assert "body: _worker_OldStyle_process_Input" in content
 
 
 def test_scan_populates_function_params():
@@ -542,12 +547,13 @@ def test_codegen_lb_post_with_path_params():
         server_path = _generate_flash_server(project_root, workers)
         content = server_path.read_text()
 
-        # POST handler must have both body and path param
+        # POST handler must have typed body and path param
         assert (
-            "async def _route_worker_update_item(body: dict, item_id: str):" in content
+            "async def _route_worker_update_item(body: _worker_update_item_Input, item_id: str):"
+            in content
         )
         assert '"item_id": item_id' in content
-        assert "**body" in content
+        assert "_to_dict(body)" in content
 
 
 def test_codegen_lb_get_with_multiple_path_params():

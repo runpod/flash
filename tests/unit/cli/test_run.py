@@ -456,12 +456,12 @@ class TestGenerateFlashServer:
         )
 
     def test_post_lb_route_generates_body_param(self, tmp_path):
-        """POST/PUT/PATCH/DELETE LB routes use body: dict for OpenAPI docs."""
+        """POST/PUT/PATCH/DELETE LB routes use typed body for OpenAPI docs."""
         for method in ("POST", "PUT", "PATCH", "DELETE"):
             worker = self._make_lb_worker(tmp_path, method)
             content = _generate_flash_server(tmp_path, [worker]).read_text()
-            assert "async def _route_api_list_routes(body: dict):" in content
-            assert "_lb_execute(api_config, list_routes, body)" in content
+            assert "body: _api_list_routes_Input" in content
+            assert "_lb_execute(api_config, list_routes, _to_dict(body))" in content
 
     def test_get_lb_route_uses_query_params(self, tmp_path):
         """GET LB routes pass query params as a dict."""
@@ -499,7 +499,7 @@ class TestGenerateFlashServer:
         )
         content = _generate_flash_server(tmp_path, [worker]).read_text()
         assert "from worker import process" in content
-        assert "await process(" in content
+        assert "_call_with_body(process, body)" in content
 
 
 class TestSanitizeFnName:
@@ -618,7 +618,10 @@ class TestGenerateFlashServerNumericDirs:
         content = _generate_flash_server(tmp_path, [worker]).read_text()
 
         # Function name must start with '_', not a digit
-        assert "async def _01_hello_gpu_worker_run_sync(body: dict):" in content
+        assert (
+            "async def _01_hello_gpu_worker_run_sync(body: _01_hello_gpu_worker_gpu_hello_Input):"
+            in content
+        )
 
     def test_lb_numeric_dir_uses_flash_import(self, tmp_path):
         """LB workers in numeric dirs use _flash_import for config and function imports."""

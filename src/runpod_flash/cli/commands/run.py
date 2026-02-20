@@ -231,15 +231,11 @@ def _build_call_expr(callable_name: str, params: list[str] | None) -> tuple[str,
 
     Returns:
         Tuple of (call_expression, needs_body). needs_body is False when the
-        handler signature should omit the ``body: dict`` parameter.
+        handler signature should omit the body parameter.
     """
     if params is not None and len(params) == 0:
         return f"await {callable_name}()", False
-    elif params is not None and len(params) >= 2:
-        return f'await {callable_name}(**body.get("input", body))', True
-    else:
-        # 1 param or unknown (None) — preserve current behavior
-        return f'await {callable_name}(body.get("input", body))', True
+    return f"await _call_with_body({callable_name}, body)", True
 
 
 def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Path:
@@ -299,10 +295,16 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
             "",
         ]
 
+    lines += [
+        "from runpod_flash.cli.commands._run_server_helpers import make_input_model as _make_input_model",
+        "from runpod_flash.cli.commands._run_server_helpers import call_with_body as _call_with_body",
+    ]
+
     if has_lb_workers:
         lines += [
             "from fastapi import FastAPI, Request",
             "from runpod_flash.cli.commands._run_server_helpers import lb_execute as _lb_execute",
+            "from runpod_flash.cli.commands._run_server_helpers import to_dict as _to_dict",
             "",
         ]
     else:
@@ -355,6 +357,44 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
     if any(worker.class_remotes for worker in workers):
         lines.append("")
 
+    # Module-level Pydantic model creation for typed Swagger UI
+    model_lines: list[str] = []
+    for worker in workers:
+        if worker.worker_type == "QB":
+            for fn in worker.functions:
+                params = worker.function_params.get(fn)
+                if params is None or len(params) > 0:
+                    model_var = f"_{worker.resource_name}_{fn}_Input"
+                    model_lines.append(
+                        f'{model_var} = _make_input_model("{model_var}", {fn}) or dict'
+                    )
+            for cls_info in worker.class_remotes:
+                cls_name = cls_info["name"]
+                method_params = cls_info.get("method_params", {})
+                instance_var = f"_instance_{cls_name}"
+                for method in cls_info["methods"]:
+                    params = method_params.get(method)
+                    if params is None or len(params) > 0:
+                        model_var = f"_{worker.resource_name}_{cls_name}_{method}_Input"
+                        # Use _class_type to get the original unwrapped method
+                        # (RemoteClassWrapper.__getattr__ returns proxies with (*args, **kwargs))
+                        class_ref = f"getattr({instance_var}, '_class_type', type({instance_var}))"
+                        model_lines.append(
+                            f'{model_var} = _make_input_model("{model_var}", {class_ref}.{method}) or dict'
+                        )
+        elif worker.worker_type == "LB":
+            for route in worker.lb_routes:
+                method = route["method"].lower()
+                if method in ("post", "put", "patch", "delete"):
+                    fn_name = route["fn_name"]
+                    model_var = f"_{worker.resource_name}_{fn_name}_Input"
+                    model_lines.append(
+                        f'{model_var} = _make_input_model("{model_var}", {fn_name}) or dict'
+                    )
+    if model_lines:
+        lines.extend(model_lines)
+        lines.append("")
+
     for worker in workers:
         tag = f"{worker.url_prefix.lstrip('/')} [{worker.worker_type}]"
         lines.append(f"# {'─' * 60}")
@@ -379,11 +419,11 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
                     sync_path = f"{worker.url_prefix}/run_sync"
                 params = worker.function_params.get(fn)
                 call_expr, needs_body = _build_call_expr(fn, params)
-                handler_sig = (
-                    f"async def {handler_name}(body: dict):"
-                    if needs_body
-                    else f"async def {handler_name}():"
-                )
+                if needs_body:
+                    model_var = f"_{worker.resource_name}_{fn}_Input"
+                    handler_sig = f"async def {handler_name}(body: {model_var}):"
+                else:
+                    handler_sig = f"async def {handler_name}():"
                 lines += [
                     f'@app.post("{sync_path}", tags=["{tag}"])',
                     handler_sig,
@@ -414,11 +454,11 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
                     call_expr, needs_body = _build_call_expr(
                         f"{instance_var}.{method}", params
                     )
-                    handler_sig = (
-                        f"async def {handler_name}(body: dict):"
-                        if needs_body
-                        else f"async def {handler_name}():"
-                    )
+                    if needs_body:
+                        model_var = f"_{worker.resource_name}_{cls_name}_{method}_Input"
+                        handler_sig = f"async def {handler_name}(body: {model_var}):"
+                    else:
+                        handler_sig = f"async def {handler_name}():"
                     lines += [
                         f'@app.post("{sync_path}", tags=["{tag}"])',
                         handler_sig,
@@ -440,25 +480,26 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
                 path_params = _extract_path_params(full_path)
                 has_body = method in ("post", "put", "patch", "delete")
                 if has_body:
-                    # POST/PUT/PATCH/DELETE: body + optional path params
+                    model_var = f"_{worker.resource_name}_{fn_name}_Input"
+                    # POST/PUT/PATCH/DELETE: typed body + optional path params
                     if path_params:
                         param_sig = ", ".join(f"{p}: str" for p in path_params)
                         param_dict = ", ".join(f'"{p}": {p}' for p in path_params)
                         lines += [
                             f'@app.{method}("{full_path}", tags=["{tag}"])',
-                            f"async def {handler_name}(body: dict, {param_sig}):",
-                            f"    return await _lb_execute({config_var}, {fn_name}, {{**body, {param_dict}}})",
+                            f"async def {handler_name}(body: {model_var}, {param_sig}):",
+                            f"    return await _lb_execute({config_var}, {fn_name}, {{**_to_dict(body), {param_dict}}})",
                             "",
                         ]
                     else:
                         lines += [
                             f'@app.{method}("{full_path}", tags=["{tag}"])',
-                            f"async def {handler_name}(body: dict):",
-                            f"    return await _lb_execute({config_var}, {fn_name}, body)",
+                            f"async def {handler_name}(body: {model_var}):",
+                            f"    return await _lb_execute({config_var}, {fn_name}, _to_dict(body))",
                             "",
                         ]
                 else:
-                    # GET/etc: path params + query params
+                    # GET/etc: path params + query params (unchanged)
                     if path_params:
                         param_sig = ", ".join(f"{p}: str" for p in path_params)
                         param_dict = ", ".join(f'"{p}": {p}' for p in path_params)
