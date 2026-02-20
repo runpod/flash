@@ -2,6 +2,7 @@
 
 import logging
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -54,7 +55,13 @@ class WorkerInfo:
     resource_name: str  # e.g. longruns_stage1
     worker_type: str  # "QB" or "LB"
     functions: List[str]  # function names
+    class_remotes: List[dict] = field(
+        default_factory=list
+    )  # [{name, methods, method_params}]
     lb_routes: List[dict] = field(default_factory=list)  # [{method, path, fn_name}]
+    function_params: dict[str, list[str]] = field(
+        default_factory=dict
+    )  # fn_name -> param_names
 
 
 def _scan_project_workers(project_root: Path) -> List[WorkerInfo]:
@@ -87,10 +94,11 @@ def _scan_project_workers(project_root: Path) -> List[WorkerInfo]:
         module_path = file_to_module_path(file_path, project_root)
         resource_name = file_to_resource_name(file_path, project_root)
 
-        qb_funcs = [f for f in funcs if not f.is_load_balanced]
+        qb_funcs = [f for f in funcs if not f.is_load_balanced and not f.is_class]
+        qb_classes = [f for f in funcs if not f.is_load_balanced and f.is_class]
         lb_funcs = [f for f in funcs if f.is_load_balanced and f.is_lb_route_handler]
 
-        if qb_funcs:
+        if qb_funcs or qb_classes:
             workers.append(
                 WorkerInfo(
                     file_path=file_path,
@@ -99,6 +107,15 @@ def _scan_project_workers(project_root: Path) -> List[WorkerInfo]:
                     resource_name=resource_name,
                     worker_type="QB",
                     functions=[f.function_name for f in qb_funcs],
+                    class_remotes=[
+                        {
+                            "name": c.function_name,
+                            "methods": c.class_methods,
+                            "method_params": c.class_method_params,
+                        }
+                        for c in qb_classes
+                    ],
+                    function_params={f.function_name: f.param_names for f in qb_funcs},
                 )
             )
 
@@ -194,6 +211,37 @@ def _make_import_line(module_path: str, name: str) -> str:
     return f"from {module_path} import {name}"
 
 
+_PATH_PARAM_RE = re.compile(r"\{(\w+)\}")
+
+
+def _extract_path_params(path: str) -> list[str]:
+    """Extract path parameter names from a FastAPI-style route path.
+
+    Example: "/images/{file_id}" -> ["file_id"]
+    """
+    return _PATH_PARAM_RE.findall(path)
+
+
+def _build_call_expr(callable_name: str, params: list[str] | None) -> tuple[str, bool]:
+    """Build an async call expression based on parameter count.
+
+    Args:
+        callable_name: Fully qualified callable (e.g. "fn" or "instance.method")
+        params: List of param names, or None if unknown (backward compat)
+
+    Returns:
+        Tuple of (call_expression, needs_body). needs_body is False when the
+        handler signature should omit the ``body: dict`` parameter.
+    """
+    if params is not None and len(params) == 0:
+        return f"await {callable_name}()", False
+    elif params is not None and len(params) >= 2:
+        return f'await {callable_name}(**body.get("input", body))', True
+    else:
+        # 1 param or unknown (None) — preserve current behavior
+        return f'await {callable_name}(body.get("input", body))', True
+
+
 def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Path:
     """Generate .flash/server.py from the discovered workers.
 
@@ -270,6 +318,10 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
         if worker.worker_type == "QB":
             for fn_name in worker.functions:
                 all_imports.append(_make_import_line(worker.module_path, fn_name))
+            for cls_info in worker.class_remotes:
+                all_imports.append(
+                    _make_import_line(worker.module_path, cls_info["name"])
+                )
         elif worker.worker_type == "LB":
             # Import the resource config variable (e.g. "api" from api = LiveLoadBalancer(...))
             config_vars = {
@@ -294,6 +346,15 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
         "",
     ]
 
+    # Module-level instance creation for @remote classes
+    for worker in workers:
+        for cls_info in worker.class_remotes:
+            cls_name = cls_info["name"]
+            lines.append(f"_instance_{cls_name} = {cls_name}()")
+    # Add blank line if any instances were created
+    if any(worker.class_remotes for worker in workers):
+        lines.append("")
+
     for worker in workers:
         tag = f"{worker.url_prefix.lstrip('/')} [{worker.worker_type}]"
         lines.append(f"# {'─' * 60}")
@@ -301,27 +362,67 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
         lines.append(f"# {'─' * 60}")
 
         if worker.worker_type == "QB":
-            if len(worker.functions) == 1:
-                fn = worker.functions[0]
-                handler_name = _sanitize_fn_name(f"{worker.resource_name}_run_sync")
-                sync_path = f"{worker.url_prefix}/run_sync"
-                lines += [
-                    f'@app.post("{sync_path}", tags=["{tag}"])',
-                    f"async def {handler_name}(body: dict):",
-                    f'    result = await {fn}(body.get("input", body))',
-                    '    return {"id": str(uuid.uuid4()), "status": "COMPLETED", "output": result}',
-                    "",
-                ]
-            else:
-                for fn in worker.functions:
+            # Total callable count: functions + sum of class methods
+            total_class_methods = sum(len(c["methods"]) for c in worker.class_remotes)
+            total_callables = len(worker.functions) + total_class_methods
+            use_multi = total_callables > 1
+
+            # Function-based routes
+            for fn in worker.functions:
+                if use_multi:
                     handler_name = _sanitize_fn_name(
                         f"{worker.resource_name}_{fn}_run_sync"
                     )
                     sync_path = f"{worker.url_prefix}/{fn}/run_sync"
+                else:
+                    handler_name = _sanitize_fn_name(f"{worker.resource_name}_run_sync")
+                    sync_path = f"{worker.url_prefix}/run_sync"
+                params = worker.function_params.get(fn)
+                call_expr, needs_body = _build_call_expr(fn, params)
+                handler_sig = (
+                    f"async def {handler_name}(body: dict):"
+                    if needs_body
+                    else f"async def {handler_name}():"
+                )
+                lines += [
+                    f'@app.post("{sync_path}", tags=["{tag}"])',
+                    handler_sig,
+                    f"    result = {call_expr}",
+                    '    return {"id": str(uuid.uuid4()), "status": "COMPLETED", "output": result}',
+                    "",
+                ]
+
+            # Class-based routes
+            for cls_info in worker.class_remotes:
+                cls_name = cls_info["name"]
+                methods = cls_info["methods"]
+                method_params = cls_info.get("method_params", {})
+                instance_var = f"_instance_{cls_name}"
+
+                for method in methods:
+                    if use_multi:
+                        handler_name = _sanitize_fn_name(
+                            f"{worker.resource_name}_{cls_name}_{method}_run_sync"
+                        )
+                        sync_path = f"{worker.url_prefix}/{method}/run_sync"
+                    else:
+                        handler_name = _sanitize_fn_name(
+                            f"{worker.resource_name}_{cls_name}_run_sync"
+                        )
+                        sync_path = f"{worker.url_prefix}/run_sync"
+                    params = method_params.get(method)
+                    call_expr, needs_body = _build_call_expr(
+                        f"{instance_var}.{method}", params
+                    )
+                    handler_sig = (
+                        f"async def {handler_name}(body: dict):"
+                        if needs_body
+                        else f"async def {handler_name}():"
+                    )
                     lines += [
                         f'@app.post("{sync_path}", tags=["{tag}"])',
-                        f"async def {handler_name}(body: dict):",
-                        f'    result = await {fn}(body.get("input", body))',
+                        handler_sig,
+                        f"    result = {call_expr}",
                         '    return {"id": str(uuid.uuid4()), "status": "COMPLETED", "output": result}',
                         "",
                     ]
@@ -336,21 +437,44 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
                 handler_name = _sanitize_fn_name(
                     f"_route_{worker.resource_name}_{fn_name}"
                 )
+                path_params = _extract_path_params(full_path)
                 has_body = method in ("post", "put", "patch", "delete")
                 if has_body:
-                    lines += [
-                        f'@app.{method}("{full_path}", tags=["{tag}"])',
-                        f"async def {handler_name}(body: dict):",
-                        f"    return await _lb_execute({config_var}, {fn_name}, body)",
-                        "",
-                    ]
+                    # POST/PUT/PATCH/DELETE: body + optional path params
+                    if path_params:
+                        param_sig = ", ".join(f"{p}: str" for p in path_params)
+                        param_dict = ", ".join(f'"{p}": {p}' for p in path_params)
+                        lines += [
+                            f'@app.{method}("{full_path}", tags=["{tag}"])',
+                            f"async def {handler_name}(body: dict, {param_sig}):",
+                            f"    return await _lb_execute({config_var}, {fn_name}, {{**body, {param_dict}}})",
+                            "",
+                        ]
+                    else:
+                        lines += [
+                            f'@app.{method}("{full_path}", tags=["{tag}"])',
+                            f"async def {handler_name}(body: dict):",
+                            f"    return await _lb_execute({config_var}, {fn_name}, body)",
+                            "",
+                        ]
                 else:
-                    lines += [
-                        f'@app.{method}("{full_path}", tags=["{tag}"])',
-                        f"async def {handler_name}(request: Request):",
-                        f"    return await _lb_execute({config_var}, {fn_name}, dict(request.query_params))",
-                        "",
-                    ]
+                    # GET/etc: path params + query params
+                    if path_params:
+                        param_sig = ", ".join(f"{p}: str" for p in path_params)
+                        param_dict = ", ".join(f'"{p}": {p}' for p in path_params)
+                        lines += [
+                            f'@app.{method}("{full_path}", tags=["{tag}"])',
+                            f"async def {handler_name}({param_sig}, request: Request):",
+                            f"    return await _lb_execute({config_var}, {fn_name}, {{**dict(request.query_params), {param_dict}}})",
+                            "",
+                        ]
+                    else:
+                        lines += [
+                            f'@app.{method}("{full_path}", tags=["{tag}"])',
+                            f"async def {handler_name}(request: Request):",
+                            f"    return await _lb_execute({config_var}, {fn_name}, dict(request.query_params))",
+                            "",
+                        ]
 
     # Health endpoints
     lines += [
@@ -382,19 +506,39 @@ def _print_startup_table(workers: List[WorkerInfo], host: str, port: int) -> Non
 
     for worker in workers:
         if worker.worker_type == "QB":
-            if len(worker.functions) == 1:
-                table.add_row(
-                    f"POST  {worker.url_prefix}/run_sync",
-                    worker.resource_name,
-                    "QB",
-                )
-            else:
-                for fn in worker.functions:
+            total_class_methods = sum(len(c["methods"]) for c in worker.class_remotes)
+            total_callables = len(worker.functions) + total_class_methods
+            use_multi = total_callables > 1
+
+            for fn in worker.functions:
+                if use_multi:
                     table.add_row(
                         f"POST  {worker.url_prefix}/{fn}/run_sync",
                         worker.resource_name,
                         "QB",
                     )
+                else:
+                    table.add_row(
+                        f"POST  {worker.url_prefix}/run_sync",
+                        worker.resource_name,
+                        "QB",
+                    )
+
+            for cls_info in worker.class_remotes:
+                methods = cls_info["methods"]
+                for method in methods:
+                    if use_multi:
+                        table.add_row(
+                            f"POST  {worker.url_prefix}/{method}/run_sync",
+                            worker.resource_name,
+                            "QB",
+                        )
+                    else:
+                        table.add_row(
+                            f"POST  {worker.url_prefix}/run_sync",
+                            worker.resource_name,
+                            "QB",
+                        )
         elif worker.worker_type == "LB":
             for route in worker.lb_routes:
                 sub_path = route["path"].lstrip("/")
