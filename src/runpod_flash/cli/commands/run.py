@@ -335,8 +335,7 @@ def run_command(
     """Start Flash development server.
 
     Scans the project for @remote decorated functions and starts a FastAPI
-    dev server via uvicorn. The app is built programmatically (no codegen)
-    so tracebacks point directly to your source files.
+    dev server via uvicorn. Tracebacks point directly to your source files.
 
     No main.py or FastAPI boilerplate required. Any .py file with @remote
     decorated functions is a valid Flash project.

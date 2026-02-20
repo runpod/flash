@@ -17,7 +17,7 @@ With `flash dev`, your system runs in a **hybrid architecture**:
 │  YOUR MACHINE (localhost:8888)                                  │
 │  ┌─────────────────────────────────────┐                        │
 │  │  Programmatic FastAPI server        │                        │
-│  │  (built in-memory, no codegen)      │                        │
+│  │  (programmatic FastAPI app)          │                        │
 │  │  - Discovers @remote functions      │─────────┐              │
 │  │  - Hot-reload via uvicorn           │         │              │
 │  └─────────────────────────────────────┘         │              │
@@ -40,7 +40,7 @@ With `flash dev`, your system runs in a **hybrid architecture**:
 - **`@remote` functions run on Runpod** as serverless endpoints
 - **Hot reload** watches your project directory via uvicorn's built-in reloader
 - **Endpoints are prefixed with `live-`** to distinguish development endpoints from production (e.g., `gpu-worker` becomes `live-gpu-worker`)
-- **No codegen** - tracebacks point directly to your source files
+- **Direct tracebacks** - errors point to your original source files
 
 This is different from `flash deploy`, where **everything** (including your FastAPI app) runs on Runpod. See [flash deploy](./flash-deploy.md) for the fully-deployed architecture.
 
@@ -76,7 +76,7 @@ flash dev --host 0.0.0.0 --port 8000
 ## What It Does
 
 1. Scans project files for `@remote` decorated functions
-2. Builds FastAPI routes programmatically (no `.flash/server.py` artifact)
+2. Builds FastAPI routes programmatically via `create_app()`
 3. Starts uvicorn server with hot-reload watching your project directory
 4. GPU workers use LiveServerless (no packaging needed)
 
@@ -88,7 +88,7 @@ When you call a `@remote` function using `flash dev`, Flash deploys a **Serverle
 flash dev
     │
     ├── Scans project for @remote functions
-    ├── Builds FastAPI app in-memory
+    ├── Builds FastAPI app programmatically
     ├── Starts local server (e.g. localhost:8888)
     │   ├── QB routes: /{file_prefix}/run_sync (local execution)
     │   └── LB routes: /{file_prefix}/{path} (remote dispatch)

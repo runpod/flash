@@ -1,8 +1,8 @@
 """Programmatic FastAPI dev server for flash dev.
 
-Instead of generating a server.py file (codegen), this module builds the
-FastAPI app in-memory. User modules are imported directly, so tracebacks
-point to the original source files.
+Builds the FastAPI app by scanning for @remote functions and registering
+routes via add_api_route(). User modules are imported directly, so
+tracebacks point to the original source files.
 """
 
 import importlib

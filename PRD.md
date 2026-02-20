@@ -146,7 +146,7 @@ my_project/
 
 ### 7.1 Dev server launch
 
-The dev server is built programmatically in-memory (no codegen). Uvicorn is invoked with the `--factory` flag pointing to the app factory function, and the project root is passed via the `FLASH_PROJECT_ROOT` environment variable:
+Uvicorn is invoked with the `--factory` flag pointing to the app factory function, and the project root is passed via the `FLASH_PROJECT_ROOT` environment variable:
 
 ```bash
 uvicorn --factory runpod_flash.cli.commands._dev_server:create_app \
@@ -159,7 +159,7 @@ uvicorn --factory runpod_flash.cli.commands._dev_server:create_app \
 1. Scan project for all `@remote` functions (QB and LB) in any `.py` file
    - Skip: `.flash/`, `__pycache__`, `*.pyc`, `__init__.py`
 2. If none found: print error with usage instructions, exit 1
-3. Build FastAPI app programmatically (no codegen, no `.flash/server.py`)
+3. Build FastAPI app programmatically via `_dev_server.create_app()`
 4. Start uvicorn with `--factory` and `--reload` watching the project root
 5. Print startup table: local paths, resource names, types
 6. Swagger UI available at `http://localhost:{port}/docs`
@@ -231,7 +231,7 @@ Resource names are derived from file paths (slashes → underscores):
 
 ## 11. Dev Server App Structure
 
-The dev server is built programmatically by `_dev_server.create_app()`. No file is generated. User modules are imported via `importlib.import_module()` and routes are registered with `app.add_api_route()`. Tracebacks point directly to the original source files.
+The dev server is built programmatically by `_dev_server.create_app()`. User modules are imported via `importlib.import_module()` and routes are registered with `app.add_api_route()`. Tracebacks point directly to the original source files.
 
 Conceptual equivalent of the generated app:
 
