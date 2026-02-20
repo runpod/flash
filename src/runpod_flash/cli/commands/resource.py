@@ -51,7 +51,7 @@ def _render_resource_report(resource_manager: ResourceManager):
     lines.append("\nResources\n\n", style="bold")
 
     active_count = 0
-    error_count = 0
+    inactive_count = 0
 
     for uid, resource in resources.items():
         try:
@@ -61,7 +61,7 @@ def _render_resource_report(resource_manager: ResourceManager):
                 active_count += 1
             else:
                 color, status_text = "red", "inactive"
-                error_count += 1
+                inactive_count += 1
         except Exception:
             color, status_text = "yellow", "unknown"
 
@@ -81,12 +81,12 @@ def _render_resource_report(resource_manager: ResourceManager):
         lines.append("\n")
 
     total = len(resources)
-    idle_count = total - active_count - error_count
+    unknown_count = total - active_count - inactive_count
     parts = [f"{active_count} active"]
-    if idle_count > 0:
-        parts.append(f"{idle_count} idle")
-    if error_count > 0:
-        parts.append(f"{error_count} error")
+    if inactive_count > 0:
+        parts.append(f"{inactive_count} inactive")
+    if unknown_count > 0:
+        parts.append(f"{unknown_count} unknown")
 
     lines.append(f"\n{total} resources ({', '.join(parts)})\n")
 

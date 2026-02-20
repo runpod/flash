@@ -1,4 +1,4 @@
-"""Deployment environment management commands."""
+"""CLI commands for managing Flash apps (create, get, list, delete)."""
 
 import asyncio
 

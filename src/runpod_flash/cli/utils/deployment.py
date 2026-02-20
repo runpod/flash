@@ -192,6 +192,7 @@ async def reconcile_and_provision_resources(
         environment_name: Name of environment (for logging)
         local_manifest: Local manifest dictionary
         environment_id: Optional environment ID for endpoint provisioning
+        show_progress: Whether to display progress during provisioning
 
     Returns:
         Updated manifest with deployment information

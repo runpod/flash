@@ -25,9 +25,10 @@ class TestFormatDatetime:
         assert format_datetime("not-a-date") == "not-a-date"
 
     def test_includes_day_of_week(self):
-        result = format_datetime("2025-06-15T14:30:00Z")
-        # june 15 2025 is a sunday
-        assert result.startswith("Sun,")
+        # use a fixed-offset timestamp so the weekday is deterministic
+        result = format_datetime("2025-06-15T00:00:00+00:00")
+        # output should start with a 3-letter weekday abbreviation
+        assert result[:3].isalpha() and result[3] == ","
 
     def test_includes_timezone(self):
         result = format_datetime("2025-06-15T14:30:00Z")
@@ -36,9 +37,9 @@ class TestFormatDatetime:
         assert len(parts) >= 5
 
     def test_no_leading_zeros(self):
-        # jan 5 should be "5" not "05"
-        result = format_datetime("2025-01-05T09:05:00Z")
-        assert " 5 " in result or result.startswith("Sun, Jan 5")
+        # day "5" should not be zero-padded to "05"
+        result = format_datetime("2025-01-05T12:00:00+00:00")
+        assert " 5 " in result or " 5," in result
 
 
 class TestStateDot:

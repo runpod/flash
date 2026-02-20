@@ -15,7 +15,7 @@ def format_datetime(value: str | None) -> str:
     """Format an ISO 8601 datetime string into a human-readable local time.
 
     Returns a string like "Thu, Feb 19 2026 1:33 PM PST".
-    Returns "-" for None/empty/unparseable values.
+    Returns "-" for None/empty values, or the original value if unparseable.
     """
     if not value:
         return "-"

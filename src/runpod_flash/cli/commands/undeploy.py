@@ -170,12 +170,15 @@ def _cleanup_stale_endpoints(
 
     removed_count = 0
     for resource_id, resource in inactive:
-        asyncio.run(
+        result = asyncio.run(
             manager.undeploy_resource(resource_id, resource.name, force_remove=True)
         )
 
-        removed_count += 1
-        console.print(f"  [green]Removed[/green] {resource.name}")
+        if result.get("success"):
+            removed_count += 1
+            console.print(f"  [green]Removed[/green] {resource.name}")
+        else:
+            console.print(f"  [red]Failed[/red] {resource.name}: {result.get('message', 'unknown error')}")
 
     console.print(f"\n[green]Cleaned up {removed_count} endpoint(s)[/green]")
 
