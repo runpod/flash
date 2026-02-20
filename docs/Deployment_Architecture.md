@@ -288,4 +288,3 @@ Each reconciliation action updates State Manager:
 - `FLASH_RESOURCE_NAME` - Which resource config this endpoint represents
 - `RUNPOD_ENDPOINT_ID` - This endpoint's ID (set by Runpod)
 - `FLASH_MANIFEST_PATH` - Optional explicit path to manifest
-- `FLASH_IS_MOTHERSHIP` - Legacy env var; not used in production `flash deploy`
