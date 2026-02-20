@@ -542,9 +542,12 @@ class StateManagerClient:
     """
 
     async def get_persisted_manifest(
-        self, mothership_id: str
+        self, flash_environment_id: str
     ) -> Optional[Dict[str, Any]]:
         """Fetch persisted manifest from State Manager.
+
+        Args:
+            flash_environment_id: ID of the Flash environment.
 
         Returns:
             Manifest dict or None if not found (first boot).
@@ -556,7 +559,7 @@ class StateManagerClient:
 
     async def update_resource_state(
         self,
-        mothership_id: str,
+        flash_environment_id: str,
         resource_name: str,
         resource_data: Dict[str, Any],
     ) -> None:
@@ -974,7 +977,7 @@ print(f"RUNPOD_ENDPOINT_ID: {os.getenv('RUNPOD_ENDPOINT_ID')}")
 
 # Check state manager client directly
 client = StateManagerClient()
-manifest = await client.get_persisted_manifest(mothership_id)
+manifest = await client.get_persisted_manifest(flash_environment_id)
 ```
 
 ## Peer-to-Peer Architecture with StateManagerClient

@@ -582,14 +582,14 @@ Resources are provisioned by the CLI during `flash deploy`, based on the manifes
 
 ### Deployment Orchestration
 
-The **MothershipsProvisioner** reconciles the manifest with the endpoint's local state:
+The reconciler reconciles the manifest with the endpoint's local state:
 
 ```python
 # 1. Load manifest from flash_manifest.json
 manifest = load_manifest()
 
 # 2. Fetch persisted state from State Manager
-persisted = await StateManagerClient.get_persisted_manifest(mothership_id)
+persisted = await StateManagerClient.get_persisted_manifest(flash_environment_id)
 
 # 3. Compute diff
 diff = compute_manifest_diff(manifest, persisted)
@@ -610,7 +610,7 @@ for resource_config in diff.removed:
     delete_resource(resource_config)
 
 # 7. Persist new state
-await StateManagerClient.update_resource_state(mothership_id, resources)
+await StateManagerClient.update_resource_state(flash_environment_id, resources)
 ```
 
 **Parallel Deployment**:
@@ -621,8 +621,6 @@ await StateManagerClient.update_resource_state(mothership_id, resources)
 - Stored hash (from previous boot) vs current hash (computed from config)
 - If hashes differ: Resource has been modified, trigger update
 - Prevents unnecessary updates when resource unchanged
-
-**Code Reference**: `src/runpod_flash/runtime/mothership_provisioner.py:1-150`
 
 ---
 
@@ -918,12 +916,6 @@ graph LR
 - Override default manifest file location
 - If not set, searches: cwd, module dir, parent dirs
 
-**FLASH_IS_MOTHERSHIP** (Legacy)
-- Value: `"true"`
-- Triggers `reconcile_children()` on boot
-- Not used in production `flash deploy` (CLI handles reconciliation)
-- Useful for testing or non-standard layouts
-
 ### Runtime Configuration
 
 **RUNPOD_ENDPOINT_ID** (Set by Runpod)
@@ -1048,25 +1040,6 @@ flash build --preview
 
 **Code Reference**: `src/runpod_flash/cli/commands/preview.py`
 
-### Local Docker Testing
-
-For testing complete deployment flow locally:
-
-```bash
-# Build project
-flash build
-
-# Start local endpoint simulator
-docker run -it \
-  -e FLASH_IS_MOTHERSHIP=true \
-  -e RUNPOD_API_KEY=$RUNPOD_API_KEY \
-  -v $(pwd)/.flash:/workspace/.flash \
-  runpod-flash:latest
-
-# Run provisioner
-python -m runpod_flash.runtime.mothership_provisioner
-```
-
 ### Debugging Tips
 
 **Enable Debug Logging**:
@@ -1105,7 +1078,6 @@ logging.getLogger("runpod_flash.runtime.service_registry").setLevel(logging.DEBU
 |------|---------|
 | `src/runpod_flash/cli/commands/deploy.py` | Deploy environment management commands |
 | `src/runpod_flash/cli/commands/build.py` | Build packaging and archive creation |
-| `src/runpod_flash/cli/commands/test_mothership.py` | Local endpoint testing |
 
 ### Build System
 
@@ -1128,7 +1100,6 @@ logging.getLogger("runpod_flash.runtime.service_registry").setLevel(logging.DEBU
 |------|---------|
 | `src/runpod_flash/runtime/manifest_fetcher.py` | Manifest loading from local .flash/ directory |
 | `src/runpod_flash/runtime/state_manager_client.py` | GraphQL client for peer-to-peer service discovery |
-| `src/runpod_flash/runtime/mothership_provisioner.py` | Auto-provisioning logic |
 
 ### Runtime: Execution
 
