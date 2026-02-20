@@ -109,7 +109,7 @@ def init_command(
     step_num += 1
     steps_table.add_row(f"{step_num}.", "Add your RUNPOD_API_KEY to .env")
     step_num += 1
-    steps_table.add_row(f"{step_num}.", "flash run")
+    steps_table.add_row(f"{step_num}.", "flash dev")
 
     console.print(steps_table)
 

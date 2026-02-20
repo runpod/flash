@@ -468,7 +468,7 @@ class TestServerlessResourceDeployment:
         assert serverless.is_deployed() is False
 
     def test_is_deployed_skips_health_check_during_live_provisioning(self, monkeypatch):
-        """During flash run, is_deployed returns True based on ID alone."""
+        """During flash dev, is_deployed returns True based on ID alone."""
         monkeypatch.setenv("FLASH_IS_LIVE_PROVISIONING", "true")
         serverless = ServerlessResource(name="test")
         serverless.id = "ep-live-123"
@@ -477,7 +477,7 @@ class TestServerlessResourceDeployment:
         assert serverless.is_deployed() is True
 
     def test_is_deployed_uses_health_check_outside_live_provisioning(self, monkeypatch):
-        """Outside flash run, is_deployed falls back to health check."""
+        """Outside flash dev, is_deployed falls back to health check."""
         monkeypatch.delenv("FLASH_IS_LIVE_PROVISIONING", raising=False)
         serverless = ServerlessResource(name="test")
         serverless.id = "ep-123"

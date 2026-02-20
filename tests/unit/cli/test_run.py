@@ -1,30 +1,33 @@
-"""Unit tests for run CLI command."""
+"""Unit tests for run CLI command and programmatic dev server."""
+
+import os
+import sys
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
-from pathlib import Path
-from unittest.mock import patch, MagicMock
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from typer.testing import CliRunner
 
-from runpod_flash.cli.main import app
-from runpod_flash.cli.commands.run import (
-    WorkerInfo,
-    _generate_flash_server,
-    _has_numeric_module_segments,
-    _make_import_line,
-    _module_parent_subdir,
-    _sanitize_fn_name,
+from runpod_flash.cli.commands._dev_server import (
+    _import_from_module,
+    _register_lb_routes,
+    _register_qb_routes,
+    create_app,
 )
+from runpod_flash.cli.commands.run import WorkerInfo
+from runpod_flash.cli.main import app
 
 
 @pytest.fixture
 def runner():
-    """Create CLI test runner."""
     return CliRunner()
 
 
 @pytest.fixture
-def temp_fastapi_app(tmp_path):
-    """Create minimal Flash project with @remote function for testing."""
+def temp_project(tmp_path):
+    """Create a minimal Flash project with a @remote function."""
     worker_file = tmp_path / "worker.py"
     worker_file.write_text(
         "from runpod_flash import LiveServerless, remote\n"
@@ -36,768 +39,383 @@ def temp_fastapi_app(tmp_path):
     return tmp_path
 
 
-class TestRunCommandEnvironmentVariables:
-    """Test flash run command environment variable support."""
+def _run_cli(runner, project_dir, extra_args=None):
+    """Invoke ``flash dev`` with subprocess mocked and return the Popen command."""
+    with patch("runpod_flash.cli.commands.run.subprocess.Popen") as mock_popen:
+        mock_process = MagicMock()
+        mock_process.pid = 12345
+        mock_process.wait.side_effect = KeyboardInterrupt()
+        mock_popen.return_value = mock_process
 
-    @pytest.fixture(autouse=True)
-    def patch_watcher(self):
-        """Prevent the background watcher thread from blocking tests."""
-        with patch("runpod_flash.cli.commands.run._watch_and_regenerate"):
-            yield
+        with patch("runpod_flash.cli.commands.run.os.getpgid", return_value=12345):
+            with patch("runpod_flash.cli.commands.run.os.killpg"):
+                old_cwd = os.getcwd()
+                try:
+                    os.chdir(project_dir)
+                    runner.invoke(app, ["dev"] + (extra_args or []))
+                finally:
+                    os.chdir(old_cwd)
 
-    def test_port_from_environment_variable(
-        self, runner, temp_fastapi_app, monkeypatch
-    ):
-        """Test that FLASH_PORT environment variable is respected."""
-        monkeypatch.chdir(temp_fastapi_app)
-        monkeypatch.setenv("FLASH_PORT", "8080")
-
-        # Mock subprocess to capture command and prevent actual server start
-        with patch("runpod_flash.cli.commands.run.subprocess.Popen") as mock_popen:
-            mock_process = MagicMock()
-            mock_process.pid = 12345
-            mock_process.wait.side_effect = KeyboardInterrupt()
-            mock_popen.return_value = mock_process
-
-            # Mock OS-level process group operations
-            with patch("runpod_flash.cli.commands.run.os.getpgid") as mock_getpgid:
-                mock_getpgid.return_value = 12345
-                with patch("runpod_flash.cli.commands.run.os.killpg"):
-                    runner.invoke(app, ["run"])
-
-                    # Verify port 8080 was used in uvicorn command
-                    call_args = mock_popen.call_args[0][0]
-                    assert "--port" in call_args
-                    port_index = call_args.index("--port")
-                    assert call_args[port_index + 1] == "8080"
-
-    def test_host_from_environment_variable(
-        self, runner, temp_fastapi_app, monkeypatch
-    ):
-        """Test that FLASH_HOST environment variable is respected."""
-        monkeypatch.chdir(temp_fastapi_app)
-        monkeypatch.setenv("FLASH_HOST", "0.0.0.0")
-
-        # Mock subprocess to capture command
-        with patch("runpod_flash.cli.commands.run.subprocess.Popen") as mock_popen:
-            mock_process = MagicMock()
-            mock_process.pid = 12345
-            mock_process.wait.side_effect = KeyboardInterrupt()
-            mock_popen.return_value = mock_process
-
-            # Mock OS-level operations
-            with patch("runpod_flash.cli.commands.run.os.getpgid") as mock_getpgid:
-                mock_getpgid.return_value = 12345
-                with patch("runpod_flash.cli.commands.run.os.killpg"):
-                    runner.invoke(app, ["run"])
-
-                    # Verify host 0.0.0.0 was used
-                    call_args = mock_popen.call_args[0][0]
-                    assert "--host" in call_args
-                    host_index = call_args.index("--host")
-                    assert call_args[host_index + 1] == "0.0.0.0"
-
-    def test_cli_flag_overrides_environment_variable(
-        self, runner, temp_fastapi_app, monkeypatch
-    ):
-        """Test that --port flag overrides FLASH_PORT environment variable."""
-        monkeypatch.chdir(temp_fastapi_app)
-        monkeypatch.setenv("FLASH_PORT", "8080")
-
-        # Mock subprocess to capture command
-        with patch("runpod_flash.cli.commands.run.subprocess.Popen") as mock_popen:
-            mock_process = MagicMock()
-            mock_process.pid = 12345
-            mock_process.wait.side_effect = KeyboardInterrupt()
-            mock_popen.return_value = mock_process
-
-            # Mock OS-level operations
-            with patch("runpod_flash.cli.commands.run.os.getpgid") as mock_getpgid:
-                mock_getpgid.return_value = 12345
-                with patch("runpod_flash.cli.commands.run.os.killpg"):
-                    # Use --port flag to override env var
-                    runner.invoke(app, ["run", "--port", "9000"])
-
-                    # Verify port 9000 was used (flag overrides env)
-                    call_args = mock_popen.call_args[0][0]
-                    assert "--port" in call_args
-                    port_index = call_args.index("--port")
-                    assert call_args[port_index + 1] == "9000"
-
-    def test_default_port_when_no_env_or_flag(
-        self, runner, temp_fastapi_app, monkeypatch
-    ):
-        """Test that default port 8888 is used when no env var or flag."""
-        monkeypatch.chdir(temp_fastapi_app)
-        # Ensure FLASH_PORT is not set
-        monkeypatch.delenv("FLASH_PORT", raising=False)
-
-        # Mock subprocess to capture command
-        with patch("runpod_flash.cli.commands.run.subprocess.Popen") as mock_popen:
-            mock_process = MagicMock()
-            mock_process.pid = 12345
-            mock_process.wait.side_effect = KeyboardInterrupt()
-            mock_popen.return_value = mock_process
-
-            # Mock OS-level operations
-            with patch("runpod_flash.cli.commands.run.os.getpgid") as mock_getpgid:
-                mock_getpgid.return_value = 12345
-                with patch("runpod_flash.cli.commands.run.os.killpg"):
-                    runner.invoke(app, ["run"])
-
-                    # Verify default port 8888 was used
-                    call_args = mock_popen.call_args[0][0]
-                    assert "--port" in call_args
-                    port_index = call_args.index("--port")
-                    assert call_args[port_index + 1] == "8888"
-
-    def test_default_host_when_no_env_or_flag(
-        self, runner, temp_fastapi_app, monkeypatch
-    ):
-        """Test that default host localhost is used when no env var or flag."""
-        monkeypatch.chdir(temp_fastapi_app)
-        # Ensure FLASH_HOST is not set
-        monkeypatch.delenv("FLASH_HOST", raising=False)
-
-        # Mock subprocess to capture command
-        with patch("runpod_flash.cli.commands.run.subprocess.Popen") as mock_popen:
-            mock_process = MagicMock()
-            mock_process.pid = 12345
-            mock_process.wait.side_effect = KeyboardInterrupt()
-            mock_popen.return_value = mock_process
-
-            # Mock OS-level operations
-            with patch("runpod_flash.cli.commands.run.os.getpgid") as mock_getpgid:
-                mock_getpgid.return_value = 12345
-                with patch("runpod_flash.cli.commands.run.os.killpg"):
-                    runner.invoke(app, ["run"])
-
-                    # Verify default host localhost was used
-                    call_args = mock_popen.call_args[0][0]
-                    assert "--host" in call_args
-                    host_index = call_args.index("--host")
-                    assert call_args[host_index + 1] == "localhost"
-
-    def test_both_host_and_port_from_environment(
-        self, runner, temp_fastapi_app, monkeypatch
-    ):
-        """Test that both FLASH_HOST and FLASH_PORT environment variables work together."""
-        monkeypatch.chdir(temp_fastapi_app)
-        monkeypatch.setenv("FLASH_HOST", "0.0.0.0")
-        monkeypatch.setenv("FLASH_PORT", "3000")
-
-        # Mock subprocess to capture command
-        with patch("runpod_flash.cli.commands.run.subprocess.Popen") as mock_popen:
-            mock_process = MagicMock()
-            mock_process.pid = 12345
-            mock_process.wait.side_effect = KeyboardInterrupt()
-            mock_popen.return_value = mock_process
-
-            # Mock OS-level operations
-            with patch("runpod_flash.cli.commands.run.os.getpgid") as mock_getpgid:
-                mock_getpgid.return_value = 12345
-                with patch("runpod_flash.cli.commands.run.os.killpg"):
-                    runner.invoke(app, ["run"])
-
-                    # Verify both host and port were used
-                    call_args = mock_popen.call_args[0][0]
-
-                    assert "--host" in call_args
-                    host_index = call_args.index("--host")
-                    assert call_args[host_index + 1] == "0.0.0.0"
-
-                    assert "--port" in call_args
-                    port_index = call_args.index("--port")
-                    assert call_args[port_index + 1] == "3000"
-
-    def test_short_port_flag_overrides_environment(
-        self, runner, temp_fastapi_app, monkeypatch
-    ):
-        """Test that -p short flag also overrides FLASH_PORT environment variable."""
-        monkeypatch.chdir(temp_fastapi_app)
-        monkeypatch.setenv("FLASH_PORT", "8080")
-
-        # Mock subprocess to capture command
-        with patch("runpod_flash.cli.commands.run.subprocess.Popen") as mock_popen:
-            mock_process = MagicMock()
-            mock_process.pid = 12345
-            mock_process.wait.side_effect = KeyboardInterrupt()
-            mock_popen.return_value = mock_process
-
-            # Mock OS-level operations
-            with patch("runpod_flash.cli.commands.run.os.getpgid") as mock_getpgid:
-                mock_getpgid.return_value = 12345
-                with patch("runpod_flash.cli.commands.run.os.killpg"):
-                    # Use -p short flag
-                    runner.invoke(app, ["run", "-p", "7000"])
-
-                    # Verify port 7000 was used (short flag overrides env)
-                    call_args = mock_popen.call_args[0][0]
-                    assert "--port" in call_args
-                    port_index = call_args.index("--port")
-                    assert call_args[port_index + 1] == "7000"
+        return mock_popen.call_args[0][0]
 
 
-class TestRunCommandHotReload:
-    """Test flash run hot-reload behavior."""
+# ---------------------------------------------------------------------------
+# CLI: uvicorn command construction
+# ---------------------------------------------------------------------------
 
-    @pytest.fixture(autouse=True)
-    def patch_watcher(self):
-        """Prevent the background watcher thread from blocking tests."""
-        with patch("runpod_flash.cli.commands.run._watch_and_regenerate"):
-            yield
 
-    def _invoke_run(self, runner, monkeypatch, temp_fastapi_app, extra_args=None):
-        """Helper: invoke flash run and return the Popen call args."""
-        monkeypatch.chdir(temp_fastapi_app)
-        monkeypatch.delenv("FLASH_PORT", raising=False)
-        monkeypatch.delenv("FLASH_HOST", raising=False)
+class TestRunCommandFlags:
+    """Test that run_command builds the correct uvicorn command."""
 
-        with patch("runpod_flash.cli.commands.run.subprocess.Popen") as mock_popen:
-            mock_process = MagicMock()
-            mock_process.pid = 12345
-            mock_process.wait.side_effect = KeyboardInterrupt()
-            mock_popen.return_value = mock_process
+    def test_uses_factory_flag(self, runner, temp_project):
+        cmd = _run_cli(runner, temp_project)
+        assert "--factory" in cmd
+        idx = cmd.index("--factory")
+        assert cmd[idx + 1] == "runpod_flash.cli.commands._dev_server:create_app"
 
-            with patch("runpod_flash.cli.commands.run.os.getpgid", return_value=12345):
-                with patch("runpod_flash.cli.commands.run.os.killpg"):
-                    runner.invoke(app, ["run"] + (extra_args or []))
+    def test_no_flash_dir_created(self, runner, temp_project):
+        _run_cli(runner, temp_project)
+        assert not (temp_project / ".flash").exists()
 
-            return mock_popen.call_args[0][0]
+    def test_default_host_and_port(self, runner, temp_project):
+        cmd = _run_cli(runner, temp_project)
+        assert cmd[cmd.index("--host") + 1] == "localhost"
+        assert cmd[cmd.index("--port") + 1] == "8888"
 
-    def test_reload_watches_flash_server_py(
-        self, runner, temp_fastapi_app, monkeypatch
-    ):
-        """Uvicorn watches .flash/server.py, not the whole project."""
-        cmd = self._invoke_run(runner, monkeypatch, temp_fastapi_app)
+    def test_custom_port_flag(self, runner, temp_project):
+        cmd = _run_cli(runner, temp_project, ["--port", "9000"])
+        assert cmd[cmd.index("--port") + 1] == "9000"
 
+    def test_custom_host_flag(self, runner, temp_project):
+        cmd = _run_cli(runner, temp_project, ["--host", "0.0.0.0"])
+        assert cmd[cmd.index("--host") + 1] == "0.0.0.0"
+
+    def test_short_port_flag(self, runner, temp_project):
+        cmd = _run_cli(runner, temp_project, ["-p", "7000"])
+        assert cmd[cmd.index("--port") + 1] == "7000"
+
+    def test_reload_watches_project_root(self, runner, temp_project):
+        cmd = _run_cli(runner, temp_project)
         assert "--reload" in cmd
-        assert "--reload-dir" in cmd
-        reload_dir_index = cmd.index("--reload-dir")
-        assert cmd[reload_dir_index + 1] == ".flash"
+        idx = cmd.index("--reload-dir")
+        assert cmd[idx + 1] == str(temp_project)
 
-        assert "--reload-include" in cmd
-        reload_include_index = cmd.index("--reload-include")
-        assert cmd[reload_include_index + 1] == "server.py"
+    def test_no_reload_flag(self, runner, temp_project):
+        cmd = _run_cli(runner, temp_project, ["--no-reload"])
+        assert "--reload" not in cmd
+        assert "--reload-dir" not in cmd
 
-    def test_reload_does_not_watch_project_root(
-        self, runner, temp_fastapi_app, monkeypatch
-    ):
-        """Uvicorn reload-dir must not be '.' to prevent double-reload."""
-        cmd = self._invoke_run(runner, monkeypatch, temp_fastapi_app)
-
-        reload_dir_index = cmd.index("--reload-dir")
-        assert cmd[reload_dir_index + 1] != "."
-
-    def test_no_reload_skips_watcher_thread(
-        self, runner, temp_fastapi_app, monkeypatch
-    ):
-        """--no-reload: neither uvicorn reload args nor watcher thread started."""
-        monkeypatch.chdir(temp_fastapi_app)
-
-        with patch("runpod_flash.cli.commands.run.subprocess.Popen") as mock_popen:
-            mock_process = MagicMock()
-            mock_process.pid = 12345
-            mock_process.wait.side_effect = KeyboardInterrupt()
-            mock_popen.return_value = mock_process
-
-            with patch("runpod_flash.cli.commands.run.os.getpgid", return_value=12345):
-                with patch("runpod_flash.cli.commands.run.os.killpg"):
-                    with patch(
-                        "runpod_flash.cli.commands.run.threading.Thread"
-                    ) as mock_thread_cls:
-                        mock_thread = MagicMock()
-                        mock_thread_cls.return_value = mock_thread
-
-                        runner.invoke(app, ["run", "--no-reload"])
-
-            cmd = mock_popen.call_args[0][0]
-            assert "--reload" not in cmd
-            mock_thread.start.assert_not_called()
-
-    def test_watcher_thread_started_on_reload(
-        self, runner, temp_fastapi_app, monkeypatch, patch_watcher
-    ):
-        """When reload=True, the background watcher thread is started."""
-        monkeypatch.chdir(temp_fastapi_app)
-
-        with patch("runpod_flash.cli.commands.run.subprocess.Popen") as mock_popen:
-            mock_process = MagicMock()
-            mock_process.pid = 12345
-            mock_process.wait.side_effect = KeyboardInterrupt()
-            mock_popen.return_value = mock_process
-
-            with patch("runpod_flash.cli.commands.run.os.getpgid", return_value=12345):
-                with patch("runpod_flash.cli.commands.run.os.killpg"):
-                    with patch(
-                        "runpod_flash.cli.commands.run.threading.Thread"
-                    ) as mock_thread_cls:
-                        mock_thread = MagicMock()
-                        mock_thread_cls.return_value = mock_thread
-
-                        runner.invoke(app, ["run"])
-
-            mock_thread.start.assert_called_once()
-
-    def test_watcher_thread_stopped_on_keyboard_interrupt(
-        self, runner, temp_fastapi_app, monkeypatch
-    ):
-        """KeyboardInterrupt sets stop_event and joins the watcher thread."""
-        monkeypatch.chdir(temp_fastapi_app)
-
-        with patch("runpod_flash.cli.commands.run.subprocess.Popen") as mock_popen:
-            mock_process = MagicMock()
-            mock_process.pid = 12345
-            mock_process.wait.side_effect = KeyboardInterrupt()
-            mock_popen.return_value = mock_process
-
-            with patch("runpod_flash.cli.commands.run.os.getpgid", return_value=12345):
-                with patch("runpod_flash.cli.commands.run.os.killpg"):
-                    with patch(
-                        "runpod_flash.cli.commands.run.threading.Thread"
-                    ) as mock_thread_cls:
-                        mock_thread = MagicMock()
-                        mock_thread_cls.return_value = mock_thread
-                        with patch(
-                            "runpod_flash.cli.commands.run.threading.Event"
-                        ) as mock_event_cls:
-                            mock_stop = MagicMock()
-                            mock_event_cls.return_value = mock_stop
-
-                            runner.invoke(app, ["run"])
-
-            mock_stop.set.assert_called_once()
-            mock_thread.join.assert_called_once_with(timeout=2)
+    def test_sets_project_root_env_var(self, runner, temp_project):
+        _run_cli(runner, temp_project)
+        assert os.environ.get("FLASH_PROJECT_ROOT") == str(temp_project)
 
 
-class TestWatchAndRegenerate:
-    """Unit tests for the _watch_and_regenerate background function."""
-
-    def test_regenerates_server_py_on_py_file_change(self, tmp_path):
-        """When a .py file changes, server.py is regenerated."""
-        import threading
-        from runpod_flash.cli.commands.run import _watch_and_regenerate
-
-        stop = threading.Event()
-
-        with patch(
-            "runpod_flash.cli.commands.run._scan_project_workers", return_value=[]
-        ) as mock_scan:
-            with patch(
-                "runpod_flash.cli.commands.run._generate_flash_server"
-            ) as mock_gen:
-                with patch(
-                    "runpod_flash.cli.commands.run._watchfiles_watch"
-                ) as mock_watch:
-                    # Yield one batch of changes then stop
-                    mock_watch.return_value = iter([{(1, "/path/to/worker.py")}])
-                    stop.set()  # ensures the loop exits after one iteration
-                    _watch_and_regenerate(tmp_path, stop)
-
-        mock_scan.assert_called_once_with(tmp_path)
-        mock_gen.assert_called_once()
-
-    def test_ignores_non_py_changes(self, tmp_path):
-        """Changes to non-.py files do not trigger regeneration."""
-        import threading
-        from runpod_flash.cli.commands.run import _watch_and_regenerate
-
-        stop = threading.Event()
-
-        with patch("runpod_flash.cli.commands.run._scan_project_workers") as mock_scan:
-            with patch(
-                "runpod_flash.cli.commands.run._generate_flash_server"
-            ) as mock_gen:
-                with patch(
-                    "runpod_flash.cli.commands.run._watchfiles_watch"
-                ) as mock_watch:
-                    mock_watch.return_value = iter([{(1, "/path/to/README.md")}])
-                    _watch_and_regenerate(tmp_path, stop)
-
-        mock_scan.assert_not_called()
-        mock_gen.assert_not_called()
-
-    def test_scan_error_does_not_crash_watcher(self, tmp_path):
-        """If regeneration raises, the watcher logs a warning and continues."""
-        import threading
-        from runpod_flash.cli.commands.run import _watch_and_regenerate
-
-        stop = threading.Event()
-
-        with patch(
-            "runpod_flash.cli.commands.run._scan_project_workers",
-            side_effect=RuntimeError("scan failed"),
-        ):
-            with patch("runpod_flash.cli.commands.run._watchfiles_watch") as mock_watch:
-                mock_watch.return_value = iter([{(1, "/path/to/worker.py")}])
-                # Should not raise
-                _watch_and_regenerate(tmp_path, stop)
+# ---------------------------------------------------------------------------
+# create_app factory
+# ---------------------------------------------------------------------------
 
 
-class TestGenerateFlashServer:
-    """Test _generate_flash_server() route code generation."""
+class TestCreateApp:
+    """Test the programmatic create_app factory."""
 
-    def _make_lb_worker(self, tmp_path: Path, method: str = "GET") -> WorkerInfo:
+    def test_returns_fastapi_instance(self, tmp_path):
+        result = create_app(project_root=tmp_path, workers=[])
+        assert isinstance(result, FastAPI)
+
+    def test_health_endpoints(self, tmp_path):
+        test_app = create_app(project_root=tmp_path, workers=[])
+        client = TestClient(test_app)
+
+        resp = client.get("/")
+        assert resp.status_code == 200
+        assert resp.json()["docs"] == "/docs"
+
+        resp = client.get("/ping")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "healthy"
+
+    def test_registers_qb_worker_routes(self, tmp_path):
+        mod = tmp_path / "worker.py"
+        mod.write_text("async def process(data):\n    return {'echo': data}\n")
+
+        worker = WorkerInfo(
+            file_path=mod,
+            url_prefix="/worker",
+            module_path="worker",
+            resource_name="worker",
+            worker_type="QB",
+            functions=["process"],
+        )
+        sys.path.insert(0, str(tmp_path))
+        try:
+            test_app = create_app(project_root=tmp_path, workers=[worker])
+            client = TestClient(test_app)
+            resp = client.post("/worker/run_sync", json={"input": "hello"})
+            assert resp.status_code == 200
+            assert resp.json()["output"] == {"echo": "hello"}
+        finally:
+            sys.path.remove(str(tmp_path))
+            sys.modules.pop("worker", None)
+
+
+# ---------------------------------------------------------------------------
+# QB routes
+# ---------------------------------------------------------------------------
+
+
+class TestRegisterQBRoutes:
+    """Test QB route registration and invocation."""
+
+    def test_single_function_run_sync(self, tmp_path):
+        mod = tmp_path / "worker.py"
+        mod.write_text("async def process(data):\n    return {'echo': data}\n")
+
+        worker = WorkerInfo(
+            file_path=mod,
+            url_prefix="/worker",
+            module_path="worker",
+            resource_name="worker",
+            worker_type="QB",
+            functions=["process"],
+        )
+        sys.path.insert(0, str(tmp_path))
+        try:
+            test_app = FastAPI()
+            _register_qb_routes(test_app, worker, tmp_path, "test [QB]")
+            client = TestClient(test_app)
+            resp = client.post("/worker/run_sync", json={"input": {"k": "v"}})
+            body = resp.json()
+            assert resp.status_code == 200
+            assert body["status"] == "COMPLETED"
+            assert body["output"] == {"echo": {"k": "v"}}
+            assert "id" in body
+        finally:
+            sys.path.remove(str(tmp_path))
+            sys.modules.pop("worker", None)
+
+    def test_multi_function_routes(self, tmp_path):
+        mod = tmp_path / "multi.py"
+        mod.write_text(
+            "async def alpha(d):\n    return 'a'\n"
+            "async def beta(d):\n    return 'b'\n"
+        )
+        worker = WorkerInfo(
+            file_path=mod,
+            url_prefix="/multi",
+            module_path="multi",
+            resource_name="multi",
+            worker_type="QB",
+            functions=["alpha", "beta"],
+        )
+        sys.path.insert(0, str(tmp_path))
+        try:
+            test_app = FastAPI()
+            _register_qb_routes(test_app, worker, tmp_path, "test [QB]")
+            client = TestClient(test_app)
+            assert client.post("/multi/alpha/run_sync", json={"input": {}}).json()["output"] == "a"
+            assert client.post("/multi/beta/run_sync", json={"input": {}}).json()["output"] == "b"
+        finally:
+            sys.path.remove(str(tmp_path))
+            sys.modules.pop("multi", None)
+
+
+# ---------------------------------------------------------------------------
+# LB routes
+# ---------------------------------------------------------------------------
+
+
+class TestRegisterLBRoutes:
+    """Test LB route registration using an injected executor."""
+
+    def _write_lb_module(self, tmp_path, name, config_var, fn_name):
+        mod = tmp_path / f"{name}.py"
+        mod.write_text(
+            f"{config_var} = 'fake_config'\n"
+            f"async def {fn_name}(d):\n    return d\n"
+        )
+
+    def _make_lb_worker(self, tmp_path, name, config_var, fn_name, method, path):
         return WorkerInfo(
-            file_path=tmp_path / "api.py",
-            url_prefix="/api",
-            module_path="api",
-            resource_name="api",
+            file_path=tmp_path / f"{name}.py",
+            url_prefix=f"/{name}",
+            module_path=name,
+            resource_name=name,
             worker_type="LB",
-            functions=["list_routes"],
+            functions=[fn_name],
             lb_routes=[
                 {
                     "method": method,
-                    "path": "/routes/list",
-                    "fn_name": "list_routes",
-                    "config_variable": "api_config",
+                    "path": path,
+                    "fn_name": fn_name,
+                    "config_variable": config_var,
                 }
             ],
         )
 
-    def test_post_lb_route_generates_body_param(self, tmp_path):
-        """POST/PUT/PATCH/DELETE LB routes use body: dict for OpenAPI docs."""
+    def test_post_route_passes_body(self, tmp_path):
+        """POST LB routes forward the request body to the executor."""
+        self._write_lb_module(tmp_path, "api", "api_config", "handle")
+        worker = self._make_lb_worker(tmp_path, "api", "api_config", "handle", "POST", "/do")
+        captured = {}
+
+        async def fake_executor(config, fn, body):
+            captured["config"] = config
+            captured["body"] = body
+            return {"ok": True}
+
+        sys.path.insert(0, str(tmp_path))
+        try:
+            test_app = FastAPI()
+            _register_lb_routes(test_app, worker, tmp_path, "lb", executor=fake_executor)
+            client = TestClient(test_app)
+            resp = client.post("/api/do", json={"key": "val"})
+            assert resp.status_code == 200
+            assert captured["config"] == "fake_config"
+            assert captured["body"] == {"key": "val"}
+        finally:
+            sys.path.remove(str(tmp_path))
+            sys.modules.pop("api", None)
+
+    def test_get_route_passes_query_params(self, tmp_path):
+        """GET LB routes forward query params as a dict."""
+        self._write_lb_module(tmp_path, "search", "search_cfg", "find")
+        worker = self._make_lb_worker(tmp_path, "search", "search_cfg", "find", "GET", "/query")
+        captured = {}
+
+        async def fake_executor(config, fn, body):
+            captured["body"] = body
+            return {"ok": True}
+
+        sys.path.insert(0, str(tmp_path))
+        try:
+            test_app = FastAPI()
+            _register_lb_routes(test_app, worker, tmp_path, "lb", executor=fake_executor)
+            client = TestClient(test_app)
+            resp = client.get("/search/query?q=test&limit=10")
+            assert resp.status_code == 200
+            assert captured["body"] == {"q": "test", "limit": "10"}
+        finally:
+            sys.path.remove(str(tmp_path))
+            sys.modules.pop("search", None)
+
+    def test_all_body_methods(self, tmp_path):
+        """POST/PUT/PATCH/DELETE all register as body-accepting routes."""
         for method in ("POST", "PUT", "PATCH", "DELETE"):
-            worker = self._make_lb_worker(tmp_path, method)
-            content = _generate_flash_server(tmp_path, [worker]).read_text()
-            assert "async def _route_api_list_routes(body: dict):" in content
-            assert "_lb_execute(api_config, list_routes, body)" in content
+            mod_name = f"mod_{method.lower()}"
+            self._write_lb_module(tmp_path, mod_name, "cfg", "handler")
+            worker = self._make_lb_worker(tmp_path, mod_name, "cfg", "handler", method, "/ep")
 
-    def test_get_lb_route_uses_query_params(self, tmp_path):
-        """GET LB routes pass query params as a dict."""
-        worker = self._make_lb_worker(tmp_path, "GET")
-        content = _generate_flash_server(tmp_path, [worker]).read_text()
-        assert "async def _route_api_list_routes(request: Request):" in content
-        assert (
-            "_lb_execute(api_config, list_routes, dict(request.query_params))"
-            in content
-        )
+            async def noop_executor(config, fn, body):
+                return {"ok": True}
 
-    def test_lb_config_var_and_function_imported(self, tmp_path):
-        """LB config vars and functions are both imported for remote dispatch."""
-        worker = self._make_lb_worker(tmp_path)
-        content = _generate_flash_server(tmp_path, [worker]).read_text()
-        assert "from api import api_config" in content
-        assert "from api import list_routes" in content
-
-    def test_lb_execute_import_present_when_lb_routes_exist(self, tmp_path):
-        """server.py imports _lb_execute when there are LB workers."""
-        worker = self._make_lb_worker(tmp_path)
-        content = _generate_flash_server(tmp_path, [worker]).read_text()
-        assert "_lb_execute" in content
-        assert "lb_execute" in content
-
-    def test_qb_function_still_imported_directly(self, tmp_path):
-        """QB workers still import and call functions directly."""
-        worker = WorkerInfo(
-            file_path=tmp_path / "worker.py",
-            url_prefix="/worker",
-            module_path="worker",
-            resource_name="worker",
-            worker_type="QB",
-            functions=["process"],
-        )
-        content = _generate_flash_server(tmp_path, [worker]).read_text()
-        assert "from worker import process" in content
-        assert "await process(" in content
+            sys.path.insert(0, str(tmp_path))
+            try:
+                test_app = FastAPI()
+                _register_lb_routes(test_app, worker, tmp_path, "lb", executor=noop_executor)
+                route = next(
+                    r for r in test_app.routes
+                    if hasattr(r, "path") and r.path == f"/{mod_name}/ep"
+                )
+                assert method in route.methods
+            finally:
+                sys.path.remove(str(tmp_path))
+                sys.modules.pop(mod_name, None)
 
 
-class TestSanitizeFnName:
-    """Test _sanitize_fn_name handles leading-digit identifiers."""
-
-    def test_normal_name_unchanged(self):
-        assert _sanitize_fn_name("worker_run_sync") == "worker_run_sync"
-
-    def test_leading_digit_gets_underscore_prefix(self):
-        assert _sanitize_fn_name("01_hello_run_sync") == "_01_hello_run_sync"
-
-    def test_slashes_replaced(self):
-        assert _sanitize_fn_name("a/b/c") == "a_b_c"
-
-    def test_dots_and_hyphens_replaced(self):
-        assert _sanitize_fn_name("a.b-c") == "a_b_c"
-
-    def test_numeric_after_slash(self):
-        assert _sanitize_fn_name("01_foo/02_bar") == "_01_foo_02_bar"
+# ---------------------------------------------------------------------------
+# _import_from_module
+# ---------------------------------------------------------------------------
 
 
-class TestHasNumericModuleSegments:
-    """Test _has_numeric_module_segments detects digit-prefixed segments."""
+class TestImportFromModule:
+    """Test module importing with standard and numeric-prefix paths."""
 
-    def test_normal_module_path(self):
-        assert _has_numeric_module_segments("worker") is False
+    def test_standard_module(self, tmp_path):
+        (tmp_path / "mymod.py").write_text("MY_VAR = 42\n")
+        sys.path.insert(0, str(tmp_path))
+        try:
+            assert _import_from_module("mymod", "MY_VAR", tmp_path) == 42
+        finally:
+            sys.path.remove(str(tmp_path))
+            sys.modules.pop("mymod", None)
 
-    def test_dotted_normal(self):
-        assert _has_numeric_module_segments("longruns.stage1") is False
+    def test_numeric_prefix_module(self, tmp_path):
+        subdir = tmp_path / "01_hello"
+        subdir.mkdir()
+        (subdir / "__init__.py").write_text("")
+        (subdir / "gpu_worker.py").write_text("VALUE = 'hello'\n")
+        sys.path.insert(0, str(tmp_path))
+        try:
+            assert _import_from_module("01_hello.gpu_worker", "VALUE", tmp_path) == "hello"
+        finally:
+            sys.path.remove(str(tmp_path))
+            sys.modules.pop("01_hello.gpu_worker", None)
+            sys.modules.pop("01_hello", None)
 
-    def test_leading_digit_first_segment(self):
-        assert _has_numeric_module_segments("01_hello.worker") is True
-
-    def test_leading_digit_nested_segment(self):
-        assert _has_numeric_module_segments("getting_started.01_hello.worker") is True
-
-    def test_digit_in_middle_not_leading(self):
-        assert _has_numeric_module_segments("stage1.worker") is False
-
-
-class TestModuleParentSubdir:
-    """Test _module_parent_subdir extracts parent directory from dotted path."""
-
-    def test_top_level_returns_none(self):
-        assert _module_parent_subdir("worker") is None
-
-    def test_single_parent(self):
-        assert _module_parent_subdir("01_hello.gpu_worker") == "01_hello"
-
-    def test_nested_parent(self):
-        assert (
-            _module_parent_subdir("01_getting_started.03_mixed.pipeline")
-            == "01_getting_started/03_mixed"
-        )
-
-
-class TestMakeImportLine:
-    """Test _make_import_line generates correct import syntax."""
-
-    def test_normal_module_uses_from_import(self):
-        result = _make_import_line("worker", "process")
-        assert result == "from worker import process"
-
-    def test_numeric_module_uses_flash_import(self):
-        result = _make_import_line("01_hello.gpu_worker", "gpu_hello")
-        assert (
-            result
-            == 'gpu_hello = _flash_import("01_hello.gpu_worker", "gpu_hello", "01_hello")'
-        )
-
-    def test_nested_numeric_includes_full_subdir(self):
-        result = _make_import_line(
-            "01_getting_started.01_hello.gpu_worker", "gpu_hello"
-        )
-        assert '"01_getting_started/01_hello"' in result
-
-    def test_top_level_numeric_module_no_subdir(self):
-        result = _make_import_line("01_worker", "process")
-        assert result == 'process = _flash_import("01_worker", "process")'
+    def test_top_level_numeric_module(self, tmp_path):
+        (tmp_path / "01_worker.py").write_text("RESULT = 'ok'\n")
+        sys.path.insert(0, str(tmp_path))
+        try:
+            assert _import_from_module("01_worker", "RESULT", tmp_path) == "ok"
+        finally:
+            sys.path.remove(str(tmp_path))
+            sys.modules.pop("01_worker", None)
 
 
-class TestGenerateFlashServerNumericDirs:
-    """Test _generate_flash_server with numeric-prefixed directory names."""
-
-    def test_qb_numeric_dir_uses_flash_import(self, tmp_path):
-        """QB workers in numeric dirs use _flash_import with scoped sys.path."""
-        worker = WorkerInfo(
-            file_path=tmp_path / "01_hello" / "gpu_worker.py",
-            url_prefix="/01_hello/gpu_worker",
-            module_path="01_hello.gpu_worker",
-            resource_name="01_hello_gpu_worker",
-            worker_type="QB",
-            functions=["gpu_hello"],
-        )
-        content = _generate_flash_server(tmp_path, [worker]).read_text()
-
-        # Must NOT contain invalid 'from 01_hello...' import
-        assert "from 01_hello" not in content
-        # Must have _flash_import helper and importlib
-        assert "import importlib as _importlib" in content
-        assert "def _flash_import(" in content
-        assert (
-            '_flash_import("01_hello.gpu_worker", "gpu_hello", "01_hello")' in content
-        )
-
-    def test_qb_numeric_dir_function_name_prefixed(self, tmp_path):
-        """QB handler function names starting with digits get '_' prefix."""
-        worker = WorkerInfo(
-            file_path=tmp_path / "01_hello" / "gpu_worker.py",
-            url_prefix="/01_hello/gpu_worker",
-            module_path="01_hello.gpu_worker",
-            resource_name="01_hello_gpu_worker",
-            worker_type="QB",
-            functions=["gpu_hello"],
-        )
-        content = _generate_flash_server(tmp_path, [worker]).read_text()
-
-        # Function name must start with '_', not a digit
-        assert "async def _01_hello_gpu_worker_run_sync(body: dict):" in content
-
-    def test_lb_numeric_dir_uses_flash_import(self, tmp_path):
-        """LB workers in numeric dirs use _flash_import for config and function imports."""
-        worker = WorkerInfo(
-            file_path=tmp_path / "03_advanced" / "05_lb" / "cpu_lb.py",
-            url_prefix="/03_advanced/05_lb/cpu_lb",
-            module_path="03_advanced.05_lb.cpu_lb",
-            resource_name="03_advanced_05_lb_cpu_lb",
-            worker_type="LB",
-            functions=["validate_data"],
-            lb_routes=[
-                {
-                    "method": "POST",
-                    "path": "/validate",
-                    "fn_name": "validate_data",
-                    "config_variable": "cpu_config",
-                }
-            ],
-        )
-        content = _generate_flash_server(tmp_path, [worker]).read_text()
-
-        assert "from 03_advanced" not in content
-        assert (
-            '_flash_import("03_advanced.05_lb.cpu_lb", "cpu_config", "03_advanced/05_lb")'
-            in content
-        )
-        assert (
-            '_flash_import("03_advanced.05_lb.cpu_lb", "validate_data", "03_advanced/05_lb")'
-            in content
-        )
-
-    def test_mixed_numeric_and_normal_dirs(self, tmp_path):
-        """Normal modules use 'from' imports, numeric modules use _flash_import."""
-        normal_worker = WorkerInfo(
-            file_path=tmp_path / "worker.py",
-            url_prefix="/worker",
-            module_path="worker",
-            resource_name="worker",
-            worker_type="QB",
-            functions=["process"],
-        )
-        numeric_worker = WorkerInfo(
-            file_path=tmp_path / "01_hello" / "gpu_worker.py",
-            url_prefix="/01_hello/gpu_worker",
-            module_path="01_hello.gpu_worker",
-            resource_name="01_hello_gpu_worker",
-            worker_type="QB",
-            functions=["gpu_hello"],
-        )
-        content = _generate_flash_server(
-            tmp_path, [normal_worker, numeric_worker]
-        ).read_text()
-
-        # Normal worker uses standard import
-        assert "from worker import process" in content
-        # Numeric worker uses scoped _flash_import
-        assert (
-            '_flash_import("01_hello.gpu_worker", "gpu_hello", "01_hello")' in content
-        )
-
-    def test_no_importlib_when_all_normal_dirs(self, tmp_path):
-        """importlib and _flash_import are not emitted when no numeric dirs exist."""
-        worker = WorkerInfo(
-            file_path=tmp_path / "worker.py",
-            url_prefix="/worker",
-            module_path="worker",
-            resource_name="worker",
-            worker_type="QB",
-            functions=["process"],
-        )
-        content = _generate_flash_server(tmp_path, [worker]).read_text()
-        assert "importlib" not in content
-        assert "_flash_import" not in content
-
-    def test_scoped_import_includes_subdir(self, tmp_path):
-        """_flash_import calls pass the subdirectory for sibling import scoping."""
-        worker = WorkerInfo(
-            file_path=tmp_path / "01_getting_started" / "03_mixed" / "pipeline.py",
-            url_prefix="/01_getting_started/03_mixed/pipeline",
-            module_path="01_getting_started.03_mixed.pipeline",
-            resource_name="01_getting_started_03_mixed_pipeline",
-            worker_type="LB",
-            functions=["classify"],
-            lb_routes=[
-                {
-                    "method": "POST",
-                    "path": "/classify",
-                    "fn_name": "classify",
-                    "config_variable": "pipeline_config",
-                }
-            ],
-        )
-        content = _generate_flash_server(tmp_path, [worker]).read_text()
-
-        # Must scope to correct subdirectory, not add all dirs to sys.path
-        assert '"01_getting_started/03_mixed"' in content
-        # No global sys.path additions for subdirs — only the project root
-        # line at the top and the one inside _flash_import helper body
-        lines = content.split("\n")
-        global_sys_path_lines = [
-            line
-            for line in lines
-            if "sys.path.insert" in line and not line.startswith(" ")
-        ]
-        assert len(global_sys_path_lines) == 1
-
-    def test_generated_server_is_valid_python(self, tmp_path):
-        """Generated server.py with numeric dirs must be parseable Python."""
-        worker = WorkerInfo(
-            file_path=tmp_path / "01_getting_started" / "01_hello" / "gpu_worker.py",
-            url_prefix="/01_getting_started/01_hello/gpu_worker",
-            module_path="01_getting_started.01_hello.gpu_worker",
-            resource_name="01_getting_started_01_hello_gpu_worker",
-            worker_type="QB",
-            functions=["gpu_hello"],
-        )
-        server_path = _generate_flash_server(tmp_path, [worker])
-        content = server_path.read_text()
-
-        # Must parse without SyntaxError
-        import ast
-
-        ast.parse(content)
+# ---------------------------------------------------------------------------
+# _map_body_to_params
+# ---------------------------------------------------------------------------
 
 
 class TestMapBodyToParams:
-    """Tests for _map_body_to_params — maps HTTP body to function arguments."""
+    """Tests for _map_body_to_params."""
 
-    def test_body_keys_match_params_spreads_as_kwargs(self):
+    def test_matching_keys_spread_as_kwargs(self):
         from runpod_flash.cli.commands._run_server_helpers import _map_body_to_params
 
         def process(name: str, value: int):
             pass
 
-        result = _map_body_to_params(process, {"name": "test", "value": 42})
-        assert result == {"name": "test", "value": 42}
+        assert _map_body_to_params(process, {"name": "t", "value": 1}) == {"name": "t", "value": 1}
 
-    def test_body_keys_mismatch_wraps_in_first_param(self):
+    def test_mismatched_keys_wrap_in_first_param(self):
         from runpod_flash.cli.commands._run_server_helpers import _map_body_to_params
 
-        def run_pipeline(input_data: dict):
+        def run(input_data: dict):
             pass
 
-        body = {"text": "hello", "mode": "fast"}
-        result = _map_body_to_params(run_pipeline, body)
-        assert result == {"input_data": {"text": "hello", "mode": "fast"}}
+        assert _map_body_to_params(run, {"a": 1}) == {"input_data": {"a": 1}}
 
-    def test_non_dict_body_wraps_in_first_param(self):
+    def test_non_dict_wraps_in_first_param(self):
         from runpod_flash.cli.commands._run_server_helpers import _map_body_to_params
 
-        def run_pipeline(input_data):
+        def run(input_data):
             pass
 
-        result = _map_body_to_params(run_pipeline, [1, 2, 3])
-        assert result == {"input_data": [1, 2, 3]}
+        assert _map_body_to_params(run, [1, 2]) == {"input_data": [1, 2]}
 
     def test_no_params_returns_empty(self):
         from runpod_flash.cli.commands._run_server_helpers import _map_body_to_params
 
-        def no_args():
+        def noop():
             pass
 
-        result = _map_body_to_params(no_args, {"key": "val"})
-        assert result == {}
+        assert _map_body_to_params(noop, {"k": "v"}) == {}
 
-    def test_partial_key_match_wraps_in_first_param(self):
+    def test_partial_match_wraps_in_first_param(self):
         from runpod_flash.cli.commands._run_server_helpers import _map_body_to_params
 
         def process(name: str, value: int):
             pass
 
-        result = _map_body_to_params(process, {"name": "test", "extra": "bad"})
-        assert result == {"name": {"name": "test", "extra": "bad"}}
+        assert _map_body_to_params(process, {"name": "t", "extra": "x"}) == {
+            "name": {"name": "t", "extra": "x"}
+        }
 
-    def test_empty_dict_body_spreads_as_empty_kwargs(self):
+    def test_empty_dict_spreads_as_empty(self):
         from runpod_flash.cli.commands._run_server_helpers import _map_body_to_params
 
-        def run_pipeline(input_data: dict):
+        def run(input_data: dict):
             pass
 
-        result = _map_body_to_params(run_pipeline, {})
-        assert result == {}
+        assert _map_body_to_params(run, {}) == {}

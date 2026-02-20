@@ -278,7 +278,7 @@ def _create_entrypoint_script(build_dir: str) -> None:
     """Create entrypoint.sh script for Docker container.
 
     This script handles signal trapping and cleanup on shutdown.
-    It runs manifest-based provisioning then flash run (without --auto-provision
+    It runs manifest-based provisioning then flash dev (without --auto-provision
     to avoid duplicate discovery from bundled dependencies).
     """
     build_path = Path(build_dir)
@@ -369,7 +369,7 @@ def _display_test_objectives() -> None:
 def _display_config(build_dir: str, image: str, port: int, endpoint_id: str) -> None:
     """Display test configuration."""
     config_text = f"""[bold]Build directory:[/bold] {build_dir}
-[bold]Command:[/bold] flash run
+[bold]Command:[/bold] flash dev
 [bold]Docker image:[/bold] {image}
 [bold]Endpoint ID:[/bold] {endpoint_id}
 [bold]Port:[/bold] http://localhost:{port}"""

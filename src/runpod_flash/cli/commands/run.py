@@ -1,11 +1,10 @@
-"""Run Flash development server."""
+"""Flash dev server command."""
 
 import logging
 import os
 import signal
 import subprocess
 import sys
-import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List
@@ -13,22 +12,6 @@ from typing import List
 import typer
 from rich.console import Console
 from rich.table import Table
-
-try:
-    from watchfiles import DefaultFilter as _WatchfilesDefaultFilter
-    from watchfiles import watch as _watchfiles_watch
-except ModuleNotFoundError:
-
-    def _watchfiles_watch(*_a, **_kw):  # type: ignore[misc]
-        raise ModuleNotFoundError(
-            "watchfiles is required for flash run --reload. "
-            "Install it with: pip install watchfiles"
-        )
-
-    class _WatchfilesDefaultFilter:  # type: ignore[no-redef]
-        def __init__(self, **_kw):
-            pass
-
 
 from .build_utils.scanner import (
     RemoteDecoratorScanner,
@@ -40,7 +23,7 @@ from .build_utils.scanner import (
 logger = logging.getLogger(__name__)
 console = Console()
 
-# Resource state file written by ResourceManager in the uvicorn subprocess.
+# resource state file written by ResourceManager in the uvicorn subprocess
 _RESOURCE_STATE_FILE = Path(".runpod") / "resources.pkl"
 
 
@@ -76,7 +59,7 @@ def _scan_project_workers(project_root: Path) -> List[WorkerInfo]:
     scanner = RemoteDecoratorScanner(project_root)
     remote_functions = scanner.discover_remote_functions()
 
-    # Group by file path
+    # group by file path
     by_file: dict[Path, List] = {}
     for func in remote_functions:
         by_file.setdefault(func.file_path, []).append(func)
@@ -125,249 +108,6 @@ def _scan_project_workers(project_root: Path) -> List[WorkerInfo]:
             )
 
     return workers
-
-
-def _ensure_gitignore(project_root: Path) -> None:
-    """Add .flash/ to .gitignore if not already present."""
-    gitignore = project_root / ".gitignore"
-    entry = ".flash/"
-
-    if gitignore.exists():
-        content = gitignore.read_text(encoding="utf-8")
-        if entry in content:
-            return
-        # Append with a newline
-        if not content.endswith("\n"):
-            content += "\n"
-        gitignore.write_text(content + entry + "\n", encoding="utf-8")
-    else:
-        gitignore.write_text(entry + "\n", encoding="utf-8")
-
-
-def _sanitize_fn_name(name: str) -> str:
-    """Sanitize a string for use as a Python function name.
-
-    Replaces non-identifier characters with underscores and prepends '_'
-    if the result starts with a digit (Python identifiers cannot start
-    with digits).
-    """
-    result = name.replace("/", "_").replace(".", "_").replace("-", "_")
-    if result and result[0].isdigit():
-        result = "_" + result
-    return result
-
-
-def _has_numeric_module_segments(module_path: str) -> bool:
-    """Check if any segment in a dotted module path starts with a digit.
-
-    Python identifiers cannot start with digits, so ``from 01_foo import bar``
-    is a SyntaxError. Callers should use ``importlib.import_module()`` instead.
-    """
-    return any(seg and seg[0].isdigit() for seg in module_path.split("."))
-
-
-def _module_parent_subdir(module_path: str) -> str | None:
-    """Return the parent sub-directory for a dotted module path, or None for top-level.
-
-    Example: ``01_getting_started.03_mixed.pipeline`` → ``01_getting_started/03_mixed``
-    """
-    parts = module_path.rsplit(".", 1)
-    if len(parts) == 1:
-        return None
-    return parts[0].replace(".", "/")
-
-
-def _make_import_line(module_path: str, name: str) -> str:
-    """Build an import statement for *name* from *module_path*.
-
-    Uses a regular ``from … import …`` when the module path is a valid
-    Python identifier chain. Falls back to ``_flash_import()`` (a generated
-    helper in server.py) when any segment starts with a digit. The helper
-    temporarily scopes ``sys.path`` so sibling imports in the target module
-    resolve to the correct directory.
-    """
-    if _has_numeric_module_segments(module_path):
-        subdir = _module_parent_subdir(module_path)
-        if subdir:
-            return f'{name} = _flash_import("{module_path}", "{name}", "{subdir}")'
-        return f'{name} = _flash_import("{module_path}", "{name}")'
-    return f"from {module_path} import {name}"
-
-
-def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Path:
-    """Generate .flash/server.py from the discovered workers.
-
-    Args:
-        project_root: Root of the Flash project
-        workers: List of discovered worker infos
-
-    Returns:
-        Path to the generated server.py
-    """
-    flash_dir = project_root / ".flash"
-    flash_dir.mkdir(exist_ok=True)
-
-    _ensure_gitignore(project_root)
-
-    has_lb_workers = any(w.worker_type == "LB" for w in workers)
-
-    lines = [
-        '"""Auto-generated Flash dev server. Do not edit — regenerated on each flash run."""',
-        "import sys",
-        "import uuid",
-        "from pathlib import Path",
-        "_project_root = Path(__file__).parent.parent",
-        "sys.path.insert(0, str(_project_root))",
-        "",
-    ]
-
-    # When modules live in directories with numeric prefixes (e.g. 01_hello/),
-    # we cannot use ``from … import …`` — Python identifiers cannot start with
-    # digits.  Instead we emit a small ``_flash_import`` helper that uses
-    # ``importlib.import_module()`` *and* temporarily scopes ``sys.path`` so
-    # that sibling imports inside the loaded module (e.g. ``from cpu_worker
-    # import …``) resolve to the correct directory rather than a same-named
-    # file from a different example subdirectory.
-    needs_importlib = any(_has_numeric_module_segments(w.module_path) for w in workers)
-
-    if needs_importlib:
-        lines += [
-            "import importlib as _importlib",
-            "",
-            "",
-            "def _flash_import(module_path, name, subdir=None):",
-            '    """Import *name* from *module_path* with scoped sys.path for sibling imports."""',
-            "    _path = str(_project_root / subdir) if subdir else None",
-            "    if _path:",
-            "        sys.path.insert(0, _path)",
-            "    try:",
-            "        return getattr(_importlib.import_module(module_path), name)",
-            "    finally:",
-            "        if _path:",
-            "            try:",
-            "                sys.path.remove(_path)",
-            "            except ValueError:",
-            "                pass",
-            "",
-        ]
-
-    if has_lb_workers:
-        lines += [
-            "from fastapi import FastAPI, Request",
-            "from runpod_flash.cli.commands._run_server_helpers import lb_execute as _lb_execute",
-            "",
-        ]
-    else:
-        lines += [
-            "from fastapi import FastAPI",
-            "",
-        ]
-
-    # Collect imports — QB functions are called directly, LB config variables and
-    # functions are passed to lb_execute for dispatch via LoadBalancerSlsStub.
-    all_imports: List[str] = []
-    for worker in workers:
-        if worker.worker_type == "QB":
-            for fn_name in worker.functions:
-                all_imports.append(_make_import_line(worker.module_path, fn_name))
-        elif worker.worker_type == "LB":
-            # Import the resource config variable (e.g. "api" from api = LiveLoadBalancer(...))
-            config_vars = {
-                r["config_variable"]
-                for r in worker.lb_routes
-                if r.get("config_variable")
-            }
-            for var in sorted(config_vars):
-                all_imports.append(_make_import_line(worker.module_path, var))
-            for fn_name in worker.functions:
-                all_imports.append(_make_import_line(worker.module_path, fn_name))
-
-    if all_imports:
-        lines.extend(all_imports)
-        lines.append("")
-
-    lines += [
-        "app = FastAPI(",
-        '    title="Flash Dev Server",',
-        '    description="Auto-generated by `flash run`. Visit /docs for interactive testing.",',
-        ")",
-        "",
-    ]
-
-    for worker in workers:
-        tag = f"{worker.url_prefix.lstrip('/')} [{worker.worker_type}]"
-        lines.append(f"# {'─' * 60}")
-        lines.append(f"# {worker.worker_type}: {worker.file_path.name}")
-        lines.append(f"# {'─' * 60}")
-
-        if worker.worker_type == "QB":
-            if len(worker.functions) == 1:
-                fn = worker.functions[0]
-                handler_name = _sanitize_fn_name(f"{worker.resource_name}_run_sync")
-                sync_path = f"{worker.url_prefix}/run_sync"
-                lines += [
-                    f'@app.post("{sync_path}", tags=["{tag}"])',
-                    f"async def {handler_name}(body: dict):",
-                    f'    result = await {fn}(body.get("input", body))',
-                    '    return {"id": str(uuid.uuid4()), "status": "COMPLETED", "output": result}',
-                    "",
-                ]
-            else:
-                for fn in worker.functions:
-                    handler_name = _sanitize_fn_name(
-                        f"{worker.resource_name}_{fn}_run_sync"
-                    )
-                    sync_path = f"{worker.url_prefix}/{fn}/run_sync"
-                    lines += [
-                        f'@app.post("{sync_path}", tags=["{tag}"])',
-                        f"async def {handler_name}(body: dict):",
-                        f'    result = await {fn}(body.get("input", body))',
-                        '    return {"id": str(uuid.uuid4()), "status": "COMPLETED", "output": result}',
-                        "",
-                    ]
-
-        elif worker.worker_type == "LB":
-            for route in worker.lb_routes:
-                method = route["method"].lower()
-                sub_path = route["path"].lstrip("/")
-                fn_name = route["fn_name"]
-                config_var = route["config_variable"]
-                full_path = f"{worker.url_prefix}/{sub_path}"
-                handler_name = _sanitize_fn_name(
-                    f"_route_{worker.resource_name}_{fn_name}"
-                )
-                has_body = method in ("post", "put", "patch", "delete")
-                if has_body:
-                    lines += [
-                        f'@app.{method}("{full_path}", tags=["{tag}"])',
-                        f"async def {handler_name}(body: dict):",
-                        f"    return await _lb_execute({config_var}, {fn_name}, body)",
-                        "",
-                    ]
-                else:
-                    lines += [
-                        f'@app.{method}("{full_path}", tags=["{tag}"])',
-                        f"async def {handler_name}(request: Request):",
-                        f"    return await _lb_execute({config_var}, {fn_name}, dict(request.query_params))",
-                        "",
-                    ]
-
-    # Health endpoints
-    lines += [
-        "# Health",
-        '@app.get("/", tags=["health"])',
-        "def home():",
-        '    return {"message": "Flash Dev Server", "docs": "/docs"}',
-        "",
-        '@app.get("/ping", tags=["health"])',
-        "def ping():",
-        '    return {"status": "healthy"}',
-        "",
-    ]
-
-    server_path = flash_dir / "server.py"
-    server_path.write_text("\n".join(lines), encoding="utf-8")
-    return server_path
 
 
 def _print_startup_table(workers: List[WorkerInfo], host: str, port: int) -> None:
@@ -473,7 +213,7 @@ def _cleanup_live_endpoints() -> None:
             f"resource(s) undeployed in {elapsed:.1f}s"
         )
 
-        # Remove live- entries from persisted state so they don't linger.
+        # remove live- entries from persisted state so they don't linger
         remaining = {k: v for k, v in resources.items() if k not in live_items}
         remaining_configs = {k: v for k, v in configs.items() if k not in live_items}
         try:
@@ -490,36 +230,6 @@ def _cleanup_live_endpoints() -> None:
 def _is_reload() -> bool:
     """Check if running in uvicorn reload subprocess."""
     return "UVICORN_RELOADER_PID" in os.environ
-
-
-def _watch_and_regenerate(project_root: Path, stop_event: threading.Event) -> None:
-    """Watch project .py files and regenerate server.py when they change.
-
-    Ignores .flash/ to avoid reacting to our own writes. Runs until
-    stop_event is set.
-    """
-    # Suppress watchfiles' internal debug chatter (filter hits, rust timeouts).
-    logging.getLogger("watchfiles").setLevel(logging.WARNING)
-
-    watch_filter = _WatchfilesDefaultFilter(ignore_paths=[str(project_root / ".flash")])
-
-    try:
-        for changes in _watchfiles_watch(
-            project_root,
-            watch_filter=watch_filter,
-            stop_event=stop_event,
-        ):
-            py_changed = [p for _, p in changes if p.endswith(".py")]
-            if not py_changed:
-                continue
-            try:
-                workers = _scan_project_workers(project_root)
-                _generate_flash_server(project_root, workers)
-                logger.debug("server.py regenerated (%d changed)", len(py_changed))
-            except Exception as e:
-                logger.warning("Failed to regenerate server.py: %s", e)
-    except Exception:
-        pass  # stop_event was set or watchfiles unavailable — both are fine
 
 
 def _discover_resources(project_root: Path):
@@ -545,8 +255,7 @@ def _discover_resources(project_root: Path):
         )
     )
 
-    # Add project root to sys.path so cross-module imports resolve
-    # (e.g. api/routes.py doing "from longruns.stage1 import stage1_process").
+    # add project root to sys.path so cross-module imports resolve
     root_str = str(project_root)
     added_to_path = root_str not in sys.path
     if added_to_path:
@@ -623,21 +332,22 @@ def run_command(
         help="Auto-provision all endpoints on startup (eliminates cold-start on first request)",
     ),
 ):
-    """Run Flash development server.
+    """Start Flash development server.
 
-    Scans the project for @remote decorated functions, generates a dev server
-    at .flash/server.py, and starts uvicorn with hot-reload.
+    Scans the project for @remote decorated functions and starts a FastAPI
+    dev server via uvicorn. The app is built programmatically (no codegen)
+    so tracebacks point directly to your source files.
 
     No main.py or FastAPI boilerplate required. Any .py file with @remote
     decorated functions is a valid Flash project.
     """
     project_root = Path.cwd()
 
-    # Set flag for live provisioning so stubs get the live- prefix
+    # set flag for live provisioning so stubs get the live- prefix
     if not _is_reload():
         os.environ["FLASH_IS_LIVE_PROVISIONING"] = "true"
 
-    # Auto-provision all endpoints upfront (eliminates cold-start)
+    # auto-provision all endpoints upfront (eliminates cold-start)
     if auto_provision and not _is_reload():
         try:
             resources = _discover_resources(project_root)
@@ -650,14 +360,14 @@ def run_command(
                 "[dim]Resources will be provisioned on-demand at first request.[/dim]"
             )
 
-    # Discover @remote functions
+    # discover @remote functions for the startup table
     workers = _scan_project_workers(project_root)
 
     if not workers:
         console.print("[red]Error:[/red] No @remote functions found.")
         console.print("Add @remote decorators to your functions to get started.")
-        console.print("\nExample:")
         console.print(
+            "\nExample:\n"
             "  from runpod_flash import LiveServerless, remote\n"
             "  gpu_config = LiveServerless(name='my_worker')\n"
             "\n"
@@ -667,19 +377,17 @@ def run_command(
         )
         raise typer.Exit(1)
 
-    # Generate .flash/server.py
-    _generate_flash_server(project_root, workers)
-
     _print_startup_table(workers, host, port)
 
-    # Build uvicorn command using --app-dir so server:app is importable
+    # tell the factory function where the project lives
+    os.environ["FLASH_PROJECT_ROOT"] = str(project_root)
+
     cmd = [
         sys.executable,
         "-m",
         "uvicorn",
-        "server:app",
-        "--app-dir",
-        ".flash",
+        "--factory",
+        "runpod_flash.cli.commands._dev_server:create_app",
         "--host",
         host,
         "--port",
@@ -692,18 +400,8 @@ def run_command(
         cmd += [
             "--reload",
             "--reload-dir",
-            ".flash",
-            "--reload-include",
-            "server.py",
+            str(project_root),
         ]
-
-    stop_event = threading.Event()
-    watcher_thread = threading.Thread(
-        target=_watch_and_regenerate,
-        args=(project_root, stop_event),
-        daemon=True,
-        name="flash-watcher",
-    )
 
     process = None
     try:
@@ -714,17 +412,10 @@ def run_command(
         else:
             process = subprocess.Popen(cmd, preexec_fn=os.setsid)
 
-        if reload:
-            watcher_thread.start()
-
         process.wait()
 
     except KeyboardInterrupt:
         console.print("\n[yellow]Stopping server and cleaning up...[/yellow]")
-
-        stop_event.set()
-        if watcher_thread.is_alive():
-            watcher_thread.join(timeout=2)
 
         if process:
             try:
@@ -751,10 +442,6 @@ def run_command(
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
-
-        stop_event.set()
-        if watcher_thread.is_alive():
-            watcher_thread.join(timeout=2)
 
         if process:
             try:

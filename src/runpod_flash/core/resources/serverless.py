@@ -474,7 +474,7 @@ class ServerlessResource(DeployableResource):
             if not self.id:
                 return False
 
-            # During flash run, skip the health check. Newly-created endpoints
+            # During flash dev, skip the health check. Newly-created endpoints
             # can fail health checks due to RunPod propagation delay — the
             # endpoint exists but the health API hasn't registered it yet.
             # Trusting the cached ID is correct here; actual failures surface

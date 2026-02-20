@@ -283,7 +283,7 @@ def isolate_resource_state_file(
 def clear_live_provisioning_env(monkeypatch: pytest.MonkeyPatch):
     """Clear FLASH_IS_LIVE_PROVISIONING env var between tests.
 
-    This fixture ensures that the flag set by `flash run` command
+    This fixture ensures that the flag set by `flash dev` command
     doesn't leak into unit tests. It's autouse so it runs for all tests.
 
     Args:
