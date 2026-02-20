@@ -94,6 +94,15 @@ class RemoteFunctionMetadata:
     is_lb_route_handler: bool = (
         False  # LB @remote with method= and path= — runs directly as HTTP handler
     )
+    class_methods: List[str] = field(
+        default_factory=list
+    )  # Public methods for @remote classes
+    param_names: List[str] = field(
+        default_factory=list
+    )  # Function params excluding self
+    class_method_params: Dict[str, List[str]] = field(
+        default_factory=dict
+    )  # method_name -> param_names (for classes)
 
 
 class RemoteDecoratorScanner:
@@ -290,6 +299,30 @@ class RemoteDecoratorScanner:
                             and http_path is not None
                         )
 
+                        # Extract public methods for @remote classes
+                        class_methods: List[str] = []
+                        class_method_params: Dict[str, List[str]] = {}
+                        if is_class:
+                            for n in node.body:
+                                if isinstance(
+                                    n, (ast.FunctionDef, ast.AsyncFunctionDef)
+                                ) and not n.name.startswith("_"):
+                                    class_methods.append(n.name)
+                                    class_method_params[n.name] = [
+                                        arg.arg
+                                        for arg in n.args.args
+                                        if arg.arg != "self"
+                                    ]
+
+                        # Extract param names for functions (not classes)
+                        param_names: List[str] = []
+                        if not is_class and isinstance(
+                            node, (ast.FunctionDef, ast.AsyncFunctionDef)
+                        ):
+                            param_names = [
+                                arg.arg for arg in node.args.args if arg.arg != "self"
+                            ]
+
                         metadata = RemoteFunctionMetadata(
                             function_name=node.name,
                             module_path=module_path,
@@ -306,6 +339,9 @@ class RemoteDecoratorScanner:
                                 resource_config_name
                             ),
                             is_lb_route_handler=is_lb_route_handler,
+                            class_methods=class_methods,
+                            param_names=param_names,
+                            class_method_params=class_method_params,
                         )
                         functions.append(metadata)
 

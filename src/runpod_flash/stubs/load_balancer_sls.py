@@ -17,6 +17,8 @@ from runpod_flash.runtime.serialization import (
     serialize_args,
     serialize_kwargs,
 )
+from runpod_flash.core.resources.constants import DEFAULT_LB_STUB_TIMEOUT
+
 from .live_serverless import get_function_source
 
 log = logging.getLogger(__name__)
@@ -47,17 +49,15 @@ class LoadBalancerSlsStub:
         result = await stub(my_func, deps, sys_deps, accel, arg1, arg2)
     """
 
-    DEFAULT_TIMEOUT = 30.0  # Default timeout in seconds
-
     def __init__(self, server: Any, timeout: Optional[float] = None) -> None:
         """Initialize stub with LoadBalancerSlsResource server.
 
         Args:
             server: LoadBalancerSlsResource instance with endpoint_url configured
-            timeout: Request timeout in seconds (default: 30.0)
+            timeout: Request timeout in seconds (default: DEFAULT_LB_STUB_TIMEOUT)
         """
         self.server = server
-        self.timeout = timeout if timeout is not None else self.DEFAULT_TIMEOUT
+        self.timeout = timeout if timeout is not None else DEFAULT_LB_STUB_TIMEOUT
 
     def _should_use_execute_endpoint(self, func: Callable[..., Any]) -> bool:
         """Determine if /execute endpoint should be used for this function.
@@ -138,7 +138,7 @@ class LoadBalancerSlsStub:
         # Determine execution path based on resource type and routing metadata
         if self._should_use_execute_endpoint(func):
             # Local development or backward compatibility: use /execute endpoint
-            request = self._prepare_request(
+            request = await self._prepare_request(
                 func,
                 dependencies,
                 system_dependencies,
@@ -159,7 +159,7 @@ class LoadBalancerSlsStub:
                 **kwargs,
             )
 
-    def _prepare_request(
+    async def _prepare_request(
         self,
         func: Callable[..., Any],
         dependencies: Optional[List[str]],
@@ -171,6 +171,7 @@ class LoadBalancerSlsStub:
         """Prepare HTTP request payload.
 
         Extracts function source code and serializes arguments using cloudpickle.
+        Detects @remote dependencies and injects dispatch stubs for stacked execution.
 
         Args:
             func: Function to serialize
@@ -184,6 +185,20 @@ class LoadBalancerSlsStub:
             Request dictionary with serialized function and arguments
         """
         source, _ = get_function_source(func)
+
+        # Detect and resolve @remote dependencies for stacked execution
+        from .dependency_resolver import (
+            build_augmented_source,
+            generate_stub_code,
+            resolve_dependencies,
+        )
+
+        original_func = inspect.unwrap(func)
+        remote_deps = await resolve_dependencies(source, original_func.__globals__)
+        if remote_deps:
+            stub_codes = [generate_stub_code(dep) for dep in remote_deps]
+            source = build_augmented_source(source, stub_codes)
+
         log.debug(f"Extracted source for {func.__name__} ({len(source)} bytes)")
 
         request = {

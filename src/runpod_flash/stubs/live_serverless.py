@@ -72,7 +72,7 @@ class LiveServerlessStub(RemoteExecutorStub):
     def __init__(self, server: LiveServerless):
         self.server = server
 
-    def prepare_request(
+    async def prepare_request(
         self,
         func,
         dependencies,
@@ -82,6 +82,22 @@ class LiveServerlessStub(RemoteExecutorStub):
         **kwargs,
     ):
         source, src_hash = get_function_source(func)
+
+        # Detect and resolve @remote dependencies for stacked execution
+        from .dependency_resolver import (
+            build_augmented_source,
+            generate_stub_code,
+            resolve_dependencies,
+        )
+
+        original_func = inspect.unwrap(func)
+        remote_deps = await resolve_dependencies(source, original_func.__globals__)
+        if remote_deps:
+            stub_codes = [generate_stub_code(dep) for dep in remote_deps]
+            source = build_augmented_source(source, stub_codes)
+            # Recompute cache key to include dependency endpoints
+            dep_key = "|".join(f"{d.name}:{d.endpoint_id}" for d in remote_deps)
+            src_hash = hashlib.sha256((source + dep_key).encode("utf-8")).hexdigest()
 
         request = {
             "function_name": func.__name__,

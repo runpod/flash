@@ -42,7 +42,7 @@ def _create_live_serverless_stub(resource, **extra):
         if args == (None,):
             args = []
 
-        request = stub.prepare_request(
+        request = await stub.prepare_request(
             func,
             dependencies,
             system_dependencies,
