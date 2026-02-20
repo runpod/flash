@@ -141,7 +141,7 @@ These endpoints use the same Python `@remote` decorators [demonstrated above](#g
 
 ### Step 1: Initialize a new project
 
-Use the `flash init` command to generate a structured project template with a preconfigured FastAPI application entry point.
+Use the `flash init` command to generate a project template with example worker files.
 
 Run this command to initialize a new project directory:
 
@@ -162,30 +162,24 @@ This is the structure of the project template created by `flash init`:
 
 ```txt
 my_project/
-├── main.py                    # FastAPI application entry point
-├── workers/
-│   ├── gpu/                   # GPU worker example
-│   │   ├── __init__.py        # FastAPI router
-│   │   └── endpoint.py        # GPU script @remote decorated function
-│   └── cpu/                   # CPU worker example
-│       ├── __init__.py        # FastAPI router
-│       └── endpoint.py        # CPU script with @remote decorated function
-├── .env               # Environment variable template
+├── gpu_worker.py              # GPU worker with @remote function
+├── cpu_worker.py              # CPU worker with @remote function
+├── .env                       # Environment variable template
 ├── .gitignore                 # Git ignore patterns
 ├── .flashignore               # Flash deployment ignore patterns
-├── requirements.txt           # Python dependencies
+├── pyproject.toml             # Python dependencies (uv/pip compatible)
 └── README.md                  # Project documentation
 ```
 
 This template includes:
 
-- A FastAPI application entry point and routers.
+- Example worker files with `@remote` decorated functions.
 - Templates for Python dependencies, `.env`, `.gitignore`, etc.
-- Flash scripts (`endpoint.py`) for both GPU and CPU workers, which include:
+- Each worker file contains:
     - Pre-configured worker scaling limits using the `LiveServerless()` object.
     - A `@remote` decorated function that returns a response from a worker.
 
-When you start the FastAPI server, it creates API endpoints at `/gpu/hello` and `/cpu/hello`, which call the remote function described in their respective `endpoint.py` files.
+When you run `flash run`, it auto-discovers all `@remote` functions and generates a local development server at `.flash/server.py`. Queue-based workers are exposed at `/{file_prefix}/run_sync` (e.g., `/gpu_worker/run_sync`).
 
 ### Step 3: Install Python dependencies
 
@@ -195,9 +189,11 @@ After initializing the project, navigate into the project directory:
 cd my_project
 ```
 
-Install required dependencies:
+Install required dependencies using uv (recommended) or pip:
 
 ```bash
+uv sync        # recommended
+# or
 pip install -r requirements.txt
 ```
 
@@ -232,7 +228,7 @@ flash run
 Open a new terminal tab or window and test your GPU API using cURL:
 
 ```bash
-curl -X POST http://localhost:8888/gpu/hello \
+curl -X POST http://localhost:8888/gpu_worker/run_sync \
     -H "Content-Type: application/json" \
     -d '{"message": "Hello from the GPU!"}'
 ```
@@ -257,19 +253,18 @@ Besides starting the API server, `flash run` also starts an interactive API expl
 
 To run remote functions in the explorer:
 
-1. Expand one of the functions under **GPU Workers** or **CPU Workers**.
-2. Click **Try it out** and then **Execute**
+1. Expand one of the available endpoints (e.g., `/gpu_worker/run_sync`).
+2. Click **Try it out** and then **Execute**.
 
 You'll get a response from your workers right in the explorer.
 
 ### Step 7: Customize your API
 
-To customize your API endpoint and functionality:
+To customize your API:
 
-1. Add/edit remote functions in your `endpoint.py` files.
-2. Test the scripts individually by running `python endpoint.py`.
-3. Configure your FastAPI routers by editing the `__init__.py` files.
-4. Add any new endpoints to your `main.py` file.
+1. Create new `.py` files with `@remote` decorated functions.
+2. Test the scripts individually by running `python your_worker.py`.
+3. Run `flash run` to auto-discover all `@remote` functions and serve them.
 
 ## CLI Reference
 
@@ -541,7 +536,7 @@ After `flash build` completes:
 - `.flash/artifact.tar.gz`: Deployment package
 - `.flash/flash_manifest.json`: Service discovery configuration
 
-For information on load-balanced endpoints (required for Mothership and HTTP services), see [docs/Load_Balancer_Endpoints.md](docs/Load_Balancer_Endpoints.md).
+For information on load-balanced endpoints (required for HTTP services), see [docs/Load_Balancer_Endpoints.md](docs/Load_Balancer_Endpoints.md).
 
 #### Troubleshooting Build Issues
 
