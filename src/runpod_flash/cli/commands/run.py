@@ -396,7 +396,11 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
         lines.append("")
 
     for worker in workers:
-        tag = f"{worker.url_prefix.lstrip('/')} [{worker.worker_type}]"
+        # Group routes by project directory in Swagger UI.
+        # Nested: /03_mixed_workers/cpu_worker -> "03_mixed_workers/"
+        # Root:   /worker                      -> "worker"
+        prefix = worker.url_prefix.lstrip("/")
+        tag = f"{prefix.rsplit('/', 1)[0]}/" if "/" in prefix else prefix
         lines.append(f"# {'─' * 60}")
         lines.append(f"# {worker.worker_type}: {worker.file_path.name}")
         lines.append(f"# {'─' * 60}")
