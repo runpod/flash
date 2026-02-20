@@ -382,7 +382,7 @@ async def test_reconciliation_reprovisions_resources_without_endpoints(tmp_path)
         mock_create_resource.side_effect = [MagicMock(), MagicMock()]
 
         result = await reconcile_and_provision_resources(
-            app, "build-123", "dev", local_manifest, show_progress=False
+            app, "build-123", "dev", local_manifest
         )
 
     # Both resources should have been provisioned (re-provisioned actually)

@@ -692,7 +692,9 @@ class ServerlessResource(DeployableResource):
                 # env, networkVolume, datacenter), and dropping them causes
                 # repeated false drift on subsequent deploys.
                 updated = await new_config._sync_graphql_object_with_inputs(updated)
-                log.info(f"Successfully updated endpoint '{self.name}' (ID: {self.id})")
+                log.debug(
+                    f"Successfully updated endpoint '{self.name}' (ID: {self.id})"
+                )
                 return updated
 
             raise ValueError("Update failed, no endpoint was returned.")
