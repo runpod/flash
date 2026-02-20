@@ -196,8 +196,7 @@ class TestRegisterQBRoutes:
     def test_multi_function_routes(self, tmp_path):
         mod = tmp_path / "multi.py"
         mod.write_text(
-            "async def alpha(d):\n    return 'a'\n"
-            "async def beta(d):\n    return 'b'\n"
+            "async def alpha(d):\n    return 'a'\nasync def beta(d):\n    return 'b'\n"
         )
         worker = WorkerInfo(
             file_path=mod,
@@ -212,8 +211,16 @@ class TestRegisterQBRoutes:
             test_app = FastAPI()
             _register_qb_routes(test_app, worker, tmp_path, "test [QB]")
             client = TestClient(test_app)
-            assert client.post("/multi/alpha/run_sync", json={"input": {}}).json()["output"] == "a"
-            assert client.post("/multi/beta/run_sync", json={"input": {}}).json()["output"] == "b"
+            assert (
+                client.post("/multi/alpha/run_sync", json={"input": {}}).json()[
+                    "output"
+                ]
+                == "a"
+            )
+            assert (
+                client.post("/multi/beta/run_sync", json={"input": {}}).json()["output"]
+                == "b"
+            )
         finally:
             sys.path.remove(str(tmp_path))
             sys.modules.pop("multi", None)
@@ -230,8 +237,7 @@ class TestRegisterLBRoutes:
     def _write_lb_module(self, tmp_path, name, config_var, fn_name):
         mod = tmp_path / f"{name}.py"
         mod.write_text(
-            f"{config_var} = 'fake_config'\n"
-            f"async def {fn_name}(d):\n    return d\n"
+            f"{config_var} = 'fake_config'\nasync def {fn_name}(d):\n    return d\n"
         )
 
     def _make_lb_worker(self, tmp_path, name, config_var, fn_name, method, path):
@@ -255,7 +261,9 @@ class TestRegisterLBRoutes:
     def test_post_route_passes_body(self, tmp_path):
         """POST LB routes forward the request body to the executor."""
         self._write_lb_module(tmp_path, "api", "api_config", "handle")
-        worker = self._make_lb_worker(tmp_path, "api", "api_config", "handle", "POST", "/do")
+        worker = self._make_lb_worker(
+            tmp_path, "api", "api_config", "handle", "POST", "/do"
+        )
         captured = {}
 
         async def fake_executor(config, fn, body):
@@ -266,7 +274,9 @@ class TestRegisterLBRoutes:
         sys.path.insert(0, str(tmp_path))
         try:
             test_app = FastAPI()
-            _register_lb_routes(test_app, worker, tmp_path, "lb", executor=fake_executor)
+            _register_lb_routes(
+                test_app, worker, tmp_path, "lb", executor=fake_executor
+            )
             client = TestClient(test_app)
             resp = client.post("/api/do", json={"key": "val"})
             assert resp.status_code == 200
@@ -279,7 +289,9 @@ class TestRegisterLBRoutes:
     def test_get_route_passes_query_params(self, tmp_path):
         """GET LB routes forward query params as a dict."""
         self._write_lb_module(tmp_path, "search", "search_cfg", "find")
-        worker = self._make_lb_worker(tmp_path, "search", "search_cfg", "find", "GET", "/query")
+        worker = self._make_lb_worker(
+            tmp_path, "search", "search_cfg", "find", "GET", "/query"
+        )
         captured = {}
 
         async def fake_executor(config, fn, body):
@@ -289,7 +301,9 @@ class TestRegisterLBRoutes:
         sys.path.insert(0, str(tmp_path))
         try:
             test_app = FastAPI()
-            _register_lb_routes(test_app, worker, tmp_path, "lb", executor=fake_executor)
+            _register_lb_routes(
+                test_app, worker, tmp_path, "lb", executor=fake_executor
+            )
             client = TestClient(test_app)
             resp = client.get("/search/query?q=test&limit=10")
             assert resp.status_code == 200
@@ -303,7 +317,9 @@ class TestRegisterLBRoutes:
         for method in ("POST", "PUT", "PATCH", "DELETE"):
             mod_name = f"mod_{method.lower()}"
             self._write_lb_module(tmp_path, mod_name, "cfg", "handler")
-            worker = self._make_lb_worker(tmp_path, mod_name, "cfg", "handler", method, "/ep")
+            worker = self._make_lb_worker(
+                tmp_path, mod_name, "cfg", "handler", method, "/ep"
+            )
 
             async def noop_executor(config, fn, body):
                 return {"ok": True}
@@ -311,9 +327,12 @@ class TestRegisterLBRoutes:
             sys.path.insert(0, str(tmp_path))
             try:
                 test_app = FastAPI()
-                _register_lb_routes(test_app, worker, tmp_path, "lb", executor=noop_executor)
+                _register_lb_routes(
+                    test_app, worker, tmp_path, "lb", executor=noop_executor
+                )
                 route = next(
-                    r for r in test_app.routes
+                    r
+                    for r in test_app.routes
                     if hasattr(r, "path") and r.path == f"/{mod_name}/ep"
                 )
                 assert method in route.methods
@@ -346,7 +365,9 @@ class TestImportFromModule:
         (subdir / "gpu_worker.py").write_text("VALUE = 'hello'\n")
         sys.path.insert(0, str(tmp_path))
         try:
-            assert _import_from_module("01_hello.gpu_worker", "VALUE", tmp_path) == "hello"
+            assert (
+                _import_from_module("01_hello.gpu_worker", "VALUE", tmp_path) == "hello"
+            )
         finally:
             sys.path.remove(str(tmp_path))
             sys.modules.pop("01_hello.gpu_worker", None)
@@ -376,7 +397,10 @@ class TestMapBodyToParams:
         def process(name: str, value: int):
             pass
 
-        assert _map_body_to_params(process, {"name": "t", "value": 1}) == {"name": "t", "value": 1}
+        assert _map_body_to_params(process, {"name": "t", "value": 1}) == {
+            "name": "t",
+            "value": 1,
+        }
 
     def test_mismatched_keys_wrap_in_first_param(self):
         from runpod_flash.cli.commands._run_server_helpers import _map_body_to_params

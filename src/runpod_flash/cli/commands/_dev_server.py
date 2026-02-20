@@ -68,9 +68,7 @@ def _import_from_module(module_path: str, name: str, project_root: Path):
     scopes ``sys.path`` so that sibling imports within the target module
     resolve to the correct subdirectory.
     """
-    has_numeric = any(
-        seg and seg[0].isdigit() for seg in module_path.split(".")
-    )
+    has_numeric = any(seg and seg[0].isdigit() for seg in module_path.split("."))
 
     if has_numeric:
         parts = module_path.rsplit(".", 1)
@@ -201,9 +199,7 @@ def _register_lb_routes(
             async def lb_query_handler(
                 request: Request, _config=config, _fn=fn, _exec=executor
             ):
-                return await _exec(
-                    _config, _fn, dict(request.query_params)
-                )
+                return await _exec(_config, _fn, dict(request.query_params))
 
             lb_query_handler.__name__ = f"_route_{worker.resource_name}_{fn_name}"
             app.add_api_route(
