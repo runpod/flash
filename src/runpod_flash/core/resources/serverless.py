@@ -474,6 +474,15 @@ class ServerlessResource(DeployableResource):
             if not self.id:
                 return False
 
+            # During flash run, skip the health check. Newly-created endpoints
+            # can fail health checks due to RunPod propagation delay — the
+            # endpoint exists but the health API hasn't registered it yet.
+            # Trusting the cached ID is correct here; actual failures surface
+            # on the first real run/run_sync call.
+            # Case-insensitive check; unset env var defaults to "" via getenv.
+            if os.getenv("FLASH_IS_LIVE_PROVISIONING", "").lower() == "true":
+                return True
+
             response = self.endpoint.health()
             return response is not None
         except Exception as e:
@@ -484,6 +493,12 @@ class ServerlessResource(DeployableResource):
         # flashEnvironmentId is input-only but must be sent when provided
         exclude_fields = set(self._input_only or set())
         exclude_fields.discard("flashEnvironmentId")
+        # When templateId is already set, exclude template from the payload.
+        # RunPod rejects requests that contain both fields simultaneously.
+        # Both can coexist after deploy mutates config (sets templateId while
+        # template remains from initialization) — templateId takes precedence.
+        if self.templateId:
+            exclude_fields.add("template")
         return exclude_fields
 
     @staticmethod
@@ -564,12 +579,45 @@ class ServerlessResource(DeployableResource):
             )
             return True  # Safe default on error
 
+    def _get_module_path(self) -> Optional[str]:
+        """Get module_path from build manifest for this resource.
+
+        Returns:
+            Dotted module path (e.g., 'preprocess.first_pass'), or None if not found.
+        """
+        try:
+            manifest_path = Path.cwd() / "flash_manifest.json"
+            if not manifest_path.exists():
+                manifest_path = Path("/flash_manifest.json")
+            if not manifest_path.exists():
+                return None
+
+            with open(manifest_path) as f:
+                manifest_data = json.load(f)
+
+            resources = manifest_data.get("resources", {})
+
+            lookup_name = self.name
+            if lookup_name.endswith("-fb"):
+                lookup_name = lookup_name[:-3]
+            if lookup_name.startswith(LIVE_PREFIX):
+                lookup_name = lookup_name[len(LIVE_PREFIX) :]
+
+            resource_config = resources.get(lookup_name)
+            if not resource_config:
+                return None
+
+            return resource_config.get("module_path")
+
+        except Exception:
+            return None
+
     async def _do_deploy(self) -> "DeployableResource":
         """
         Deploys the serverless resource using the provided configuration.
 
-        For queue-based endpoints that make remote calls, injects RUNPOD_API_KEY
-        into environment variables if not already set.
+        For queue-based endpoints that make remote calls, injects RUNPOD_API_KEY.
+        For load-balanced endpoints, injects FLASH_MODULE_PATH.
 
         Returns a DeployableResource object.
         """
@@ -604,6 +652,17 @@ class ServerlessResource(DeployableResource):
 
                 self.env = env_dict
 
+            # Inject module path for load-balanced endpoints
+            elif self.type == ServerlessType.LB:
+                env_dict = self.env or {}
+
+                module_path = self._get_module_path()
+                if module_path and "FLASH_MODULE_PATH" not in env_dict:
+                    env_dict["FLASH_MODULE_PATH"] = module_path
+                    log.info(f"{self.name}: Injected FLASH_MODULE_PATH={module_path}")
+
+                self.env = env_dict
+
             # Ensure network volume is deployed first
             await self._ensure_network_volume_deployed()
 
@@ -617,6 +676,9 @@ class ServerlessResource(DeployableResource):
                 endpoint = await self._sync_graphql_object_with_inputs(endpoint)
                 self.id = endpoint.id
                 self.templateId = endpoint.templateId
+                self.template = (
+                    None  # templateId takes precedence; clear to avoid conflict
+                )
                 return endpoint
 
             raise ValueError("Deployment failed, no endpoint was returned.")
