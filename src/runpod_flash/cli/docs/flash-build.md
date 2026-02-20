@@ -108,9 +108,9 @@ Launch a local Docker-based test environment immediately after building. This al
 1. Builds your project (creates archive, manifest)
 2. Creates a Docker network for inter-container communication
 3. Starts one Docker container per resource config:
-   - Mothership container (orchestrator)
+   - Application container
    - All worker containers (GPU, CPU, etc.)
-4. Exposes the mothership on `localhost:8000`
+4. Exposes the application on `localhost:8888`
 5. All containers communicate via Docker DNS
 6. On shutdown (Ctrl+C), automatically stops and removes all containers
 
@@ -192,7 +192,7 @@ Successful build displays:
 
 ### Build fails with "functions not found"
 
-Ensure your project has `@remote` decorated functions in `workers/` directory:
+Ensure your project has `@remote` decorated functions in your `.py` files:
 
 ```python
 from runpod_flash import remote, LiveServerless

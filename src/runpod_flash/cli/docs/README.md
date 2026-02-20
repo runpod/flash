@@ -15,7 +15,7 @@ Create a new project, navigate to it, and install dependencies:
 ```bash
 flash init my-project
 cd my-project
-pip install -r requirements.txt
+uv sync                          # or: pip install -r requirements.txt
 ```
 
 Add your Runpod API key to `.env`:
@@ -295,16 +295,10 @@ Default location: `.flash/logs/activity.log`
 
 ```
 my-project/
-├── main.py              # Flash Server (FastAPI)
-├── workers/
-│   ├── gpu/             # GPU worker
-│   │   ├── __init__.py
-│   │   └── endpoint.py
-│   └── cpu/             # CPU worker
-│       ├── __init__.py
-│       └── endpoint.py
+├── gpu_worker.py        # GPU worker with @remote function
+├── cpu_worker.py        # CPU worker with @remote function
 ├── .env
-├── requirements.txt
+├── pyproject.toml       # Python dependencies (uv/pip compatible)
 └── README.md
 ```
 
@@ -322,12 +316,12 @@ RUNPOD_API_KEY=your_api_key_here
 curl http://localhost:8888/ping
 
 # Call GPU worker
-curl -X POST http://localhost:8888/gpu/hello \
+curl -X POST http://localhost:8888/gpu_worker/run_sync \
   -H "Content-Type: application/json" \
   -d '{"message": "Hello GPU!"}'
 
 # Call CPU worker
-curl -X POST http://localhost:8888/cpu/hello \
+curl -X POST http://localhost:8888/cpu_worker/run_sync \
   -H "Content-Type: application/json" \
   -d '{"message": "Hello CPU!"}'
 ```
