@@ -342,7 +342,7 @@ graph TD
 
     B -->|"load service configuration"| C["ServiceRegistry"]
     C -->|"if not cached"| D["ManifestClient"]
-    D -->|"query mothership API"| E["Manifest<br/>Endpoint URLs"]
+    D -->|"query State Manager API"| E["Manifest<br/>Endpoint URLs"]
     E -->|"cache result<br/>TTL 300s"| C
 
     C -->|"lookup in manifest<br/>flash_manifest.json"| F{"Routing<br/>Decision"}
@@ -465,7 +465,7 @@ class ServiceRegistry:
 
         Environment Variables (for local vs remote detection):
             RUNPOD_API_KEY: API key for State Manager GraphQL access (peer-to-peer).
-            FLASH_RESOURCE_NAME: Resource config name for this endpoint (child endpoints).
+            FLASH_RESOURCE_NAME: Resource config name for this endpoint (worker endpoints).
                 Identifies which resource config this endpoint represents in the manifest.
             RUNPOD_ENDPOINT_ID: Endpoint ID (used as fallback for identification).
         """
@@ -473,7 +473,7 @@ class ServiceRegistry:
         self._state_manager_client = state_manager_client or StateManagerClient()
         self._endpoint_registry = {}  # Cached endpoint URLs
         self._endpoint_registry_lock = asyncio.Lock()
-        # Child endpoints use FLASH_RESOURCE_NAME to identify which resource they represent
+        # Worker endpoints use FLASH_RESOURCE_NAME to identify which resource they represent
         # Falls back to RUNPOD_ENDPOINT_ID if not set
         self._current_endpoint = os.getenv("FLASH_RESOURCE_NAME") or os.getenv(
             "RUNPOD_ENDPOINT_ID"
@@ -531,7 +531,7 @@ class ServiceRegistry:
 
 **Location**: `src/runpod_flash/runtime/state_manager_client.py`
 
-GraphQL client for State Manager manifest persistence (used by mothership auto-provisioning):
+GraphQL client for State Manager manifest persistence (used by endpoint auto-provisioning):
 
 ```python
 class StateManagerClient:
@@ -815,7 +815,7 @@ class JsonSerializer:
 
 #### Adding New Manifest Backends
 
-To support directories other than mothership:
+To support alternative manifest backends:
 
 1. Create client class with `get_manifest()` method:
 ```python
@@ -983,7 +983,7 @@ manifest = await client.get_persisted_manifest(mothership_id)
 
 Cross-endpoint routing uses a **peer-to-peer architecture** where all endpoints query State Manager directly for service discovery. This eliminates single points of failure and simplifies the system architecture compared to previous hub-and-spoke models.
 
-**Key Difference**: No mothership endpoint exposing a `/manifest` HTTP endpoint. Instead, all endpoints use `StateManagerClient` to query the Runpod GraphQL API directly.
+**Key Difference**: No dedicated endpoint exposing a `/manifest` HTTP endpoint. Instead, all endpoints use `StateManagerClient` to query the Runpod GraphQL API directly.
 
 ### Architecture
 
@@ -1034,7 +1034,7 @@ export RUNPOD_ENDPOINT_ID=gpu-endpoint-123
 - **Caching**: 300-second TTL cache to minimize API calls
 - **Retry Logic**: Exponential backoff on failures (default 3 attempts)
 - **Thread-Safe**: Uses `asyncio.Lock` for concurrent operations
-- **Auto-Provisioning**: Used by mothership provisioner to update resource state
+- **Auto-Provisioning**: Used by endpoint provisioner to update resource state
 
 ## Key Implementation Highlights
 

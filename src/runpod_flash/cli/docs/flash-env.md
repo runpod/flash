@@ -464,8 +464,7 @@ flash env delete <name>
 **Problem**: Command requires `--app` flag even when in project directory
 
 **Solution**: Ensure you're in a Flash project directory with:
-- `main.py` with Flash server
-- `workers/` directory
+- Python files containing `@remote` decorated functions
 - `.env` file with `RUNPOD_API_KEY`
 
 Or specify app explicitly:

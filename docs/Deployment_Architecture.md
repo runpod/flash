@@ -1,7 +1,7 @@
 # Flash App Deployment Architecture Specification
 
 ## Overview
-A deployed Flash App consists of a Mothership coordinator and distributed Child Endpoints, where functions are partitioned across endpoints. The system uses a manifest-driven approach to route requests and coordinate execution across the distributed topology.
+A deployed Flash App consists of peer endpoints, where functions are partitioned across endpoints. The system uses a manifest-driven approach to route requests and coordinate execution across the distributed topology.
 
 ## Build and Deploy Flow
 
@@ -11,33 +11,31 @@ graph TD
     B -->|"Write"| C["flash_manifest.json"]
     B -->|"Archive"| D["artifact.tar.gz"]
 
-    D -->|"flash deploy"| E["Push Archive +<br/>Provision Resources"]
+    D -->|"flash deploy"| E["Push Archive +<br/>Load Manifest"]
 
-    E -->|"CLI provisions<br/>upfront"| F["Child Endpoints<br/>Deployed"]
-
-    G["🎯 Mothership<br/>Endpoint"] -->|"Load from<br/>.flash/"| H["Load Local<br/>Manifest"]
-
-    H --> I["reconcile_children()"]
+    E --> I["Reconcile:<br/>Compute Diff"]
 
     I --> J["Categorize:<br/>New, Changed,<br/>Removed, Unchanged"]
 
-    J --> K["Verify NEW<br/>Endpoints"]
-    J --> L["Verify CHANGED<br/>Endpoints"]
-    J --> M["Verify REMOVED<br/>Endpoints"]
+    J --> K["Provision NEW<br/>Endpoints"]
+    J --> L["Update CHANGED<br/>Endpoints"]
+    J --> M["Remove DELETED<br/>Endpoints"]
     J --> N["Skip UNCHANGED<br/>Endpoints"]
 
-    K -->|"Healthy?"| O["Update State"]
-    L -->|"Healthy?"| O
-    M -->|"Decommissioned?"| O
+    K -->|"Deployed"| O["Update State"]
+    L -->|"Updated"| O
+    M -->|"Decommissioned"| O
 
     O --> P["Persist to State Manager"]
 
-    P --> Q["🚀 Reconciliation<br/>Complete"]
+    P --> Q["🚀 Deploy<br/>Complete"]
+
+    Q -.->|"Endpoints boot"| F["Peer Endpoints<br/>Running"]
 
     F -.->|"Peer-to-peer<br/>Service Discovery"| R["Query State Manager<br/>GraphQL API"]
 
     style A fill:#1976d2,stroke:#0d47a1,stroke-width:3px,color:#fff
-    style G fill:#1976d2,stroke:#0d47a1,stroke-width:3px,color:#fff
+    style E fill:#1976d2,stroke:#0d47a1,stroke-width:3px,color:#fff
     style I fill:#f57c00,stroke:#bf360c,stroke-width:3px,color:#fff
     style K fill:#f57c00,stroke:#bf360c,stroke-width:3px,color:#fff
     style L fill:#f57c00,stroke:#bf360c,stroke-width:3px,color:#fff
@@ -51,9 +49,9 @@ graph TD
 
 ```mermaid
 graph TD
-    A["Request arrives at<br/>Mothership for funcA"] -->|"Consult manifest"| B{"Function<br/>Location?"}
+    A["Request arrives at<br/>Endpoint for funcA"] -->|"Consult manifest"| B{"Function<br/>Location?"}
 
-    B -->|"Local to Mothership"| C["Execute locally"]
+    B -->|"Local to Endpoint"| C["Execute locally"]
     B -->|"On Endpoint1"| D["Route request to<br/>Endpoint1 with payload"]
 
     D --> E["Endpoint1 receives<br/>Endpoint1>funcA"]
@@ -69,7 +67,7 @@ graph TD
 
     L --> J
     J --> M["funcA completes<br/>with all results"]
-    M --> N["Response back<br/>to Mothership"]
+    M --> N["Response back<br/>to Endpoint"]
     N --> O["Return to client"]
 
     style A fill:#1976d2,stroke:#0d47a1,stroke-width:3px,color:#fff
@@ -82,7 +80,7 @@ graph TD
 
 ```mermaid
 graph LR
-    subgraph Mothership["🎯 Mothership<br/>(Coordinator)"]
+    subgraph CoordinatorNode["🎯 Manifest Store"]
         MF["Manifest Store<br/>Function Map"]
     end
 
@@ -105,7 +103,7 @@ graph LR
     E1F1 -.->|"Local execution"| E1F2
     E1F1 -.->|"Remote call"| E2F1
 
-    style Mothership fill:#1976d2,stroke:#0d47a1,stroke-width:3px,color:#fff
+    style CoordinatorNode fill:#1976d2,stroke:#0d47a1,stroke-width:3px,color:#fff
     style EP1 fill:#f57c00,stroke:#bf360c,stroke-width:3px,color:#fff
     style EP2 fill:#f57c00,stroke:#bf360c,stroke-width:3px,color:#fff
     style MF fill:#1565c0,stroke:#0d47a1,stroke-width:2px,color:#fff
@@ -118,8 +116,8 @@ graph LR
 - **Smart Routing**: System automatically determines if execution is local (in-process) or remote (inter-endpoint)
 - **Deployed Mode**: Unlike Live mode, endpoints are aware they're in distributed deployment with explicit role assignments
 - **Transparent Execution**: Functions can call other functions without knowing deployment topology; manifest handles routing
-- **State Synchronization**: Mothership maintains single source of truth, synced with GQL State Manager
-- **Reconciliation**: On each boot, Mothership reconciles local manifest with persisted state to deploy/update/undeploy resources
+- **State Synchronization**: State Manager maintains the source of truth; endpoints sync via GraphQL
+- **Reconciliation**: The CLI reconciles the manifest with persisted state during `flash deploy`
 - **Peer-to-Peer Discovery**: All endpoints query State Manager GraphQL API directly for service discovery
 
 ## Actual Manifest Structure
@@ -285,12 +283,9 @@ Each reconciliation action updates State Manager:
 
 ## Environment Variables
 
-### Mothership
-- `FLASH_IS_MOTHERSHIP=true` - Identifies this endpoint as mothership
-- `RUNPOD_API_KEY` - For State Manager authentication
-- `FLASH_MANIFEST_PATH` - Optional explicit path to manifest
-
-### Child Endpoints
+### All Endpoints
 - `RUNPOD_API_KEY` - For State Manager GraphQL access (peer-to-peer service discovery)
 - `FLASH_RESOURCE_NAME` - Which resource config this endpoint represents
-- `RUNPOD_ENDPOINT_ID` - This child's endpoint ID
+- `RUNPOD_ENDPOINT_ID` - This endpoint's ID (set by Runpod)
+- `FLASH_MANIFEST_PATH` - Optional explicit path to manifest
+- `FLASH_IS_MOTHERSHIP` - Legacy env var; not used in production `flash deploy`

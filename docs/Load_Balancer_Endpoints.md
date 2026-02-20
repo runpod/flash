@@ -4,7 +4,7 @@
 
 The `LoadBalancerSlsResource` class enables provisioning and management of Runpod load-balanced serverless endpoints. Unlike queue-based endpoints that process requests sequentially, load-balanced endpoints expose HTTP servers directly to clients, enabling REST APIs, webhooks, and real-time communication patterns.
 
-This resource type is used for specialized endpoints like the Mothership. Cross-endpoint service discovery now uses State Manager GraphQL API (peer-to-peer) rather than HTTP endpoints.
+This resource type is used for specialized endpoints like entry-point endpoints. Cross-endpoint service discovery now uses State Manager GraphQL API (peer-to-peer) rather than HTTP endpoints.
 
 ## Design Context
 
@@ -35,10 +35,10 @@ Load-balanced endpoints require different provisioning and health check logic th
 
 ### Why This Matters
 
-The Mothership coordinates resource deployment and reconciliation. This requires:
-- Peer-to-peer service discovery via State Manager GraphQL API (not HTTP-based)
-- Ability to expose custom endpoints (HTTP routes like `/ping`, user-defined routes)
-- Health checking to verify children are ready before routing traffic
+Load-balanced endpoints expose HTTP servers directly to clients. This enables:
+- Custom HTTP routes (user-defined REST endpoints, `/ping` for health checks)
+- Direct request routing to workers (lower latency than queue-based)
+- Health check polling to verify workers are ready before routing traffic
 
 ## Architecture
 
@@ -147,9 +147,9 @@ This document focuses on the `LoadBalancerSlsResource` class implementation and 
 from runpod_flash import LoadBalancerSlsResource
 
 # Create a load-balanced endpoint
-mothership = LoadBalancerSlsResource(
-    name="mothership",
-    imageName="my-mothership-app:latest",
+api_endpoint = LoadBalancerSlsResource(
+    name="api-endpoint",
+    imageName="my-api-app:latest",
     workersMin=1,
     workersMax=3,
     env={
@@ -159,7 +159,7 @@ mothership = LoadBalancerSlsResource(
 )
 
 # Deploy endpoint (returns immediately)
-deployed = await mothership.deploy()
+deployed = await api_endpoint.deploy()
 
 # Endpoint is now deployed (may still be initializing)
 print(f"Endpoint ID: {deployed.id}")
@@ -246,7 +246,7 @@ except ValueError as e:
 ```python
 try:
     endpoint = LoadBalancerSlsResource(
-        name="mothership",
+        name="api-endpoint",
         imageName="my-image:latest",
     )
     deployed = await endpoint.deploy()
@@ -294,10 +294,10 @@ If you need to verify the endpoint is ready before routing traffic:
 
 ```python
 # Deploy returns immediately
-mothership = await LoadBalancerSlsResource(name="my-lb", ...).deploy()
+endpoint = await LoadBalancerSlsResource(name="my-lb", ...).deploy()
 
 # Optional: Wait for endpoint to become healthy
-healthy = await mothership._wait_for_health(max_retries=10, retry_interval=5)
+healthy = await endpoint._wait_for_health(max_retries=10, retry_interval=5)
 if not healthy:
     print("Warning: Endpoint deployed but not yet healthy")
 ```
@@ -319,7 +319,7 @@ Default health check configuration:
 | Scalability | Per-function | Per-worker |
 | Health checks | Runpod SDK | `/ping` endpoint |
 | Use cases | Batch processing | APIs, webhooks, real-time |
-| Suitable for | Workers | Mothership, services |
+| Suitable for | Workers | APIs, services |
 
 ## Implementation Details
 
@@ -411,7 +411,6 @@ endpoint = LoadBalancerSlsResource(
 
 ## Next Steps
 
-- **Mothership integration**: Use LoadBalancerSlsResource for Mothership endpoints
+- **Entry-point integration**: Use LoadBalancerSlsResource for entry-point endpoints
 - **Upfront provisioning**: CLI provisions all resources before environment activation
-- **Reconciliation**: Mothership performs reconcile_children() on boot
 - **Cross-endpoint routing**: Route requests using State Manager GraphQL API (peer-to-peer)

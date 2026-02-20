@@ -27,25 +27,25 @@ The `flash deploy` command is the primary way to get your Flash application runn
 
 ## Architecture: Fully Deployed to Runpod
 
-With `flash deploy`, your **entire application** runs on Runpod Serverless—both your FastAPI app (the "orchestrator") and all `@remote` worker functions:
+With `flash deploy`, your **entire application** runs on Runpod Serverless—all `@remote` functions deploy as peer serverless endpoints:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │  RUNPOD SERVERLESS                                              │
 │                                                                 │
-│  ┌─────────────────────────────────────┐                        │
-│  │  MOTHERSHIP ENDPOINT                │                        │
-│  │  (your FastAPI app from main.py)    │                        │
-│  │  - Your HTTP routes                 │                        │
-│  │  - Orchestrates @remote calls       │───────────┐            │
-│  │  - Public URL for users             │           │            │
-│  └─────────────────────────────────────┘           │            │
-│                                                    │ internal   │
-│                                                    ▼            │
+│  All endpoints deployed as peers, using manifest for discovery  │
+│                                                                 │
 │  ┌─────────────────────────┐  ┌─────────────────────────┐       │
 │  │ gpu-worker              │  │ cpu-worker              │       │
 │  │ (your @remote function) │  │ (your @remote function) │       │
 │  └─────────────────────────┘  └─────────────────────────┘       │
+│                                                                 │
+│  ┌─────────────────────────┐                                    │
+│  │ lb-worker               │                                    │
+│  │ (load-balanced endpoint)│                                    │
+│  └─────────────────────────┘                                    │
+│                                                                 │
+│  Service discovery: flash_manifest.json + State Manager GraphQL │
 └─────────────────────────────────────────────────────────────────┘
           ▲
           │ HTTPS (authenticated)
@@ -56,9 +56,8 @@ With `flash deploy`, your **entire application** runs on Runpod Serverless—bot
 ```
 
 **Key points:**
-- **Your FastAPI app runs on Runpod** as the "mothership" endpoint
-- **`@remote` functions run on Runpod** as separate worker endpoints
-- **Users call the mothership URL** directly (e.g., `https://xyz123.api.runpod.ai/api/hello`)
+- **All `@remote` functions run on Runpod** as serverless endpoints
+- **Users call endpoint URLs** directly (e.g., `https://xyz123.api.runpod.ai/api/hello`)
 - **No `live-` prefix** on endpoint names (these are production endpoints)
 - **No hot reload:** code changes require a new deployment
 
@@ -68,7 +67,7 @@ This is different from `flash run`, where your FastAPI app runs locally on your 
 
 | Aspect | `flash run` | `flash deploy` |
 |--------|-------------|----------------|
-| **FastAPI app runs on** | Your machine (localhost) | Runpod Serverless (mothership) |
+| **App runs on** | Your machine (localhost) | Runpod Serverless |
 | **`@remote` functions run on** | Runpod Serverless | Runpod Serverless |
 | **Endpoint naming** | `live-` prefix (e.g., `live-gpu-worker`) | No prefix (e.g., `gpu-worker`) |
 | **Hot reload** | Yes | No |
@@ -183,9 +182,9 @@ Builds your project and launches a local Docker-based test environment instead o
 1. Builds your project (creates the archive and manifest)
 2. Creates a Docker network for inter-container communication
 3. Starts one Docker container per resource config:
-   - Mothership container (orchestrator)
+   - Application container
    - All worker containers (GPU, CPU, etc.)
-4. Exposes the mothership on `localhost:8000`
+4. Exposes the application on `localhost:8000`
 5. All containers communicate via Docker DNS
 6. On shutdown (Ctrl+C), automatically stops and removes all containers
 
@@ -350,7 +349,7 @@ Next Steps:
    variable...
 
 2. Call Your Functions
-   Your mothership is deployed at:
+   Your application is deployed at:
    https://api-xxxxx.runpod.net
 
 3. Available Routes
