@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import os
 from typing import Dict, Any
 from datetime import datetime
 from pathlib import Path
@@ -199,8 +200,21 @@ async def reconcile_and_provision_resources(
         Updated manifest with deployment information
 
     Raises:
+        ValueError: If RUNPOD_API_KEY is missing when resources make remote calls
         RuntimeError: If reconciliation or provisioning fails
     """
+    # Validate RUNPOD_API_KEY is available if any resource makes remote calls
+    has_remote_callers = any(
+        config.get("makes_remote_calls", False)
+        for config in local_manifest.get("resources", {}).values()
+    )
+    if has_remote_callers and not os.getenv("RUNPOD_API_KEY"):
+        raise ValueError(
+            "RUNPOD_API_KEY environment variable is required when deploying "
+            "resources that make remote calls. Set it in your environment "
+            "before running flash deploy."
+        )
+
     # Load State Manager manifest for comparison
     try:
         state_manifest = await app.get_build_manifest(build_id)
