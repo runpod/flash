@@ -6,7 +6,6 @@ from typing import Any, Callable, Dict, Optional
 from runpod_flash.core.resources.serverless import ServerlessResource
 
 from .exceptions import RemoteExecutionError
-from .serialization import serialize_args, serialize_kwargs
 from .service_registry import ServiceRegistry
 
 logger = logging.getLogger(__name__)
@@ -175,17 +174,14 @@ class ProductionWrapper:
         Raises:
             RemoteExecutionError: If remote execution fails.
         """
-        # Serialize arguments
-        serialized_args = serialize_args(args)
-        serialized_kwargs = serialize_kwargs(kwargs)
-
-        # Build payload matching RunPod format
+        # Build payload matching RunPod format with JSON serialization
         payload = {
             "input": {
                 "function_name": function_name,
                 "execution_type": execution_type,
-                "args": serialized_args,
-                "kwargs": serialized_kwargs,
+                "serialization_format": "json",
+                "args": list(args),
+                "kwargs": kwargs,
             }
         }
 

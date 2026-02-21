@@ -621,3 +621,65 @@ class TestCreateResourceFromManifest:
             assert resource.env["FLASH_ENDPOINT_TYPE"] == "lb"
             assert resource.env["FLASH_MAIN_FILE"] == "server.py"
             assert resource.env["FLASH_APP_VARIABLE"] == "server_app"
+
+    def test_create_resource_injects_api_key_when_makes_remote_calls(self):
+        """Test RUNPOD_API_KEY injected when makes_remote_calls is True."""
+        resource_name = "caller_worker"
+        resource_data = {
+            "resource_type": "ServerlessResource",
+            "imageName": "runpod/flash:latest",
+            "makes_remote_calls": True,
+        }
+
+        with patch.dict(
+            os.environ,
+            {
+                "RUNPOD_ENDPOINT_ID": "mothership-123",
+                "RUNPOD_API_KEY": "test-api-key-secret",
+            },
+        ):
+            resource = create_resource_from_manifest(
+                resource_name, resource_data, "https://test.api.runpod.ai"
+            )
+
+            assert resource.env["RUNPOD_API_KEY"] == "test-api-key-secret"
+
+    def test_create_resource_skips_api_key_when_no_remote_calls(self):
+        """Test RUNPOD_API_KEY NOT injected when makes_remote_calls is False."""
+        resource_name = "isolated_worker"
+        resource_data = {
+            "resource_type": "ServerlessResource",
+            "imageName": "runpod/flash:latest",
+            "makes_remote_calls": False,
+        }
+
+        with patch.dict(
+            os.environ,
+            {
+                "RUNPOD_ENDPOINT_ID": "mothership-123",
+                "RUNPOD_API_KEY": "test-api-key-secret",
+            },
+        ):
+            resource = create_resource_from_manifest(
+                resource_name, resource_data, "https://test.api.runpod.ai"
+            )
+
+            assert "RUNPOD_API_KEY" not in resource.env
+
+    def test_create_resource_skips_api_key_when_not_set(self):
+        """Test RUNPOD_API_KEY NOT injected when env var is not set."""
+        resource_name = "caller_worker"
+        resource_data = {
+            "resource_type": "ServerlessResource",
+            "imageName": "runpod/flash:latest",
+            "makes_remote_calls": True,
+        }
+
+        with patch.dict(
+            os.environ, {"RUNPOD_ENDPOINT_ID": "mothership-123"}, clear=True
+        ):
+            resource = create_resource_from_manifest(
+                resource_name, resource_data, "https://test.api.runpod.ai"
+            )
+
+            assert "RUNPOD_API_KEY" not in resource.env

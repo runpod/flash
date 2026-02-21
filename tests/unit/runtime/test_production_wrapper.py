@@ -204,29 +204,89 @@ class TestProductionWrapper:
 
     @pytest.mark.asyncio
     async def test_execute_remote_payload_format(self, wrapper, sample_function):
-        """Test that remote payload matches RunPod format."""
+        """Test that remote payload matches RunPod format with JSON serialization."""
         mock_resource = AsyncMock()
         mock_resource.run_sync = AsyncMock()
         mock_resource.run_sync.return_value = MagicMock(error="", output=None)
 
-        with patch("runpod_flash.runtime.serialization.cloudpickle") as mock_pickle:
-            mock_pickle.dumps.return_value = b"pickled"
-
-            await wrapper._execute_remote(
-                mock_resource,
-                "gpu_task",
-                (1, 2),
-                {"key": "value"},
-                execution_type="function",
-            )
+        await wrapper._execute_remote(
+            mock_resource,
+            "gpu_task",
+            (1, 2),
+            {"key": "value"},
+            execution_type="function",
+        )
 
         call_args = mock_resource.run_sync.call_args
         payload = call_args[0][0]
 
         assert payload["input"]["function_name"] == "gpu_task"
         assert payload["input"]["execution_type"] == "function"
-        assert len(payload["input"]["args"]) == 2
-        assert "key" in payload["input"]["kwargs"]
+        assert payload["input"]["serialization_format"] == "json"
+        assert payload["input"]["args"] == [1, 2]
+        assert payload["input"]["kwargs"] == {"key": "value"}
+
+    @pytest.mark.asyncio
+    async def test_execute_remote_uses_json_serialization(self, wrapper):
+        """Verify payload contains serialization_format: json and raw args."""
+        mock_resource = AsyncMock()
+        mock_resource.run_sync = AsyncMock()
+        mock_resource.run_sync.return_value = MagicMock(error="", output="result")
+
+        await wrapper._execute_remote(
+            mock_resource,
+            "my_func",
+            ("hello", 42),
+            {"flag": True},
+        )
+
+        payload = mock_resource.run_sync.call_args[0][0]
+
+        # Must include serialization_format
+        assert payload["input"]["serialization_format"] == "json"
+        # Args should be a plain list, not base64-encoded cloudpickle strings
+        assert payload["input"]["args"] == ["hello", 42]
+        assert isinstance(payload["input"]["args"], list)
+        # Kwargs should be the raw dict
+        assert payload["input"]["kwargs"] == {"flag": True}
+        assert isinstance(payload["input"]["kwargs"], dict)
+
+    @pytest.mark.asyncio
+    async def test_execute_remote_args_are_plain_json(self, wrapper):
+        """Verify dict/int/string args pass through without cloudpickle encoding."""
+        mock_resource = AsyncMock()
+        mock_resource.run_sync = AsyncMock()
+        mock_resource.run_sync.return_value = MagicMock(error="", output=None)
+
+        complex_args = (
+            {"nested": {"data": [1, 2, 3]}},
+            42,
+            "plain_string",
+            [10, 20],
+        )
+        complex_kwargs = {
+            "config": {"batch_size": 8, "model": "gpt"},
+            "count": 100,
+        }
+
+        await wrapper._execute_remote(
+            mock_resource,
+            "process",
+            complex_args,
+            complex_kwargs,
+        )
+
+        payload = mock_resource.run_sync.call_args[0][0]
+        args = payload["input"]["args"]
+        kwargs = payload["input"]["kwargs"]
+
+        # Each arg should be the original value, not a base64 string
+        assert args[0] == {"nested": {"data": [1, 2, 3]}}
+        assert args[1] == 42
+        assert args[2] == "plain_string"
+        assert args[3] == [10, 20]
+        # Kwargs should be the raw dict
+        assert kwargs == complex_kwargs
 
     @pytest.mark.asyncio
     async def test_build_class_payload_dict_request(self, wrapper):
