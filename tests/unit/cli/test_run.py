@@ -50,19 +50,24 @@ def _run_cli(runner, project_dir, extra_args=None):
         mock_process.wait.side_effect = KeyboardInterrupt()
         mock_popen.return_value = mock_process
 
-        with patch("runpod_flash.cli.commands.run.os.getpgid", return_value=12345):
-            with patch("runpod_flash.cli.commands.run.os.killpg"):
-                old_cwd = os.getcwd()
-                try:
-                    os.chdir(project_dir)
-                    runner.invoke(app, ["dev"] + (extra_args or []))
-                finally:
-                    os.chdir(old_cwd)
-                    for k, v in saved_env.items():
-                        if v is None:
-                            os.environ.pop(k, None)
-                        else:
-                            os.environ[k] = v
+        # bypass port probing so tests get the exact port they requested
+        with patch(
+            "runpod_flash.cli.commands.run._find_available_port",
+            side_effect=lambda host, port: port,
+        ):
+            with patch("runpod_flash.cli.commands.run.os.getpgid", return_value=12345):
+                with patch("runpod_flash.cli.commands.run.os.killpg"):
+                    old_cwd = os.getcwd()
+                    try:
+                        os.chdir(project_dir)
+                        runner.invoke(app, ["dev"] + (extra_args or []))
+                    finally:
+                        os.chdir(old_cwd)
+                        for k, v in saved_env.items():
+                            if v is None:
+                                os.environ.pop(k, None)
+                            else:
+                                os.environ[k] = v
 
         return mock_popen.call_args[0][0]
 
@@ -474,3 +479,71 @@ class TestMapBodyToParams:
             pass
 
         assert _map_body_to_params(run, {}) == {}
+
+
+class TestFindAvailablePort:
+    def test_returns_start_port_when_free(self):
+        from runpod_flash.cli.commands.run import _find_available_port
+
+        # use port 0 trick: bind to 0 to get a free port, then test near it
+        import socket
+
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("localhost", 0))
+            free_port = s.getsockname()[1]
+
+        # free_port is now unbound, so _find_available_port should return it
+        assert _find_available_port("localhost", free_port) == free_port
+
+    def test_skips_occupied_port(self):
+        from runpod_flash.cli.commands.run import _find_available_port
+
+        import socket
+
+        # occupy a port
+        blocker = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        blocker.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        blocker.bind(("localhost", 0))
+        occupied_port = blocker.getsockname()[1]
+        blocker.listen(1)
+
+        try:
+            result = _find_available_port("localhost", occupied_port)
+            assert result > occupied_port
+        finally:
+            blocker.close()
+
+    def test_exits_when_no_port_available(self):
+        from runpod_flash.cli.commands.run import _find_available_port
+
+        import socket
+
+        from runpod_flash.cli.commands.run import _MAX_PORT_ATTEMPTS
+
+        blockers = []
+        # find a free starting port first
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("127.0.0.1", 0))
+            start = s.getsockname()[1]
+
+        # bind all ports in the range
+        for i in range(_MAX_PORT_ATTEMPTS):
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                s.bind(("127.0.0.1", start + i))
+                s.listen(1)
+                blockers.append(s)
+            except OSError:
+                s.close()
+                blockers.append(None)
+
+        try:
+            from click.exceptions import Exit as ClickExit
+
+            with pytest.raises((SystemExit, ClickExit)):
+                _find_available_port("127.0.0.1", start)
+        finally:
+            for s in blockers:
+                if s:
+                    s.close()
