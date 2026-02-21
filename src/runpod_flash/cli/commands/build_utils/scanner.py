@@ -1,13 +1,14 @@
 """AST scanner for discovering @remote decorated functions and classes."""
 
 import ast
-import importlib
 import logging
 import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+
+from runpod_flash.cli.utils.ignore import get_file_tree, load_ignore_patterns
 
 logger = logging.getLogger(__name__)
 
@@ -120,22 +121,13 @@ class RemoteDecoratorScanner:
         """Discover all @remote decorated functions and classes."""
         functions = []
 
-        # Find all Python files, excluding root-level directories that shouldn't be scanned
-        all_py_files = self.project_dir.rglob("*.py")
-        # Only exclude these directories if they're direct children of project_dir
-        excluded_root_dirs = {".venv", ".flash", ".runpod"}
-        self.py_files = []
-        for f in all_py_files:
-            try:
-                rel_path = f.relative_to(self.project_dir)
-                # Check if first part of path is in excluded_root_dirs
-                if rel_path.parts and rel_path.parts[0] not in excluded_root_dirs:
-                    # Exclude __init__.py — not valid worker entry points
-                    if f.name != "__init__.py":
-                        self.py_files.append(f)
-            except (ValueError, IndexError):
-                # Include files that can't be made relative
-                self.py_files.append(f)
+        # Use .gitignore / .flashignore aware file walker with early directory pruning.
+        # This avoids descending into .venv, __pycache__, .flash, etc.
+        spec = load_ignore_patterns(self.project_dir)
+        all_files = get_file_tree(self.project_dir, spec)
+        self.py_files = [
+            f for f in all_files if f.suffix == ".py" and f.name != "__init__.py"
+        ]
 
         # First pass: extract all resource configs from all files
         for py_file in self.py_files:
@@ -418,22 +410,24 @@ class RemoteDecoratorScanner:
 
         return None
 
+    # All ServerlessResource subclasses exported by runpod_flash.__init__.py.
+    # Checked at test time by test_resource_config_types_matches_exports().
+    _RESOURCE_CONFIG_TYPES = frozenset(
+        {
+            "ServerlessEndpoint",
+            "CpuServerlessEndpoint",
+            "LoadBalancerSlsResource",
+            "CpuLoadBalancerSlsResource",
+            "LiveServerless",
+            "CpuLiveServerless",
+            "LiveLoadBalancer",
+            "CpuLiveLoadBalancer",
+        }
+    )
+
     def _is_resource_config_type(self, type_name: str) -> bool:
-        """Check if a type represents a ServerlessResource subclass.
-
-        Returns True only if the class can be imported and is a ServerlessResource.
-        """
-        from runpod_flash.core.resources.serverless import ServerlessResource
-
-        try:
-            module = importlib.import_module("runpod_flash")
-            if hasattr(module, type_name):
-                cls = getattr(module, type_name)
-                return isinstance(cls, type) and issubclass(cls, ServerlessResource)
-        except (ImportError, AttributeError, TypeError):
-            pass
-
-        return False
+        """Check if a type name is a known ServerlessResource subclass."""
+        return type_name in self._RESOURCE_CONFIG_TYPES
 
     def _get_call_type(self, expr: ast.expr) -> Optional[str]:
         """Get the type name of a call expression."""

@@ -3,8 +3,9 @@
 import tempfile
 from pathlib import Path
 
-
+import runpod_flash
 from runpod_flash.cli.commands.build_utils.scanner import RemoteDecoratorScanner
+from runpod_flash.core.resources.serverless import ServerlessResource
 
 
 def test_discover_simple_function():
@@ -352,6 +353,49 @@ async def project_function(data):
         functions = scanner.discover_remote_functions()
 
         # Should only find the project function, not the runpod one
+        assert len(functions) == 1
+        assert functions[0].resource_config_name == "project_config"
+
+
+def test_exclude_nested_venv_directory():
+    """Test that nested .venv directories (not just root-level) are excluded."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project_dir = Path(tmpdir)
+
+        # Create a nested .venv inside a subdirectory (the original bug)
+        nested_venv = project_dir / "subproject" / ".venv" / "lib" / "python3.11"
+        nested_venv.mkdir(parents=True)
+        venv_file = nested_venv / "site_package.py"
+        venv_file.write_text(
+            """
+from runpod_flash import LiveServerless, remote
+
+config = LiveServerless(name="nested_venv_config")
+
+@remote(config)
+async def nested_venv_function(data):
+    return data
+"""
+        )
+
+        # Create legitimate project file
+        project_file = project_dir / "worker.py"
+        project_file.write_text(
+            """
+from runpod_flash import LiveServerless, remote
+
+config = LiveServerless(name="project_config")
+
+@remote(config)
+async def project_function(data):
+    return data
+"""
+        )
+
+        scanner = RemoteDecoratorScanner(project_dir)
+        functions = scanner.discover_remote_functions()
+
+        # Should only find the project function, not the nested venv one
         assert len(functions) == 1
         assert functions[0].resource_config_name == "project_config"
 
@@ -1127,3 +1171,13 @@ class ImageProcessor:
         }
         # Classes should have empty param_names
         assert meta.param_names == []
+
+
+def test_resource_config_types_matches_exports():
+    """Static _RESOURCE_CONFIG_TYPES must include all ServerlessResource subclasses from runpod_flash."""
+    for type_name in RemoteDecoratorScanner._RESOURCE_CONFIG_TYPES:
+        cls = getattr(runpod_flash, type_name, None)
+        assert cls is not None, f"{type_name} not found in runpod_flash exports"
+        assert issubclass(cls, ServerlessResource), (
+            f"{type_name} is not a ServerlessResource subclass"
+        )
