@@ -529,3 +529,95 @@ class TestCreateResourceFromManifest:
             assert resource_name in resource.name
             assert resource.env["FLASH_MOTHERSHIP_ID"] == "mothership-123"
             assert resource.env["FLASH_RESOURCE_NAME"] == resource_name
+
+    def test_create_resource_lb_via_is_mothership_sets_endpoint_type(self):
+        """Test that is_mothership=True sets both FLASH_ENDPOINT_TYPE and legacy var."""
+        resource_name = "lb_worker"
+        resource_data = {
+            "resource_type": "ServerlessResource",
+            "imageName": "runpod/flash:latest",
+            "is_mothership": True,
+        }
+
+        with patch.dict(os.environ, {"RUNPOD_ENDPOINT_ID": "mothership-123"}):
+            resource = create_resource_from_manifest(
+                resource_name, resource_data, "https://test.api.runpod.ai"
+            )
+
+            assert resource.env["FLASH_ENDPOINT_TYPE"] == "lb"
+            assert resource.env["FLASH_IS_MOTHERSHIP"] == "true"
+
+    def test_create_resource_lb_via_is_load_balanced_sets_endpoint_type(self):
+        """Test that is_load_balanced=True sets FLASH_ENDPOINT_TYPE=lb."""
+        resource_name = "lb_worker"
+        resource_data = {
+            "resource_type": "ServerlessResource",
+            "imageName": "runpod/flash:latest",
+            "is_load_balanced": True,
+        }
+
+        with patch.dict(os.environ, {"RUNPOD_ENDPOINT_ID": "mothership-123"}):
+            resource = create_resource_from_manifest(
+                resource_name, resource_data, "https://test.api.runpod.ai"
+            )
+
+            assert resource.env["FLASH_ENDPOINT_TYPE"] == "lb"
+            # Legacy var also set for backward compat
+            assert resource.env["FLASH_IS_MOTHERSHIP"] == "true"
+
+    def test_create_resource_non_lb_does_not_set_endpoint_type(self):
+        """Test that non-LB resources do NOT get FLASH_ENDPOINT_TYPE."""
+        resource_name = "plain_worker"
+        resource_data = {
+            "resource_type": "ServerlessResource",
+            "imageName": "runpod/flash:latest",
+        }
+
+        with patch.dict(os.environ, {"RUNPOD_ENDPOINT_ID": "mothership-123"}):
+            resource = create_resource_from_manifest(
+                resource_name, resource_data, "https://test.api.runpod.ai"
+            )
+
+            assert "FLASH_ENDPOINT_TYPE" not in resource.env
+            assert "FLASH_IS_MOTHERSHIP" not in resource.env
+
+    def test_create_resource_lb_sets_main_file_and_app_variable(self):
+        """Test that FLASH_MAIN_FILE and FLASH_APP_VARIABLE still work for LB resources."""
+        resource_name = "lb_worker"
+        resource_data = {
+            "resource_type": "ServerlessResource",
+            "imageName": "runpod/flash:latest",
+            "is_mothership": True,
+            "main_file": "app.py",
+            "app_variable": "my_app",
+        }
+
+        with patch.dict(os.environ, {"RUNPOD_ENDPOINT_ID": "mothership-123"}):
+            resource = create_resource_from_manifest(
+                resource_name, resource_data, "https://test.api.runpod.ai"
+            )
+
+            assert resource.env["FLASH_ENDPOINT_TYPE"] == "lb"
+            assert resource.env["FLASH_IS_MOTHERSHIP"] == "true"
+            assert resource.env["FLASH_MAIN_FILE"] == "app.py"
+            assert resource.env["FLASH_APP_VARIABLE"] == "my_app"
+
+    def test_create_resource_lb_via_is_load_balanced_with_main_file(self):
+        """Test main_file and app_variable work with is_load_balanced flag too."""
+        resource_name = "lb_worker"
+        resource_data = {
+            "resource_type": "ServerlessResource",
+            "imageName": "runpod/flash:latest",
+            "is_load_balanced": True,
+            "main_file": "server.py",
+            "app_variable": "server_app",
+        }
+
+        with patch.dict(os.environ, {"RUNPOD_ENDPOINT_ID": "mothership-123"}):
+            resource = create_resource_from_manifest(
+                resource_name, resource_data, "https://test.api.runpod.ai"
+            )
+
+            assert resource.env["FLASH_ENDPOINT_TYPE"] == "lb"
+            assert resource.env["FLASH_MAIN_FILE"] == "server.py"
+            assert resource.env["FLASH_APP_VARIABLE"] == "server_app"

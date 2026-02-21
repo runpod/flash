@@ -286,9 +286,10 @@ def create_resource_from_manifest(
     if mothership_id:
         env["FLASH_MOTHERSHIP_ID"] = mothership_id
 
-    # Mothership-specific environment variables
-    if resource_data.get("is_mothership"):
-        env["FLASH_IS_MOTHERSHIP"] = "true"
+    # Load-balanced endpoint environment variables
+    if resource_data.get("is_mothership") or resource_data.get("is_load_balanced"):
+        env["FLASH_ENDPOINT_TYPE"] = "lb"
+        env["FLASH_IS_MOTHERSHIP"] = "true"  # backward compat during transition
         if "main_file" in resource_data:
             env["FLASH_MAIN_FILE"] = resource_data["main_file"]
         if "app_variable" in resource_data:
