@@ -31,6 +31,11 @@ def _map_body_to_params(func, body):
     return {first_param: body}
 
 
+def make_wrapped_model(name: str, inner_model: type) -> type:
+    """Wrap a Pydantic model in an 'input' envelope for RunPod API consistency."""
+    return create_model(name, input=(inner_model, ...))
+
+
 def make_input_model(name: str, func) -> type | None:
     """Create a Pydantic model from a function's signature for FastAPI body typing.
 

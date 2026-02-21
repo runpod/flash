@@ -300,6 +300,7 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
 
     lines += [
         "from runpod_flash.cli.commands._run_server_helpers import make_input_model as _make_input_model",
+        "from runpod_flash.cli.commands._run_server_helpers import make_wrapped_model as _make_wrapped_model",
         "from runpod_flash.cli.commands._run_server_helpers import call_with_body as _call_with_body",
     ]
 
@@ -367,9 +368,13 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
             for fn in worker.functions:
                 params = worker.function_params.get(fn)
                 if params is None or len(params) > 0:
-                    model_var = f"_{worker.resource_name}_{fn}_Input"
+                    input_var = f"_{worker.resource_name}_{fn}_Input"
+                    request_var = f"_{worker.resource_name}_{fn}_Request"
                     model_lines.append(
-                        f'{model_var} = _make_input_model("{model_var}", {fn}) or dict'
+                        f'{input_var} = _make_input_model("{input_var}", {fn}) or dict'
+                    )
+                    model_lines.append(
+                        f'{request_var} = _make_wrapped_model("{request_var}", {input_var})'
                     )
             for cls_info in worker.class_remotes:
                 cls_name = cls_info["name"]
@@ -378,12 +383,18 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
                 for method in cls_info["methods"]:
                     params = method_params.get(method)
                     if params is None or len(params) > 0:
-                        model_var = f"_{worker.resource_name}_{cls_name}_{method}_Input"
+                        input_var = f"_{worker.resource_name}_{cls_name}_{method}_Input"
+                        request_var = (
+                            f"_{worker.resource_name}_{cls_name}_{method}_Request"
+                        )
                         # Use _class_type to get the original unwrapped method
                         # (RemoteClassWrapper.__getattr__ returns proxies with (*args, **kwargs))
                         class_ref = f"getattr({instance_var}, '_class_type', type({instance_var}))"
                         model_lines.append(
-                            f'{model_var} = _make_input_model("{model_var}", {class_ref}.{method}) or dict'
+                            f'{input_var} = _make_input_model("{input_var}", {class_ref}.{method}) or dict'
+                        )
+                        model_lines.append(
+                            f'{request_var} = _make_wrapped_model("{request_var}", {input_var})'
                         )
         elif worker.worker_type == "LB":
             for route in worker.lb_routes:
@@ -418,17 +429,18 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
             for fn in worker.functions:
                 if use_multi:
                     handler_name = _sanitize_fn_name(
-                        f"{worker.resource_name}_{fn}_run_sync"
+                        f"{worker.resource_name}_{fn}_runsync"
                     )
-                    sync_path = f"{worker.url_prefix}/{fn}/run_sync"
+                    sync_path = f"{worker.url_prefix}/{fn}/runsync"
                 else:
-                    handler_name = _sanitize_fn_name(f"{worker.resource_name}_run_sync")
-                    sync_path = f"{worker.url_prefix}/run_sync"
+                    handler_name = _sanitize_fn_name(f"{worker.resource_name}_runsync")
+                    sync_path = f"{worker.url_prefix}/runsync"
                 params = worker.function_params.get(fn)
                 call_expr, needs_body = _build_call_expr(fn, params)
                 if needs_body:
-                    model_var = f"_{worker.resource_name}_{fn}_Input"
-                    handler_sig = f"async def {handler_name}(body: {model_var}):"
+                    request_var = f"_{worker.resource_name}_{fn}_Request"
+                    handler_sig = f"async def {handler_name}(body: {request_var}):"
+                    call_expr = call_expr.replace("body)", "body.input)")
                 else:
                     handler_sig = f"async def {handler_name}():"
                 lines += [
@@ -449,21 +461,24 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
                 for method in methods:
                     if use_multi:
                         handler_name = _sanitize_fn_name(
-                            f"{worker.resource_name}_{cls_name}_{method}_run_sync"
+                            f"{worker.resource_name}_{cls_name}_{method}_runsync"
                         )
-                        sync_path = f"{worker.url_prefix}/{method}/run_sync"
+                        sync_path = f"{worker.url_prefix}/{method}/runsync"
                     else:
                         handler_name = _sanitize_fn_name(
-                            f"{worker.resource_name}_{cls_name}_run_sync"
+                            f"{worker.resource_name}_{cls_name}_runsync"
                         )
-                        sync_path = f"{worker.url_prefix}/run_sync"
+                        sync_path = f"{worker.url_prefix}/runsync"
                     params = method_params.get(method)
                     call_expr, needs_body = _build_call_expr(
                         f"{instance_var}.{method}", params
                     )
                     if needs_body:
-                        model_var = f"_{worker.resource_name}_{cls_name}_{method}_Input"
-                        handler_sig = f"async def {handler_name}(body: {model_var}):"
+                        request_var = (
+                            f"_{worker.resource_name}_{cls_name}_{method}_Request"
+                        )
+                        handler_sig = f"async def {handler_name}(body: {request_var}):"
+                        call_expr = call_expr.replace("body)", "body.input)")
                     else:
                         handler_sig = f"async def {handler_name}():"
                     lines += [
@@ -561,13 +576,13 @@ def _print_startup_table(workers: List[WorkerInfo], host: str, port: int) -> Non
             for fn in worker.functions:
                 if use_multi:
                     table.add_row(
-                        f"POST  {worker.url_prefix}/{fn}/run_sync",
+                        f"POST  {worker.url_prefix}/{fn}/runsync",
                         worker.resource_name,
                         "QB",
                     )
                 else:
                     table.add_row(
-                        f"POST  {worker.url_prefix}/run_sync",
+                        f"POST  {worker.url_prefix}/runsync",
                         worker.resource_name,
                         "QB",
                     )
@@ -577,13 +592,13 @@ def _print_startup_table(workers: List[WorkerInfo], host: str, port: int) -> Non
                 for method in methods:
                     if use_multi:
                         table.add_row(
-                            f"POST  {worker.url_prefix}/{method}/run_sync",
+                            f"POST  {worker.url_prefix}/{method}/runsync",
                             worker.resource_name,
                             "QB",
                         )
                     else:
                         table.add_row(
-                            f"POST  {worker.url_prefix}/run_sync",
+                            f"POST  {worker.url_prefix}/runsync",
                             worker.resource_name,
                             "QB",
                         )

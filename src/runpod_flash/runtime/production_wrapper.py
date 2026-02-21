@@ -186,7 +186,7 @@ class ProductionWrapper:
         }
 
         # Execute via ServerlessResource
-        result = await resource.run_sync(payload)
+        result = await resource.runsync(payload)
 
         # Handle response
         if result.error:

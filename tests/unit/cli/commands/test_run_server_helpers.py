@@ -1,4 +1,4 @@
-"""Tests for _run_server_helpers: make_input_model, call_with_body, to_dict."""
+"""Tests for _run_server_helpers: make_input_model, make_wrapped_model, call_with_body, to_dict."""
 
 from typing import Any
 
@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from runpod_flash.cli.commands._run_server_helpers import (
     call_with_body,
     make_input_model,
+    make_wrapped_model,
     to_dict,
 )
 
@@ -106,6 +107,44 @@ def test_make_input_model_failure_graceful():
     """Bad input returns None instead of raising."""
     result = make_input_model("bad_Input", 42)
     assert result is None
+
+
+# --- make_wrapped_model ---
+
+
+def test_make_wrapped_model_wraps_input_field():
+    """Wrapped model has a single required 'input' field of the inner type."""
+
+    async def process(text: str, count: int):
+        pass
+
+    Inner = make_input_model("process_Input", process)
+    Wrapped = make_wrapped_model("process_Request", Inner)
+    assert issubclass(Wrapped, BaseModel)
+    fields = Wrapped.model_fields
+    assert "input" in fields
+    assert len(fields) == 1
+    assert fields["input"].is_required()
+
+
+def test_make_wrapped_model_roundtrip():
+    """Wrapped model can be instantiated and inner data extracted via .input."""
+
+    async def process(text: str, count: int):
+        pass
+
+    Inner = make_input_model("process_Input", process)
+    Wrapped = make_wrapped_model("process_Request", Inner)
+    instance = Wrapped(input={"text": "hello", "count": 5})
+    assert instance.input.text == "hello"
+    assert instance.input.count == 5
+
+
+def test_make_wrapped_model_with_dict_inner():
+    """Wrapped model works with dict as the inner type (fallback case)."""
+    Wrapped = make_wrapped_model("fallback_Request", dict)
+    instance = Wrapped(input={"key": "value"})
+    assert instance.input == {"key": "value"}
 
 
 # --- call_with_body ---

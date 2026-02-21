@@ -149,8 +149,8 @@ class TestCrossEndpointRoutingIntegration:
 
                 # Mock ServerlessResource
                 mock_resource = AsyncMock()
-                mock_resource.run_sync = AsyncMock()
-                mock_resource.run_sync.return_value = MagicMock(
+                mock_resource.runsync = AsyncMock()
+                mock_resource.runsync.return_value = MagicMock(
                     error="", output="processed"
                 )
 
@@ -176,7 +176,7 @@ class TestCrossEndpointRoutingIntegration:
                     )
 
                     original_stub.assert_not_called()
-                    mock_resource.run_sync.assert_called_once()
+                    mock_resource.runsync.assert_called_once()
                     assert result == "processed"
 
             finally:
@@ -222,8 +222,8 @@ class TestCrossEndpointRoutingIntegration:
 
                 # Mock get_resource_for_function to return a mock resource
                 mock_resource = AsyncMock()
-                mock_resource.run_sync = AsyncMock()
-                mock_resource.run_sync.return_value = MagicMock(error="", output=None)
+                mock_resource.runsync = AsyncMock()
+                mock_resource.runsync.return_value = MagicMock(error="", output=None)
 
                 with patch.object(
                     registry, "get_resource_for_function", return_value=mock_resource
@@ -273,8 +273,8 @@ class TestCrossEndpointRoutingIntegration:
 
                 # Mock ServerlessResource that returns error
                 mock_resource = AsyncMock()
-                mock_resource.run_sync = AsyncMock()
-                mock_resource.run_sync.return_value = MagicMock(
+                mock_resource.runsync = AsyncMock()
+                mock_resource.runsync.return_value = MagicMock(
                     success=False, error="Remote function failed: ValueError"
                 )
 

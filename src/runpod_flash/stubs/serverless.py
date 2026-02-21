@@ -16,7 +16,7 @@ class ServerlessEndpointStub:
         Returns a JobOutput object.
         """
         if sync:
-            return await self.server.run_sync(payload)
+            return await self.server.runsync(payload)
         else:
             return await self.server.run(payload)
 

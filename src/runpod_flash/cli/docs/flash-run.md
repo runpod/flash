@@ -35,7 +35,7 @@ With `flash run`, your system runs in a **hybrid architecture**:
 
 **Key points:**
 - **`flash run` auto-discovers `@remote` functions** and generates `.flash/server.py`
-- **Queue-based (QB) routes execute locally** at `/{file_prefix}/run_sync`
+- **Queue-based (QB) routes execute locally** at `/{file_prefix}/runsync`
 - **Load-balanced (LB) routes dispatch remotely** via `LoadBalancerSlsStub`
 - **`@remote` functions run on Runpod** as serverless endpoints
 - **Hot reload** watches for `.py` file changes via watchfiles
@@ -88,7 +88,7 @@ flash run
     ├── Scans project for @remote functions
     ├── Generates .flash/server.py
     ├── Starts local server (e.g. localhost:8888)
-    │   ├── QB routes: /{file_prefix}/run_sync (local execution)
+    │   ├── QB routes: /{file_prefix}/runsync (local execution)
     │   └── LB routes: /{file_prefix}/{path} (remote dispatch)
     │
     └── On @remote function call:

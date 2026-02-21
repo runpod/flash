@@ -71,8 +71,8 @@ class TestProductionWrapper:
     ):
         """Test routing remote function via ServerlessResource."""
         mock_resource = AsyncMock()
-        mock_resource.run_sync = AsyncMock()
-        mock_resource.run_sync.return_value = MagicMock(error="", output=42)
+        mock_resource.runsync = AsyncMock()
+        mock_resource.runsync.return_value = MagicMock(error="", output=42)
 
         mock_registry.get_resource_for_function = AsyncMock(return_value=mock_resource)
 
@@ -90,7 +90,7 @@ class TestProductionWrapper:
         # Should NOT call original stub
         original_stub.assert_not_called()
         # Should call ServerlessResource.run_sync()
-        mock_resource.run_sync.assert_called_once()
+        mock_resource.runsync.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_wrap_function_not_in_manifest(
@@ -120,8 +120,8 @@ class TestProductionWrapper:
     ):
         """Test error handling for failed remote execution."""
         mock_resource = AsyncMock()
-        mock_resource.run_sync = AsyncMock()
-        mock_resource.run_sync.return_value = MagicMock(error="Remote execution failed")
+        mock_resource.runsync = AsyncMock()
+        mock_resource.runsync.return_value = MagicMock(error="Remote execution failed")
 
         mock_registry.get_resource_for_function = AsyncMock(return_value=mock_resource)
 
@@ -181,8 +181,8 @@ class TestProductionWrapper:
         )
 
         mock_resource = AsyncMock()
-        mock_resource.run_sync = AsyncMock()
-        mock_resource.run_sync.return_value = MagicMock(error="", output="done")
+        mock_resource.runsync = AsyncMock()
+        mock_resource.runsync.return_value = MagicMock(error="", output="done")
 
         mock_registry.get_resource_for_function = AsyncMock(return_value=mock_resource)
 
@@ -190,7 +190,7 @@ class TestProductionWrapper:
 
         assert result == "done"
         original_stub.assert_not_called()
-        mock_resource.run_sync.assert_called_once()
+        mock_resource.runsync.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_wrap_class_method_no_class_name(self, wrapper, original_stub):
@@ -206,8 +206,8 @@ class TestProductionWrapper:
     async def test_execute_remote_payload_format(self, wrapper, sample_function):
         """Test that remote payload matches RunPod format with JSON serialization."""
         mock_resource = AsyncMock()
-        mock_resource.run_sync = AsyncMock()
-        mock_resource.run_sync.return_value = MagicMock(error="", output=None)
+        mock_resource.runsync = AsyncMock()
+        mock_resource.runsync.return_value = MagicMock(error="", output=None)
 
         await wrapper._execute_remote(
             mock_resource,
@@ -217,7 +217,7 @@ class TestProductionWrapper:
             execution_type="function",
         )
 
-        call_args = mock_resource.run_sync.call_args
+        call_args = mock_resource.runsync.call_args
         payload = call_args[0][0]
 
         assert payload["input"]["function_name"] == "gpu_task"
@@ -230,8 +230,8 @@ class TestProductionWrapper:
     async def test_execute_remote_uses_json_serialization(self, wrapper):
         """Verify payload contains serialization_format: json and raw args."""
         mock_resource = AsyncMock()
-        mock_resource.run_sync = AsyncMock()
-        mock_resource.run_sync.return_value = MagicMock(error="", output="result")
+        mock_resource.runsync = AsyncMock()
+        mock_resource.runsync.return_value = MagicMock(error="", output="result")
 
         await wrapper._execute_remote(
             mock_resource,
@@ -240,7 +240,7 @@ class TestProductionWrapper:
             {"flag": True},
         )
 
-        payload = mock_resource.run_sync.call_args[0][0]
+        payload = mock_resource.runsync.call_args[0][0]
 
         # Must include serialization_format
         assert payload["input"]["serialization_format"] == "json"
@@ -255,8 +255,8 @@ class TestProductionWrapper:
     async def test_execute_remote_args_are_plain_json(self, wrapper):
         """Verify dict/int/string args pass through without cloudpickle encoding."""
         mock_resource = AsyncMock()
-        mock_resource.run_sync = AsyncMock()
-        mock_resource.run_sync.return_value = MagicMock(error="", output=None)
+        mock_resource.runsync = AsyncMock()
+        mock_resource.runsync.return_value = MagicMock(error="", output=None)
 
         complex_args = (
             {"nested": {"data": [1, 2, 3]}},
@@ -276,7 +276,7 @@ class TestProductionWrapper:
             complex_kwargs,
         )
 
-        payload = mock_resource.run_sync.call_args[0][0]
+        payload = mock_resource.runsync.call_args[0][0]
         args = payload["input"]["args"]
         kwargs = payload["input"]["kwargs"]
 

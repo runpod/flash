@@ -107,12 +107,15 @@ def test_codegen_class_single_method():
         content = server_path.read_text()
 
         assert "_instance_StableDiffusion = StableDiffusion()" in content
-        assert "_call_with_body(_instance_StableDiffusion.generate, body)" in content
-        assert "body: _sd_worker_StableDiffusion_generate_Input" in content
+        assert (
+            "_call_with_body(_instance_StableDiffusion.generate, body.input)" in content
+        )
+        assert "body: _sd_worker_StableDiffusion_generate_Request" in content
         assert "_make_input_model" in content
-        assert '"/sd_worker/run_sync"' in content
+        assert "_make_wrapped_model" in content
+        assert '"/sd_worker/runsync"' in content
         # Single method: no method name in URL
-        assert '"/sd_worker/generate/run_sync"' not in content
+        assert '"/sd_worker/generate/runsync"' not in content
 
 
 def test_codegen_class_multiple_methods():
@@ -145,12 +148,14 @@ def test_codegen_class_multiple_methods():
         content = server_path.read_text()
 
         assert "_instance_SimpleSD = SimpleSD()" in content
-        assert '"/gpu_worker/generate_image/run_sync"' in content
-        assert '"/gpu_worker/upscale/run_sync"' in content
-        assert "_call_with_body(_instance_SimpleSD.generate_image, body)" in content
-        assert "_call_with_body(_instance_SimpleSD.upscale, body)" in content
-        assert "body: _gpu_worker_SimpleSD_generate_image_Input" in content
-        assert "body: _gpu_worker_SimpleSD_upscale_Input" in content
+        assert '"/gpu_worker/generate_image/runsync"' in content
+        assert '"/gpu_worker/upscale/runsync"' in content
+        assert (
+            "_call_with_body(_instance_SimpleSD.generate_image, body.input)" in content
+        )
+        assert "_call_with_body(_instance_SimpleSD.upscale, body.input)" in content
+        assert "body: _gpu_worker_SimpleSD_generate_image_Request" in content
+        assert "body: _gpu_worker_SimpleSD_upscale_Request" in content
 
 
 def test_codegen_mixed_function_and_class():
@@ -180,11 +185,11 @@ def test_codegen_mixed_function_and_class():
         content = server_path.read_text()
 
         # Both should use multi-callable URL pattern (total_callables = 2)
-        assert '"/worker/process/run_sync"' in content
-        assert '"/worker/predict/run_sync"' in content
+        assert '"/worker/process/runsync"' in content
+        assert '"/worker/predict/runsync"' in content
         assert "_instance_MyModel = MyModel()" in content
-        assert "_call_with_body(_instance_MyModel.predict, body)" in content
-        assert "_call_with_body(process, body)" in content
+        assert "_call_with_body(_instance_MyModel.predict, body.input)" in content
+        assert "_call_with_body(process, body.input)" in content
 
 
 def test_codegen_function_only():
@@ -207,10 +212,11 @@ def test_codegen_function_only():
         content = server_path.read_text()
 
         # Single function: short URL
-        assert '"/simple/run_sync"' in content
-        assert "_call_with_body(process, body)" in content
+        assert '"/simple/runsync"' in content
+        assert "_call_with_body(process, body.input)" in content
         assert "_simple_process_Input = _make_input_model(" in content
-        assert "body: _simple_process_Input" in content
+        assert "_simple_process_Request = _make_wrapped_model(" in content
+        assert "body: _simple_process_Request" in content
         # No instance creation
         assert "_instance_" not in content
 
@@ -238,7 +244,7 @@ def test_codegen_zero_param_function():
         assert "await list_images()" in content
         assert 'body.get("input"' not in content
         # Handler should not accept body parameter
-        assert "async def worker_run_sync():" in content
+        assert "async def worker_runsync():" in content
 
 
 def test_codegen_multi_param_function():
@@ -261,9 +267,10 @@ def test_codegen_multi_param_function():
         server_path = _generate_flash_server(project_root, workers)
         content = server_path.read_text()
 
-        assert "_call_with_body(transform, body)" in content
+        assert "_call_with_body(transform, body.input)" in content
         assert "_worker_transform_Input = _make_input_model(" in content
-        assert "body: _worker_transform_Input" in content
+        assert "_worker_transform_Request = _make_wrapped_model(" in content
+        assert "body: _worker_transform_Request" in content
 
 
 def test_codegen_single_param_function():
@@ -286,8 +293,8 @@ def test_codegen_single_param_function():
         server_path = _generate_flash_server(project_root, workers)
         content = server_path.read_text()
 
-        assert "_call_with_body(process, body)" in content
-        assert "body: _worker_process_Input" in content
+        assert "_call_with_body(process, body.input)" in content
+        assert "body: _worker_process_Request" in content
 
 
 def test_codegen_zero_param_class_method():
@@ -318,7 +325,7 @@ def test_codegen_zero_param_class_method():
 
         assert "await _instance_ImageProcessor.list_models()" in content
         # Handler should not accept body parameter
-        assert "worker_ImageProcessor_run_sync():" in content
+        assert "worker_ImageProcessor_runsync():" in content
 
 
 def test_codegen_multi_param_class_method():
@@ -347,8 +354,10 @@ def test_codegen_multi_param_class_method():
         server_path = _generate_flash_server(project_root, workers)
         content = server_path.read_text()
 
-        assert "_call_with_body(_instance_ImageProcessor.generate, body)" in content
-        assert "body: _worker_ImageProcessor_generate_Input" in content
+        assert (
+            "_call_with_body(_instance_ImageProcessor.generate, body.input)" in content
+        )
+        assert "body: _worker_ImageProcessor_generate_Request" in content
         # Model creation uses _class_type to get original method signature
         assert "_class_type" in content
 
@@ -376,8 +385,8 @@ def test_codegen_backward_compat_no_method_params():
         content = server_path.read_text()
 
         # Should use _call_with_body when method_params not provided (params=None)
-        assert "_call_with_body(_instance_OldStyle.process, body)" in content
-        assert "body: _worker_OldStyle_process_Input" in content
+        assert "_call_with_body(_instance_OldStyle.process, body.input)" in content
+        assert "body: _worker_OldStyle_process_Request" in content
 
 
 def test_scan_populates_function_params():

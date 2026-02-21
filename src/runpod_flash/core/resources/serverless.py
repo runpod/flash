@@ -478,7 +478,7 @@ class ServerlessResource(DeployableResource):
             # can fail health checks due to RunPod propagation delay — the
             # endpoint exists but the health API hasn't registered it yet.
             # Trusting the cached ID is correct here; actual failures surface
-            # on the first real run/run_sync call.
+            # on the first real run/runsync call.
             # Case-insensitive check; unset env var defaults to "" via getenv.
             if os.getenv("FLASH_IS_LIVE_PROVISIONING", "").lower() == "true":
                 return True
@@ -876,7 +876,7 @@ class ServerlessResource(DeployableResource):
         log.debug(f"undeployment result: {result}")
         return result
 
-    async def run_sync(self, payload: Dict[str, Any]) -> "JobOutput":
+    async def runsync(self, payload: Dict[str, Any]) -> "JobOutput":
         """
         Executes a serverless endpoint request with the payload.
         Returns a JobOutput object.
@@ -885,6 +885,7 @@ class ServerlessResource(DeployableResource):
             raise ValueError("Serverless is not deployed")
 
         def _fetch_job():
+            log.debug(f"{self} | API /runsync")
             return self.endpoint.rp_client.post(
                 f"{self.id}/runsync", payload, timeout=60
             )
@@ -892,7 +893,6 @@ class ServerlessResource(DeployableResource):
         try:
             # log.debug(f"[{self}] Payload: {payload}")
 
-            log.debug(f"{self} | API /run_sync")
             response = await asyncio.to_thread(_fetch_job)
             return JobOutput(**response)
 

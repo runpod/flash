@@ -10,7 +10,7 @@ Deploy every example in flash-examples to RunPod, execute their workflows in the
 
 | Example | Type | Cross-Remote | Deployment Test |
 |---------|------|--------------|-----------------|
-| 00_standalone_worker | QB | No | Deploy QB, invoke /run_sync, get result |
+| 00_standalone_worker | QB | No | Deploy QB, invoke /runsync, get result |
 | 00_multi_resource | QB + LB | Yes | Deploy 2 QB + 1 LB, LB orchestrates both QB workers |
 | 01_hello_world | QB | No | Deploy QB, invoke, get GPU info |
 | 02_cpu_worker | QB | No | Deploy QB, invoke, get CPU info |
@@ -23,7 +23,7 @@ Deploy every example in flash-examples to RunPod, execute their workflows in the
 ## Architecture Principles
 
 - All endpoints in a flash application are peers. No hub-and-spoke, no coordinator.
-- QB endpoints: standard RunPod queue. POST to /run or /run_sync creates a job.
+- QB endpoints: standard RunPod queue. POST to /run or /runsync creates a job.
 - LB endpoints: web server with user-defined HTTP routes served directly.
 - CloudPickle is used only for `flash run` local dev (LiveServerless). Deployed environments use JSON-only payloads.
 - Manifest determines endpoint behavior: `is_load_balanced` and `makes_remote_calls` flags drive provisioning decisions.
@@ -82,7 +82,7 @@ The mothership mode mechanism is correct for LB endpoints (imports user's FastAP
 Same two modes, reframed for the peer architecture:
 
 - **LB endpoint mode** (was mothership): Imports user's FastAPI app and serves routes. Triggered by manifest metadata (`is_load_balanced: true`), not a "mothership" flag.
-- **QB endpoint mode**: Standard RunPod queue handler. Processes jobs from /run and /run_sync. The `/execute` endpoint stays only for `flash run` local dev (LiveServerless).
+- **QB endpoint mode**: Standard RunPod queue handler. Processes jobs from /run and /runsync. The `/execute` endpoint stays only for `flash run` local dev (LiveServerless).
 
 ### Changes
 
