@@ -16,7 +16,7 @@ Set up the project:
 uv venv && source .venv/bin/activate
 uv sync
 cp .env.example .env   # Add your RUNPOD_API_KEY
-flash run
+flash dev
 ```
 
 Or with pip:
@@ -25,12 +25,12 @@ Or with pip:
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env   # Add your RUNPOD_API_KEY
-flash run
+flash dev
 ```
 
 Server starts at **http://localhost:8888**. Visit **http://localhost:8888/docs** for interactive Swagger UI.
 
-Use `flash run --auto-provision` to pre-deploy all endpoints on startup, eliminating cold-start delays on first request. Provisioned endpoints are cached and reused across restarts.
+Use `flash dev --auto-provision` to pre-deploy all endpoints on startup, eliminating cold-start delays on first request. Provisioned endpoints are cached and reused across restarts.
 
 When you stop the server with Ctrl+C, all endpoints provisioned during the session are automatically cleaned up.
 
@@ -131,7 +131,7 @@ async def health() -> dict:
 
 ## Adding New Workers
 
-Create a new `.py` file with a `@remote` function. `flash run` auto-discovers all
+Create a new `.py` file with a `@remote` function. `flash dev` auto-discovers all
 `@remote` functions in the project.
 
 ```python
@@ -147,7 +147,7 @@ async def predict(input_data: dict) -> dict:
     return pipe(input_data["text"])[0]
 ```
 
-Then run `flash run` — the new worker appears automatically.
+Then run `flash dev` — the new worker appears automatically.
 
 ## GPU Types
 

@@ -74,7 +74,7 @@ class LiveLoadBalancer(LiveServerlessMixin, LoadBalancerSlsResource):
     Features:
     - Locks to Flash LB image (flash-lb)
     - Direct HTTP execution (not queue-based)
-    - Local development with flash run
+    - Local development with flash dev
     - Same @remote decorator pattern as LoadBalancerSlsResource
 
     Usage:
@@ -92,7 +92,7 @@ class LiveLoadBalancer(LiveServerlessMixin, LoadBalancerSlsResource):
     Local Development Flow:
         1. Create LiveLoadBalancer with routing
         2. Decorate functions with @remote(lb_resource, method=..., path=...)
-        3. Run with `flash run` to start local endpoint
+        3. Run with `flash dev` to start local endpoint
         4. Call functions directly in tests or scripts
         5. Deploy to production with `flash build` and `flash deploy`
 
@@ -124,7 +124,7 @@ class CpuLiveLoadBalancer(LiveServerlessMixin, CpuLoadBalancerSlsResource):
     - Locks to CPU Flash LB image (flash-lb-cpu)
     - CPU instance support with automatic disk sizing
     - Direct HTTP execution (not queue-based)
-    - Local development with flash run
+    - Local development with flash dev
     - Same @remote decorator pattern as CpuLoadBalancerSlsResource
 
     Usage:
@@ -142,7 +142,7 @@ class CpuLiveLoadBalancer(LiveServerlessMixin, CpuLoadBalancerSlsResource):
     Local Development Flow:
         1. Create CpuLiveLoadBalancer with routing
         2. Decorate functions with @remote(lb_resource, method=..., path=...)
-        3. Run with `flash run` to start local endpoint
+        3. Run with `flash dev` to start local endpoint
         4. Call functions directly in tests or scripts
         5. Deploy to production with `flash build` and `flash deploy`
     """

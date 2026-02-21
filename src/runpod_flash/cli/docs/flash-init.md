@@ -15,7 +15,7 @@ The `flash init` command scaffolds a new Flash project with everything you need 
 
 **After initialization:**
 1. Copy `.env.example` to `.env` and add your `RUNPOD_API_KEY`
-2. Run `flash run` to start the local development server
+2. Run `flash dev` to start the local development server
 3. Customize the workers for your use case
 4. Deploy with `flash deploy` when ready
 
@@ -64,7 +64,7 @@ my-project/
 cd my-project
 uv sync                          # or: pip install -r requirements.txt
 # Add RUNPOD_API_KEY to .env
-flash run
+flash dev
 ```
 
 Visit http://localhost:8888/docs for interactive API documentation.

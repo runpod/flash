@@ -1,4 +1,4 @@
-"""Resource discovery for auto-provisioning during flash run startup."""
+"""Resource discovery for auto-provisioning during flash dev startup."""
 
 import ast
 import importlib.util
