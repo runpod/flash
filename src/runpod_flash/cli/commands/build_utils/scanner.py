@@ -104,6 +104,10 @@ class RemoteFunctionMetadata:
     class_method_params: Dict[str, List[str]] = field(
         default_factory=dict
     )  # method_name -> param_names (for classes)
+    docstring: Optional[str] = None  # First line of function/class docstring
+    class_method_docstrings: Dict[str, Optional[str]] = field(
+        default_factory=dict
+    )  # method_name -> first line of docstring
 
 
 class RemoteDecoratorScanner:
@@ -291,9 +295,16 @@ class RemoteDecoratorScanner:
                             and http_path is not None
                         )
 
+                        # Extract docstring (first line only)
+                        raw_docstring = ast.get_docstring(node)
+                        docstring: Optional[str] = None
+                        if raw_docstring:
+                            docstring = raw_docstring.split("\n")[0].strip()
+
                         # Extract public methods for @remote classes
                         class_methods: List[str] = []
                         class_method_params: Dict[str, List[str]] = {}
+                        class_method_docstrings: Dict[str, Optional[str]] = {}
                         if is_class:
                             for n in node.body:
                                 if isinstance(
@@ -305,6 +316,13 @@ class RemoteDecoratorScanner:
                                         for arg in n.args.args
                                         if arg.arg != "self"
                                     ]
+                                    raw_method_doc = ast.get_docstring(n)
+                                    if raw_method_doc:
+                                        class_method_docstrings[n.name] = (
+                                            raw_method_doc.split("\n")[0].strip()
+                                        )
+                                    else:
+                                        class_method_docstrings[n.name] = None
 
                         # Extract param names for functions (not classes)
                         param_names: List[str] = []
@@ -334,6 +352,8 @@ class RemoteDecoratorScanner:
                             class_methods=class_methods,
                             param_names=param_names,
                             class_method_params=class_method_params,
+                            docstring=docstring,
+                            class_method_docstrings=class_method_docstrings,
                         )
                         functions.append(metadata)
 
