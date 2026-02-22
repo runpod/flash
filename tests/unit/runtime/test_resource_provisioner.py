@@ -232,6 +232,49 @@ class TestCreateResourceFromManifest:
 
             assert "RUNPOD_API_KEY" not in resource.env
 
+    def test_create_resource_injects_flash_environment_id_when_makes_remote_calls(self):
+        """Test FLASH_ENVIRONMENT_ID injected when makes_remote_calls and flash_environment_id passed."""
+        resource_name = "caller_worker"
+        resource_data = {
+            "resource_type": "ServerlessResource",
+            "imageName": "runpod/flash:latest",
+            "makes_remote_calls": True,
+        }
+
+        with patch.dict(
+            os.environ,
+            {
+                "RUNPOD_ENDPOINT_ID": "endpoint-123",
+                "RUNPOD_API_KEY": "test-api-key-secret",
+            },
+        ):
+            resource = create_resource_from_manifest(
+                resource_name,
+                resource_data,
+                flash_environment_id="flash-env-abc123",
+            )
+
+            assert resource.env["FLASH_ENVIRONMENT_ID"] == "flash-env-abc123"
+            assert resource.env["RUNPOD_API_KEY"] == "test-api-key-secret"
+
+    def test_create_resource_skips_flash_env_id_when_no_remote_calls(self):
+        """Test FLASH_ENVIRONMENT_ID NOT injected when makes_remote_calls is False."""
+        resource_name = "isolated_worker"
+        resource_data = {
+            "resource_type": "ServerlessResource",
+            "imageName": "runpod/flash:latest",
+            "makes_remote_calls": False,
+        }
+
+        with patch.dict(os.environ, {"RUNPOD_ENDPOINT_ID": "endpoint-123"}):
+            resource = create_resource_from_manifest(
+                resource_name,
+                resource_data,
+                flash_environment_id="flash-env-abc123",
+            )
+
+            assert "FLASH_ENVIRONMENT_ID" not in resource.env
+
     def test_create_resource_skips_api_key_when_not_set(self):
         """Test RUNPOD_API_KEY NOT injected when env var is not set."""
         resource_name = "caller_worker"

@@ -43,7 +43,7 @@ class ServiceRegistry:
         Environment Variables:
             FLASH_RESOURCE_NAME: Resource config name for this endpoint.
                 Identifies which resource config this endpoint represents.
-            RUNPOD_ENDPOINT_ID: Endpoint ID (used for State Manager queries and fallback).
+            FLASH_ENVIRONMENT_ID: Flash environment ID for State Manager manifest queries.
             RUNPOD_API_KEY: API key for State Manager GraphQL access.
 
         Raises:
@@ -163,11 +163,11 @@ class ServiceRegistry:
 
         Peer-to-Peer Architecture:
             Each endpoint queries State Manager independently using its own
-            RUNPOD_ENDPOINT_ID. All endpoints are equal peers discovering
+            FLASH_ENVIRONMENT_ID. All endpoints are equal peers discovering
             each other through the manifest.
 
         Query Flow:
-            1. get_flash_environment(RUNPOD_ENDPOINT_ID) → activeBuildId
+            1. get_flash_environment(FLASH_ENVIRONMENT_ID) → activeBuildId
             2. get_flash_build(activeBuildId) → manifest
             3. Extract manifest["resources_endpoints"] mapping
             4. Cache for 300s (DEFAULT_CACHE_TTL)
@@ -198,16 +198,16 @@ class ServiceRegistry:
                     return
 
                 try:
-                    endpoint_id = os.getenv("RUNPOD_ENDPOINT_ID")
-                    if not endpoint_id:
-                        logger.warning(
-                            "RUNPOD_ENDPOINT_ID not set, cannot query State Manager"
+                    flash_env_id = os.getenv("FLASH_ENVIRONMENT_ID")
+                    if not flash_env_id:
+                        logger.debug(
+                            "FLASH_ENVIRONMENT_ID not set, skipping State Manager query"
                         )
                         return
 
                     # Query State Manager directly for full manifest
                     full_manifest = await self._manifest_client.get_persisted_manifest(
-                        endpoint_id
+                        flash_env_id
                     )
 
                     # Extract resources_endpoints mapping

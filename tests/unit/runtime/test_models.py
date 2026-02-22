@@ -121,6 +121,28 @@ class TestResourceConfigFields:
         assert config.is_load_balanced is True
         assert config.is_live_resource is True
 
+    def test_from_dict_ignores_extra_function_fields(self):
+        """from_dict filters unknown keys from function dicts."""
+        config = ResourceConfig.from_dict(
+            {
+                "resource_type": "LiveServerless",
+                "functions": [
+                    {
+                        "name": "predict",
+                        "module": "app",
+                        "is_async": False,
+                        "is_class": False,
+                        "is_load_balanced": True,
+                        "is_live_resource": True,
+                        "config_variable": "gpu_config",
+                    }
+                ],
+            }
+        )
+        assert len(config.functions) == 1
+        assert config.functions[0].name == "predict"
+        assert not hasattr(config.functions[0], "config_variable")
+
     def test_manifest_roundtrip_preserves_flags(self):
         """Manifest to_dict/from_dict preserves is_load_balanced and is_live_resource."""
         data = _make_manifest_dict(

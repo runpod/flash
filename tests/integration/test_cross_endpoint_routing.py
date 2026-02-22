@@ -188,7 +188,7 @@ class TestCrossEndpointRoutingIntegration:
             "os.environ",
             {
                 "FLASH_RESOURCE_NAME": "gpu_config",
-                "RUNPOD_ENDPOINT_ID": "endpoint-env-id",
+                "FLASH_ENVIRONMENT_ID": "flash-env-id",
             },
         ):
             endpoint_registry = {

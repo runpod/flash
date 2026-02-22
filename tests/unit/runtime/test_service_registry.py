@@ -116,7 +116,7 @@ class TestServiceRegistry:
             os.environ,
             {
                 "FLASH_RESOURCE_NAME": "gpu_config",
-                "RUNPOD_ENDPOINT_ID": "endpoint-env-id",
+                "FLASH_ENVIRONMENT_ID": "flash-env-id",
             },
         ):
             registry = ServiceRegistry(manifest_path=manifest_file)
@@ -179,7 +179,7 @@ class TestServiceRegistry:
             os.environ,
             {
                 "FLASH_RESOURCE_NAME": "gpu_config",
-                "RUNPOD_ENDPOINT_ID": "endpoint-env-id",
+                "FLASH_ENVIRONMENT_ID": "flash-env-id",
             },
         ):
             registry = ServiceRegistry(manifest_path=manifest_file)
@@ -217,7 +217,7 @@ class TestServiceRegistry:
             "cpu_config": "https://cpu.example.com",
         }
 
-        with patch.dict(os.environ, {"RUNPOD_ENDPOINT_ID": "endpoint-env-id"}):
+        with patch.dict(os.environ, {"FLASH_ENVIRONMENT_ID": "flash-env-id"}):
             registry = ServiceRegistry(manifest_path=manifest_file, cache_ttl=10)
 
             # Mock the manifest client
@@ -242,7 +242,7 @@ class TestServiceRegistry:
         """Test that manifest cache respects TTL."""
         mock_endpoint_registry = {"gpu_config": "https://gpu.example.com"}
 
-        with patch.dict(os.environ, {"RUNPOD_ENDPOINT_ID": "endpoint-env-id"}):
+        with patch.dict(os.environ, {"FLASH_ENVIRONMENT_ID": "flash-env-id"}):
             registry = ServiceRegistry(manifest_path=manifest_file, cache_ttl=1)
 
             # Mock the manifest client
@@ -270,7 +270,7 @@ class TestServiceRegistry:
         """Test forcing manifest refresh."""
         mock_endpoint_registry = {"gpu_config": "https://gpu.example.com"}
 
-        with patch.dict(os.environ, {"RUNPOD_ENDPOINT_ID": "endpoint-env-id"}):
+        with patch.dict(os.environ, {"FLASH_ENVIRONMENT_ID": "flash-env-id"}):
             registry = ServiceRegistry(manifest_path=manifest_file, cache_ttl=3600)
 
             # Mock the manifest client
@@ -329,6 +329,23 @@ class TestServiceRegistry:
                 registry = ServiceRegistry(manifest_path=manifest_file)
                 # Should handle the exception and set client to None
                 assert registry._manifest_client is None
+
+    @pytest.mark.asyncio
+    async def test_ensure_manifest_loaded_without_flash_environment_id(
+        self, manifest_file
+    ):
+        """Test _ensure_manifest_loaded is a no-op when FLASH_ENVIRONMENT_ID not set."""
+        with patch.dict(os.environ, {}, clear=True):
+            registry = ServiceRegistry(manifest_path=manifest_file)
+
+            mock_client = AsyncMock()
+            registry._manifest_client = mock_client
+
+            await registry._ensure_manifest_loaded()
+
+            # Should not query State Manager
+            mock_client.get_persisted_manifest.assert_not_called()
+            assert registry._endpoint_registry == {}
 
     @pytest.mark.asyncio
     async def test_ensure_manifest_loaded_unavailable_client(self, manifest_file):
@@ -440,7 +457,10 @@ class TestGetRoutingInfo:
         """get_routing_info returns QB routing metadata for remote function."""
         with patch.dict(
             os.environ,
-            {"FLASH_RESOURCE_NAME": "gpu_config", "RUNPOD_ENDPOINT_ID": "ep-123"},
+            {
+                "FLASH_RESOURCE_NAME": "gpu_config",
+                "FLASH_ENVIRONMENT_ID": "flash-env-123",
+            },
         ):
             registry = ServiceRegistry(manifest_path=qb_manifest_file)
 
@@ -466,7 +486,10 @@ class TestGetRoutingInfo:
         """get_routing_info returns LB routing metadata with http_method and http_path."""
         with patch.dict(
             os.environ,
-            {"FLASH_RESOURCE_NAME": "gpu_config", "RUNPOD_ENDPOINT_ID": "ep-123"},
+            {
+                "FLASH_RESOURCE_NAME": "gpu_config",
+                "FLASH_ENVIRONMENT_ID": "flash-env-123",
+            },
         ):
             registry = ServiceRegistry(manifest_path=lb_manifest_file)
 

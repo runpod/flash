@@ -280,9 +280,6 @@ class ManifestBuilder:
                     "module": f.module_path,
                     "is_async": f.is_async,
                     "is_class": f.is_class,
-                    "is_load_balanced": f.is_load_balanced,
-                    "is_live_resource": f.is_live_resource,
-                    "config_variable": f.config_variable,
                     **(
                         {"http_method": f.http_method, "http_path": f.http_path}
                         if is_load_balanced

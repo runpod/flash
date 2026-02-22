@@ -1,6 +1,7 @@
 """Type-safe models for manifest handling."""
 
 from dataclasses import asdict, dataclass, field
+from dataclasses import fields as dataclass_fields
 from typing import Any, Dict, List, Optional
 
 
@@ -31,8 +32,10 @@ class ResourceConfig:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "ResourceConfig":
         """Load ResourceConfig from dict."""
+        fm_fields = {f.name for f in dataclass_fields(FunctionMetadata)}
         functions = [
-            FunctionMetadata(**func_data) for func_data in data.get("functions", [])
+            FunctionMetadata(**{k: v for k, v in fd.items() if k in fm_fields})
+            for fd in data.get("functions", [])
         ]
         return cls(
             resource_type=data["resource_type"],

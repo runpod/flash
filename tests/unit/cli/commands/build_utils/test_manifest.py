@@ -322,7 +322,5 @@ def test_manifest_includes_config_variable():
     manifest = builder.build()
 
     assert manifest["resources"]["my-endpoint"]["config_variable"] == "gpu_config"
-    assert (
-        manifest["resources"]["my-endpoint"]["functions"][0]["config_variable"]
-        == "gpu_config"
-    )
+    # config_variable is only stored at the resource level, not per-function
+    assert "config_variable" not in manifest["resources"]["my-endpoint"]["functions"][0]
