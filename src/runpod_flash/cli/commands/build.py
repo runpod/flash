@@ -275,15 +275,8 @@ def run_build(
         logger.exception("Build failed")
         raise typer.Exit(1)
 
-    flash_deps = []
-    if use_local_flash:
-        flash_pkg = _find_local_runpod_flash()
-        if flash_pkg:
-            flash_deps = _extract_runpod_flash_dependencies(flash_pkg)
-
     # install dependencies
     requirements = collect_requirements(project_dir, build_dir)
-    requirements.extend(flash_deps)
 
     # filter out excluded packages
     if excluded_packages:
