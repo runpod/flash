@@ -338,3 +338,168 @@ class TestServiceRegistry:
         # Should not fail, just log warning
         await registry._ensure_manifest_loaded()
         assert registry._endpoint_registry == {}
+
+
+class TestGetRoutingInfo:
+    """Tests for ServiceRegistry.get_routing_info()."""
+
+    @pytest.fixture
+    def qb_manifest_dict(self):
+        """Manifest with QB-only resources."""
+        return {
+            "version": "1.0",
+            "project_name": "test_app",
+            "function_registry": {
+                "gpu_task": "gpu_config",
+                "preprocess": "cpu_config",
+            },
+            "resources": {
+                "gpu_config": {
+                    "resource_type": "Serverless",
+                    "is_load_balanced": False,
+                    "functions": [
+                        {"name": "gpu_task", "module": "workers.gpu", "is_async": True},
+                    ],
+                },
+                "cpu_config": {
+                    "resource_type": "Serverless",
+                    "is_load_balanced": False,
+                    "functions": [
+                        {
+                            "name": "preprocess",
+                            "module": "workers.cpu",
+                            "is_async": False,
+                        },
+                    ],
+                },
+            },
+        }
+
+    @pytest.fixture
+    def lb_manifest_dict(self):
+        """Manifest with a load-balanced resource."""
+        return {
+            "version": "1.0",
+            "project_name": "test_app",
+            "function_registry": {
+                "gpu_task": "gpu_config",
+                "api_handler": "lb_config",
+            },
+            "resources": {
+                "gpu_config": {
+                    "resource_type": "Serverless",
+                    "is_load_balanced": False,
+                    "functions": [
+                        {"name": "gpu_task", "module": "workers.gpu", "is_async": True},
+                    ],
+                },
+                "lb_config": {
+                    "resource_type": "LoadBalancerSlsResource",
+                    "is_load_balanced": True,
+                    "functions": [
+                        {
+                            "name": "api_handler",
+                            "module": "workers.api",
+                            "is_async": True,
+                            "http_method": "POST",
+                            "http_path": "/api/process",
+                        },
+                    ],
+                },
+            },
+        }
+
+    @pytest.fixture
+    def qb_manifest_file(self, qb_manifest_dict):
+        """Create temporary QB manifest file."""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(qb_manifest_dict, f)
+            path = f.name
+        yield Path(path)
+        Path(path).unlink()
+
+    @pytest.fixture
+    def lb_manifest_file(self, lb_manifest_dict):
+        """Create temporary LB manifest file."""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(lb_manifest_dict, f)
+            path = f.name
+        yield Path(path)
+        Path(path).unlink()
+
+    @pytest.mark.asyncio
+    async def test_local_function_returns_none(self, qb_manifest_file):
+        """get_routing_info returns None for local functions."""
+        with patch.dict(os.environ, {"FLASH_RESOURCE_NAME": "gpu_config"}):
+            registry = ServiceRegistry(manifest_path=qb_manifest_file)
+            result = await registry.get_routing_info("gpu_task")
+            assert result is None
+
+    @pytest.mark.asyncio
+    async def test_remote_qb_function(self, qb_manifest_file):
+        """get_routing_info returns QB routing metadata for remote function."""
+        with patch.dict(
+            os.environ,
+            {"FLASH_RESOURCE_NAME": "gpu_config", "RUNPOD_ENDPOINT_ID": "ep-123"},
+        ):
+            registry = ServiceRegistry(manifest_path=qb_manifest_file)
+
+            mock_client = AsyncMock()
+            mock_client.get_persisted_manifest.return_value = {
+                "resources_endpoints": {
+                    "cpu_config": "https://api.runpod.ai/v2/cpu-ep-456"
+                }
+            }
+            registry._manifest_client = mock_client
+
+            result = await registry.get_routing_info("preprocess")
+
+        assert result is not None
+        assert result["resource_name"] == "cpu_config"
+        assert result["endpoint_url"] == "https://api.runpod.ai/v2/cpu-ep-456"
+        assert result["is_load_balanced"] is False
+        assert result["http_method"] is None
+        assert result["http_path"] is None
+
+    @pytest.mark.asyncio
+    async def test_remote_lb_function(self, lb_manifest_file):
+        """get_routing_info returns LB routing metadata with http_method and http_path."""
+        with patch.dict(
+            os.environ,
+            {"FLASH_RESOURCE_NAME": "gpu_config", "RUNPOD_ENDPOINT_ID": "ep-123"},
+        ):
+            registry = ServiceRegistry(manifest_path=lb_manifest_file)
+
+            mock_client = AsyncMock()
+            mock_client.get_persisted_manifest.return_value = {
+                "resources_endpoints": {"lb_config": "https://lb.example.com"}
+            }
+            registry._manifest_client = mock_client
+
+            result = await registry.get_routing_info("api_handler")
+
+        assert result is not None
+        assert result["resource_name"] == "lb_config"
+        assert result["endpoint_url"] == "https://lb.example.com"
+        assert result["is_load_balanced"] is True
+        assert result["http_method"] == "POST"
+        assert result["http_path"] == "/api/process"
+
+    @pytest.mark.asyncio
+    async def test_unknown_function_raises(self, qb_manifest_file):
+        """get_routing_info raises ValueError for unknown function."""
+        registry = ServiceRegistry(manifest_path=qb_manifest_file)
+        with pytest.raises(ValueError, match="not found in manifest"):
+            await registry.get_routing_info("nonexistent_func")
+
+    @pytest.mark.asyncio
+    async def test_remote_function_no_endpoint_url(self, qb_manifest_file):
+        """get_routing_info returns None endpoint_url when registry has no URL."""
+        with patch.dict(os.environ, {"FLASH_RESOURCE_NAME": "gpu_config"}):
+            registry = ServiceRegistry(manifest_path=qb_manifest_file)
+
+            result = await registry.get_routing_info("preprocess")
+
+        assert result is not None
+        assert result["resource_name"] == "cpu_config"
+        assert result["endpoint_url"] is None

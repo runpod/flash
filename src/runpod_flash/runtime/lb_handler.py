@@ -23,11 +23,6 @@ from typing import Any, Callable, Dict
 from fastapi import FastAPI, Request
 
 from .api_key_context import clear_api_key, set_api_key
-from .serialization import (
-    deserialize_args,
-    deserialize_kwargs,
-    serialize_arg,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +85,7 @@ def create_lb_handler(
 
     # Register /execute endpoint for @remote stub execution (if enabled)
     if include_execute:
+        from .serialization import deserialize_args, deserialize_kwargs, serialize_arg
 
         @app.post("/execute")
         async def execute_remote_function(request: Request) -> Dict[str, Any]:

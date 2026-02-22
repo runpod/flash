@@ -23,6 +23,7 @@ except ImportError:
 from runpod_flash.core.resources.constants import MAX_TARBALL_SIZE_MB
 
 from ..utils.ignore import get_file_tree, load_ignore_patterns
+from .build_utils.handler_generator import HandlerGenerator
 from .build_utils.lb_handler_generator import LBHandlerGenerator
 from .build_utils.manifest import ManifestBuilder
 from .build_utils.scanner import RemoteDecoratorScanner
@@ -243,6 +244,9 @@ def run_build(
 
             lb_generator = LBHandlerGenerator(manifest, build_dir)
             lb_generator.generate_handlers()
+
+            qb_generator = HandlerGenerator(manifest, build_dir)
+            qb_generator.generate_handlers()
 
             flash_dir = project_dir / ".flash"
             deployment_manifest_path = flash_dir / "flash_manifest.json"

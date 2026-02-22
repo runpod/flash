@@ -72,8 +72,8 @@ class TestCrossEndpointRoutingIntegration:
             },
         ):
             endpoint_registry = {
-                "gpu_config": "https://gpu.example.com",
-                "cpu_config": "https://cpu.example.com",
+                "gpu_config": "https://api.runpod.ai/v2/gpu-ep-123",
+                "cpu_config": "https://api.runpod.ai/v2/cpu-ep-456",
             }
 
             with tempfile.NamedTemporaryFile(
@@ -127,8 +127,8 @@ class TestCrossEndpointRoutingIntegration:
             },
         ):
             endpoint_registry = {
-                "gpu_config": "https://gpu.example.com",
-                "cpu_config": "https://cpu.example.com",
+                "gpu_config": "https://api.runpod.ai/v2/gpu-ep-123",
+                "cpu_config": "https://api.runpod.ai/v2/cpu-ep-456",
             }
 
             with tempfile.NamedTemporaryFile(
@@ -156,16 +156,15 @@ class TestCrossEndpointRoutingIntegration:
 
                 wrapper = ProductionWrapper(registry)
 
-                # Mock get_resource_for_function to return our mock resource
-                with patch.object(
-                    registry, "get_resource_for_function", return_value=mock_resource
+                async def cpu_task(x):
+                    return x * 3
+
+                original_stub = AsyncMock()
+
+                with patch(
+                    "runpod_flash.runtime.production_wrapper.ServerlessResource",
+                    return_value=mock_resource,
                 ):
-
-                    async def cpu_task(x):
-                        return x * 3
-
-                    original_stub = AsyncMock()
-
                     result = await wrapper.wrap_function_execution(
                         original_stub,
                         cpu_task,
@@ -193,8 +192,8 @@ class TestCrossEndpointRoutingIntegration:
             },
         ):
             endpoint_registry = {
-                "gpu_config": "https://gpu.example.com",
-                "cpu_config": "https://cpu.example.com",
+                "gpu_config": "https://api.runpod.ai/v2/gpu-ep-123",
+                "cpu_config": "https://api.runpod.ai/v2/cpu-ep-456",
             }
 
             with tempfile.NamedTemporaryFile(
@@ -220,13 +219,13 @@ class TestCrossEndpointRoutingIntegration:
 
                 original_stub = AsyncMock()
 
-                # Mock get_resource_for_function to return a mock resource
                 mock_resource = AsyncMock()
                 mock_resource.runsync = AsyncMock()
                 mock_resource.runsync.return_value = MagicMock(error="", output=None)
 
-                with patch.object(
-                    registry, "get_resource_for_function", return_value=mock_resource
+                with patch(
+                    "runpod_flash.runtime.production_wrapper.ServerlessResource",
+                    return_value=mock_resource,
                 ):
                     await wrapper.wrap_function_execution(
                         original_stub, cpu_task, None, None, True
@@ -235,7 +234,7 @@ class TestCrossEndpointRoutingIntegration:
                 assert len(registry._endpoint_registry) > 0
                 assert (
                     registry._endpoint_registry["gpu_config"]
-                    == "https://gpu.example.com"
+                    == "https://api.runpod.ai/v2/gpu-ep-123"
                 )
 
             finally:
@@ -251,8 +250,8 @@ class TestCrossEndpointRoutingIntegration:
             },
         ):
             endpoint_registry = {
-                "gpu_config": "https://gpu.example.com",
-                "cpu_config": "https://cpu.example.com",
+                "gpu_config": "https://api.runpod.ai/v2/gpu-ep-123",
+                "cpu_config": "https://api.runpod.ai/v2/cpu-ep-456",
             }
 
             with tempfile.NamedTemporaryFile(
@@ -280,8 +279,9 @@ class TestCrossEndpointRoutingIntegration:
 
                 wrapper = ProductionWrapper(registry)
 
-                with patch.object(
-                    registry, "get_resource_for_function", return_value=mock_resource
+                with patch(
+                    "runpod_flash.runtime.production_wrapper.ServerlessResource",
+                    return_value=mock_resource,
                 ):
 
                     async def cpu_task():
@@ -289,7 +289,7 @@ class TestCrossEndpointRoutingIntegration:
 
                     original_stub = AsyncMock()
 
-                    with pytest.raises(Exception, match="Remote execution.*failed"):
+                    with pytest.raises(Exception, match="failed"):
                         await wrapper.wrap_function_execution(
                             original_stub, cpu_task, None, None, True
                         )

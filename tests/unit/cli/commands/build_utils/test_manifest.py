@@ -213,6 +213,92 @@ def test_manifest_generated_at_timestamp():
     assert manifest["generated_at"].endswith("Z")
 
 
+def test_manifest_includes_handler_file_for_qb_resources():
+    """Test that QB (non-LB) resources include handler_file in manifest."""
+    functions = [
+        RemoteFunctionMetadata(
+            function_name="gpu_inference",
+            module_path="workers.gpu",
+            resource_config_name="gpu_config",
+            resource_type="LiveServerless",
+            is_async=True,
+            is_class=False,
+            file_path=Path("workers/gpu.py"),
+            is_load_balanced=False,
+        )
+    ]
+
+    builder = ManifestBuilder("test_app", functions)
+    manifest = builder.build()
+
+    resource = manifest["resources"]["gpu_config"]
+    assert resource["handler_file"] == "handler_gpu_config.py"
+
+
+def test_manifest_excludes_handler_file_for_lb_resources():
+    """Test that LB resources do not include handler_file in manifest."""
+    functions = [
+        RemoteFunctionMetadata(
+            function_name="health",
+            module_path="endpoint",
+            resource_config_name="lb-endpoint",
+            resource_type="LiveLoadBalancer",
+            is_async=True,
+            is_class=False,
+            file_path=Path("endpoint.py"),
+            http_method="GET",
+            http_path="/health",
+            is_load_balanced=True,
+            is_live_resource=True,
+            config_variable="gpu_config",
+        )
+    ]
+
+    builder = ManifestBuilder("test_app", functions)
+    manifest = builder.build()
+
+    resource = manifest["resources"]["lb-endpoint"]
+    assert "handler_file" not in resource
+
+
+def test_manifest_handler_file_mixed_resources():
+    """Test handler_file present for QB but not LB in mixed manifest."""
+    functions = [
+        RemoteFunctionMetadata(
+            function_name="gpu_task",
+            module_path="workers.gpu",
+            resource_config_name="gpu_config",
+            resource_type="LiveServerless",
+            is_async=True,
+            is_class=False,
+            file_path=Path("workers/gpu.py"),
+            is_load_balanced=False,
+        ),
+        RemoteFunctionMetadata(
+            function_name="health",
+            module_path="endpoint",
+            resource_config_name="lb-endpoint",
+            resource_type="LiveLoadBalancer",
+            is_async=True,
+            is_class=False,
+            file_path=Path("endpoint.py"),
+            http_method="GET",
+            http_path="/health",
+            is_load_balanced=True,
+            is_live_resource=True,
+            config_variable="lb_config",
+        ),
+    ]
+
+    builder = ManifestBuilder("test_app", functions)
+    manifest = builder.build()
+
+    assert (
+        manifest["resources"]["gpu_config"]["handler_file"] == "handler_gpu_config.py"
+    )
+    assert "handler_file" not in manifest["resources"]["lb-endpoint"]
+
+
 def test_manifest_includes_config_variable():
     """Test that manifest includes config_variable field."""
     functions = [

@@ -315,6 +315,75 @@ class ServiceRegistry:
 
         return resource
 
+    async def get_routing_info(self, function_name: str) -> Optional[dict]:
+        """Get complete routing metadata for a remote function.
+
+        Combines endpoint URL lookup with resource type and per-function route
+        metadata from the manifest. Used by ProductionWrapper to determine
+        QB vs LB dispatch strategy.
+
+        Args:
+            function_name: Name of the function to route.
+
+        Returns:
+            None if function is local. For remote functions returns:
+            {
+                "resource_name": str,
+                "endpoint_url": str,
+                "is_load_balanced": bool,
+                "http_method": Optional[str],  # LB only
+                "http_path": Optional[str],     # LB only
+            }
+
+        Raises:
+            ValueError: If function not in manifest.
+        """
+        await self._ensure_manifest_loaded()
+
+        function_registry = self._manifest.function_registry
+
+        if function_name not in function_registry:
+            raise ValueError(
+                f"Function '{function_name}' not found in manifest. "
+                f"Available functions: {list(function_registry.keys())}"
+            )
+
+        resource_config_name = function_registry[function_name]
+
+        # Local function
+        if resource_config_name == self._current_endpoint:
+            return None
+
+        endpoint_url = self._endpoint_registry.get(resource_config_name)
+        if not endpoint_url:
+            logger.debug(
+                f"Endpoint URL for '{resource_config_name}' not in registry. "
+                f"Manifest has: {list(self._endpoint_registry.keys())}"
+            )
+
+        resource_config = self._manifest.resources.get(resource_config_name)
+        is_load_balanced = (
+            resource_config.is_load_balanced if resource_config else False
+        )
+
+        # Find per-function route metadata (http_method, http_path) for LB targets
+        http_method = None
+        http_path = None
+        if resource_config and is_load_balanced:
+            for func_meta in resource_config.functions:
+                if func_meta.name == function_name:
+                    http_method = func_meta.http_method
+                    http_path = func_meta.http_path
+                    break
+
+        return {
+            "resource_name": resource_config_name,
+            "endpoint_url": endpoint_url,
+            "is_load_balanced": is_load_balanced,
+            "http_method": http_method,
+            "http_path": http_path,
+        }
+
     async def is_local_function(self, function_name: str) -> bool:
         """Check if function executes on current endpoint.
 

@@ -23,6 +23,10 @@ class ResourceConfig:
     resource_type: str
     functions: List[FunctionMetadata] = field(default_factory=list)
     makes_remote_calls: bool = True  # Default true for safety
+    is_load_balanced: bool = (
+        False  # LB endpoint (LoadBalancerSlsResource or LiveLoadBalancer)
+    )
+    is_live_resource: bool = False  # LiveLoadBalancer/LiveServerless (local dev only)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "ResourceConfig":
@@ -34,6 +38,8 @@ class ResourceConfig:
             resource_type=data["resource_type"],
             functions=functions,
             makes_remote_calls=data.get("makes_remote_calls", True),
+            is_load_balanced=data.get("is_load_balanced", False),
+            is_live_resource=data.get("is_live_resource", False),
         )
 
 

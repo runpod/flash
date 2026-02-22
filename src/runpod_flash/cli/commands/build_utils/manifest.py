@@ -313,6 +313,11 @@ class ManifestBuilder:
                 **deployment_config,  # Include imageName, templateId, gpuIds, workers config
             }
 
+            if not is_load_balanced:
+                resources_dict[resource_name]["handler_file"] = (
+                    f"handler_{resource_name}.py"
+                )
+
             # Store routes for LB endpoints
             if resource_routes:
                 routes_dict[resource_name] = resource_routes

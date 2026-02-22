@@ -19,6 +19,7 @@ def test_generate_handlers_creates_files():
             "resources": {
                 "gpu_config": {
                     "resource_type": "LiveServerless",
+                    "is_live_resource": True,
                     "handler_file": "handler_gpu_config.py",
                     "functions": [
                         {
@@ -52,6 +53,7 @@ def test_handler_file_contains_imports():
             "resources": {
                 "gpu_config": {
                     "resource_type": "LiveServerless",
+                    "is_live_resource": True,
                     "handler_file": "handler_gpu_config.py",
                     "functions": [
                         {
@@ -97,6 +99,7 @@ def test_handler_file_contains_registry():
             "resources": {
                 "gpu_config": {
                     "resource_type": "LiveServerless",
+                    "is_live_resource": True,
                     "handler_file": "handler_gpu_config.py",
                     "functions": [
                         {
@@ -130,6 +133,7 @@ def test_handler_file_contains_runpod_start():
             "resources": {
                 "test_config": {
                     "resource_type": "LiveServerless",
+                    "is_live_resource": True,
                     "handler_file": "handler_test_config.py",
                     "functions": [],
                 }
@@ -155,6 +159,7 @@ def test_multiple_handlers_created():
             "resources": {
                 "gpu_config": {
                     "resource_type": "LiveServerless",
+                    "is_live_resource": True,
                     "handler_file": "handler_gpu_config.py",
                     "functions": [
                         {
@@ -167,6 +172,7 @@ def test_multiple_handlers_created():
                 },
                 "cpu_config": {
                     "resource_type": "CpuLiveServerless",
+                    "is_live_resource": True,
                     "handler_file": "handler_cpu_config.py",
                     "functions": [
                         {
@@ -200,6 +206,7 @@ def test_handler_includes_create_handler_import():
             "resources": {
                 "test_config": {
                     "resource_type": "LiveServerless",
+                    "is_live_resource": True,
                     "handler_file": "handler_test_config.py",
                     "functions": [
                         {
@@ -236,6 +243,7 @@ def test_handler_does_not_contain_serialization_logic():
             "resources": {
                 "test_config": {
                     "resource_type": "LiveServerless",
+                    "is_live_resource": True,
                     "handler_file": "handler_test_config.py",
                     "functions": [
                         {
@@ -259,3 +267,191 @@ def test_handler_does_not_contain_serialization_logic():
         assert "def handler(" not in handler_content
         assert "import base64" not in handler_content
         assert "import json" not in handler_content
+
+
+# --- Tests for deployed handler template (is_live_resource=False) ---
+
+
+def test_deployed_handler_uses_create_deployed_handler():
+    """Deployed resource generates handler using create_deployed_handler."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        build_dir = Path(tmpdir)
+
+        manifest = {
+            "version": "1.0",
+            "generated_at": "2026-01-02T10:00:00Z",
+            "project_name": "test_app",
+            "resources": {
+                "gpu_config": {
+                    "resource_type": "Serverless",
+                    "is_live_resource": False,
+                    "functions": [
+                        {
+                            "name": "gpu_task",
+                            "module": "workers.gpu",
+                            "is_async": True,
+                            "is_class": False,
+                        }
+                    ],
+                }
+            },
+        }
+
+        generator = HandlerGenerator(manifest, build_dir)
+        handler_paths = generator.generate_handlers()
+        handler_content = handler_paths[0].read_text()
+
+        assert "create_deployed_handler" in handler_content
+        assert (
+            "create_handler" not in handler_content
+            or "create_deployed_handler" in handler_content
+        )
+        assert "handler = create_deployed_handler(gpu_task)" in handler_content
+        assert "FUNCTION_REGISTRY" not in handler_content
+
+
+def test_deployed_handler_single_function_import():
+    """Deployed handler imports only the first function (one per endpoint)."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        build_dir = Path(tmpdir)
+
+        manifest = {
+            "version": "1.0",
+            "generated_at": "2026-01-02T10:00:00Z",
+            "project_name": "test_app",
+            "resources": {
+                "gpu_config": {
+                    "resource_type": "Serverless",
+                    "is_live_resource": False,
+                    "functions": [
+                        {
+                            "name": "gpu_task",
+                            "module": "workers.gpu",
+                            "is_async": True,
+                            "is_class": False,
+                        },
+                        {
+                            "name": "other_func",
+                            "module": "workers.other",
+                            "is_async": False,
+                            "is_class": False,
+                        },
+                    ],
+                }
+            },
+        }
+
+        generator = HandlerGenerator(manifest, build_dir)
+        handler_paths = generator.generate_handlers()
+        handler_content = handler_paths[0].read_text()
+
+        # Only first function imported
+        assert (
+            "gpu_task = importlib.import_module('workers.gpu').gpu_task"
+            in handler_content
+        )
+        assert "other_func" not in handler_content
+
+
+def test_deployed_handler_no_cloudpickle_imports():
+    """Deployed handler has no cloudpickle or serialization imports."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        build_dir = Path(tmpdir)
+
+        manifest = {
+            "version": "1.0",
+            "generated_at": "2026-01-02T10:00:00Z",
+            "project_name": "test_app",
+            "resources": {
+                "gpu_config": {
+                    "resource_type": "Serverless",
+                    "is_live_resource": False,
+                    "functions": [
+                        {
+                            "name": "gpu_task",
+                            "module": "workers.gpu",
+                            "is_async": True,
+                            "is_class": False,
+                        }
+                    ],
+                }
+            },
+        }
+
+        generator = HandlerGenerator(manifest, build_dir)
+        handler_paths = generator.generate_handlers()
+        handler_content = handler_paths[0].read_text()
+
+        assert "import cloudpickle" not in handler_content
+        assert "import base64" not in handler_content
+        assert "from .serialization" not in handler_content
+
+
+def test_deployed_handler_has_runpod_start():
+    """Deployed handler includes runpod.serverless.start."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        build_dir = Path(tmpdir)
+
+        manifest = {
+            "version": "1.0",
+            "generated_at": "2026-01-02T10:00:00Z",
+            "project_name": "test_app",
+            "resources": {
+                "test_config": {
+                    "resource_type": "Serverless",
+                    "is_live_resource": False,
+                    "functions": [
+                        {
+                            "name": "my_func",
+                            "module": "workers.test",
+                            "is_async": False,
+                            "is_class": False,
+                        }
+                    ],
+                }
+            },
+        }
+
+        generator = HandlerGenerator(manifest, build_dir)
+        handler_paths = generator.generate_handlers()
+        handler_content = handler_paths[0].read_text()
+
+        assert 'runpod.serverless.start({"handler": handler})' in handler_content
+
+
+def test_live_resource_uses_old_template():
+    """Live resource (is_live_resource=True) uses HANDLER_TEMPLATE with create_handler."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        build_dir = Path(tmpdir)
+
+        manifest = {
+            "version": "1.0",
+            "generated_at": "2026-01-02T10:00:00Z",
+            "project_name": "test_app",
+            "resources": {
+                "gpu_config": {
+                    "resource_type": "LiveServerless",
+                    "is_live_resource": True,
+                    "functions": [
+                        {
+                            "name": "gpu_task",
+                            "module": "workers.gpu",
+                            "is_async": True,
+                            "is_class": False,
+                        }
+                    ],
+                }
+            },
+        }
+
+        generator = HandlerGenerator(manifest, build_dir)
+        handler_paths = generator.generate_handlers()
+        handler_content = handler_paths[0].read_text()
+
+        assert (
+            "from runpod_flash.runtime.generic_handler import create_handler"
+            in handler_content
+        )
+        assert "FUNCTION_REGISTRY" in handler_content
+        assert "handler = create_handler(FUNCTION_REGISTRY)" in handler_content
+        assert "create_deployed_handler" not in handler_content

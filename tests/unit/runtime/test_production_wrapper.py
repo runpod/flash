@@ -46,7 +46,7 @@ class TestProductionWrapper:
         self, wrapper, mock_registry, original_stub, sample_function
     ):
         """Test routing local function to original stub."""
-        mock_registry.get_resource_for_function = AsyncMock(return_value=None)
+        mock_registry.get_routing_info = AsyncMock(return_value=None)
 
         await wrapper.wrap_function_execution(
             original_stub,
@@ -66,38 +66,99 @@ class TestProductionWrapper:
         assert call_args[0][4] == 1  # First arg
 
     @pytest.mark.asyncio
-    async def test_wrap_function_remote_execution(
+    async def test_wrap_function_remote_qb_execution(
         self, wrapper, mock_registry, original_stub, sample_function
     ):
-        """Test routing remote function via ServerlessResource."""
+        """Test routing remote QB function sends plain JSON kwargs via runsync."""
+        mock_registry.get_routing_info = AsyncMock(
+            return_value={
+                "resource_name": "gpu_config",
+                "endpoint_url": "https://api.runpod.ai/v2/abc123",
+                "is_load_balanced": False,
+                "http_method": None,
+                "http_path": None,
+            }
+        )
+
         mock_resource = AsyncMock()
         mock_resource.runsync = AsyncMock()
         mock_resource.runsync.return_value = MagicMock(error="", output=42)
 
-        mock_registry.get_resource_for_function = AsyncMock(return_value=mock_resource)
-
-        result = await wrapper.wrap_function_execution(
-            original_stub,
-            sample_function,
-            None,  # dependencies
-            None,  # system_dependencies
-            True,  # accelerate_downloads
-            1,
-            2,
-        )
+        with patch(
+            "runpod_flash.runtime.production_wrapper.ServerlessResource",
+            return_value=mock_resource,
+        ):
+            result = await wrapper.wrap_function_execution(
+                original_stub,
+                sample_function,
+                None,
+                None,
+                True,
+                1,
+                2,
+            )
 
         assert result == 42
-        # Should NOT call original stub
         original_stub.assert_not_called()
-        # Should call ServerlessResource.run_sync()
         mock_resource.runsync.assert_called_once()
+
+        # Verify payload is plain JSON kwargs mapped from positional args
+        payload = mock_resource.runsync.call_args[0][0]
+        assert payload == {"input": {"x": 1, "y": 2}}
+
+    @pytest.mark.asyncio
+    async def test_wrap_function_remote_lb_execution(
+        self, wrapper, mock_registry, original_stub, sample_function
+    ):
+        """Test routing remote LB function sends HTTP request to endpoint URL."""
+        mock_registry.get_routing_info = AsyncMock(
+            return_value={
+                "resource_name": "lb_config",
+                "endpoint_url": "https://lb.example.com",
+                "is_load_balanced": True,
+                "http_method": "POST",
+                "http_path": "/api/process",
+            }
+        )
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"result": "processed"}
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.request = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+
+        with patch(
+            "runpod_flash.runtime.production_wrapper.get_authenticated_httpx_client",
+            return_value=mock_client,
+        ):
+            result = await wrapper.wrap_function_execution(
+                original_stub,
+                sample_function,
+                None,
+                None,
+                True,
+                1,
+                2,
+            )
+
+        assert result == {"result": "processed"}
+        original_stub.assert_not_called()
+
+        # Verify HTTP call to correct method/path/URL
+        mock_client.request.assert_called_once()
+        call_args = mock_client.request.call_args
+        assert call_args[0][0] == "POST"
+        assert call_args[0][1] == "https://lb.example.com/api/process"
 
     @pytest.mark.asyncio
     async def test_wrap_function_not_in_manifest(
         self, wrapper, mock_registry, original_stub, sample_function
     ):
         """Test function not found in manifest executes locally."""
-        mock_registry.get_resource_for_function = AsyncMock(
+        mock_registry.get_routing_info = AsyncMock(
             side_effect=ValueError("Function not found")
         )
 
@@ -115,29 +176,41 @@ class TestProductionWrapper:
         original_stub.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_wrap_function_remote_error(
+    async def test_wrap_function_remote_qb_error(
         self, wrapper, mock_registry, original_stub, sample_function
     ):
-        """Test error handling for failed remote execution."""
+        """Test error handling for failed remote QB execution."""
+        mock_registry.get_routing_info = AsyncMock(
+            return_value={
+                "resource_name": "gpu_config",
+                "endpoint_url": "https://api.runpod.ai/v2/abc123",
+                "is_load_balanced": False,
+                "http_method": None,
+                "http_path": None,
+            }
+        )
+
         mock_resource = AsyncMock()
         mock_resource.runsync = AsyncMock()
         mock_resource.runsync.return_value = MagicMock(error="Remote execution failed")
 
-        mock_registry.get_resource_for_function = AsyncMock(return_value=mock_resource)
-
-        with pytest.raises(Exception, match="Remote execution failed"):
-            await wrapper.wrap_function_execution(
-                original_stub,
-                sample_function,
-                dependencies=None,
-                system_dependencies=None,
-                accelerate_downloads=True,
-            )
+        with patch(
+            "runpod_flash.runtime.production_wrapper.ServerlessResource",
+            return_value=mock_resource,
+        ):
+            with pytest.raises(Exception, match="Remote execution failed"):
+                await wrapper.wrap_function_execution(
+                    original_stub,
+                    sample_function,
+                    dependencies=None,
+                    system_dependencies=None,
+                    accelerate_downloads=True,
+                )
 
     @pytest.mark.asyncio
-    async def test_wrap_function_loads_manifest(self, wrapper, mock_registry):
-        """Test that manifest is loaded before routing decision."""
-        mock_registry.get_resource_for_function = AsyncMock(return_value=None)
+    async def test_wrap_function_calls_get_routing_info(self, wrapper, mock_registry):
+        """Test that get_routing_info is called for routing decision."""
+        mock_registry.get_routing_info = AsyncMock(return_value=None)
 
         async def sample_func():
             pass
@@ -147,8 +220,7 @@ class TestProductionWrapper:
             original_stub, sample_func, None, None, True
         )
 
-        # Should ensure manifest is loaded
-        mock_registry._ensure_manifest_loaded.assert_called_once()
+        mock_registry.get_routing_info.assert_called_once_with("sample_func")
 
     @pytest.mark.asyncio
     async def test_wrap_class_method_local(self, wrapper, mock_registry, original_stub):
@@ -156,7 +228,7 @@ class TestProductionWrapper:
         request = MagicMock()
         request.class_name = "MyClass"
 
-        mock_registry.get_resource_for_function = AsyncMock(return_value=None)
+        mock_registry.get_routing_info = AsyncMock(return_value=None)
 
         await wrapper.wrap_class_method_execution(original_stub, request)
 
@@ -167,7 +239,7 @@ class TestProductionWrapper:
     async def test_wrap_class_method_remote(
         self, wrapper, mock_registry, original_stub
     ):
-        """Test routing remote class method."""
+        """Test routing remote class method via QB dispatch."""
         request = MagicMock()
         request.class_name = "MyClass"
         request.method_name = "process"
@@ -180,13 +252,25 @@ class TestProductionWrapper:
             }
         )
 
+        mock_registry.get_routing_info = AsyncMock(
+            return_value={
+                "resource_name": "gpu_config",
+                "endpoint_url": "https://api.runpod.ai/v2/abc123",
+                "is_load_balanced": False,
+                "http_method": None,
+                "http_path": None,
+            }
+        )
+
         mock_resource = AsyncMock()
         mock_resource.runsync = AsyncMock()
         mock_resource.runsync.return_value = MagicMock(error="", output="done")
 
-        mock_registry.get_resource_for_function = AsyncMock(return_value=mock_resource)
-
-        result = await wrapper.wrap_class_method_execution(original_stub, request)
+        with patch(
+            "runpod_flash.runtime.production_wrapper.ServerlessResource",
+            return_value=mock_resource,
+        ):
+            result = await wrapper.wrap_class_method_execution(original_stub, request)
 
         assert result == "done"
         original_stub.assert_not_called()
@@ -203,90 +287,66 @@ class TestProductionWrapper:
         original_stub.assert_called_once_with(request)
 
     @pytest.mark.asyncio
-    async def test_execute_remote_payload_format(self, wrapper, sample_function):
-        """Test that remote payload matches RunPod format with JSON serialization."""
-        mock_resource = AsyncMock()
-        mock_resource.runsync = AsyncMock()
-        mock_resource.runsync.return_value = MagicMock(error="", output=None)
-
-        await wrapper._execute_remote(
-            mock_resource,
-            "gpu_task",
-            (1, 2),
-            {"key": "value"},
-            execution_type="function",
-        )
-
-        call_args = mock_resource.runsync.call_args
-        payload = call_args[0][0]
-
-        assert payload["input"]["function_name"] == "gpu_task"
-        assert payload["input"]["execution_type"] == "function"
-        assert payload["input"]["serialization_format"] == "json"
-        assert payload["input"]["args"] == [1, 2]
-        assert payload["input"]["kwargs"] == {"key": "value"}
-
-    @pytest.mark.asyncio
-    async def test_execute_remote_uses_json_serialization(self, wrapper):
-        """Verify payload contains serialization_format: json and raw args."""
-        mock_resource = AsyncMock()
-        mock_resource.runsync = AsyncMock()
-        mock_resource.runsync.return_value = MagicMock(error="", output="result")
-
-        await wrapper._execute_remote(
-            mock_resource,
-            "my_func",
-            ("hello", 42),
-            {"flag": True},
-        )
-
-        payload = mock_resource.runsync.call_args[0][0]
-
-        # Must include serialization_format
-        assert payload["input"]["serialization_format"] == "json"
-        # Args should be a plain list, not base64-encoded cloudpickle strings
-        assert payload["input"]["args"] == ["hello", 42]
-        assert isinstance(payload["input"]["args"], list)
-        # Kwargs should be the raw dict
-        assert payload["input"]["kwargs"] == {"flag": True}
-        assert isinstance(payload["input"]["kwargs"], dict)
-
-    @pytest.mark.asyncio
-    async def test_execute_remote_args_are_plain_json(self, wrapper):
-        """Verify dict/int/string args pass through without cloudpickle encoding."""
-        mock_resource = AsyncMock()
-        mock_resource.runsync = AsyncMock()
-        mock_resource.runsync.return_value = MagicMock(error="", output=None)
-
-        complex_args = (
-            {"nested": {"data": [1, 2, 3]}},
-            42,
-            "plain_string",
-            [10, 20],
-        )
-        complex_kwargs = {
-            "config": {"batch_size": 8, "model": "gpt"},
-            "count": 100,
+    async def test_execute_remote_qb_maps_args_to_kwargs(
+        self, wrapper, sample_function
+    ):
+        """Test that QB dispatch maps positional args to named kwargs."""
+        routing_info = {
+            "resource_name": "gpu_config",
+            "endpoint_url": "https://api.runpod.ai/v2/abc123",
+            "is_load_balanced": False,
         }
 
-        await wrapper._execute_remote(
-            mock_resource,
-            "process",
-            complex_args,
-            complex_kwargs,
-        )
+        mock_resource = AsyncMock()
+        mock_resource.runsync = AsyncMock()
+        mock_resource.runsync.return_value = MagicMock(error="", output=None)
+
+        with patch(
+            "runpod_flash.runtime.production_wrapper.ServerlessResource",
+            return_value=mock_resource,
+        ):
+            await wrapper._execute_remote_qb(
+                routing_info=routing_info,
+                func=sample_function,
+                args=(1, 2),
+                kwargs={"extra": "val"},
+            )
 
         payload = mock_resource.runsync.call_args[0][0]
-        args = payload["input"]["args"]
-        kwargs = payload["input"]["kwargs"]
+        # Positional args mapped to parameter names (x, y) via inspect.signature
+        assert payload["input"]["x"] == 1
+        assert payload["input"]["y"] == 2
+        assert payload["input"]["extra"] == "val"
 
-        # Each arg should be the original value, not a base64 string
-        assert args[0] == {"nested": {"data": [1, 2, 3]}}
-        assert args[1] == 42
-        assert args[2] == "plain_string"
-        assert args[3] == [10, 20]
-        # Kwargs should be the raw dict
-        assert kwargs == complex_kwargs
+    @pytest.mark.asyncio
+    async def test_execute_remote_qb_no_endpoint_url(self, wrapper, sample_function):
+        """Test QB dispatch raises when no endpoint URL."""
+        routing_info = {
+            "resource_name": "gpu_config",
+            "endpoint_url": None,
+            "is_load_balanced": False,
+        }
+
+        with pytest.raises(Exception, match="No endpoint URL"):
+            await wrapper._execute_remote_qb(
+                routing_info=routing_info,
+                func=sample_function,
+                args=(),
+                kwargs={},
+            )
+
+    @pytest.mark.asyncio
+    async def test_execute_remote_lb_no_endpoint_url(self, wrapper):
+        """Test LB dispatch raises when no endpoint URL."""
+        with pytest.raises(Exception, match="No endpoint URL"):
+            await wrapper._execute_remote_lb(
+                endpoint_url="",
+                http_method="POST",
+                http_path="/api/test",
+                args=(),
+                kwargs={},
+                function_name="test_func",
+            )
 
     @pytest.mark.asyncio
     async def test_build_class_payload_dict_request(self, wrapper):
