@@ -272,8 +272,8 @@ def test_handler_does_not_contain_serialization_logic():
 # --- Tests for deployed handler template (is_live_resource=False) ---
 
 
-def test_deployed_handler_uses_create_deployed_handler():
-    """Deployed resource generates handler using create_deployed_handler."""
+def test_deployed_handler_inlines_handler_logic():
+    """Deployed resource generates handler with inlined logic (no runpod_flash import)."""
     with tempfile.TemporaryDirectory() as tmpdir:
         build_dir = Path(tmpdir)
 
@@ -301,12 +301,10 @@ def test_deployed_handler_uses_create_deployed_handler():
         handler_paths = generator.generate_handlers()
         handler_content = handler_paths[0].read_text()
 
-        assert "create_deployed_handler" in handler_content
-        assert (
-            "create_handler" not in handler_content
-            or "create_deployed_handler" in handler_content
-        )
-        assert "handler = create_deployed_handler(gpu_task)" in handler_content
+        # Handler logic is inlined, no runpod_flash import
+        assert "from runpod_flash" not in handler_content
+        assert "def handler(job):" in handler_content
+        assert "gpu_task(**job_input)" in handler_content
         assert "FUNCTION_REGISTRY" not in handler_content
 
 
@@ -385,6 +383,7 @@ def test_deployed_handler_no_cloudpickle_imports():
         assert "import cloudpickle" not in handler_content
         assert "import base64" not in handler_content
         assert "from .serialization" not in handler_content
+        assert "from runpod_flash" not in handler_content
 
 
 def test_deployed_handler_has_runpod_start():
@@ -454,4 +453,4 @@ def test_live_resource_uses_old_template():
         )
         assert "FUNCTION_REGISTRY" in handler_content
         assert "handler = create_handler(FUNCTION_REGISTRY)" in handler_content
-        assert "create_deployed_handler" not in handler_content
+        assert "def handler(job):" not in handler_content
