@@ -95,6 +95,19 @@ def deploy_command(
         raise typer.Exit(1)
 
 
+def _print_curl_example(url: str) -> None:
+    """Print a curl example for the given URL."""
+    indent = "      "
+    curl_cmd = (
+        f"{indent}curl -X POST {url} \\\n"
+        f'{indent}    -H "Content-Type: application/json" \\\n'
+        f'{indent}    -H "Authorization: Bearer $RUNPOD_API_KEY" \\\n'
+        f"{indent}    -d '{{\"input\": {{}}}}'"
+    )
+    console.print("\n    [bold]Try it:[/bold]")
+    console.print(curl_cmd)
+
+
 def _display_post_deployment_guidance(
     env_name: str,
     resources_endpoints: dict[str, str],
@@ -122,10 +135,32 @@ def _display_post_deployment_guidance(
                 method, path = route_key.split(" ", 1)
                 console.print(f"      {method:6s} {path}")
 
+        # One curl example using the first LB endpoint's first POST route
+        for _name, curl_url, lb_routes in lb_entries:
+            post_routes = [
+                k.split(" ", 1)[1]
+                for k in sorted(lb_routes.keys())
+                if k.startswith("POST ")
+            ]
+            if post_routes:
+                _print_curl_example(f"{curl_url}{post_routes[0]}")
+                break
+
     if qb_entries:
         console.print("\n  [bold]Queue-based endpoints:[/bold]")
         for name, url in qb_entries:
             console.print(f"    [bold]{url}[/bold]  [dim]({name})[/dim]")
+
+        # One curl example using the first QB endpoint
+        first_qb_url = qb_entries[0][1]
+        _print_curl_example(f"{first_qb_url}/runsync")
+
+    console.print("\n[bold]Useful commands:[/bold]")
+    console.print(
+        f"  [cyan]flash env get {env_name}[/cyan]       View environment status"
+    )
+    console.print(f"  [cyan]flash deploy --env {env_name}[/cyan]  Update deployment")
+    console.print(f"  [cyan]flash env delete {env_name}[/cyan]    Remove deployment")
 
     if lb_entries or qb_entries:
         console_url = "https://console.runpod.io/serverless"
@@ -134,37 +169,6 @@ def _display_post_deployment_guidance(
         console.print(f"\n  Console: [link={console_url}]{console_url}[/link]")
         console.print(f"  Docs:    [link={docs_requests}]{docs_requests}[/link]")
         console.print(f"           [link={docs_lb}]{docs_lb}[/link]")
-
-    # curl example using the first LB endpoint's first POST route
-    first_lb_url = None
-    first_post_path = None
-    for _name, url, lb_routes in lb_entries:
-        post_routes = [
-            k.split(" ", 1)[1]
-            for k in sorted(lb_routes.keys())
-            if k.startswith("POST ")
-        ]
-        if post_routes:
-            first_lb_url = url
-            first_post_path = post_routes[0]
-            break
-
-    if first_lb_url and first_post_path:
-        curl_cmd = (
-            f"curl -X POST {first_lb_url}{first_post_path} \\\n"
-            f'    -H "Content-Type: application/json" \\\n'
-            '    -H "Authorization: Bearer $RUNPOD_API_KEY" \\\n'
-            "    -d '{\"input\": {}}'"
-        )
-        console.print("\n[bold]Try it:[/bold]")
-        console.print(f"  {curl_cmd}")
-
-    console.print("\n[bold]Useful commands:[/bold]")
-    console.print(
-        f"  [cyan]flash env get {env_name}[/cyan]       View environment status"
-    )
-    console.print(f"  [cyan]flash deploy --env {env_name}[/cyan]  Update deployment")
-    console.print(f"  [cyan]flash env delete {env_name}[/cyan]    Remove deployment")
 
 
 def _launch_preview(project_dir):
