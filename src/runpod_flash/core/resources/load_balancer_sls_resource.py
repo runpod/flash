@@ -47,14 +47,14 @@ class LoadBalancerSlsResource(ServerlessResource):
     - Custom HTTP protocols
 
     Configuration example:
-        mothership = LoadBalancerSlsResource(
-            name="mothership",
-            imageName="my-mothership:latest",
+        lb = LoadBalancerSlsResource(
+            name="my_lb",
+            imageName="my-lb:latest",
             env={"FLASH_APP": "my_app"},
             workersMin=1,
             workersMax=3,
         )
-        await mothership.deploy()
+        await lb.deploy()
     """
 
     # Override default type to LB
@@ -253,10 +253,10 @@ class LoadBalancerSlsResource(ServerlessResource):
             return self
 
         try:
-            # Mark this endpoint as a mothership (triggers auto-provisioning on boot)
+            # Mark this endpoint as load-balanced (triggers auto-provisioning on boot)
             if self.env is None:
                 self.env = {}
-            self.env["FLASH_IS_MOTHERSHIP"] = "true"
+            self.env["FLASH_ENDPOINT_TYPE"] = "lb"
 
             # Call parent deploy (creates endpoint via RunPod API)
             log.info(f"Deploying LB endpoint: {self.name}")
@@ -312,15 +312,15 @@ class CpuLoadBalancerSlsResource(CpuEndpointMixin, LoadBalancerSlsResource):
     4. Test drift detection with new field changes
 
     Configuration example:
-        mothership = CpuLoadBalancerSlsResource(
-            name="mothership",
-            imageName="my-mothership:latest",
+        cpu_lb = CpuLoadBalancerSlsResource(
+            name="my_cpu_lb",
+            imageName="my-cpu-lb:latest",
             env={"FLASH_APP": "my_app"},
             instanceIds=[CpuInstanceType.CPU3G_1_4],
             workersMin=1,
             workersMax=3,
         )
-        await mothership.deploy()
+        await cpu_lb.deploy()
     """
 
     instanceIds: Optional[List[CpuInstanceType]] = [CpuInstanceType.CPU3G_2_8]

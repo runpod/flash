@@ -37,7 +37,7 @@ async def extract_api_key_middleware(request: Request, call_next):
 
     This middleware extracts the Bearer token from the Authorization header
     and makes it available to downstream code via context variables. This
-    enables mothership endpoints to propagate API keys to worker endpoints.
+    enables load-balanced endpoints to propagate API keys to worker endpoints.
 
     Args:
         request: Incoming FastAPI request

@@ -25,9 +25,9 @@ class ContainerInfo:
     """Information about a running preview container."""
 
     id: str  # Docker container ID
-    name: str  # Resource name (e.g., "mothership", "gpu_config")
+    name: str  # Resource name (e.g., "load_balancer", "gpu_config")
     port: int  # Local port
-    is_mothership: bool
+    is_load_balanced: bool
     url: str  # Connection URL
 
 
@@ -38,8 +38,8 @@ def launch_preview(
     """Launch full distributed system preview locally.
 
     Creates one Docker container per resource config:
-    - Mothership (orchestrator)
-    - All child endpoints (gpu, cpu, etc.)
+    - Load balancer (orchestrator)
+    - All worker endpoints (gpu, cpu, etc.)
 
     All containers connected via Docker network with inter-container
     communication via Docker DNS.
@@ -172,16 +172,16 @@ def _parse_resources_from_manifest(manifest: dict) -> dict:
     manifest_resources = manifest.get("resources", {})
     for resource_name, resource_data in manifest_resources.items():
         resources[resource_name] = {
-            "is_mothership": resource_data.get("is_mothership", False),
+            "is_load_balanced": resource_data.get("is_load_balanced", False),
             "imageName": resource_data.get("imageName", FLASH_CPU_LB_IMAGE),
             "functions": resource_data.get("functions", []),
         }
 
-    # Fallback: If no mothership found in manifest, create default
-    has_mothership = any(r.get("is_mothership") for r in resources.values())
-    if not has_mothership:
-        resources["mothership"] = {
-            "is_mothership": True,
+    # Fallback: If no load balancer found in manifest, create default
+    has_load_balancer = any(r.get("is_load_balanced") for r in resources.values())
+    if not has_load_balancer:
+        resources["load_balancer"] = {
+            "is_load_balanced": True,
             "imageName": FLASH_CPU_LB_IMAGE,
         }
 
@@ -235,10 +235,10 @@ def _start_resource_container(
     """
     # Determine Docker image
     image = resource_config.get("imageName", FLASH_CPU_LB_IMAGE)
-    is_mothership = resource_config.get("is_mothership", False)
+    is_load_balanced = resource_config.get("is_load_balanced", False)
 
     # Assign port
-    port = _assign_container_port(resource_name, is_mothership)
+    port = _assign_container_port(resource_name, is_load_balanced)
 
     # Container name for Docker network DNS
     container_name = f"flash-preview-{resource_name}"
@@ -271,8 +271,8 @@ def _start_resource_container(
         f"{port}:80",
     ]
 
-    if is_mothership:
-        docker_cmd.extend(["-e", "FLASH_IS_MOTHERSHIP=true"])
+    if is_load_balanced:
+        docker_cmd.extend(["-e", "FLASH_ENDPOINT_TYPE=lb"])
 
     # Use image's default CMD (uvicorn lb_handler:app)
     docker_cmd.append(image)
@@ -297,7 +297,7 @@ def _start_resource_container(
             id=container_id,
             name=resource_name,
             port=port,
-            is_mothership=is_mothership,
+            is_load_balanced=is_load_balanced,
             url=f"http://localhost:{port}",
         )
 
@@ -344,19 +344,19 @@ def _verify_container_health(container_id: str, resource_name: str) -> None:
         raise Exception(error_msg)
 
 
-def _assign_container_port(resource_name: str, is_mothership: bool) -> int:
+def _assign_container_port(resource_name: str, is_load_balanced: bool) -> int:
     """Assign a local port for the container.
 
-    Mothership uses 8000, workers use 8001+
+    Load balancer uses 8000, workers use 8001+
 
     Args:
         resource_name: Name of resource
-        is_mothership: Whether this is mothership
+        is_load_balanced: Whether this is the load balancer
 
     Returns:
         Port number to use
     """
-    if is_mothership:
+    if is_load_balanced:
         return 8000
 
     # For workers, assign incrementally: 8001, 8002, etc.
@@ -378,19 +378,21 @@ def _display_preview_info(containers: list[ContainerInfo]) -> None:
     Args:
         containers: List of ContainerInfo objects
     """
-    sorted_containers = sorted(containers, key=lambda c: (not c.is_mothership, c.name))
+    sorted_containers = sorted(
+        containers, key=lambda c: (not c.is_load_balanced, c.name)
+    )
 
     console.print(f"\n[bold]Preview[/bold]  ({len(containers)} containers)\n")
     for container in sorted_containers:
-        container_type = "mothership" if container.is_mothership else "worker"
+        container_type = "load-balancer" if container.is_load_balanced else "worker"
         console.print(
             f"  [bold]{container.name}[/bold]  {container.url}  {container_type}"
         )
 
-    mothership = next((c for c in containers if c.is_mothership), None)
-    if mothership:
+    lb_container = next((c for c in containers if c.is_load_balanced), None)
+    if lb_container:
         console.print("\n[bold]Try it:[/bold]")
-        console.print(f"  curl {mothership.url}/ping")
+        console.print(f"  curl {lb_container.url}/ping")
 
     console.print("\n[bold]Networking:[/bold]")
     console.print("  Containers communicate via Docker DNS on internal port 80")

@@ -95,11 +95,11 @@ def deploy_command(
 
 
 def _display_post_deployment_guidance(
-    env_name: str, mothership_url: str | None = None
+    env_name: str, lb_endpoint_url: str | None = None
 ) -> None:
     """Display helpful next steps after successful deployment."""
     manifest_path = Path.cwd() / ".flash" / "flash_manifest.json"
-    mothership_routes = {}
+    lb_routes = {}
 
     try:
         with open(manifest_path) as f:
@@ -109,29 +109,29 @@ def _display_post_deployment_guidance(
             routes = manifest.get("routes", {})
 
             for resource_name in resources_endpoints:
-                if resources.get(resource_name, {}).get("is_mothership", False):
-                    mothership_routes = routes.get(resource_name, {})
+                if resources.get(resource_name, {}).get("is_load_balanced", False):
+                    lb_routes = routes.get(resource_name, {})
                     break
     except (FileNotFoundError, json.JSONDecodeError) as e:
         logger.debug(f"Could not read manifest: {e}")
 
-    if mothership_routes:
+    if lb_routes:
         console.print("\n[bold]Routes:[/bold]")
-        for route_key in sorted(mothership_routes.keys()):
+        for route_key in sorted(lb_routes.keys()):
             method, path = route_key.split(" ", 1)
             console.print(f"  {method:6s} {path}")
 
     # curl example using the first POST route
-    if mothership_url and mothership_routes:
+    if lb_endpoint_url and lb_routes:
         post_routes = [
             k.split(" ", 1)[1]
-            for k in sorted(mothership_routes.keys())
+            for k in sorted(lb_routes.keys())
             if k.startswith("POST ")
         ]
         if post_routes:
             example_route = post_routes[0]
             curl_cmd = (
-                f"curl -X POST {mothership_url}{example_route} \\\n"
+                f"curl -X POST {lb_endpoint_url}{example_route} \\\n"
                 f'    -H "Content-Type: application/json" \\\n'
                 '    -H "Authorization: Bearer $RUNPOD_API_KEY" \\\n'
                 "    -d '{\"input\": {}}'"
@@ -185,21 +185,23 @@ async def _resolve_and_deploy(
     local_manifest = result.get("local_manifest", {})
     resources = local_manifest.get("resources", {})
 
-    # mothership first, then workers
-    mothership_url = None
+    # load balancer first, then workers
+    lb_endpoint_url = None
     if resources_endpoints:
         console.print()
         other_items = []
         for resource_name, url in resources_endpoints.items():
-            if resources.get(resource_name, {}).get("is_mothership", False):
-                mothership_url = url
+            if resources.get(resource_name, {}).get("is_load_balanced", False):
+                lb_endpoint_url = url
                 console.print(f"  [bold]{url}[/bold]  [dim]({resource_name})[/dim]")
             else:
                 other_items.append((resource_name, url))
         for resource_name, url in other_items:
             console.print(f"  [dim]{url}  ({resource_name})[/dim]")
 
-    _display_post_deployment_guidance(resolved_env_name, mothership_url=mothership_url)
+    _display_post_deployment_guidance(
+        resolved_env_name, lb_endpoint_url=lb_endpoint_url
+    )
 
 
 async def _resolve_environment(

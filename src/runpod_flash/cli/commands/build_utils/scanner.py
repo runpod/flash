@@ -217,7 +217,7 @@ class RemoteDecoratorScanner:
                             self.resource_configs[resource_name] = resource_name
                             self.resource_types[resource_name] = config_type
 
-                            # Store variable name for test-mothership config discovery
+                            # Store variable name for config discovery during provisioning
                             self.resource_variables[resource_name] = variable_name
 
                             # Also store variable name mapping for local lookups in same module
@@ -589,16 +589,16 @@ class RemoteDecoratorScanner:
 
 
 def detect_main_app(
-    project_root: Path, explicit_mothership_exists: bool = False
+    project_root: Path, explicit_lb_exists: bool = False
 ) -> Optional[dict]:
-    """Detect main.py FastAPI app and return mothership config.
+    """Detect main.py FastAPI app and return load balancer config.
 
     Searches for main.py/app.py/server.py and parses AST to find FastAPI app.
     Only returns config if app has custom routes (not just @remote calls).
 
     Args:
         project_root: Root directory of Flash project
-        explicit_mothership_exists: If True, skip auto-detection (explicit config takes precedence)
+        explicit_lb_exists: If True, skip auto-detection (explicit config takes precedence)
 
     Returns:
         Dict with app metadata: {
@@ -606,10 +606,10 @@ def detect_main_app(
             'app_variable': str,
             'has_routes': bool,
         }
-        Returns None if no FastAPI app found with custom routes or explicit_mothership_exists is True.
+        Returns None if no FastAPI app found with custom routes or explicit_lb_exists is True.
     """
-    if explicit_mothership_exists:
-        # Explicit mothership config exists, skip auto-detection
+    if explicit_lb_exists:
+        # Explicit load balancer config exists, skip auto-detection
         return None
     for filename in ["main.py", "app.py", "server.py"]:
         main_path = project_root / filename
@@ -928,7 +928,7 @@ def _extract_routes_from_decorator(
                 RemoteFunctionMetadata(
                     function_name=node.name,
                     module_path=module_path,
-                    resource_config_name="mothership",
+                    resource_config_name="load_balancer",
                     resource_type="CpuLiveLoadBalancer",
                     is_async=isinstance(node, ast.AsyncFunctionDef),
                     is_class=False,
@@ -987,99 +987,3 @@ def _extract_fastapi_routes(
     return _extract_routes_from_decorator(
         tree, app_variable, module_path, "", Path(module_path)
     )
-
-
-def detect_explicit_mothership(project_root: Path) -> Optional[Dict]:
-    """Detect explicitly configured mothership resource in mothership.py.
-
-    Parses mothership.py to extract resource configuration.
-
-    Args:
-        project_root: Root directory of Flash project
-
-    Returns:
-        Dict with mothership config if found:
-            {
-                'resource_type': str (e.g., 'CpuLiveLoadBalancer'),
-                'name': str,
-                'workersMin': int,
-                'workersMax': int,
-                'is_explicit': bool,
-            }
-        Returns None if mothership.py doesn't exist or can't be parsed.
-    """
-    mothership_file = project_root / "mothership.py"
-
-    if not mothership_file.exists():
-        return None
-
-    try:
-        content = mothership_file.read_text(encoding="utf-8")
-        tree = ast.parse(content)
-
-        # Look for variable assignment: mothership = SomeResource(...)
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Assign):
-                for target in node.targets:
-                    if isinstance(target, ast.Name) and target.id == "mothership":
-                        # Found mothership variable assignment
-                        if isinstance(node.value, ast.Call):
-                            resource_type = _extract_resource_type(node.value)
-                            kwargs = _extract_call_kwargs(node.value)
-
-                            return {
-                                "resource_type": resource_type,
-                                "name": kwargs.get("name", "mothership"),
-                                "workersMin": kwargs.get("workersMin", 1),
-                                "workersMax": kwargs.get("workersMax", 1),
-                                "is_explicit": True,
-                            }
-
-        return None
-
-    except UnicodeDecodeError:
-        logger.debug(f"Skipping non-UTF-8 file: {mothership_file}")
-        return None
-    except SyntaxError as e:
-        logger.debug(f"Syntax error in mothership.py: {e}")
-        return None
-    except Exception as e:
-        logger.debug(f"Failed to parse mothership.py: {e}")
-        return None
-
-
-def _extract_resource_type(call_node: ast.Call) -> str:
-    """Extract resource type from Call node.
-
-    Args:
-        call_node: AST Call node representing resource instantiation
-
-    Returns:
-        Resource type name (e.g., 'CpuLiveLoadBalancer'), or default if not found
-    """
-    if isinstance(call_node.func, ast.Name):
-        return call_node.func.id
-    elif isinstance(call_node.func, ast.Attribute):
-        return call_node.func.attr
-    return "CpuLiveLoadBalancer"  # Default
-
-
-def _extract_call_kwargs(call_node: ast.Call) -> Dict:
-    """Extract keyword arguments from Call node.
-
-    Args:
-        call_node: AST Call node
-
-    Returns:
-        Dict of keyword arguments with evaluated values (numbers, strings)
-    """
-    kwargs = {}
-    for keyword in call_node.keywords:
-        if keyword.arg:
-            try:
-                # Try to evaluate simple literal values
-                kwargs[keyword.arg] = ast.literal_eval(keyword.value)
-            except (ValueError, SyntaxError, TypeError):
-                # Skip non-literal arguments
-                pass
-    return kwargs

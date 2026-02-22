@@ -21,9 +21,8 @@ logger = logging.getLogger(__name__)
 class ServiceRegistry:
     """Service discovery and routing for cross-endpoint function calls.
 
-    Loads manifest to map functions to resource configs, queries mothership
-    manifest for endpoint URLs, and determines if function calls are local
-    or remote.
+    Loads manifest to map functions to resource configs, queries State Manager
+    for endpoint URLs, and determines if function calls are local or remote.
     """
 
     def __init__(
@@ -34,7 +33,7 @@ class ServiceRegistry:
         """Initialize service registry with peer-to-peer State Manager access.
 
         All endpoints query State Manager directly for manifest updates.
-        No Mothership dependency - all endpoints are equal peers.
+        No central dependency - all endpoints are equal peers.
 
         Args:
             manifest_path: Path to flash_manifest.json. Defaults to
@@ -164,8 +163,8 @@ class ServiceRegistry:
 
         Peer-to-Peer Architecture:
             Each endpoint queries State Manager independently using its own
-            RUNPOD_ENDPOINT_ID. No mothership dependency - all endpoints
-            are equal peers discovering each other through the manifest.
+            RUNPOD_ENDPOINT_ID. All endpoints are equal peers discovering
+            each other through the manifest.
 
         Query Flow:
             1. get_flash_environment(RUNPOD_ENDPOINT_ID) → activeBuildId
@@ -199,8 +198,8 @@ class ServiceRegistry:
                     return
 
                 try:
-                    mothership_id = os.getenv("RUNPOD_ENDPOINT_ID")
-                    if not mothership_id:
+                    endpoint_id = os.getenv("RUNPOD_ENDPOINT_ID")
+                    if not endpoint_id:
                         logger.warning(
                             "RUNPOD_ENDPOINT_ID not set, cannot query State Manager"
                         )
@@ -208,7 +207,7 @@ class ServiceRegistry:
 
                     # Query State Manager directly for full manifest
                     full_manifest = await self._manifest_client.get_persisted_manifest(
-                        mothership_id
+                        endpoint_id
                     )
 
                     # Extract resources_endpoints mapping
@@ -341,7 +340,7 @@ class ServiceRegistry:
         return self._current_endpoint
 
     def refresh_manifest(self) -> None:
-        """Force refresh manifest from mothership on next access."""
+        """Force refresh manifest from State Manager on next access."""
         self._endpoint_registry_loaded_at = 0
 
     def get_manifest(self) -> Manifest:

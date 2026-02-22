@@ -70,31 +70,29 @@ Deployed cross-endpoint calls use plain JSON. CloudPickle remains only for `flas
 
 ### Current State
 
-Flash-worker's `lb_handler.py` has two modes controlled by `FLASH_IS_MOTHERSHIP=true`:
+Flash-worker's `lb_handler.py` has two modes controlled by `FLASH_ENDPOINT_TYPE=lb`:
 
-- **Mothership mode**: Dynamically imports user's FastAPI app, serves all routes directly, adds `/ping` health check.
+- **LB endpoint mode**: Dynamically imports user's FastAPI app, serves all routes directly, adds `/ping` health check.
 - **Queue-based mode**: Creates a generic `/execute` endpoint for child endpoints using `RemoteExecutor` with cloudpickle.
-
-The mothership mode mechanism is correct for LB endpoints (imports user's FastAPI app and serves routes), but the naming contradicts the peer model.
 
 ### Target State
 
 Same two modes, reframed for the peer architecture:
 
-- **LB endpoint mode** (was mothership): Imports user's FastAPI app and serves routes. Triggered by manifest metadata (`is_load_balanced: true`), not a "mothership" flag.
+- **LB endpoint mode**: Imports user's FastAPI app and serves routes. Triggered by manifest metadata (`is_load_balanced: true`).
 - **QB endpoint mode**: Standard RunPod queue handler. Processes jobs from /run and /runsync. The `/execute` endpoint stays only for `flash run` local dev (LiveServerless).
 
 ### Changes
 
 **flash-worker:**
-- `lb_handler.py`: Rename `FLASH_IS_MOTHERSHIP` references to a peer-appropriate env var (e.g., `FLASH_ENDPOINT_TYPE=lb` or derive from manifest's `is_load_balanced`).
-- `constants.py`: Update mothership references.
-- `unpack_volume.py`: Update detection logic for the renamed env var.
-- Tests: Update all mothership references in test files.
+- `lb_handler.py`: Uses `FLASH_ENDPOINT_TYPE=lb` env var.
+- `constants.py`: LB endpoint references.
+- `unpack_volume.py`: Detection logic uses `FLASH_ENDPOINT_TYPE`.
+- Tests: Updated to use `FLASH_ENDPOINT_TYPE`.
 
 **flash (core library):**
-- `runtime/mothership_provisioner.py`: Rename or refactor. This file does reconciliation logic, not mothership-specific work. The env vars it sets during deployment need updating.
-- Deployment pipeline: Set the renamed env var instead of `FLASH_IS_MOTHERSHIP`.
+- `runtime/resource_provisioner.py`: Sets `FLASH_ENDPOINT_TYPE=lb`.
+- Deployment pipeline: Uses `FLASH_ENDPOINT_TYPE=lb`.
 
 ### Affected Examples
 
@@ -105,7 +103,7 @@ Same two modes, reframed for the peer architecture:
 
 ### Acceptance Criteria
 
-- No "mothership" terminology in new code paths (legacy compat shim acceptable during transition).
+- No "mothership" terminology in code paths.
 - LB endpoints correctly import and serve user FastAPI routes using the renamed mechanism.
 - QB endpoints process jobs from RunPod queue without the `/execute` cloudpickle path.
 - All LB examples deploy and respond to their defined HTTP routes.
@@ -197,7 +195,7 @@ During deployment, the pipeline inspects each resource's `makes_remote_calls` fl
 
 ### Backward Compatibility
 
-- `FLASH_IS_MOTHERSHIP` env var: Accept during transition period, log deprecation warning.
+- `FLASH_IS_MOTHERSHIP` env var: Removed. Replaced by `FLASH_ENDPOINT_TYPE=lb`.
 - CloudPickle in `flash run`: No changes. Local dev continues to use cloudpickle for LiveServerless.
 
 ### Error Handling

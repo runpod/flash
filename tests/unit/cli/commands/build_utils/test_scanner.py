@@ -697,9 +697,7 @@ def create_user():
 """)
 
         # Detect routes
-        main_app_config = detect_main_app(
-            project_root, explicit_mothership_exists=False
-        )
+        main_app_config = detect_main_app(project_root, explicit_lb_exists=False)
 
         assert main_app_config is not None
         routes = main_app_config["fastapi_routes"]
@@ -756,9 +754,7 @@ def admin_dashboard():
     return {}
 """)
 
-        main_app_config = detect_main_app(
-            project_root, explicit_mothership_exists=False
-        )
+        main_app_config = detect_main_app(project_root, explicit_lb_exists=False)
 
         routes = main_app_config["fastapi_routes"]
         assert len(routes) == 2
@@ -790,9 +786,7 @@ def home():
     return {}
 """)
 
-        main_app_config = detect_main_app(
-            project_root, explicit_mothership_exists=False
-        )
+        main_app_config = detect_main_app(project_root, explicit_lb_exists=False)
 
         # Should still work, just skip the missing router
         routes = main_app_config["fastapi_routes"]
@@ -832,9 +826,7 @@ def get_data():
     return {}
 """)
 
-        main_app_config = detect_main_app(
-            project_root, explicit_mothership_exists=False
-        )
+        main_app_config = detect_main_app(project_root, explicit_lb_exists=False)
 
         routes = main_app_config["fastapi_routes"]
         assert len(routes) == 2
@@ -875,9 +867,7 @@ def get_user(user_id: int):
     return {}
 """)
 
-        main_app_config = detect_main_app(
-            project_root, explicit_mothership_exists=False
-        )
+        main_app_config = detect_main_app(project_root, explicit_lb_exists=False)
 
         routes = main_app_config["fastapi_routes"]
         assert len(routes) == 1
@@ -913,9 +903,7 @@ async def process_data():
     return {}
 """)
 
-        main_app_config = detect_main_app(
-            project_root, explicit_mothership_exists=False
-        )
+        main_app_config = detect_main_app(project_root, explicit_lb_exists=False)
 
         routes = main_app_config["fastapi_routes"]
         assert len(routes) == 1

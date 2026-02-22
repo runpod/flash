@@ -323,15 +323,15 @@ async def test_reconciliation_reprovisions_resources_without_endpoints(tmp_path)
     flash_dir = tmp_path / ".flash"
     flash_dir.mkdir()
 
-    # Local manifest has mothership + worker
+    # Local manifest has load balancer + worker
     local_manifest = {
         "resources": {
-            "mothership": {
-                "is_mothership": True,
+            "lb_endpoint": {
+                "is_load_balanced": True,
                 "resource_type": "CpuLiveLoadBalancer",
             },
             "worker": {
-                "is_mothership": False,
+                "is_load_balanced": False,
                 "resource_type": "LiveServerless",
             },
         }
@@ -341,12 +341,12 @@ async def test_reconciliation_reprovisions_resources_without_endpoints(tmp_path)
     # State Manager has same resources but NO endpoints (failed deployment)
     state_manifest = {
         "resources": {
-            "mothership": {
-                "is_mothership": True,
+            "lb_endpoint": {
+                "is_load_balanced": True,
                 "resource_type": "CpuLiveLoadBalancer",
             },
             "worker": {
-                "is_mothership": False,
+                "is_load_balanced": False,
                 "resource_type": "LiveServerless",
             },
         },
@@ -367,16 +367,16 @@ async def test_reconciliation_reprovisions_resources_without_endpoints(tmp_path)
         # Both resources should be re-provisioned (marked as "update" action)
         mock_manager = MagicMock()
 
-        mock_mothership = MagicMock()
-        mock_mothership.endpoint_url = "https://mothership.api.runpod.ai"
-        mock_mothership.endpoint_id = "abc123mothership"
+        mock_lb_endpoint = MagicMock()
+        mock_lb_endpoint.endpoint_url = "https://lb.api.runpod.ai"
+        mock_lb_endpoint.endpoint_id = "abc123lb"
 
         mock_worker = MagicMock()
         mock_worker.endpoint_url = "https://worker.api.runpod.ai"
         mock_worker.endpoint_id = "xyz789worker"
 
         mock_manager.get_or_deploy_resource = AsyncMock(
-            side_effect=[mock_mothership, mock_worker]
+            side_effect=[mock_lb_endpoint, mock_worker]
         )
         mock_manager_cls.return_value = mock_manager
         mock_create_resource.side_effect = [MagicMock(), MagicMock()]
@@ -386,9 +386,9 @@ async def test_reconciliation_reprovisions_resources_without_endpoints(tmp_path)
         )
 
     # Both resources should have been provisioned (re-provisioned actually)
-    assert "mothership" in result
+    assert "lb_endpoint" in result
     assert "worker" in result
-    assert result["mothership"] == "https://mothership.api.runpod.ai"
+    assert result["lb_endpoint"] == "https://lb.api.runpod.ai"
     assert result["worker"] == "https://worker.api.runpod.ai"
 
     # Verify both resources were provisioned (2 calls to get_or_deploy_resource)

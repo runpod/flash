@@ -1,5 +1,7 @@
 # Design: Deployment and Cross-Endpoint Communication
 
+> **Status: Completed.** Mothership-to-peer terminology migration is done. `FLASH_IS_MOTHERSHIP` removed; `FLASH_ENDPOINT_TYPE=lb` is the sole mechanism. Content below is the original design document preserved as historical record.
+
 > Refined from PRD.md through brainstorming session on 2026-02-20.
 > Canonical PRD: [PRD.md](../../PRD.md)
 
@@ -13,7 +15,7 @@ Deploy every example in flash-examples to RunPod, execute their workflows in the
 
 | Example | Type | Cross-Remote | Deployment Test |
 |---------|------|--------------|-----------------|
-| 00_standalone_worker | QB | No | Deploy QB, invoke /run_sync, get result |
+| 00_standalone_worker | QB | No | Deploy QB, invoke /runsync, get result |
 | 00_multi_resource | QB + LB | Yes | Deploy 2 QB + 1 LB, LB orchestrates both QB workers |
 | 01_hello_world | QB | No | Deploy QB, invoke, get GPU info |
 | 02_cpu_worker | QB | No | Deploy QB, invoke, get CPU info |
@@ -26,7 +28,7 @@ Deploy every example in flash-examples to RunPod, execute their workflows in the
 ## Architecture Principles
 
 - All endpoints are peers. No hub-and-spoke, no coordinator.
-- QB endpoints: standard RunPod queue (/run, /run_sync).
+- QB endpoints: standard RunPod queue (/run, /runsync).
 - LB endpoints: web server with user-defined HTTP routes served directly.
 - CloudPickle used only for `flash run` local dev (LiveServerless). Deployed environments use JSON-only.
 - Manifest flags (`is_load_balanced`, `makes_remote_calls`) drive provisioning decisions.

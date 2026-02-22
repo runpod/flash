@@ -43,10 +43,10 @@ class ManifestResource:
     functions: List[ManifestFunction]
     is_load_balanced: bool = False  # Determined by isinstance() at scan time
     is_live_resource: bool = False  # LiveLoadBalancer vs LoadBalancerSlsResource
-    config_variable: Optional[str] = None  # Variable name for test-mothership
-    is_mothership: bool = False  # Special flag for mothership endpoint
-    is_explicit: bool = False  # Flag indicating explicit mothership.py configuration
-    main_file: Optional[str] = None  # Filename of main.py for mothership
+    config_variable: Optional[str] = None  # Variable name for config discovery
+    is_load_balanced_endpoint: bool = False  # Flag for load-balanced endpoint
+    is_explicit: bool = False  # Flag indicating explicit load balancer configuration
+    main_file: Optional[str] = None  # Filename of main entry point
     app_variable: Optional[str] = None  # Variable name of FastAPI app
     imageName: Optional[str] = None  # Docker image name for auto-provisioning
     templateId: Optional[str] = None  # RunPod template ID for auto-provisioning
