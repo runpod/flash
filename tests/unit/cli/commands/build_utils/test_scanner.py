@@ -1161,6 +1161,140 @@ class ImageProcessor:
         assert meta.param_names == []
 
 
+def test_calls_remote_functions_direct_call():
+    """Direct call to another @remote function sets calls_remote_functions=True."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project_dir = Path(tmpdir)
+
+        test_file = project_dir / "workers.py"
+        test_file.write_text(
+            """
+from runpod_flash import LiveServerless, remote
+
+gpu_config = LiveServerless(name="gpu_worker")
+cpu_config = LiveServerless(name="cpu_worker")
+
+@remote(gpu_config)
+async def generate(prompt):
+    return {"image": "..."}
+
+@remote(cpu_config)
+async def orchestrate(prompt):
+    result = generate(prompt)
+    return result
+"""
+        )
+
+        scanner = RemoteDecoratorScanner(project_dir)
+        functions = scanner.discover_remote_functions()
+
+        orchestrate = next(f for f in functions if f.function_name == "orchestrate")
+        assert orchestrate.calls_remote_functions is True
+        assert "generate" in orchestrate.called_remote_functions
+
+
+def test_attribute_call_does_not_trigger_calls_remote_functions():
+    """Attribute call obj.remote_name() must not flag calls_remote_functions.
+
+    Regression test: if a @remote function named 'generate' exists, then
+    model.generate() should NOT trigger a false positive. @remote functions
+    are always invoked as direct calls after import, never via attribute access.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project_dir = Path(tmpdir)
+
+        test_file = project_dir / "workers.py"
+        test_file.write_text(
+            """
+from runpod_flash import LiveServerless, remote
+
+gpu_config = LiveServerless(name="gpu_worker")
+cpu_config = LiveServerless(name="cpu_worker")
+
+@remote(gpu_config)
+async def generate(prompt):
+    return {"image": "..."}
+
+@remote(cpu_config)
+async def run_pipeline(prompt):
+    model = load_model()
+    result = model.generate(prompt)
+    return result
+"""
+        )
+
+        scanner = RemoteDecoratorScanner(project_dir)
+        functions = scanner.discover_remote_functions()
+
+        run_pipeline = next(f for f in functions if f.function_name == "run_pipeline")
+        assert run_pipeline.calls_remote_functions is False
+        assert run_pipeline.called_remote_functions == []
+
+
+def test_no_remote_calls_sets_calls_remote_functions_false():
+    """Standalone function with no remote calls stays False."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project_dir = Path(tmpdir)
+
+        test_file = project_dir / "worker.py"
+        test_file.write_text(
+            """
+from runpod_flash import LiveServerless, remote
+
+config = LiveServerless(name="worker")
+
+@remote(config)
+async def process(data):
+    return {"result": data.upper()}
+"""
+        )
+
+        scanner = RemoteDecoratorScanner(project_dir)
+        functions = scanner.discover_remote_functions()
+
+        assert len(functions) == 1
+        assert functions[0].calls_remote_functions is False
+        assert functions[0].called_remote_functions == []
+
+
+def test_calls_remote_functions_multiple_cross_calls():
+    """Multiple cross-calls tracked in called_remote_functions list."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project_dir = Path(tmpdir)
+
+        test_file = project_dir / "workers.py"
+        test_file.write_text(
+            """
+from runpod_flash import LiveServerless, remote
+
+gpu_a = LiveServerless(name="gpu_a")
+gpu_b = LiveServerless(name="gpu_b")
+cpu = LiveServerless(name="cpu")
+
+@remote(gpu_a)
+async def transcribe(audio):
+    return {"text": "..."}
+
+@remote(gpu_b)
+async def translate(text):
+    return {"translated": "..."}
+
+@remote(cpu)
+async def pipeline(audio):
+    text = transcribe(audio)
+    translated = translate(text)
+    return translated
+"""
+        )
+
+        scanner = RemoteDecoratorScanner(project_dir)
+        functions = scanner.discover_remote_functions()
+
+        pipeline = next(f for f in functions if f.function_name == "pipeline")
+        assert pipeline.calls_remote_functions is True
+        assert set(pipeline.called_remote_functions) == {"transcribe", "translate"}
+
+
 def test_resource_config_types_matches_exports():
     """Static _RESOURCE_CONFIG_TYPES must include all ServerlessResource subclasses from runpod_flash."""
     for type_name in RemoteDecoratorScanner._RESOURCE_CONFIG_TYPES:

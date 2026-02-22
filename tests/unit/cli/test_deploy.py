@@ -439,3 +439,145 @@ class TestDeployCommand:
 
         assert result.exit_code == 0
         mock_from_name.assert_awaited_once_with("custom-app")
+
+
+class TestDisplayPostDeploymentGuidance:
+    """Tests for _display_post_deployment_guidance output formatting."""
+
+    def _collect_output(self, patched_console) -> str:
+        return " ".join(
+            str(call.args[0]) if call.args else ""
+            for call in patched_console.print.call_args_list
+        )
+
+    def test_lb_endpoints_shown_with_routes(self, patched_console):
+        from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
+
+        _display_post_deployment_guidance(
+            env_name="production",
+            resources_endpoints={"my_lb": "https://abc.api.runpod.ai"},
+            resources={"my_lb": {"is_load_balanced": True}},
+            routes={"my_lb": {"POST /transform": "module:func"}},
+        )
+        output = self._collect_output(patched_console)
+        assert "Load-balanced endpoints:" in output
+        assert "https://abc.api.runpod.ai" in output
+        assert "my_lb" in output
+        assert "POST" in output
+        assert "/transform" in output
+
+    def test_qb_endpoints_shown(self, patched_console):
+        from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
+
+        _display_post_deployment_guidance(
+            env_name="production",
+            resources_endpoints={"my_qb": "https://def.api.runpod.ai"},
+            resources={"my_qb": {"is_load_balanced": False}},
+            routes={},
+        )
+        output = self._collect_output(patched_console)
+        assert "Queue-based endpoints:" in output
+        assert "https://def.api.runpod.ai" in output
+        assert "my_qb" in output
+
+    def test_routes_grouped_under_lb_endpoint(self, patched_console):
+        from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
+
+        _display_post_deployment_guidance(
+            env_name="production",
+            resources_endpoints={
+                "lb_gpu": "https://gpu.api.runpod.ai",
+                "lb_cpu": "https://cpu.api.runpod.ai",
+            },
+            resources={
+                "lb_gpu": {"is_load_balanced": True},
+                "lb_cpu": {"is_load_balanced": True},
+            },
+            routes={
+                "lb_gpu": {"POST /transform": "m:f", "POST /validate": "m:g"},
+                "lb_cpu": {"GET /health": "m:h"},
+            },
+        )
+        calls = [
+            str(call.args[0]) if call.args else ""
+            for call in patched_console.print.call_args_list
+        ]
+        # Find indices for each endpoint URL and verify routes follow their endpoint
+        gpu_idx = next(i for i, c in enumerate(calls) if "gpu.api.runpod.ai" in c)
+        cpu_idx = next(i for i, c in enumerate(calls) if "cpu.api.runpod.ai" in c)
+        # Routes for gpu should appear between gpu and cpu entries
+        route_calls_between = calls[gpu_idx + 1 : cpu_idx]
+        route_text = " ".join(route_calls_between)
+        assert "/transform" in route_text or "/validate" in route_text
+        # Routes for cpu should appear after cpu entry
+        route_calls_after = calls[cpu_idx + 1 :]
+        after_text = " ".join(route_calls_after)
+        assert "/health" in after_text
+
+    def test_curl_example_uses_first_lb_post_route(self, patched_console):
+        from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
+
+        _display_post_deployment_guidance(
+            env_name="staging",
+            resources_endpoints={"my_lb": "https://abc.api.runpod.ai"},
+            resources={"my_lb": {"is_load_balanced": True}},
+            routes={"my_lb": {"POST /transform": "m:f", "GET /health": "m:h"}},
+        )
+        output = self._collect_output(patched_console)
+        assert "Try it:" in output
+        assert "curl -X POST https://abc.api.runpod.ai/transform" in output
+
+    def test_curl_not_shown_without_lb(self, patched_console):
+        from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
+
+        _display_post_deployment_guidance(
+            env_name="production",
+            resources_endpoints={"my_qb": "https://def.api.runpod.ai"},
+            resources={"my_qb": {"is_load_balanced": False}},
+            routes={},
+        )
+        output = self._collect_output(patched_console)
+        assert "Try it:" not in output
+
+    def test_docs_links_shown(self, patched_console):
+        from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
+
+        _display_post_deployment_guidance(
+            env_name="production",
+            resources_endpoints={"my_lb": "https://abc.api.runpod.ai"},
+            resources={"my_lb": {"is_load_balanced": True}},
+            routes={"my_lb": {"POST /transform": "m:f"}},
+        )
+        output = self._collect_output(patched_console)
+        assert "https://console.runpod.io/serverless" in output
+        assert "https://docs.runpod.io/serverless/endpoints/send-requests" in output
+        assert "https://docs.runpod.io/serverless/load-balancing/overview" in output
+
+    def test_useful_commands_with_env_name(self, patched_console):
+        from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
+
+        _display_post_deployment_guidance(
+            env_name="staging",
+            resources_endpoints={},
+            resources={},
+            routes={},
+        )
+        output = self._collect_output(patched_console)
+        assert "Useful commands:" in output
+        assert "flash env get staging" in output
+        assert "flash deploy --env staging" in output
+        assert "flash env delete staging" in output
+
+    def test_empty_deployment(self, patched_console):
+        from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
+
+        _display_post_deployment_guidance(
+            env_name="production",
+            resources_endpoints={},
+            resources={},
+            routes={},
+        )
+        output = self._collect_output(patched_console)
+        assert "Useful commands:" in output
+        assert "Load-balanced endpoints:" not in output
+        assert "Queue-based endpoints:" not in output

@@ -192,7 +192,7 @@ class TestGenerateAllResourceConfigs:
         """Logs summary of generated configuration."""
         import logging
 
-        caplog.set_level(logging.INFO)
+        caplog.set_level(logging.DEBUG)
 
         generate_all_resource_configs(sample_manifest, build_dir)
 

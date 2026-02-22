@@ -640,7 +640,7 @@ class ServerlessResource(DeployableResource):
                         api_key = os.getenv("RUNPOD_API_KEY")
                         if api_key:
                             env_dict["RUNPOD_API_KEY"] = api_key
-                            log.info(
+                            log.debug(
                                 f"{self.name}: Injected RUNPOD_API_KEY for remote calls "
                                 f"(makes_remote_calls=True)"
                             )
@@ -659,7 +659,7 @@ class ServerlessResource(DeployableResource):
                 module_path = self._get_module_path()
                 if module_path and "FLASH_MODULE_PATH" not in env_dict:
                     env_dict["FLASH_MODULE_PATH"] = module_path
-                    log.info(f"{self.name}: Injected FLASH_MODULE_PATH={module_path}")
+                    log.debug(f"{self.name}: Injected FLASH_MODULE_PATH={module_path}")
 
                 self.env = env_dict
 

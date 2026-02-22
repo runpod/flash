@@ -324,3 +324,38 @@ def test_manifest_includes_config_variable():
     assert manifest["resources"]["my-endpoint"]["config_variable"] == "gpu_config"
     # config_variable is only stored at the resource level, not per-function
     assert "config_variable" not in manifest["resources"]["my-endpoint"]["functions"][0]
+
+
+def test_manifest_makes_remote_calls_from_scanner_metadata():
+    """Validate calls_remote_functions on metadata flows to makes_remote_calls in manifest."""
+    functions = [
+        RemoteFunctionMetadata(
+            function_name="orchestrate",
+            module_path="workers.orchestrator",
+            resource_config_name="cpu_config",
+            resource_type="CpuLiveServerless",
+            is_async=True,
+            is_class=False,
+            file_path=Path("workers/orchestrator.py"),
+            calls_remote_functions=True,
+            called_remote_functions=["generate"],
+        ),
+        RemoteFunctionMetadata(
+            function_name="generate",
+            module_path="workers.gpu",
+            resource_config_name="gpu_config",
+            resource_type="LiveServerless",
+            is_async=True,
+            is_class=False,
+            file_path=Path("workers/gpu.py"),
+            calls_remote_functions=False,
+        ),
+    ]
+
+    builder = ManifestBuilder("test_app", functions)
+    manifest = builder.build()
+
+    # cpu_config has a function that calls remote functions
+    assert manifest["resources"]["cpu_config"]["makes_remote_calls"] is True
+    # gpu_config does not
+    assert manifest["resources"]["gpu_config"]["makes_remote_calls"] is False

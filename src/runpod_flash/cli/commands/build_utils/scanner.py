@@ -480,6 +480,13 @@ class RemoteDecoratorScanner:
     ) -> None:
         """Analyze if a function calls other @remote functions.
 
+        Only matches direct calls (e.g. ``generate(prompt)``) — not attribute
+        calls (e.g. ``model.generate(prompt)``).  In flash, ``@remote``
+        functions are always invoked as direct calls after import, never via
+        attribute access.  Matching on bare method names would cause false
+        positives whenever an unrelated object happens to have a method with
+        the same name as a ``@remote`` function.
+
         Args:
             func_node: AST node for the function
             function_metadata: Metadata to update with call information
@@ -491,16 +498,6 @@ class RemoteDecoratorScanner:
                 # Handle direct calls: some_function()
                 if isinstance(node.func, ast.Name):
                     called_name = node.func.id
-                    if called_name in remote_function_names:
-                        function_metadata.calls_remote_functions = True
-                        if called_name not in function_metadata.called_remote_functions:
-                            function_metadata.called_remote_functions.append(
-                                called_name
-                            )
-
-                # Handle attribute calls: obj.some_function()
-                elif isinstance(node.func, ast.Attribute):
-                    called_name = node.func.attr
                     if called_name in remote_function_names:
                         function_metadata.calls_remote_functions = True
                         if called_name not in function_metadata.called_remote_functions:
