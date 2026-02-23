@@ -44,7 +44,13 @@ def _make_input_model(
     try:
         sig = inspect.signature(func)
         hints = get_type_hints(func)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as e:
+        logger.warning(
+            "Failed to introspect signature for %s: %s. "
+            "Skipping input model generation.",
+            name,
+            e,
+        )
         return None
 
     _SKIP_KINDS = (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
@@ -73,7 +79,13 @@ def _wrap_handler_with_body_model(handler: Callable, path: str) -> Callable:
     try:
         sig = inspect.signature(handler)
         hints = get_type_hints(handler)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as e:
+        logger.warning(
+            "Failed to introspect handler %s for body model wrapping: %s. "
+            "Returning handler unwrapped.",
+            getattr(handler, "__name__", "unknown"),
+            e,
+        )
         return handler
 
     path_params = set(_PATH_PARAM_RE.findall(path))

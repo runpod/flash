@@ -5,6 +5,8 @@ import logging
 from typing import Any, Callable, Dict, Optional
 from urllib.parse import urlparse
 
+import httpx
+
 from runpod_flash.core.resources.serverless import ServerlessResource
 from runpod_flash.core.utils.http import get_authenticated_httpx_client
 
@@ -276,6 +278,16 @@ class ProductionWrapper:
                 )
                 response.raise_for_status()
                 return response.json()
+        except httpx.HTTPStatusError as e:
+            response_body = e.response.text[:500] if e.response else "no response body"
+            raise RemoteExecutionError(
+                f"Remote LB call to {function_name} ({http_method} {url}) "
+                f"returned {e.response.status_code}: {response_body}"
+            ) from e
+        except httpx.TimeoutException as e:
+            raise RemoteExecutionError(
+                f"Remote LB call to {function_name} ({http_method} {url}) timed out: {e}"
+            ) from e
         except Exception as e:
             raise RemoteExecutionError(
                 f"Remote LB call to {function_name} ({http_method} {url}) failed: {e}"

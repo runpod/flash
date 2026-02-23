@@ -73,6 +73,12 @@ def create_resource_from_manifest(
         api_key = os.getenv("RUNPOD_API_KEY")
         if api_key:
             env["RUNPOD_API_KEY"] = api_key
+        else:
+            logger.warning(
+                "Resource '%s' makes remote calls but RUNPOD_API_KEY is not set. "
+                "Cross-endpoint calls from this resource will fail.",
+                resource_name,
+            )
         if flash_environment_id:
             env["FLASH_ENVIRONMENT_ID"] = flash_environment_id
 

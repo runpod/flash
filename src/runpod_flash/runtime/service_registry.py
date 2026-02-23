@@ -220,11 +220,17 @@ class ServiceRegistry:
                         f"cache TTL {self.cache_ttl}s"
                     )
                 except ManifestServiceUnavailableError as e:
-                    logger.warning(
-                        f"Failed to load manifest from State Manager: {e}. "
-                        f"Cross-endpoint routing unavailable."
-                    )
-                    self._endpoint_registry = {}
+                    stale_count = len(self._endpoint_registry)
+                    if stale_count > 0:
+                        logger.error(
+                            f"Failed to refresh manifest from State Manager: {e}. "
+                            f"Keeping {stale_count} stale endpoint(s) in cache."
+                        )
+                    else:
+                        logger.error(
+                            f"Failed to load manifest from State Manager: {e}. "
+                            f"Cross-endpoint routing unavailable."
+                        )
 
     async def get_endpoint_for_function(self, function_name: str) -> Optional[str]:
         """Get endpoint URL for a function.
@@ -263,9 +269,10 @@ class ServiceRegistry:
         # Check manifest for remote endpoint URL
         endpoint_url = self._endpoint_registry.get(resource_config_name)
         if not endpoint_url:
-            logger.debug(
-                f"Endpoint URL for '{resource_config_name}' not in manifest. "
-                f"Manifest has: {list(self._endpoint_registry.keys())}"
+            logger.warning(
+                f"Endpoint URL for '{resource_config_name}' not in registry. "
+                f"This may indicate an incomplete deployment or stale State Manager data. "
+                f"Registry has: {list(self._endpoint_registry.keys())}"
             )
 
         return endpoint_url
@@ -356,9 +363,10 @@ class ServiceRegistry:
 
         endpoint_url = self._endpoint_registry.get(resource_config_name)
         if not endpoint_url:
-            logger.debug(
+            logger.warning(
                 f"Endpoint URL for '{resource_config_name}' not in registry. "
-                f"Manifest has: {list(self._endpoint_registry.keys())}"
+                f"This may indicate an incomplete deployment or stale State Manager data. "
+                f"Registry has: {list(self._endpoint_registry.keys())}"
             )
 
         resource_config = self._manifest.resources.get(resource_config_name)

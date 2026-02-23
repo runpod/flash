@@ -87,7 +87,11 @@ async def _resolve_deployed_endpoint_id(func_name: str) -> Optional[str]:
         log.debug(f"Function {func_name} not in manifest: {e}")
         return None
     except Exception as e:
-        log.warning(f"Manifest lookup failed for {func_name}: {e}")
+        log.error(
+            f"Manifest lookup failed for {func_name}, falling back to "
+            f"ResourceManager (may trigger dynamic provisioning): {e}",
+            exc_info=True,
+        )
         return None
 
 
@@ -258,8 +262,9 @@ def remote(
             async def wrapper(*args, **kwargs):
                 endpoint_id = await _resolve_deployed_endpoint_id(func_name)
                 if endpoint_id:
-                    resource_config.id = endpoint_id
-                    remote_resource = resource_config
+                    remote_resource = resource_config.model_copy(
+                        update={"id": endpoint_id}
+                    )
                 else:
                     resource_manager = ResourceManager()
                     remote_resource = await resource_manager.get_or_deploy_resource(

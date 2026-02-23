@@ -364,7 +364,10 @@ class TestWrapperManifestLookup:
         mock_stub_resource.assert_called_once()
         # ResourceManager should NOT have been instantiated
         mock_rm_cls.assert_not_called()
-        assert resource.id == "ep_deployed_abc"
+        # stub_resource receives a copy with the resolved id, original is unmutated
+        passed_resource = mock_stub_resource.call_args[0][0]
+        assert passed_resource.id == "ep_deployed_abc"
+        assert resource.id is None  # original not mutated
 
     @patch.dict(os.environ, {}, clear=True)
     @pytest.mark.asyncio

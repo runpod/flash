@@ -235,7 +235,12 @@ def _make_import_line(module_path: str, name: str) -> str:
 
 def _escape_summary(text: str) -> str:
     """Escape a string for safe embedding in a generated Python string literal."""
-    return text.replace("\\", "\\\\").replace('"', '\\"')
+    return (
+        text.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+    )
 
 
 _PATH_PARAM_RE = re.compile(r"\{(\w+)\}")

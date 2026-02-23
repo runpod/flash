@@ -231,16 +231,25 @@ def create_deployed_handler(func: Callable) -> Callable:
         try:
             result = func(**job_input)
             if inspect.iscoroutine(result):
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    loop = None
+                if loop and loop.is_running():
                     import concurrent.futures
 
                     with concurrent.futures.ThreadPoolExecutor() as pool:
                         result = pool.submit(asyncio.run, result).result()
                 else:
-                    result = loop.run_until_complete(result)
+                    result = asyncio.run(result)
             return result
         except Exception as e:
+            logger.error(
+                "Deployed handler error for %s: %s",
+                func.__name__,
+                e,
+                exc_info=True,
+            )
             return {"error": str(e), "traceback": traceback.format_exc()}
 
     return handler
