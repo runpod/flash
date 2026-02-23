@@ -114,6 +114,12 @@ class ManifestBuilder:
             # Add module to sys.modules temporarily to allow relative imports
             sys.modules[spec.name] = module
 
+            # Add parent directory to sys.path so sibling imports resolve
+            parent_dir = str(resource_file.parent)
+            added_to_path = parent_dir not in sys.path
+            if added_to_path:
+                sys.path.insert(0, parent_dir)
+
             try:
                 spec.loader.exec_module(module)
 
@@ -176,6 +182,11 @@ class ManifestBuilder:
                 # Clean up module from sys.modules to avoid conflicts
                 if spec.name in sys.modules:
                     del sys.modules[spec.name]
+                if added_to_path:
+                    try:
+                        sys.path.remove(parent_dir)
+                    except ValueError:
+                        pass
 
         except Exception as e:
             # Log warning but don't fail - deployment config is optional

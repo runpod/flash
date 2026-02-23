@@ -3,6 +3,7 @@
 import tempfile
 from pathlib import Path
 
+import pytest
 
 from runpod_flash.cli.commands.build_utils.handler_generator import HandlerGenerator
 
@@ -454,3 +455,76 @@ def test_live_resource_uses_old_template():
         assert "FUNCTION_REGISTRY" in handler_content
         assert "handler = create_handler(FUNCTION_REGISTRY)" in handler_content
         assert "def handler(job):" not in handler_content
+
+
+# --- Tests for _validate_handler_imports (ast.parse validation) ---
+
+
+def test_validate_handler_accepts_valid_syntax_with_unavailable_imports():
+    """Validation passes for valid syntax even when imports would fail at runtime."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        build_dir = Path(tmpdir)
+
+        # Module path uses numeric prefix that can't resolve at build time
+        manifest = {
+            "version": "1.0",
+            "generated_at": "2026-01-02T10:00:00Z",
+            "project_name": "test_app",
+            "resources": {
+                "gpu_config": {
+                    "resource_type": "Serverless",
+                    "is_live_resource": False,
+                    "functions": [
+                        {
+                            "name": "cpu_worker",
+                            "module": "01_getting_started.03_mixed.cpu_worker",
+                            "is_async": False,
+                            "is_class": False,
+                        }
+                    ],
+                }
+            },
+        }
+
+        generator = HandlerGenerator(manifest, build_dir)
+        # Should not raise — syntax is valid even though the import
+        # (importlib.import_module('01_getting_started.03_mixed.cpu_worker'))
+        # would fail at build time
+        handler_paths = generator.generate_handlers()
+        assert handler_paths[0].exists()
+
+
+def test_validate_handler_rejects_syntax_errors():
+    """Validation raises ValueError for handlers with invalid Python syntax."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        build_dir = Path(tmpdir)
+
+        manifest = {
+            "version": "1.0",
+            "generated_at": "2026-01-02T10:00:00Z",
+            "project_name": "test_app",
+            "resources": {
+                "gpu_config": {
+                    "resource_type": "Serverless",
+                    "is_live_resource": False,
+                    "functions": [
+                        {
+                            "name": "gpu_task",
+                            "module": "workers.gpu",
+                            "is_async": False,
+                            "is_class": False,
+                        }
+                    ],
+                }
+            },
+        }
+
+        generator = HandlerGenerator(manifest, build_dir)
+        handler_paths = generator.generate_handlers()
+        handler_path = handler_paths[0]
+
+        # Corrupt the handler file with invalid syntax
+        handler_path.write_text("def broken(:\n    pass\n")
+
+        with pytest.raises(ValueError, match="Handler has syntax errors"):
+            generator._validate_handler_imports(handler_path)

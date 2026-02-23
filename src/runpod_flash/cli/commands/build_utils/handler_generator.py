@@ -1,7 +1,6 @@
 """Generator for handler_<name>.py files."""
 
-import importlib
-import importlib.util
+import ast
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Union
@@ -251,28 +250,18 @@ class HandlerGenerator:
     def _validate_handler_imports(self, handler_path: Path) -> None:
         """Validate that generated handler has valid Python syntax.
 
-        Attempts to load the handler module to catch syntax errors.
-        ImportErrors for missing worker modules are logged but not fatal,
-        as those imports may not be available at build time.
+        Uses ast.parse() to check syntax without executing the module.
+        This avoids ImportErrors from modules that only resolve at runtime
+        inside Docker (e.g., numeric-prefixed module paths).
 
         Args:
             handler_path: Path to generated handler file
 
         Raises:
-            ValueError: If handler has syntax errors or cannot be parsed
+            ValueError: If handler has syntax errors
         """
         try:
-            spec = importlib.util.spec_from_file_location("handler", handler_path)
-            if spec and spec.loader:
-                module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(module)
-            else:
-                raise ValueError("Failed to create module spec")
+            source = handler_path.read_text(encoding="utf-8")
+            ast.parse(source, filename=str(handler_path))
         except SyntaxError as e:
             raise ValueError(f"Handler has syntax errors: {e}") from e
-        except ImportError as e:
-            # Log but don't fail - imports might not be available at build time
-            logger.debug(f"Handler import validation: {e}")
-        except Exception as e:
-            # Only raise for truly unexpected errors
-            logger.warning(f"Handler validation warning: {e}")

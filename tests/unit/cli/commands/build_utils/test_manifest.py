@@ -1,9 +1,10 @@
 """Tests for ManifestBuilder."""
 
 import json
+import sys
 import tempfile
 from pathlib import Path
-
+from unittest.mock import MagicMock
 
 from runpod_flash.cli.commands.build_utils.manifest import ManifestBuilder
 from runpod_flash.cli.commands.build_utils.scanner import RemoteFunctionMetadata
@@ -359,3 +360,106 @@ def test_manifest_makes_remote_calls_from_scanner_metadata():
     assert manifest["resources"]["cpu_config"]["makes_remote_calls"] is True
     # gpu_config does not
     assert manifest["resources"]["gpu_config"]["makes_remote_calls"] is False
+
+
+# --- Tests for _extract_deployment_config sys.path handling ---
+
+
+def test_extract_deployment_config_with_sibling_imports():
+    """Extraction succeeds when resource file imports sibling modules."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project_dir = Path(tmpdir)
+
+        # Create sibling module that the resource file imports
+        config_py = project_dir / "config.py"
+        config_py.write_text(
+            'IMAGE_NAME = "my-custom-image:latest"\nTEMPLATE_ID = "tpl_abc123"\n'
+        )
+
+        # Create resource file that imports from sibling
+        pipeline_py = project_dir / "pipeline.py"
+        pipeline_py.write_text(
+            "from config import IMAGE_NAME, TEMPLATE_ID\n"
+            "\n"
+            "class gpu_config:\n"
+            "    imageName = IMAGE_NAME\n"
+            "    templateId = TEMPLATE_ID\n"
+        )
+
+        functions = [
+            RemoteFunctionMetadata(
+                function_name="run_pipeline",
+                module_path="pipeline",
+                resource_config_name="gpu_config",
+                resource_type="LiveServerless",
+                is_async=False,
+                is_class=False,
+                file_path=pipeline_py,
+                config_variable="gpu_config",
+            )
+        ]
+
+        scanner = MagicMock()
+        builder = ManifestBuilder("test_app", functions, scanner=scanner)
+        config = builder._extract_deployment_config(
+            "gpu_config", "gpu_config", "LiveServerless"
+        )
+
+        assert config["imageName"] == "my-custom-image:latest"
+        assert config["templateId"] == "tpl_abc123"
+
+
+def test_extract_deployment_config_cleans_up_sys_path():
+    """sys.path is restored after extraction, both on success and failure."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project_dir = Path(tmpdir)
+
+        # Simple resource file (no sibling imports needed)
+        resource_py = project_dir / "resource.py"
+        resource_py.write_text('class gpu_config:\n    imageName = "test-image"\n')
+
+        functions = [
+            RemoteFunctionMetadata(
+                function_name="my_func",
+                module_path="resource",
+                resource_config_name="gpu_config",
+                resource_type="LiveServerless",
+                is_async=False,
+                is_class=False,
+                file_path=resource_py,
+                config_variable="gpu_config",
+            )
+        ]
+
+        scanner = MagicMock()
+        builder = ManifestBuilder("test_app", functions, scanner=scanner)
+
+        path_before = sys.path.copy()
+        builder._extract_deployment_config("gpu_config", "gpu_config", "LiveServerless")
+        assert sys.path == path_before
+
+        # Failure case: resource file with an import that raises
+        bad_py = project_dir / "bad_resource.py"
+        bad_py.write_text("from nonexistent_sibling import something\n")
+
+        functions_bad = [
+            RemoteFunctionMetadata(
+                function_name="bad_func",
+                module_path="bad_resource",
+                resource_config_name="bad_config",
+                resource_type="LiveServerless",
+                is_async=False,
+                is_class=False,
+                file_path=bad_py,
+                config_variable="bad_config",
+            )
+        ]
+
+        builder_bad = ManifestBuilder("test_app", functions_bad, scanner=scanner)
+
+        path_before = sys.path.copy()
+        # Should not raise — failure is caught and logged
+        builder_bad._extract_deployment_config(
+            "bad_config", "bad_config", "LiveServerless"
+        )
+        assert sys.path == path_before
