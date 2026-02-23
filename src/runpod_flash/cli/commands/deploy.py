@@ -95,15 +95,16 @@ def deploy_command(
         raise typer.Exit(1)
 
 
-def _print_curl_example(url: str) -> None:
+def _print_curl_example(url: str, method: str = "POST") -> None:
     """Print a curl example for the given URL."""
     indent = "      "
-    curl_cmd = (
-        f"{indent}curl -X POST {url} \\\n"
-        f'{indent}    -H "Content-Type: application/json" \\\n'
-        f'{indent}    -H "Authorization: Bearer $RUNPOD_API_KEY" \\\n'
-        f"{indent}    -d '{{\"input\": {{}}}}'"
-    )
+    lines = [f"{indent}curl -X {method} {url}"]
+    if method == "POST":
+        lines.append(f'{indent}    -H "Content-Type: application/json"')
+    lines.append(f'{indent}    -H "Authorization: Bearer $RUNPOD_API_KEY"')
+    if method == "POST":
+        lines.append(f"""{indent}    -d '{{"input": {{}}}}'""")
+    curl_cmd = " \\\n".join(lines)
     console.print("\n    [bold]Try it:[/bold]")
     console.print(curl_cmd)
 
@@ -135,7 +136,8 @@ def _display_post_deployment_guidance(
                 method, path = route_key.split(" ", 1)
                 console.print(f"      {method:6s} {path}")
 
-        # One curl example using the first LB endpoint's first POST route
+        # One curl example using the first LB endpoint's first route (prefer POST, fall back to GET)
+        curl_shown = False
         for _name, curl_url, lb_routes in lb_entries:
             post_routes = [
                 k.split(" ", 1)[1]
@@ -144,7 +146,19 @@ def _display_post_deployment_guidance(
             ]
             if post_routes:
                 _print_curl_example(f"{curl_url}{post_routes[0]}")
+                curl_shown = True
                 break
+
+        if not curl_shown:
+            for _name, curl_url, lb_routes in lb_entries:
+                get_routes = [
+                    k.split(" ", 1)[1]
+                    for k in sorted(lb_routes.keys())
+                    if k.startswith("GET ")
+                ]
+                if get_routes:
+                    _print_curl_example(f"{curl_url}{get_routes[0]}", method="GET")
+                    break
 
     if qb_entries:
         console.print("\n  [bold]Queue-based endpoints:[/bold]")

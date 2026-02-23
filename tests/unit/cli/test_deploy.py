@@ -536,6 +536,51 @@ class TestDisplayPostDeploymentGuidance:
         useful_idx = next(i for i, c in enumerate(calls) if "Useful commands:" in c)
         assert curl_idx < useful_idx
 
+    def test_curl_example_falls_back_to_get_when_no_post(self, patched_console):
+        from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
+
+        _display_post_deployment_guidance(
+            env_name="staging",
+            resources_endpoints={"my_lb": "https://abc.api.runpod.ai"},
+            resources={"my_lb": {"is_load_balanced": True}},
+            routes={"my_lb": {"GET /images": "m:f", "GET /images/{file_name}": "m:g"}},
+        )
+        output = self._collect_output(patched_console)
+        assert "Try it:" in output
+        assert "curl -X GET https://abc.api.runpod.ai/images" in output
+
+    def test_get_curl_omits_body_and_content_type(self, patched_console):
+        from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
+
+        _display_post_deployment_guidance(
+            env_name="staging",
+            resources_endpoints={"my_lb": "https://abc.api.runpod.ai"},
+            resources={"my_lb": {"is_load_balanced": True}},
+            routes={"my_lb": {"GET /images": "m:f"}},
+        )
+        output = self._collect_output(patched_console)
+        assert "Authorization: Bearer $RUNPOD_API_KEY" in output
+        assert "Content-Type" not in output
+        assert '"input"' not in output
+
+    def test_post_preferred_over_get_for_curl(self, patched_console):
+        from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
+
+        _display_post_deployment_guidance(
+            env_name="staging",
+            resources_endpoints={"my_lb": "https://abc.api.runpod.ai"},
+            resources={"my_lb": {"is_load_balanced": True}},
+            routes={
+                "my_lb": {
+                    "GET /health": "m:h",
+                    "POST /transform": "m:f",
+                }
+            },
+        )
+        output = self._collect_output(patched_console)
+        assert "curl -X POST" in output
+        assert "curl -X GET" not in output
+
     def test_qb_curl_uses_runsync(self, patched_console):
         from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
 
