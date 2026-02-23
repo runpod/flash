@@ -15,6 +15,14 @@ from runpod_flash.runtime.mothership_provisioner import create_resource_from_man
 log = logging.getLogger(__name__)
 
 
+def _normalized_resource_attr(resource: Any, *names: str) -> str | None:
+    for name in names:
+        value = getattr(resource, name, None)
+        if isinstance(value, str) and value.strip():
+            return value
+    return None
+
+
 async def upload_build(app_name: str, build_path: str | Path):
     app = await FlashApp.from_name(app_name)
     await app.upload_build(build_path)
@@ -146,6 +154,14 @@ async def provision_resources_for_build(
 
         resources_endpoints[resource_name] = endpoint_url
 
+        endpoint_id = _normalized_resource_attr(deployed_resource, "endpoint_id", "id")
+        if endpoint_id:
+            manifest["resources"][resource_name]["endpoint_id"] = endpoint_id
+
+        ai_key = _normalized_resource_attr(deployed_resource, "aiKey", "ai_key")
+        if ai_key:
+            manifest["resources"][resource_name]["aiKey"] = ai_key
+
         # Track mothership URL for prominent logging
         if resource_name == "mothership" or manifest["resources"][resource_name].get(
             "is_mothership"
@@ -268,6 +284,10 @@ async def reconcile_and_provision_resources(
                 local_manifest["resources"][resource_name]["endpoint_id"] = (
                     state_config["endpoint_id"]
                 )
+            if "aiKey" in state_config:
+                local_manifest["resources"][resource_name]["aiKey"] = state_config[
+                    "aiKey"
+                ]
             if resource_name in state_manifest.get("resources_endpoints", {}):
                 local_manifest.setdefault("resources_endpoints", {})[resource_name] = (
                     state_manifest["resources_endpoints"][resource_name]
@@ -301,13 +321,18 @@ async def reconcile_and_provision_resources(
             deployed_resource = provisioning_results[i]
 
             # Extract endpoint info
-            endpoint_id = getattr(deployed_resource, "endpoint_id", None)
-            endpoint_url = getattr(deployed_resource, "endpoint_url", None)
+            endpoint_id = _normalized_resource_attr(
+                deployed_resource, "endpoint_id", "id"
+            )
+            endpoint_url = _normalized_resource_attr(deployed_resource, "endpoint_url")
+            ai_key = _normalized_resource_attr(deployed_resource, "aiKey", "ai_key")
 
             if endpoint_id:
                 local_manifest["resources"][resource_name]["endpoint_id"] = endpoint_id
             if endpoint_url:
                 local_manifest["resources_endpoints"][resource_name] = endpoint_url
+            if ai_key:
+                local_manifest["resources"][resource_name]["aiKey"] = ai_key
 
             log.debug(
                 f"{'Provisioned' if action_type == 'provision' else 'Updated'}: "

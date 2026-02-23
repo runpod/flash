@@ -11,6 +11,7 @@ from runpod_flash.core.resources.serverless import (
     ServerlessResource,
     ServerlessEndpoint,
     ServerlessScalerType,
+    ServerlessType,
     CudaVersion,
     JobOutput,
     WorkersHealth,
@@ -811,6 +812,75 @@ class TestServerlessResourceDeployment:
         assert isinstance(result, JobOutput)
         assert result.id == "job-123"
         assert result.status == "COMPLETED"
+
+    @pytest.mark.asyncio
+    async def test_run_async_fetches_in_progress_logs_once(self):
+        """Test run async triggers in-progress log fetch exactly once."""
+        serverless = ServerlessResource(name="test")
+        serverless.id = "endpoint-123"
+        serverless.type = ServerlessType.QB
+        serverless.aiKey = "ai-key-123"
+
+        mock_job = MagicMock()
+        mock_job.job_id = "job-123"
+        mock_job.status.side_effect = [
+            "IN_QUEUE",
+            "IN_PROGRESS",
+            "IN_PROGRESS",
+            "COMPLETED",
+        ]
+        mock_job._fetch_job.return_value = {
+            "id": "job-123",
+            "workerId": "worker-456",
+            "status": "COMPLETED",
+            "delayTime": 1000,
+            "executionTime": 2000,
+            "output": {"result": "success"},
+        }
+
+        mock_endpoint = MagicMock()
+        mock_endpoint.run.return_value = mock_job
+
+        with patch.object(
+            type(serverless),
+            "endpoint",
+            new_callable=lambda: property(lambda self: mock_endpoint),
+        ):
+            with patch("asyncio.sleep"):
+                with patch.object(
+                    ServerlessResource,
+                    "_emit_in_progress_logs",
+                    new=AsyncMock(),
+                ) as mock_emit_logs:
+                    await serverless.run({"input": "test"})
+
+        mock_emit_logs.assert_awaited_once_with("job-123")
+
+    @pytest.mark.asyncio
+    async def test_emit_in_progress_logs_uses_runpod_api_key(self, monkeypatch):
+        """In-progress log fetch should authenticate with RUNPOD_API_KEY."""
+        serverless = ServerlessResource(name="test")
+        serverless.id = "endpoint-123"
+        serverless.type = ServerlessType.QB
+        serverless.aiKey = "endpoint-ai-key"
+
+        monkeypatch.setenv("RUNPOD_API_KEY", "rp-api-key")
+
+        mock_fetcher = MagicMock()
+        mock_fetcher.fetch_for_request = AsyncMock(return_value=None)
+
+        with patch(
+            "runpod_flash.core.resources.serverless.QBRequestLogFetcher",
+            return_value=mock_fetcher,
+        ):
+            await serverless._emit_in_progress_logs("job-123")
+
+        mock_fetcher.fetch_for_request.assert_awaited_once_with(
+            endpoint_id="endpoint-123",
+            request_id="job-123",
+            runpod_api_key="rp-api-key",
+            endpoint_ai_key="endpoint-ai-key",
+        )
 
     @pytest.mark.asyncio
     async def test_run_async_failure_cancels_job(self):

@@ -24,6 +24,7 @@ from .environment import EnvironmentVars
 from .cpu import CpuInstanceType
 from .gpu import GpuGroup, GpuType
 from .network_volume import NetworkVolume, DataCenter
+from .request_logs import QBRequestLogFetcher
 from .template import KeyValuePair, PodTemplate
 from .resource_manager import ResourceManager
 
@@ -204,6 +205,35 @@ class ServerlessResource(DeployableResource):
     def endpoint_url(self) -> str:
         base_url = self.endpoint.rp_client.endpoint_url_base
         return f"{base_url}/{self.id}"
+
+    async def _emit_in_progress_logs(self, request_id: str) -> None:
+        if self.type != ServerlessType.QB:
+            return
+        if not self.id:
+            return
+
+        runpod_api_key = os.getenv("RUNPOD_API_KEY")
+        if not runpod_api_key:
+            log.debug(
+                "Job:%s | Skipping in-progress log fetch: RUNPOD_API_KEY not set",
+                request_id,
+            )
+            return
+
+        fetcher = QBRequestLogFetcher()
+        batch = await fetcher.fetch_for_request(
+            endpoint_id=self.id,
+            request_id=request_id,
+            runpod_api_key=runpod_api_key,
+            endpoint_ai_key=self.aiKey,
+        )
+        if not batch:
+            return
+
+        log.info(f"Job:{request_id} | Worker:{batch.worker_id} | Status: IN_PROGRESS")
+        if batch.lines:
+            for line in batch.lines:
+                log.info(f"Job:{request_id} | WorkerLog | {line}")
 
     @field_serializer("scalerType")
     def serialize_scaler_type(
@@ -928,6 +958,7 @@ class ServerlessResource(DeployableResource):
             attempt = 0
             job_status = Status.UNKNOWN
             last_status = job_status
+            in_progress_logs_emitted = False
 
             # Poll for job status
             while True:
@@ -945,6 +976,11 @@ class ServerlessResource(DeployableResource):
                 else:
                     # status changed, reset the gap
                     log.debug(f"{log_subgroup} | Status: {job_status}")
+
+                    if job_status == "IN_PROGRESS" and not in_progress_logs_emitted:
+                        in_progress_logs_emitted = True
+                        await self._emit_in_progress_logs(job.job_id)
+
                     attempt = 0
 
                 last_status = job_status
