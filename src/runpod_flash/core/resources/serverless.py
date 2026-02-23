@@ -885,7 +885,7 @@ class ServerlessResource(DeployableResource):
             raise ValueError("Serverless is not deployed")
 
         def _fetch_job():
-            log.debug(f"{self} | API /runsync")
+            log.info(f"{self} | API /runsync")
             return self.endpoint.rp_client.post(
                 f"{self.id}/runsync", payload, timeout=60
             )
@@ -917,12 +917,12 @@ class ServerlessResource(DeployableResource):
             # log.debug(f"[{self}] Payload: {payload}")
 
             # Create a job using the endpoint
-            log.debug(f"{self} | API /run")
+            log.info(f"{self} | API /run")
             job = await asyncio.to_thread(self.endpoint.run, request_input=payload)
 
             log_subgroup = f"Job:{job.job_id}"
 
-            log.debug(f"{self} | Started {log_subgroup}")
+            log.info(f"{self} | Started {log_subgroup}")
 
             current_pace = 0
             attempt = 0
@@ -941,10 +941,10 @@ class ServerlessResource(DeployableResource):
                     attempt += 1
                     indicator = "." * (attempt // 2) if attempt % 2 == 0 else ""
                     if indicator:
-                        log.debug(f"{log_subgroup} | {indicator}")
+                        log.info(f"{log_subgroup} | {indicator}")
                 else:
                     # status changed, reset the gap
-                    log.debug(f"{log_subgroup} | Status: {job_status}")
+                    log.info(f"{log_subgroup} | Status: {job_status}")
                     attempt = 0
 
                 last_status = job_status
@@ -1031,8 +1031,8 @@ class JobOutput(BaseModel):
 
     def model_post_init(self, _: Any) -> None:
         log_group = f"Worker:{self.workerId}"
-        log.debug(f"{log_group} | Delay Time: {self.delayTime} ms")
-        log.debug(f"{log_group} | Execution Time: {self.executionTime} ms")
+        log.info(f"{log_group} | Delay Time: {self.delayTime} ms")
+        log.info(f"{log_group} | Execution Time: {self.executionTime} ms")
 
 
 class Status(str, Enum):

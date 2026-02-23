@@ -1,6 +1,7 @@
 """Helpers for the flash run dev server — loaded inside the generated server.py."""
 
 import inspect
+import logging
 from typing import Any, get_type_hints
 
 from fastapi import HTTPException
@@ -8,6 +9,8 @@ from pydantic import create_model
 
 from runpod_flash.core.resources.resource_manager import ResourceManager
 from runpod_flash.stubs.load_balancer_sls import LoadBalancerSlsStub
+
+log = logging.getLogger(__name__)
 
 _resource_manager = ResourceManager()
 
@@ -101,8 +104,18 @@ async def lb_execute(resource_config, func, body: dict):
     stub = LoadBalancerSlsStub(deployed)
     kwargs = _map_body_to_params(func, body)
 
+    routing = getattr(func, "__remote_config__", None)
+    route_label = (
+        f"{routing['method']} {routing['path']}"
+        if routing and routing.get("method")
+        else func.__name__
+    )
+    log.info(f"{resource_config} | {route_label}")
+
     try:
-        return await stub(func, None, None, False, **kwargs)
+        result = await stub(func, None, None, False, **kwargs)
+        log.info(f"{resource_config} | Execution complete")
+        return result
     except TimeoutError as e:
         raise HTTPException(status_code=504, detail=str(e))
     except ConnectionError as e:
