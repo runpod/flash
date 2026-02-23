@@ -1,10 +1,9 @@
-"""Unit tests for flash deploy CLI commands (async + console aware)."""
+"""Unit tests for flash deploy CLI command."""
 
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from rich.panel import Panel
-from rich.table import Table
 from typer.testing import CliRunner
 
 from runpod_flash.cli.main import app
@@ -25,369 +24,418 @@ def patched_console():
         yield mock_console
 
 
-class TestDeployList:
+def _make_flash_app(**kwargs):
+    """Create a MagicMock flash app with common async methods."""
+    flash_app = MagicMock()
+    flash_app.upload_build = AsyncMock(return_value={"id": "build-123"})
+    flash_app.get_environment_by_name = AsyncMock()
+    for key, value in kwargs.items():
+        setattr(flash_app, key, value)
+    return flash_app
+
+
+class TestDeployCommand:
+    @patch(
+        "runpod_flash.cli.commands.deploy.deploy_from_uploaded_build",
+        new_callable=AsyncMock,
+    )
+    @patch(
+        "runpod_flash.cli.commands.deploy.validate_local_manifest",
+        return_value={"resources": {}},
+    )
     @patch(
         "runpod_flash.cli.commands.deploy.FlashApp.from_name", new_callable=AsyncMock
     )
-    def test_list_environments_empty(
-        self, mock_from_name, runner, mock_asyncio_run_coro, patched_console
-    ):
-        flash_app = MagicMock()
-        flash_app.list_environments = AsyncMock(return_value=[])
-        mock_from_name.return_value = flash_app
-
-        with patch(
-            "runpod_flash.cli.commands.deploy.asyncio.run",
-            side_effect=mock_asyncio_run_coro,
-        ):
-            result = runner.invoke(app, ["deploy", "list", "--app-name", "demo"])
-
-        assert result.exit_code == 0
-        patched_console.print.assert_called_with("No environments found for 'demo'.")
-        mock_from_name.assert_awaited_once_with("demo")
-
-    @patch(
-        "runpod_flash.cli.commands.deploy.FlashApp.from_name", new_callable=AsyncMock
-    )
-    def test_list_environments_with_data(
-        self, mock_from_name, runner, mock_asyncio_run_coro, patched_console
-    ):
-        flash_app = MagicMock()
-        flash_app.list_environments = AsyncMock(
-            return_value=[
-                {
-                    "id": "env-1",
-                    "name": "dev",
-                    "activeBuildId": "build-1",
-                    "createdAt": "2024-01-01",
-                }
-            ]
-        )
-        mock_from_name.return_value = flash_app
-
-        with patch(
-            "runpod_flash.cli.commands.deploy.asyncio.run",
-            side_effect=mock_asyncio_run_coro,
-        ):
-            result = runner.invoke(app, ["deploy", "list", "--app-name", "demo"])
-
-        assert result.exit_code == 0
-        table = patched_console.print.call_args_list[-1].args[0]
-        assert isinstance(table, Table)
-        assert table.columns[0]._cells[0] == "dev"
-        assert table.columns[2]._cells[0] == "build-1"
-
+    @patch("runpod_flash.cli.commands.deploy.run_build")
     @patch("runpod_flash.cli.commands.deploy.discover_flash_project")
-    @patch(
-        "runpod_flash.cli.commands.deploy.FlashApp.from_name", new_callable=AsyncMock
-    )
-    def test_list_envs_uses_discovery(
+    def test_deploy_single_env_auto_selects(
         self,
-        mock_from_name,
         mock_discover,
-        runner,
-        mock_asyncio_run_coro,
-        patched_console,
-    ):
-        mock_discover.return_value = ("/tmp/project", "derived")
-        flash_app = MagicMock()
-        flash_app.list_environments = AsyncMock(return_value=[])
-        mock_from_name.return_value = flash_app
-
-        with patch(
-            "runpod_flash.cli.commands.deploy.asyncio.run",
-            side_effect=mock_asyncio_run_coro,
-        ):
-            result = runner.invoke(app, ["deploy", "list"])
-
-        assert result.exit_code == 0
-        mock_discover.assert_called_once()
-        mock_from_name.assert_awaited_once_with("derived")
-
-
-class TestDeployNew:
-    @patch(
-        "runpod_flash.cli.commands.deploy.FlashApp.create_environment_and_app",
-        new_callable=AsyncMock,
-    )
-    def test_new_environment_success(
-        self, mock_create, runner, mock_asyncio_run_coro, patched_console
-    ):
-        mock_app = MagicMock()
-        mock_app.id = "app-1"
-        mock_env = {
-            "id": "env-123",
-            "name": "dev",
-            "state": "PENDING",
-            "createdAt": "now",
-        }
-        mock_create.return_value = (mock_app, mock_env)
-
-        with patch(
-            "runpod_flash.cli.commands.deploy.asyncio.run",
-            side_effect=mock_asyncio_run_coro,
-        ):
-            result = runner.invoke(app, ["deploy", "new", "dev", "--app-name", "demo"])
-
-        assert result.exit_code == 0
-        mock_create.assert_awaited_once_with("demo", "dev")
-        panel = patched_console.print.call_args_list[0].args[0]
-        assert isinstance(panel, Panel)
-        assert "[bold]dev[/bold]" in panel.renderable
-        table = patched_console.print.call_args_list[1].args[0]
-        assert isinstance(table, Table)
-
-
-class TestDeployInfo:
-    @patch(
-        "runpod_flash.cli.commands.deploy.FlashApp.from_name", new_callable=AsyncMock
-    )
-    def test_info_includes_children(
-        self, mock_from_name, runner, mock_asyncio_run_coro, patched_console
-    ):
-        flash_app = MagicMock()
-        flash_app.get_environment_by_name = AsyncMock(
-            return_value={
-                "id": "env-1",
-                "name": "dev",
-                "state": "HEALTHY",
-                "activeBuildId": "build-9",
-                "createdAt": "today",
-                "endpoints": [{"name": "http", "id": "ep-1"}],
-                "networkVolumes": [{"name": "nv", "id": "nv-1"}],
-            }
-        )
-        mock_from_name.return_value = flash_app
-
-        with patch(
-            "runpod_flash.cli.commands.deploy.asyncio.run",
-            side_effect=mock_asyncio_run_coro,
-        ):
-            result = runner.invoke(app, ["deploy", "info", "dev", "--app-name", "demo"])
-
-        assert result.exit_code == 0
-        panel = patched_console.print.call_args_list[0].args[0]
-        assert isinstance(panel, Panel)
-        endpoint_table = patched_console.print.call_args_list[1].args[0]
-        network_table = patched_console.print.call_args_list[2].args[0]
-        assert isinstance(endpoint_table, Table)
-        assert isinstance(network_table, Table)
-
-    @patch(
-        "runpod_flash.cli.commands.deploy.FlashApp.from_name", new_callable=AsyncMock
-    )
-    def test_info_without_children(
-        self, mock_from_name, runner, mock_asyncio_run_coro, patched_console
-    ):
-        flash_app = MagicMock()
-        flash_app.get_environment_by_name = AsyncMock(
-            return_value={
-                "id": "env-1",
-                "name": "dev",
-                "state": "PENDING",
-                "activeBuildId": None,
-                "createdAt": None,
-                "endpoints": [],
-                "networkVolumes": [],
-            }
-        )
-        mock_from_name.return_value = flash_app
-
-        with patch(
-            "runpod_flash.cli.commands.deploy.asyncio.run",
-            side_effect=mock_asyncio_run_coro,
-        ):
-            result = runner.invoke(app, ["deploy", "info", "dev", "--app-name", "demo"])
-
-        assert result.exit_code == 0
-        # Only the panel should be printed when there are no child resources
-        assert len(patched_console.print.call_args_list) == 1
-        assert isinstance(patched_console.print.call_args.args[0], Panel)
-
-
-class TestDeployDelete:
-    @patch(
-        "runpod_flash.cli.commands.deploy._fetch_environment_info",
-        new_callable=AsyncMock,
-    )
-    @patch("runpod_flash.cli.commands.deploy.questionary")
-    @patch(
-        "runpod_flash.cli.commands.deploy.FlashApp.from_name", new_callable=AsyncMock
-    )
-    def test_delete_environment_success(
-        self,
+        mock_build,
         mock_from_name,
-        mock_questionary,
-        mock_fetch_env,
+        mock_validate,
+        mock_deploy,
         runner,
         mock_asyncio_run_coro,
         patched_console,
     ):
-        # Mock environment info fetch
-        mock_fetch_env.return_value = {
-            "id": "env-1",
-            "name": "dev",
-            "activeBuildId": "build-1",
-        }
+        mock_discover.return_value = (Path("/tmp/project"), "my-app")
+        mock_build.return_value = Path("/tmp/project/.flash/artifact.tar.gz")
+        mock_deploy.return_value = {"success": True}
 
-        flash_app = MagicMock()
-        flash_app.get_environment_by_name = AsyncMock(
-            return_value=mock_fetch_env.return_value
+        flash_app = _make_flash_app(
+            list_environments=AsyncMock(
+                return_value=[{"name": "production", "id": "env-1"}]
+            ),
         )
-        flash_app.delete_environment = AsyncMock(return_value=True)
         mock_from_name.return_value = flash_app
-
-        confirm = MagicMock()
-        confirm.ask.return_value = True
-        mock_questionary.confirm.return_value = confirm
-
-        with patch(
-            "runpod_flash.cli.commands.deploy.asyncio.run",
-            side_effect=mock_asyncio_run_coro,
-        ):
-            result = runner.invoke(
-                app, ["deploy", "delete", "dev", "--app-name", "demo"]
-            )
-
-        assert result.exit_code == 0
-        # Verify environment info was fetched first
-        mock_fetch_env.assert_awaited_once_with("demo", "dev")
-        # Verify questionary was called
-        mock_questionary.confirm.assert_called_once()
-        # Verify deletion was performed
-        flash_app.delete_environment.assert_awaited_once_with("dev")
-        patched_console.print.assert_any_call(
-            "✅ Environment 'dev' deleted successfully"
-        )
-
-    @patch(
-        "runpod_flash.cli.commands.deploy._fetch_environment_info",
-        new_callable=AsyncMock,
-    )
-    @patch("runpod_flash.cli.commands.deploy.questionary")
-    @patch(
-        "runpod_flash.cli.commands.deploy.FlashApp.from_name", new_callable=AsyncMock
-    )
-    def test_delete_environment_cancelled(
-        self,
-        mock_from_name,
-        mock_questionary,
-        mock_fetch_env,
-        runner,
-        mock_asyncio_run_coro,
-        patched_console,
-    ):
-        mock_fetch_env.return_value = {
-            "id": "env-1",
-            "name": "dev",
-            "activeBuildId": None,
-        }
-
-        flash_app = MagicMock()
-        mock_from_name.return_value = flash_app
-
-        confirm = MagicMock()
-        confirm.ask.return_value = False
-        mock_questionary.confirm.return_value = confirm
-
-        with patch(
-            "runpod_flash.cli.commands.deploy.asyncio.run",
-            side_effect=mock_asyncio_run_coro,
-        ):
-            result = runner.invoke(
-                app, ["deploy", "delete", "dev", "--app-name", "demo"]
-            )
-
-        assert result.exit_code == 0
-        mock_questionary.confirm.assert_called_once()
-        # Delete should NOT be called when cancelled
-        flash_app.delete_environment.assert_not_called()
-        patched_console.print.assert_any_call("Deletion cancelled")
-
-    @patch(
-        "runpod_flash.cli.commands.deploy._fetch_environment_info",
-        new_callable=AsyncMock,
-    )
-    @patch("runpod_flash.cli.commands.deploy.questionary")
-    @patch(
-        "runpod_flash.cli.commands.deploy.FlashApp.from_name", new_callable=AsyncMock
-    )
-    def test_delete_environment_failure(
-        self,
-        mock_from_name,
-        mock_questionary,
-        mock_fetch_env,
-        runner,
-        mock_asyncio_run_coro,
-        patched_console,
-    ):
-        mock_fetch_env.return_value = {
-            "id": "env-1",
-            "name": "dev",
-            "activeBuildId": None,
-        }
-
-        flash_app = MagicMock()
-        flash_app.get_environment_by_name = AsyncMock(
-            return_value=mock_fetch_env.return_value
-        )
-        flash_app.delete_environment = AsyncMock(return_value=False)
-        mock_from_name.return_value = flash_app
-
-        confirm = MagicMock()
-        confirm.ask.return_value = True
-        mock_questionary.confirm.return_value = confirm
-
-        with patch(
-            "runpod_flash.cli.commands.deploy.asyncio.run",
-            side_effect=mock_asyncio_run_coro,
-        ):
-            result = runner.invoke(
-                app, ["deploy", "delete", "dev", "--app-name", "demo"]
-            )
-
-        assert result.exit_code == 1
-        flash_app.delete_environment.assert_awaited_once_with("dev")
-        patched_console.print.assert_any_call("❌ Failed to delete environment 'dev'")
-
-
-class TestDeploySend:
-    @patch(
-        "runpod_flash.cli.commands.deploy.deploy_to_environment", new_callable=AsyncMock
-    )
-    def test_send_success(
-        self, mock_deploy, runner, mock_asyncio_run_coro, patched_console
-    ):
-        build_path = MagicMock()
-        build_path.exists.return_value = True
 
         with (
-            patch("runpod_flash.cli.commands.deploy.Path", return_value=build_path),
             patch(
                 "runpod_flash.cli.commands.deploy.asyncio.run",
                 side_effect=mock_asyncio_run_coro,
             ),
+            patch("runpod_flash.cli.commands.deploy.shutil"),
         ):
-            result = runner.invoke(
-                app,
-                ["deploy", "send", "dev", "--app-name", "demo"],
-            )
+            result = runner.invoke(app, ["deploy"])
+
+        assert result.exit_code == 0
+        mock_build.assert_called_once()
+        mock_deploy.assert_awaited_once()
+
+    @patch(
+        "runpod_flash.cli.commands.deploy.deploy_from_uploaded_build",
+        new_callable=AsyncMock,
+    )
+    @patch(
+        "runpod_flash.cli.commands.deploy.validate_local_manifest",
+        return_value={"resources": {}},
+    )
+    @patch(
+        "runpod_flash.cli.commands.deploy.FlashApp.from_name", new_callable=AsyncMock
+    )
+    @patch("runpod_flash.cli.commands.deploy.run_build")
+    @patch("runpod_flash.cli.commands.deploy.discover_flash_project")
+    def test_deploy_with_explicit_env(
+        self,
+        mock_discover,
+        mock_build,
+        mock_from_name,
+        mock_validate,
+        mock_deploy,
+        runner,
+        mock_asyncio_run_coro,
+        patched_console,
+    ):
+        mock_discover.return_value = (Path("/tmp/project"), "my-app")
+        mock_build.return_value = Path("/tmp/project/.flash/artifact.tar.gz")
+        mock_deploy.return_value = {"success": True}
+
+        flash_app = _make_flash_app(
+            list_environments=AsyncMock(
+                return_value=[
+                    {"name": "staging", "id": "env-1"},
+                    {"name": "production", "id": "env-2"},
+                ]
+            ),
+        )
+        mock_from_name.return_value = flash_app
+
+        with (
+            patch(
+                "runpod_flash.cli.commands.deploy.asyncio.run",
+                side_effect=mock_asyncio_run_coro,
+            ),
+            patch("runpod_flash.cli.commands.deploy.shutil"),
+        ):
+            result = runner.invoke(app, ["deploy", "--env", "staging"])
 
         assert result.exit_code == 0
         mock_deploy.assert_awaited_once()
-        panel = patched_console.print.call_args_list[-1].args[0]
-        assert isinstance(panel, Panel)
-        assert panel.title == "Deployment Complete"
+        call_args = mock_deploy.call_args
+        assert call_args[0][2] == "staging"  # env_name
 
-    def test_send_missing_build_path_errors(self, runner):
-        missing_path = MagicMock()
-        missing_path.exists.return_value = False
+    @patch(
+        "runpod_flash.cli.commands.deploy.FlashApp.from_name", new_callable=AsyncMock
+    )
+    @patch("runpod_flash.cli.commands.deploy.run_build")
+    @patch("runpod_flash.cli.commands.deploy.discover_flash_project")
+    def test_deploy_multiple_envs_no_flag_errors(
+        self,
+        mock_discover,
+        mock_build,
+        mock_from_name,
+        runner,
+        mock_asyncio_run_coro,
+        patched_console,
+    ):
+        mock_discover.return_value = (Path("/tmp/project"), "my-app")
+        mock_build.return_value = Path("/tmp/project/.flash/artifact.tar.gz")
 
-        with patch("runpod_flash.cli.commands.deploy.Path", return_value=missing_path):
-            result = runner.invoke(
-                app,
-                ["deploy", "send", "dev", "--app-name", "demo"],
-            )
+        flash_app = _make_flash_app(
+            list_environments=AsyncMock(
+                return_value=[
+                    {"name": "staging", "id": "env-1"},
+                    {"name": "production", "id": "env-2"},
+                ]
+            ),
+        )
+        mock_from_name.return_value = flash_app
+
+        with patch(
+            "runpod_flash.cli.commands.deploy.asyncio.run",
+            side_effect=mock_asyncio_run_coro,
+        ):
+            result = runner.invoke(app, ["deploy"])
 
         assert result.exit_code == 1
-        assert "no build path found" in result.stdout.lower()
+
+    @patch(
+        "runpod_flash.cli.commands.deploy.FlashApp.create_environment_and_app",
+        new_callable=AsyncMock,
+    )
+    @patch(
+        "runpod_flash.cli.commands.deploy.FlashApp.from_name", new_callable=AsyncMock
+    )
+    @patch(
+        "runpod_flash.cli.commands.deploy.deploy_from_uploaded_build",
+        new_callable=AsyncMock,
+    )
+    @patch(
+        "runpod_flash.cli.commands.deploy.validate_local_manifest",
+        return_value={"resources": {}},
+    )
+    @patch("runpod_flash.cli.commands.deploy.run_build")
+    @patch("runpod_flash.cli.commands.deploy.discover_flash_project")
+    def test_deploy_no_app_creates_app_and_env(
+        self,
+        mock_discover,
+        mock_build,
+        mock_validate,
+        mock_deploy,
+        mock_from_name,
+        mock_create,
+        runner,
+        mock_asyncio_run_coro,
+        patched_console,
+    ):
+        mock_discover.return_value = (Path("/tmp/project"), "my-app")
+        mock_build.return_value = Path("/tmp/project/.flash/artifact.tar.gz")
+        mock_deploy.return_value = {"success": True}
+        mock_from_name.side_effect = Exception("GraphQL errors: app not found")
+
+        created_app = _make_flash_app()
+        mock_create.return_value = (created_app, {"id": "env-1", "name": "production"})
+
+        with (
+            patch(
+                "runpod_flash.cli.commands.deploy.asyncio.run",
+                side_effect=mock_asyncio_run_coro,
+            ),
+            patch("runpod_flash.cli.commands.deploy.shutil"),
+        ):
+            result = runner.invoke(app, ["deploy"])
+
+        assert result.exit_code == 0
+        mock_create.assert_awaited_once_with("my-app", "production")
+
+    @patch(
+        "runpod_flash.cli.commands.deploy.FlashApp.from_name", new_callable=AsyncMock
+    )
+    @patch("runpod_flash.cli.commands.deploy.run_build")
+    @patch("runpod_flash.cli.commands.deploy.discover_flash_project")
+    def test_deploy_non_app_error_propagates(
+        self,
+        mock_discover,
+        mock_build,
+        mock_from_name,
+        runner,
+        mock_asyncio_run_coro,
+        patched_console,
+    ):
+        """Non 'app not found' errors should propagate, not trigger auto-create."""
+        mock_discover.return_value = (Path("/tmp/project"), "my-app")
+        mock_build.return_value = Path("/tmp/project/.flash/artifact.tar.gz")
+        mock_from_name.side_effect = Exception("GraphQL errors: authentication failed")
+
+        with patch(
+            "runpod_flash.cli.commands.deploy.asyncio.run",
+            side_effect=mock_asyncio_run_coro,
+        ):
+            result = runner.invoke(app, ["deploy"])
+
+        assert result.exit_code == 1
+
+    @patch(
+        "runpod_flash.cli.commands.deploy.deploy_from_uploaded_build",
+        new_callable=AsyncMock,
+    )
+    @patch(
+        "runpod_flash.cli.commands.deploy.validate_local_manifest",
+        return_value={"resources": {}},
+    )
+    @patch(
+        "runpod_flash.cli.commands.deploy.FlashApp.from_name", new_callable=AsyncMock
+    )
+    @patch("runpod_flash.cli.commands.deploy.run_build")
+    @patch("runpod_flash.cli.commands.deploy.discover_flash_project")
+    def test_deploy_auto_creates_nonexistent_env(
+        self,
+        mock_discover,
+        mock_build,
+        mock_from_name,
+        mock_validate,
+        mock_deploy,
+        runner,
+        mock_asyncio_run_coro,
+        patched_console,
+    ):
+        mock_discover.return_value = (Path("/tmp/project"), "my-app")
+        mock_build.return_value = Path("/tmp/project/.flash/artifact.tar.gz")
+        mock_deploy.return_value = {"success": True}
+
+        flash_app = _make_flash_app(
+            list_environments=AsyncMock(
+                return_value=[{"name": "production", "id": "env-1"}]
+            ),
+            create_environment=AsyncMock(),
+        )
+        mock_from_name.return_value = flash_app
+
+        with (
+            patch(
+                "runpod_flash.cli.commands.deploy.asyncio.run",
+                side_effect=mock_asyncio_run_coro,
+            ),
+            patch("runpod_flash.cli.commands.deploy.shutil"),
+        ):
+            result = runner.invoke(app, ["deploy", "--env", "staging"])
+
+        assert result.exit_code == 0
+        flash_app.create_environment.assert_awaited_once_with("staging")
+
+    @patch(
+        "runpod_flash.cli.commands.deploy.deploy_from_uploaded_build",
+        new_callable=AsyncMock,
+    )
+    @patch(
+        "runpod_flash.cli.commands.deploy.validate_local_manifest",
+        return_value={"resources": {}},
+    )
+    @patch(
+        "runpod_flash.cli.commands.deploy.FlashApp.from_name", new_callable=AsyncMock
+    )
+    @patch("runpod_flash.cli.commands.deploy.run_build")
+    @patch("runpod_flash.cli.commands.deploy.discover_flash_project")
+    def test_deploy_zero_envs_creates_production(
+        self,
+        mock_discover,
+        mock_build,
+        mock_from_name,
+        mock_validate,
+        mock_deploy,
+        runner,
+        mock_asyncio_run_coro,
+        patched_console,
+    ):
+        mock_discover.return_value = (Path("/tmp/project"), "my-app")
+        mock_build.return_value = Path("/tmp/project/.flash/artifact.tar.gz")
+        mock_deploy.return_value = {"success": True}
+
+        flash_app = _make_flash_app(
+            list_environments=AsyncMock(return_value=[]),
+            create_environment=AsyncMock(),
+        )
+        mock_from_name.return_value = flash_app
+
+        with (
+            patch(
+                "runpod_flash.cli.commands.deploy.asyncio.run",
+                side_effect=mock_asyncio_run_coro,
+            ),
+            patch("runpod_flash.cli.commands.deploy.shutil"),
+        ):
+            result = runner.invoke(app, ["deploy"])
+
+        assert result.exit_code == 0
+        flash_app.create_environment.assert_awaited_once_with("production")
+
+    @patch(
+        "runpod_flash.cli.commands.deploy.deploy_from_uploaded_build",
+        new_callable=AsyncMock,
+    )
+    @patch(
+        "runpod_flash.cli.commands.deploy.validate_local_manifest",
+        return_value={"resources": {}},
+    )
+    @patch(
+        "runpod_flash.cli.commands.deploy.FlashApp.from_name", new_callable=AsyncMock
+    )
+    @patch("runpod_flash.cli.commands.deploy.run_build")
+    @patch("runpod_flash.cli.commands.deploy.discover_flash_project")
+    def test_deploy_shows_completion_panel(
+        self,
+        mock_discover,
+        mock_build,
+        mock_from_name,
+        mock_validate,
+        mock_deploy,
+        runner,
+        mock_asyncio_run_coro,
+        patched_console,
+    ):
+        mock_discover.return_value = (Path("/tmp/project"), "my-app")
+        mock_build.return_value = Path("/tmp/project/.flash/artifact.tar.gz")
+        mock_deploy.return_value = {"success": True}
+
+        flash_app = _make_flash_app(
+            list_environments=AsyncMock(
+                return_value=[{"name": "production", "id": "env-1"}]
+            ),
+        )
+        mock_from_name.return_value = flash_app
+
+        with (
+            patch(
+                "runpod_flash.cli.commands.deploy.asyncio.run",
+                side_effect=mock_asyncio_run_coro,
+            ),
+            patch("runpod_flash.cli.commands.deploy.shutil"),
+        ):
+            result = runner.invoke(app, ["deploy"])
+
+        assert result.exit_code == 0
+        # Check that post-deployment guidance was displayed
+        printed_output = [
+            str(call.args[0]) if call.args else ""
+            for call in patched_console.print.call_args_list
+        ]
+        guidance_text = " ".join(printed_output)
+        assert "Useful commands:" in guidance_text
+
+    @patch(
+        "runpod_flash.cli.commands.deploy.deploy_from_uploaded_build",
+        new_callable=AsyncMock,
+    )
+    @patch(
+        "runpod_flash.cli.commands.deploy.validate_local_manifest",
+        return_value={"resources": {}},
+    )
+    @patch(
+        "runpod_flash.cli.commands.deploy.FlashApp.from_name", new_callable=AsyncMock
+    )
+    @patch("runpod_flash.cli.commands.deploy.run_build")
+    @patch("runpod_flash.cli.commands.deploy.discover_flash_project")
+    def test_deploy_uses_app_flag(
+        self,
+        mock_discover,
+        mock_build,
+        mock_from_name,
+        mock_validate,
+        mock_deploy,
+        runner,
+        mock_asyncio_run_coro,
+        patched_console,
+    ):
+        mock_discover.return_value = (Path("/tmp/project"), "default-app")
+        mock_build.return_value = Path("/tmp/project/.flash/artifact.tar.gz")
+        mock_deploy.return_value = {"success": True}
+
+        flash_app = _make_flash_app(
+            list_environments=AsyncMock(
+                return_value=[{"name": "production", "id": "env-1"}]
+            ),
+        )
+        mock_from_name.return_value = flash_app
+
+        with (
+            patch(
+                "runpod_flash.cli.commands.deploy.asyncio.run",
+                side_effect=mock_asyncio_run_coro,
+            ),
+            patch("runpod_flash.cli.commands.deploy.shutil"),
+        ):
+            result = runner.invoke(app, ["deploy", "--app", "custom-app"])
+
+        assert result.exit_code == 0
+        mock_from_name.assert_awaited_once_with("custom-app")

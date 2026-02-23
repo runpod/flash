@@ -11,6 +11,40 @@ from .stubs import stub_resource
 log = logging.getLogger(__name__)
 
 
+def _should_execute_locally(func_name: str) -> bool:
+    """Determine if a @remote function should execute locally or create a stub.
+
+    Uses build-time generated configuration to make this decision.
+
+    Args:
+        func_name: Name of the function being decorated
+
+    Returns:
+        True if function should execute locally, False if stub should be created
+    """
+    # Check if we're in a deployed environment
+    runpod_endpoint_id = os.getenv("RUNPOD_ENDPOINT_ID")
+    runpod_pod_id = os.getenv("RUNPOD_POD_ID")
+
+    if not runpod_endpoint_id and not runpod_pod_id:
+        # Local development - create stub for remote execution via ResourceManager
+        return False
+
+    # In deployed environment - check build-time generated configuration
+    try:
+        from .runtime._flash_resource_config import is_local_function
+
+        result = is_local_function(func_name)
+        return result
+    except ImportError as e:
+        # Configuration not generated (shouldn't happen in deployed env)
+        # Fall back to safe default: execute locally
+        log.warning(
+            f"Resource configuration import failed for {func_name}: {e}, defaulting to local execution"
+        )
+        return True
+
+
 def remote(
     resource_config: ServerlessResource,
     dependencies: Optional[List[str]] = None,
@@ -125,9 +159,18 @@ def remote(
             "system_dependencies": system_dependencies,
         }
 
-        if os.getenv("RUNPOD_POD_ID") or os.getenv("RUNPOD_ENDPOINT_ID"):
-            # Worker mode when running on RunPod platform
+        # LB route handler passthrough — return the function unwrapped.
+        #
+        # When @remote is applied to an LB resource (LiveLoadBalancer,
+        # CpuLiveLoadBalancer, LoadBalancerSlsResource) with method= and path=,
+        # the decorated function IS the HTTP route handler. Its body executes
+        # directly on the LB endpoint server; it is not dispatched to a remote
+        # process. QB @remote calls inside its body still use their own stubs.
+        is_lb_route_handler = is_lb_resource and method is not None and path is not None
+        if is_lb_route_handler:
+            routing_config["is_lb_route_handler"] = True
             func_or_class.__remote_config__ = routing_config
+            func_or_class.__is_lb_route_handler__ = True
             return func_or_class
 
         # Local execution mode - execute without provisioning remote servers
@@ -135,7 +178,22 @@ def remote(
             func_or_class.__remote_config__ = routing_config
             return func_or_class
 
-        # Remote execution mode
+        # Determine if we should execute locally or create a stub
+        # Uses build-time generated configuration in deployed environments
+        func_name = (
+            func_or_class.__name__
+            if not inspect.isclass(func_or_class)
+            else func_or_class.__name__
+        )
+        should_execute_local = _should_execute_locally(func_name)
+
+        if should_execute_local:
+            # This function belongs to our resource - execute locally
+            func_or_class.__remote_config__ = routing_config
+            return func_or_class
+
+        # Remote execution mode - create stub for calling other endpoints
+
         if inspect.isclass(func_or_class):
             # Handle class decoration
             wrapped_class = create_remote_class(

@@ -392,7 +392,7 @@ class TestLoadBalancerSlsResourceDeployment:
 
     @pytest.mark.asyncio
     async def test_do_deploy_success(self):
-        """Test successful deployment with health check."""
+        """Test successful deployment without health check blocking."""
         resource = LoadBalancerSlsResource(
             name="test",
             imageName="image",
@@ -409,7 +409,7 @@ class TestLoadBalancerSlsResourceDeployment:
                 LoadBalancerSlsResource, "is_deployed", MagicMock(return_value=False)
             ),
             patch.object(
-                resource, "_wait_for_health", new_callable=AsyncMock, return_value=True
+                resource, "_wait_for_health", new_callable=AsyncMock
             ) as mock_wait,
             patch.object(
                 ServerlessResource,
@@ -421,38 +421,8 @@ class TestLoadBalancerSlsResourceDeployment:
             result = await resource._do_deploy()
 
             assert result == mock_deployed
-            mock_wait.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_do_deploy_health_check_timeout(self):
-        """Test deployment fails if health check times out."""
-        resource = LoadBalancerSlsResource(
-            name="test",
-            imageName="image",
-        )
-
-        mock_deployed = LoadBalancerSlsResource(
-            name="test",
-            imageName="image",
-            id="new-endpoint-id",
-        )
-
-        with (
-            patch.object(
-                LoadBalancerSlsResource, "is_deployed", MagicMock(return_value=False)
-            ),
-            patch.object(
-                resource, "_wait_for_health", new_callable=AsyncMock, return_value=False
-            ),
-            patch.object(
-                ServerlessResource,
-                "_do_deploy",
-                new_callable=AsyncMock,
-                return_value=mock_deployed,
-            ),
-        ):
-            with pytest.raises(TimeoutError, match="failed to become healthy"):
-                await resource._do_deploy()
+            # Health check should not be called during deployment
+            mock_wait.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_do_deploy_parent_deploy_failure(self):

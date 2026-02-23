@@ -185,10 +185,8 @@ class FlashApp:
         """
         async with self._hydrate_lock:
             if self._hydrated:
-                log.debug("App is already hydrated while calling hydrate. Returning")
                 return
 
-            log.debug("Hydrating app")
             async with RunpodGraphQLClient() as client:
                 try:
                     result = await client.get_flash_app_by_name(self.name)
@@ -337,11 +335,16 @@ class FlashApp:
             ValueError: If environment has no active artifact
             requests.HTTPError: If download fails
         """
+        from runpod_flash.core.utils.user_agent import get_user_agent
+
         await self._hydrate()
         result = await self._get_active_artifact(environment_id)
         url = result["downloadUrl"]
+
+        headers = {"User-Agent": get_user_agent()}
+
         with open(dest_file, "wb") as stream:
-            with requests.get(url, stream=True) as resp:
+            with requests.get(url, stream=True, headers=headers) as resp:
                 resp.raise_for_status()
                 for chunk in resp.iter_content():
                     if chunk:
@@ -462,6 +465,8 @@ class FlashApp:
         except json.JSONDecodeError as e:
             raise ValueError(f"Invalid manifest JSON at {manifest_path}: {e}") from e
 
+        from runpod_flash.core.utils.user_agent import get_user_agent
+
         await self._hydrate()
         tarball_size = tar_path.stat().st_size
 
@@ -469,7 +474,10 @@ class FlashApp:
         url = result["uploadUrl"]
         object_key = result["objectKey"]
 
-        headers = {"Content-Type": TARBALL_CONTENT_TYPE}
+        headers = {
+            "User-Agent": get_user_agent(),
+            "Content-Type": TARBALL_CONTENT_TYPE,
+        }
 
         with tar_path.open("rb") as fh:
             resp = requests.put(url, data=fh, headers=headers)

@@ -3,6 +3,7 @@ import os
 from functools import singledispatch
 
 from ..core.resources import (
+    CpuLiveLoadBalancer,
     CpuLiveServerless,
     CpuServerlessEndpoint,
     LiveLoadBalancer,
@@ -41,7 +42,7 @@ def _create_live_serverless_stub(resource, **extra):
         if args == (None,):
             args = []
 
-        request = stub.prepare_request(
+        request = await stub.prepare_request(
             func,
             dependencies,
             system_dependencies,
@@ -189,6 +190,31 @@ def _(resource, **extra):
 @stub_resource.register(LiveLoadBalancer)
 def _(resource, **extra):
     """Create stub for LiveLoadBalancer (HTTP-based execution, local testing)."""
+    stub = LoadBalancerSlsStub(resource)
+
+    async def stubbed_resource(
+        func,
+        dependencies,
+        system_dependencies,
+        accelerate_downloads,
+        *args,
+        **kwargs,
+    ) -> dict:
+        return await stub(
+            func,
+            dependencies,
+            system_dependencies,
+            accelerate_downloads,
+            *args,
+            **kwargs,
+        )
+
+    return stubbed_resource
+
+
+@stub_resource.register(CpuLiveLoadBalancer)
+def _(resource, **extra):
+    """Create stub for CpuLiveLoadBalancer (HTTP-based execution, local testing)."""
     stub = LoadBalancerSlsStub(resource)
 
     async def stubbed_resource(

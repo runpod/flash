@@ -12,6 +12,7 @@ You can find a repository of prebuilt Flash examples at [runpod/flash-examples](
 - [Overview](#overview)
 - [Get started](#get-started)
 - [Create Flash API endpoints](#create-flash-api-endpoints)
+- [CLI Reference](#cli-reference)
 - [Key concepts](#key-concepts)
 - [How it works](#how-it-works)
 - [Advanced features](#advanced-features)
@@ -134,14 +135,13 @@ Computed on: NVIDIA GeForce RTX 4090
 
 ## Create Flash API endpoints
 
-> [!Note]
-> **Flash API endpoints are currently only available for local testing:** Using `flash run` will start the API server on your local machine. Future updates will add the ability to build and deploy API servers for production deployments.
+You can use Flash to deploy and serve API endpoints that compute responses using GPU and CPU Serverless workers. Use `flash run` for local development of `@remote` functions, then `flash deploy` to deploy your full application to Runpod Serverless for production.
 
-You can use Flash to deploy and serve API endpoints that compute responses using GPU and CPU Serverless workers. These endpoints will run scripts using the same Python remote decorators [demonstrated above](#get-started)
+These endpoints use the same Python `@remote` decorators [demonstrated above](#get-started)
 
 ### Step 1: Initialize a new project
 
-Use the `flash init` command to generate a structured project template with a preconfigured FastAPI application entry point.
+Use the `flash init` command to generate a project template with example worker files.
 
 Run this command to initialize a new project directory:
 
@@ -154,36 +154,32 @@ You can also initialize your current directory:
 flash init
 ```
 
+For complete CLI documentation, see the [Flash CLI Reference](src/runpod_flash/cli/docs/README.md).
+
 ### Step 2: Explore the project template
 
 This is the structure of the project template created by `flash init`:
 
 ```txt
 my_project/
-├── main.py                    # FastAPI application entry point
-├── workers/
-│   ├── gpu/                   # GPU worker example
-│   │   ├── __init__.py        # FastAPI router
-│   │   └── endpoint.py        # GPU script @remote decorated function
-│   └── cpu/                   # CPU worker example
-│       ├── __init__.py        # FastAPI router
-│       └── endpoint.py        # CPU script with @remote decorated function
-├── .env               # Environment variable template
+├── gpu_worker.py              # GPU worker with @remote function
+├── cpu_worker.py              # CPU worker with @remote function
+├── .env                       # Environment variable template
 ├── .gitignore                 # Git ignore patterns
 ├── .flashignore               # Flash deployment ignore patterns
-├── requirements.txt           # Python dependencies
+├── pyproject.toml             # Python dependencies (uv/pip compatible)
 └── README.md                  # Project documentation
 ```
 
 This template includes:
 
-- A FastAPI application entry point and routers.
+- Example worker files with `@remote` decorated functions.
 - Templates for Python dependencies, `.env`, `.gitignore`, etc.
-- Flash scripts (`endpoint.py`) for both GPU and CPU workers, which include:
+- Each worker file contains:
     - Pre-configured worker scaling limits using the `LiveServerless()` object.
     - A `@remote` decorated function that returns a response from a worker.
 
-When you start the FastAPI server, it creates API endpoints at `/gpu/hello` and `/cpu/hello`, which call the remote function described in their respective `endpoint.py` files.
+When you run `flash run`, it auto-discovers all `@remote` functions and generates a local development server at `.flash/server.py`. Queue-based workers are exposed at `/{file_prefix}/run_sync` (e.g., `/gpu_worker/run_sync`).
 
 ### Step 3: Install Python dependencies
 
@@ -193,9 +189,11 @@ After initializing the project, navigate into the project directory:
 cd my_project
 ```
 
-Install required dependencies:
+Install required dependencies using uv (recommended) or pip:
 
 ```bash
+uv sync        # recommended
+# or
 pip install -r requirements.txt
 ```
 
@@ -230,12 +228,14 @@ flash run
 Open a new terminal tab or window and test your GPU API using cURL:
 
 ```bash
-curl -X POST http://localhost:8888/gpu/hello \
+curl -X POST http://localhost:8888/gpu_worker/run_sync \
     -H "Content-Type: application/json" \
     -d '{"message": "Hello from the GPU!"}'
 ```
 
 If you switch back to the terminal tab where you used `flash run`, you'll see the details of the job's progress.
+
+For more `flash run` options and configuration, see the [flash run documentation](src/runpod_flash/cli/docs/flash-run.md).
 
 ### Faster testing with auto-provisioning
 
@@ -253,19 +253,74 @@ Besides starting the API server, `flash run` also starts an interactive API expl
 
 To run remote functions in the explorer:
 
-1. Expand one of the functions under **GPU Workers** or **CPU Workers**.
-2. Click **Try it out** and then **Execute**
+1. Expand one of the available endpoints (e.g., `/gpu_worker/run_sync`).
+2. Click **Try it out** and then **Execute**.
 
 You'll get a response from your workers right in the explorer.
 
 ### Step 7: Customize your API
 
-To customize your API endpoint and functionality:
+To customize your API:
 
-1. Add/edit remote functions in your `endpoint.py` files.
-2. Test the scripts individually by running `python endpoint.py`.
-3. Configure your FastAPI routers by editing the `__init__.py` files.
-4. Add any new endpoints to your `main.py` file.
+1. Create new `.py` files with `@remote` decorated functions.
+2. Test the scripts individually by running `python your_worker.py`.
+3. Run `flash run` to auto-discover all `@remote` functions and serve them.
+
+## CLI Reference
+
+Flash provides a command-line interface for project management, development, and deployment:
+
+### Main Commands
+
+- **`flash init`** - Initialize a new Flash project with template structure
+- **`flash run`** - Start local development server to test your `@remote` functions with auto-reload
+- **`flash build`** - Build deployment artifact with all dependencies
+- **`flash deploy`** - Build and deploy your application to Runpod Serverless in one step
+
+### Management Commands
+
+- **`flash env`** - Manage deployment environments (dev, staging, production)
+  - `list`, `create`, `get`, `delete` subcommands
+- **`flash app`** - Manage Flash applications (top-level organization)
+  - `list`, `create`, `get`, `delete` subcommands
+- **`flash undeploy`** - Manage and remove deployed endpoints
+
+### Quick Examples
+
+```bash
+# Initialize and run locally
+flash init my-project
+cd my-project
+flash run --auto-provision
+
+# Build and deploy to production
+flash build
+flash deploy --env production
+
+# Manage environments
+flash env create staging
+flash env list
+flash deploy --env staging
+
+# Clean up
+flash undeploy --interactive
+flash env delete staging
+```
+
+### Complete Documentation
+
+For complete CLI documentation including all options, examples, and troubleshooting:
+
+**[Flash CLI Documentation](src/runpod_flash/cli/docs/README.md)**
+
+Individual command references:
+- [flash init](src/runpod_flash/cli/docs/flash-init.md) - Project initialization
+- [flash run](src/runpod_flash/cli/docs/flash-run.md) - Development server
+- [flash build](src/runpod_flash/cli/docs/flash-build.md) - Build artifacts
+- [flash deploy](src/runpod_flash/cli/docs/flash-deploy.md) - Deployment
+- [flash env](src/runpod_flash/cli/docs/flash-env.md) - Environment management
+- [flash app](src/runpod_flash/cli/docs/flash-app.md) - App management
+- [flash undeploy](src/runpod_flash/cli/docs/flash-undeploy.md) - Endpoint removal
 
 ## Key concepts
 
@@ -448,11 +503,11 @@ When you run `flash build`, the following happens:
 
 Flash automatically handles cross-platform builds, ensuring your deployments work correctly regardless of your development platform:
 
-- **Automatic Platform Targeting**: Dependencies are installed for Linux x86_64 (RunPod's serverless platform), even when building on macOS or Windows
+- **Automatic Platform Targeting**: Dependencies are installed for Linux x86_64 (Runpod's serverless platform), even when building on macOS or Windows
 - **Python Version Matching**: The build uses your current Python version to ensure package compatibility
 - **Binary Wheel Enforcement**: Only pre-built binary wheels are used, preventing platform-specific compilation issues
 
-This means you can build on macOS ARM64, Windows, or any other platform, and the resulting package will run correctly on RunPod serverless.
+This means you can build on macOS ARM64, Windows, or any other platform, and the resulting package will run correctly on Runpod serverless.
 
 #### Cross-Endpoint Function Calls
 
@@ -481,7 +536,7 @@ After `flash build` completes:
 - `.flash/artifact.tar.gz`: Deployment package
 - `.flash/flash_manifest.json`: Service discovery configuration
 
-For information on load-balanced endpoints (required for Mothership and HTTP services), see [docs/Load_Balancer_Endpoints.md](docs/Load_Balancer_Endpoints.md).
+For information on load-balanced endpoints (required for HTTP services), see [docs/Load_Balancer_Endpoints.md](docs/Load_Balancer_Endpoints.md).
 
 #### Troubleshooting Build Issues
 
@@ -504,7 +559,7 @@ For information on load-balanced endpoints (required for Mothership and HTTP ser
 
 #### Managing Bundle Size
 
-RunPod serverless has a **500MB deployment limit**. Exceeding this limit will cause deployment failures.
+Runpod serverless has a **500MB deployment limit**. Exceeding this limit will cause deployment failures.
 
 Use `--exclude` to skip packages already in your worker-flash Docker image:
 
@@ -535,7 +590,7 @@ The following parameters can be used with `LiveServerless` (full remote code exe
 | `gpuCount`         | Number of GPUs per worker                       | 1             | 1, 2, 4                             |
 | `workersMin`       | Minimum number of workers                       | 0             | Set to 1 for persistence            |
 | `workersMax`       | Maximum number of workers                       | 3             | Higher for more concurrency         |
-| `idleTimeout`      | Minutes before scaling down                     | 5             | 10, 30, 60                          |
+| `idleTimeout`      | Seconds before scaling down                     | 60            | 300, 600, 1800                      |
 | `env`              | Environment variables                           | `None`        | `{"HF_TOKEN": "xyz"}`               |
 | `networkVolumeId`  | Persistent storage ID                           | `None`        | `"vol_abc123"`                      |
 | `executionTimeoutMs`| Max execution time (ms)                        | 0 (no limit)  | 600000 (10 min)                     |
@@ -588,6 +643,25 @@ Some common GPU groups available through `GpuGroup`:
 - `CpuInstanceType.CPU5C_2_4` - (cpu5c-2-4) 5th gen compute-optimized, 2 vCPU, 4GB RAM
 - `CpuInstanceType.CPU5C_4_8` - (cpu5c-4-8) 5th gen compute-optimized, 4 vCPU, 8GB RAM
 - `CpuInstanceType.CPU5C_8_16` - (cpu5c-8-16) 5th gen compute-optimized, 8 vCPU, 16GB RAM
+
+### Logging
+
+Flash automatically logs CLI activity to local files during development. Logs are written to `.flash/logs/activity.log` with daily rotation and 30-day retention by default.
+
+**Configuration via environment variables:**
+
+```bash
+# Disable file logging (CLI continues with stdout-only)
+export FLASH_FILE_LOGGING_ENABLED=false
+
+# Keep only 7 days of logs
+export FLASH_LOG_RETENTION_DAYS=7
+
+# Use custom log directory
+export FLASH_LOG_DIR=/var/log/flash
+```
+
+File logging is automatically disabled in deployed containers. See [flash-logging.md](src/runpod_flash/cli/docs/flash-logging.md) for complete documentation.
 
 ## Workflow examples
 

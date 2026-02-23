@@ -72,7 +72,7 @@ class TestRemoteWithLoadBalancerIntegration:
             return x + y
 
         # Prepare request
-        request = stub._prepare_request(add, None, None, True, 5, 3)
+        request = await stub._prepare_request(add, None, None, True, 5, 3)
 
         # Verify request structure
         assert request["function_name"] == "add"

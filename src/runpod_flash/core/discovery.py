@@ -52,9 +52,6 @@ class ResourceDiscovery:
                         resource = self._resolve_resource_variable(module, var_name)
                         if resource:
                             resources.append(resource)
-                            log.debug(
-                                f"Discovered resource: {var_name} -> {resource.__class__.__name__}"
-                            )
                 else:
                     log.warning(f"Failed to import {self.entry_point}")
 
@@ -405,10 +402,6 @@ class ResourceDiscovery:
                             resource = self._resolve_resource_variable(module, var_name)
                             if resource:
                                 resources.append(resource)
-                                log.debug(
-                                    f"Discovered resource in {file_path.relative_to(project_root)}: "
-                                    f"{var_name} -> {resource.__class__.__name__}"
-                                )
 
                 except Exception as e:
                     log.debug(f"Failed to scan {file_path}: {e}")

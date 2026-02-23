@@ -22,6 +22,7 @@ from runpod_flash.core.resources.serverless_cpu import CpuServerlessEndpoint
 from runpod_flash.core.resources.gpu import GpuGroup
 from runpod_flash.core.resources.cpu import CpuInstanceType
 from runpod_flash.core.resources.network_volume import NetworkVolume, DataCenter
+from runpod_flash.core.resources.template import PodTemplate
 
 
 class TestServerlessResource:
@@ -42,6 +43,7 @@ class TestServerlessResource:
         """Mock RunpodGraphQLClient."""
         client = AsyncMock()
         client.save_endpoint = AsyncMock()
+        client.update_template = AsyncMock()
         return client
 
     def test_serverless_resource_initialization(self, basic_serverless_config):
@@ -466,6 +468,32 @@ class TestServerlessResourceDeployment:
 
         assert serverless.is_deployed() is False
 
+    def test_is_deployed_skips_health_check_during_live_provisioning(self, monkeypatch):
+        """During flash run, is_deployed returns True based on ID alone."""
+        monkeypatch.setenv("FLASH_IS_LIVE_PROVISIONING", "true")
+        serverless = ServerlessResource(name="test")
+        serverless.id = "ep-live-123"
+
+        # health() must NOT be called — no mock needed, any call would raise
+        assert serverless.is_deployed() is True
+
+    def test_is_deployed_uses_health_check_outside_live_provisioning(self, monkeypatch):
+        """Outside flash run, is_deployed falls back to health check."""
+        monkeypatch.delenv("FLASH_IS_LIVE_PROVISIONING", raising=False)
+        serverless = ServerlessResource(name="test")
+        serverless.id = "ep-123"
+
+        mock_endpoint = MagicMock()
+        mock_endpoint.health.return_value = {"workers": {}}
+
+        with patch.object(
+            type(serverless),
+            "endpoint",
+            new_callable=lambda: property(lambda self: mock_endpoint),
+        ):
+            assert serverless.is_deployed() is True
+            mock_endpoint.health.assert_called_once()
+
     @pytest.mark.asyncio
     async def test_deploy_already_deployed(self):
         """Test deploy returns early when already deployed."""
@@ -558,6 +586,137 @@ class TestServerlessResourceDeployment:
         assert result.env == serverless.env
         assert result.networkVolume == serverless.networkVolume
         assert serverless.id == "endpoint-sync"
+
+    @pytest.mark.asyncio
+    async def test_deploy_syncs_template_id_to_caller(self, mock_runpod_client):
+        """deploy should hydrate templateId onto the caller object."""
+        serverless = ServerlessResource(name="template-sync", flashboot=False)
+
+        mock_runpod_client.save_endpoint = AsyncMock(
+            return_value={
+                "id": "endpoint-template-sync",
+                "name": "template-sync",
+                "templateId": "tpl-123",
+                "gpuIds": "",
+                "allowedCudaVersions": "",
+            }
+        )
+
+        with patch(
+            "runpod_flash.core.resources.serverless.RunpodGraphQLClient"
+        ) as mock_client_class:
+            mock_client_class.return_value.__aenter__.return_value = mock_runpod_client
+            mock_client_class.return_value.__aexit__.return_value = None
+
+            with patch.object(ServerlessResource, "is_deployed", return_value=False):
+                with patch.object(
+                    ServerlessResource,
+                    "_ensure_network_volume_deployed",
+                    new=AsyncMock(),
+                ):
+                    result = await serverless.deploy()
+
+        assert result.id == "endpoint-template-sync"
+        assert serverless.templateId == "tpl-123"
+
+    @pytest.mark.asyncio
+    async def test_update_restores_input_only_fields(self, mock_runpod_client):
+        """update should preserve input-only fields absent from GraphQL response."""
+        existing = ServerlessResource(name="update-source", flashboot=False)
+        existing.id = "endpoint-existing"
+
+        volume = NetworkVolume(name="vol-update", size=50)
+        volume.id = "vol-update-id"
+        new_config = ServerlessResource(
+            name="update-source",
+            flashboot=False,
+            env={"UPDATED": "true"},
+            networkVolume=volume,
+        )
+
+        # API response does not include input-only fields like env/networkVolume
+        mock_runpod_client.save_endpoint = AsyncMock(
+            return_value={
+                "id": "endpoint-existing",
+                "name": "update-source",
+                "gpuIds": "",
+                "allowedCudaVersions": "",
+            }
+        )
+
+        with patch(
+            "runpod_flash.core.resources.serverless.RunpodGraphQLClient"
+        ) as mock_client_class:
+            mock_client_class.return_value.__aenter__.return_value = mock_runpod_client
+            mock_client_class.return_value.__aexit__.return_value = None
+
+            with patch.object(
+                ServerlessResource,
+                "_ensure_network_volume_deployed",
+                new=AsyncMock(),
+            ):
+                result = await existing.update(new_config)
+
+        # id must be included to update in place rather than create
+        payload = mock_runpod_client.save_endpoint.call_args.args[0]
+        assert payload["id"] == "endpoint-existing"
+
+        # Input-only state from new_config should be restored after update
+        assert result.env == new_config.env
+        assert result.networkVolume == new_config.networkVolume
+
+    @pytest.mark.asyncio
+    async def test_update_calls_save_template_with_resolved_template_id(
+        self, mock_runpod_client
+    ):
+        """update should call saveTemplate separately when template is provided."""
+        existing = ServerlessResource(name="update-template", flashboot=False)
+        existing.id = "endpoint-existing"
+        existing.templateId = "template-existing"
+
+        new_config = ServerlessResource(
+            name="update-template",
+            flashboot=False,
+            template=PodTemplate(name="tpl", imageName="image:v2", dockerArgs="--flag"),
+        )
+
+        mock_runpod_client.save_endpoint = AsyncMock(
+            return_value={
+                "id": "endpoint-existing",
+                "name": "update-template",
+                "templateId": "template-existing",
+                "gpuIds": "",
+                "allowedCudaVersions": "",
+            }
+        )
+        mock_runpod_client.update_template = AsyncMock(
+            return_value={
+                "id": "template-existing",
+                "name": "tpl",
+                "imageName": "image:v2",
+            }
+        )
+
+        with patch(
+            "runpod_flash.core.resources.serverless.RunpodGraphQLClient"
+        ) as mock_client_class:
+            mock_client_class.return_value.__aenter__.return_value = mock_runpod_client
+            mock_client_class.return_value.__aexit__.return_value = None
+
+            with patch.object(
+                ServerlessResource,
+                "_ensure_network_volume_deployed",
+                new=AsyncMock(),
+            ):
+                updated = await existing.update(new_config)
+
+        mock_runpod_client.save_endpoint.assert_called_once()
+        mock_runpod_client.update_template.assert_called_once()
+        template_payload = mock_runpod_client.update_template.call_args.args[0]
+        assert template_payload["id"] == "template-existing"
+        assert template_payload["imageName"] == "image:v2"
+        assert template_payload["volumeInGb"] == 0
+        assert updated.templateId == "template-existing"
 
     @pytest.mark.asyncio
     async def test_deploy_failure_raises_exception(self, mock_runpod_client):
@@ -806,6 +965,42 @@ class TestServerlessResourceEdgeCases:
             result = serverless.is_deployed()
 
             assert result is False
+
+    def test_payload_exclude_adds_template_when_template_id_set(self):
+        """_payload_exclude excludes template field when templateId is already set."""
+        serverless = ServerlessResource(name="test")
+        serverless.templateId = "tmpl-123"
+
+        excluded = serverless._payload_exclude()
+
+        assert "template" in excluded
+
+    def test_payload_exclude_tolerates_both_template_id_and_template(self):
+        """_payload_exclude does not raise when both templateId and template are set.
+
+        After deploy mutates the config object, both fields can coexist.
+        templateId takes precedence and template should be excluded.
+        """
+        serverless = ServerlessResource(name="test")
+        serverless.templateId = "tmpl-123"
+        serverless.template = PodTemplate(
+            name="test-template",
+            imageName="runpod/test:latest",
+            containerDiskInGb=20,
+        )
+
+        excluded = serverless._payload_exclude()
+
+        assert "template" in excluded
+
+    def test_payload_exclude_does_not_exclude_template_without_template_id(self):
+        """_payload_exclude does not exclude template when templateId is absent."""
+        serverless = ServerlessResource(name="test")
+        serverless.templateId = None
+
+        excluded = serverless._payload_exclude()
+
+        assert "template" not in excluded
 
     def test_reverse_sync_from_backend_response(self):
         """Test reverse sync when receiving backend response with gpuIds."""

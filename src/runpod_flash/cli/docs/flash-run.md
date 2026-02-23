@@ -1,6 +1,47 @@
 # flash run
 
-Run Flash development server.
+Start the Flash development server for testing/debugging/development.
+
+## Overview
+
+The `flash run` command starts a local development server that auto-discovers your `@remote` functions and serves them on your machine while deploying them to Runpod Serverless. This hybrid architecture lets you rapidly iterate on your application with hot-reload while testing real GPU/CPU workloads in the cloud.
+
+Use `flash run` when you want to skip the build step and test/develop/debug your remote functions rapidly before deploying your full application with `flash deploy`. (See [Flash Deploy](./flash-deploy.md) for details.)
+
+## Architecture: Local App + Remote Workers
+
+With `flash run`, your system runs in a **hybrid architecture**:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  YOUR MACHINE (localhost:8888)                                  │
+│  ┌─────────────────────────────────────┐                        │
+│  │  Auto-generated server              │                        │
+│  │  (.flash/server.py)                 │                        │
+│  │  - Discovers @remote functions      │─────────┐              │
+│  │  - Hot-reload via watchfiles        │         │              │
+│  └─────────────────────────────────────┘         │              │
+└──────────────────────────────────────────────────│──────────────┘
+                                                   │ HTTPS
+                                                   ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  RUNPOD SERVERLESS                                              │
+│  ┌─────────────────────────┐  ┌─────────────────────────┐       │
+│  │ live-gpu-worker         │  │ live-cpu-worker         │       │
+│  │ (your @remote function) │  │ (your @remote function) │       │
+│  └─────────────────────────┘  └─────────────────────────┘       │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Key points:**
+- **`flash run` auto-discovers `@remote` functions** and generates `.flash/server.py`
+- **Queue-based (QB) routes execute locally** at `/{file_prefix}/run_sync`
+- **Load-balanced (LB) routes dispatch remotely** via `LoadBalancerSlsStub`
+- **`@remote` functions run on Runpod** as serverless endpoints
+- **Hot reload** watches for `.py` file changes via watchfiles
+- **Endpoints are prefixed with `live-`** to distinguish development endpoints from production (e.g., `gpu-worker` becomes `live-gpu-worker`)
+
+This is different from `flash deploy`, where **everything** (including your FastAPI app) runs on Runpod. See [flash deploy](./flash-deploy.md) for the fully-deployed architecture.
 
 ## Usage
 
@@ -13,7 +54,7 @@ flash run [OPTIONS]
 - `--host`: Host to bind to (default: localhost)
 - `--port, -p`: Port to bind to (default: 8888)
 - `--reload/--no-reload`: Enable auto-reload (default: enabled)
-- `--auto-provision`: Auto-provision deployable resources on startup (default: disabled)
+- `--auto-provision`: Auto-provision Serverless endpoints on startup (default: disabled)
 
 ## Examples
 
@@ -33,18 +74,43 @@ flash run --host 0.0.0.0 --port 8000
 
 ## What It Does
 
-1. Discovers `main.py` (or `app.py`, `server.py`)
-2. Checks for FastAPI app
-3. Starts uvicorn server with hot reload
+1. Scans project files for `@remote` decorated functions
+2. Generates `.flash/server.py` with QB and LB routes
+3. Starts uvicorn server with hot-reload via watchfiles
 4. GPU workers use LiveServerless (no packaging needed)
+### How It Works
+
+When you call a `@remote` function using `flash run`, Flash deploys a **Serverless endpoint** to Runpod. (These are actual cloud resources that incur costs.)
+
+```
+flash run
+    │
+    ├── Scans project for @remote functions
+    ├── Generates .flash/server.py
+    ├── Starts local server (e.g. localhost:8888)
+    │   ├── QB routes: /{file_prefix}/run_sync (local execution)
+    │   └── LB routes: /{file_prefix}/{path} (remote dispatch)
+    │
+    └── On @remote function call:
+        └── Deploys a Serverless endpoint (if not cached)
+            └── Executes on the Runpod cloud
+```
+
+### Provisioning Modes
+
+| Mode | When endpoints are deployed |
+|------|----------------------------|
+| Default | Lazily, on first `@remote` function call |
+| `--auto-provision` | Eagerly, at server startup |
+
 
 ## Auto-Provisioning
 
-Auto-provisioning discovers and deploys serverless endpoints before the development server starts, eliminating the cold-start delay on first request.
+Auto-provisioning discovers and deploys Serverless endpoints before the Flash development server starts, eliminating the cold-start delay on first request.
 
 ### How It Works
 
-1. **Resource Discovery**: Scans your FastAPI app for `@remote` decorated functions
+1. **Resource Discovery**: Scans project files for `@remote` decorated functions
 2. **Parallel Deployment**: Deploys resources concurrently (up to 3 at a time)
 3. **Confirmation**: Asks for confirmation if deploying more than 5 endpoints
 4. **Caching**: Stores deployed resources in `.runpod/resources.pkl` for reuse across runs

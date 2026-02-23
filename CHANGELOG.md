@@ -1,5 +1,71 @@
 # Changelog
 
+## [1.3.0](https://github.com/runpod/flash/compare/v1.2.0...v1.3.0) (2026-02-20)
+
+
+### Features
+
+* flash cli polishing treatments ([#209](https://github.com/runpod/flash/issues/209)) ([93bc347](https://github.com/runpod/flash/commit/93bc347489d40b4c2d5b4395c8bb650f42a1fbc2))
+
+
+### Code Refactoring
+
+* simplify flash init skeleton for zero-boilerplate flash run ([#208](https://github.com/runpod/flash/issues/208)) ([22894d4](https://github.com/runpod/flash/commit/22894d48b8835215cfcda6281c7b5f264ad9c47e))
+
+
+### Documentation
+
+* remove coordinator and mothership terminology from all documentation ([#210](https://github.com/runpod/flash/issues/210)) ([4ba5a36](https://github.com/runpod/flash/commit/4ba5a36e1abdd45ed1d862667c720a068679afbc))
+
+## [1.2.0](https://github.com/runpod/flash/compare/v1.1.1...v1.2.0) (2026-02-17)
+
+
+### Features
+
+* add API key propagation for cross-endpoint calls ([#193](https://github.com/runpod/flash/issues/193)) ([f87c9c1](https://github.com/runpod/flash/commit/f87c9c1cef7dfd1f427b278ea50fcc03f4e36372))
+* add file-based logging for local CLI usage ([#197](https://github.com/runpod/flash/issues/197)) ([665bcfa](https://github.com/runpod/flash/commit/665bcfa108f95ebc040c82d9496cc6c6df484d36))
+* add User-Agent header with version, OS, and arch ([#202](https://github.com/runpod/flash/issues/202)) ([5632907](https://github.com/runpod/flash/commit/5632907baae9681658d82ab649cb15c47d5d85b8))
+* AE-2089: update sls endpoint template params ([#198](https://github.com/runpod/flash/issues/198)) ([656fa46](https://github.com/runpod/flash/commit/656fa4608ccae1e89e1ac28e6dae6b60e18ca175))
+* cleanup flash deploy/undeploy/build command output format ([#191](https://github.com/runpod/flash/issues/191)) ([c99b486](https://github.com/runpod/flash/commit/c99b486d301043e7982b7f995f1754fb89379ff8))
+* **logger:** add sensitive data filter to prevent logging API keys and tokens ([#200](https://github.com/runpod/flash/issues/200)) ([10967a4](https://github.com/runpod/flash/commit/10967a43c40ee5c7823c461eb2647b9472dde30b))
+
+
+### Bug Fixes
+
+* **docs:** change idleTimeout from minutes to seconds ([#205](https://github.com/runpod/flash/issues/205)) ([51693c7](https://github.com/runpod/flash/commit/51693c7e2dd0c9d803f3c49de1d0009ded285d5d))
+* prevent false deployment attempts in Flash environments ([#192](https://github.com/runpod/flash/issues/192)) ([f07c9fb](https://github.com/runpod/flash/commit/f07c9fb92003d4603fbf8cdc17b956c368009353))
+* **runtime:** restore on-demand provisioning for flash run ([#206](https://github.com/runpod/flash/issues/206)) ([5859f4b](https://github.com/runpod/flash/commit/5859f4b78476a070db2100b689dfd94caf5fc93f))
+
+
+### Code Refactoring
+
+* remove noisy debug logs from flash (AE-1966) ([#204](https://github.com/runpod/flash/issues/204)) ([826f169](https://github.com/runpod/flash/commit/826f1695ab2bbe620da290783194b8456fbb77cb))
+
+
+### Documentation
+
+* update CLI documentation for deploy, env, and app commands ([#195](https://github.com/runpod/flash/issues/195)) ([4126b37](https://github.com/runpod/flash/commit/4126b3704e625878d11bdd257fa6cc0fbe6bc709))
+
+## [1.1.1](https://github.com/runpod/flash/compare/v1.1.0...v1.1.1) (2026-02-09)
+
+
+### Bug Fixes
+
+* AE-2041: standardize cli cmd names ([#179](https://github.com/runpod/flash/issues/179)) ([9d035e3](https://github.com/runpod/flash/commit/9d035e3d1f43e3661f8ee11611070326b60379c5))
+
+## [1.1.0](https://github.com/runpod/flash/compare/v1.0.0...v1.1.0) (2026-02-06)
+
+
+### Features
+
+* flash deploy auto builds, automatic app & env management ([#178](https://github.com/runpod/flash/issues/178)) ([cee5e74](https://github.com/runpod/flash/commit/cee5e74ea90d766933aba7adcf8ae55454dba9c2))
+* improve deployment guidance and route discovery ([#181](https://github.com/runpod/flash/issues/181)) ([11681b5](https://github.com/runpod/flash/commit/11681b553aa6d05deb8169f7fd6e35e662c3afed))
+
+
+### Performance Improvements
+
+* fail build fast on size limit, remove blocking LB health check ([#182](https://github.com/runpod/flash/issues/182)) ([5278449](https://github.com/runpod/flash/commit/527844961a206fb6f7f656bc476a711896c001d9))
+
 ## [1.0.0](https://github.com/runpod/flash/compare/v0.25.1...v1.0.0) (2026-02-04)
 
 

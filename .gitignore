@@ -177,6 +177,7 @@ cython_debug/
 
 # Runpod Flash state
 .runpod/
+.flash/logs/
 
 # Code intelligence
 .code-intel/
@@ -188,3 +189,5 @@ cython_debug/
 # dev only
 .envrc
 test_app/
+pytest-results.xml
+coverage.xml

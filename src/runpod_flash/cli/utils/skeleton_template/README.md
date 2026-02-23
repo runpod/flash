@@ -1,245 +1,175 @@
 # {{project_name}}
 
-Flash application demonstrating distributed GPU and CPU computing on Runpod's serverless infrastructure.
-
-## About This Template
-
-This project was generated using `flash init`. The `{{project_name}}` placeholder is automatically replaced with your actual project name during initialization.
+Runpod Flash application with GPU and CPU workers on Runpod serverless infrastructure.
 
 ## Quick Start
 
-### 1. Install Dependencies
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) (recommended Python package manager):
 
 ```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Set up the project:
+
+```bash
+uv venv && source .venv/bin/activate
+uv sync
+cp .env.example .env   # Add your RUNPOD_API_KEY
+flash run
+```
+
+Or with pip:
+
+```bash
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
+cp .env.example .env   # Add your RUNPOD_API_KEY
+flash run
 ```
 
-### 2. Configure Environment
+Server starts at **http://localhost:8888**. Visit **http://localhost:8888/docs** for interactive Swagger UI.
 
-Create `.env` file:
+Use `flash run --auto-provision` to pre-deploy all endpoints on startup, eliminating cold-start delays on first request. Provisioned endpoints are cached and reused across restarts.
 
-```bash
-RUNPOD_API_KEY=your_api_key_here
-```
+When you stop the server with Ctrl+C, all endpoints provisioned during the session are automatically cleaned up.
 
 Get your API key from [Runpod Settings](https://www.runpod.io/console/user/settings).
+Learn more about it from our [Documentation](https://docs.runpod.io/get-started/api-keys).
 
-### 3. Run Locally
-
-```bash
-# Standard run
-flash run
-
-# Faster development: pre-provision endpoints (eliminates cold-start delays)
-flash run --auto-provision
-```
-
-Server starts at **http://localhost:8000**
-
-With `--auto-provision`, all serverless endpoints deploy before testing begins. This is much faster for development because endpoints are cached and reused across server restarts. Subsequent runs skip deployment and start immediately.
-
-### 4. Test the API
+## Test the API
 
 ```bash
-# Health check
-curl http://localhost:8000/ping
-
-# GPU worker
-curl -X POST http://localhost:8000/gpu/hello \
+# Queue-based GPU worker
+curl -X POST http://localhost:8888/gpu_worker/run_sync \
   -H "Content-Type: application/json" \
   -d '{"message": "Hello GPU!"}'
 
-# CPU worker
-curl -X POST http://localhost:8000/cpu/hello \
+# Queue-based CPU worker
+curl -X POST http://localhost:8888/cpu_worker/run_sync \
   -H "Content-Type: application/json" \
   -d '{"message": "Hello CPU!"}'
-```
 
-Visit **http://localhost:8000/docs** for interactive API documentation.
+# Load-balanced HTTP endpoint
+curl -X POST http://localhost:8888/lb_worker/process \
+  -H "Content-Type: application/json" \
+  -d '{"input": "test"}'
 
-## What This Demonstrates
-
-### GPU Worker (`workers/gpu/`)
-Simple GPU-based serverless function:
-- Remote execution with `@remote` decorator
-- GPU resource configuration
-- Automatic scaling (0-3 workers)
-- No external dependencies required
-
-```python
-@remote(
-    resource_config=LiveServerless(
-        name="gpu_worker",
-        gpus=[GpuGroup.ADA_24],  # RTX 4090
-        workersMin=0,
-        workersMax=3,
-    )
-)
-async def gpu_hello(input_data: dict) -> dict:
-    # Your GPU code here
-    return {"status": "success", "message": "Hello from GPU!"}
-```
-
-### CPU Worker (`workers/cpu/`)
-Simple CPU-based serverless function:
-- CPU-only execution (no GPU overhead)
-- CpuLiveServerless configuration
-- Efficient for API endpoints
-- Automatic scaling (0-5 workers)
-
-```python
-@remote(
-    resource_config=CpuLiveServerless(
-        name="cpu_worker",
-        instanceIds=[CpuInstanceType.CPU3G_2_8],  # 2 vCPU, 8GB RAM
-        workersMin=0,
-        workersMax=5,
-    )
-)
-async def cpu_hello(input_data: dict) -> dict:
-    # Your CPU code here
-    return {"status": "success", "message": "Hello from CPU!"}
+# Load-balanced health check
+curl http://localhost:8888/lb_worker/health
 ```
 
 ## Project Structure
 
 ```
 {{project_name}}/
-├── main.py                    # FastAPI application
-├── workers/
-│   ├── gpu/                  # GPU worker
-│   │   ├── __init__.py       # FastAPI router
-│   │   └── endpoint.py       # @remote decorated function
-│   └── cpu/                  # CPU worker
-│       ├── __init__.py       # FastAPI router
-│       └── endpoint.py       # @remote decorated function
-├── .env                      # Environment variables
-├── requirements.txt          # Dependencies
-└── README.md                 # This file
+├── gpu_worker.py      # GPU serverless worker (queue-based)
+├── cpu_worker.py      # CPU serverless worker (queue-based)
+├── lb_worker.py       # CPU load-balanced HTTP endpoint
+├── .env.example       # Environment variable template
+├── requirements.txt   # Python dependencies
+└── README.md
 ```
 
-## Key Concepts
+## Worker Types
 
-### Remote Execution
-The `@remote` decorator transparently executes functions on serverless infrastructure:
-- Code runs locally during development
-- Automatically deploys to Runpod when configured
-- Handles serialization, dependencies, and resource management
+### Queue-Based (QB) Workers
 
-### Resource Scaling
-Both workers scale to zero when idle to minimize costs:
-- **idleTimeout**: Minutes before scaling down (default: 5)
-- **workersMin**: 0 = completely scales to zero
-- **workersMax**: Maximum concurrent workers
+QB workers process jobs from a queue. Each call to `/run_sync` sends a job and waits
+for the result. Use QB for compute-heavy tasks that may take seconds to minutes.
 
-### GPU Types
-Available GPU options for `LiveServerless`:
-- `GpuGroup.ADA_24` - RTX 4090 (24GB)
-- `GpuGroup.ADA_48_PRO` - RTX 6000 Ada, L40 (48GB)
-- `GpuGroup.AMPERE_80` - A100 (80GB)
-- `GpuGroup.ANY` - Any available GPU
+**gpu_worker.py** — GPU serverless function:
+```python
+from runpod_flash import GpuType, LiveServerless, remote
 
-### CPU Types
-Available CPU options for `CpuLiveServerless`:
-- `CpuInstanceType.CPU3G_2_8` - 2 vCPU, 8GB RAM (General Purpose)
-- `CpuInstanceType.CPU3C_4_8` - 4 vCPU, 8GB RAM (Compute Optimized)
-- `CpuInstanceType.CPU5G_4_16` - 4 vCPU, 16GB RAM (Latest Gen)
-- `CpuInstanceType.ANY` - Any available GPU
+gpu_config = LiveServerless(
+    name="gpu_worker",
+    gpus=[GpuType.ANY],
+)
 
-## Development Workflow
-
-### Test Workers Locally
-```bash
-# Test GPU worker
-python -m workers.gpu.endpoint
-
-# Test CPU worker
-python -m workers.cpu.endpoint
+@remote(resource_config=gpu_config, dependencies=["torch"])
+async def gpu_hello(input_data: dict) -> dict:
+    import torch
+    gpu_available = torch.cuda.is_available()
+    gpu_name = torch.cuda.get_device_name(0) if gpu_available else "No GPU detected"
+    return {"message": gpu_name}
 ```
 
-### Run the Application
-```bash
-flash run
+**cpu_worker.py** — CPU serverless function:
+```python
+from runpod_flash import CpuLiveServerless, remote
+
+cpu_config = CpuLiveServerless(name="cpu_worker")
+
+@remote(resource_config=cpu_config)
+async def cpu_hello(input_data: dict = {}) -> dict:
+    return {"message": "Hello from CPU!", **input_data}
 ```
 
-### Deploy to Production
-```bash
-# Discover and configure handlers
-flash build
+### Load-Balanced (LB) Workers
 
-# Create deployment environment
-flash deploy new production
+LB workers expose standard HTTP endpoints (GET, POST, etc.) behind a load balancer.
+Use LB for low-latency API endpoints that need horizontal scaling.
 
-# Deploy to Runpod
-flash deploy send production
+**lb_worker.py** — HTTP endpoints on a load-balanced container:
+```python
+from runpod_flash import CpuLiveLoadBalancer, remote
+
+api_config = CpuLiveLoadBalancer(
+    name="lb_worker",
+    workersMin=1,
+)
+
+@remote(resource_config=api_config, method="POST", path="/process")
+async def process(input_data: dict) -> dict:
+    return {"status": "success", "echo": input_data}
+
+@remote(resource_config=api_config, method="GET", path="/health")
+async def health() -> dict:
+    return {"status": "healthy"}
 ```
 
 ## Adding New Workers
 
-### Add a GPU Worker
+Create a new `.py` file with a `@remote` function. `flash run` auto-discovers all
+`@remote` functions in the project.
 
-1. Create `workers/my_worker/endpoint.py`:
 ```python
-from runpod_flash import remote, LiveServerless
+# my_worker.py
+from runpod_flash import LiveServerless, GpuType, remote
 
-config = LiveServerless(name="my_worker")
+config = LiveServerless(name="my_worker", gpus=[GpuType.NVIDIA_GEFORCE_RTX_4090])
 
-@remote(resource_config=config, dependencies=["torch"])
-async def my_function(data: dict) -> dict:
-    import torch
-    # Your code here
-    return {"result": "success"}
+@remote(resource_config=config, dependencies=["transformers"])
+async def predict(input_data: dict) -> dict:
+    from transformers import pipeline
+    pipe = pipeline("sentiment-analysis")
+    return pipe(input_data["text"])[0]
 ```
 
-2. Create `workers/my_worker/__init__.py`:
-```python
-from fastapi import APIRouter
-from .endpoint import my_function
+Then run `flash run` — the new worker appears automatically.
 
-router = APIRouter()
+## GPU Types
 
-@router.post("/process")
-async def handler(data: dict):
-    return await my_function(data)
-```
+| Config | Hardware | VRAM |
+|--------|----------|------|
+| `GpuType.ANY` | Any available GPU | varies |
+| `GpuType.NVIDIA_GEFORCE_RTX_4090` | RTX 4090 | 24 GB |
+| `GpuType.NVIDIA_GEFORCE_RTX_5090` | RTX 5090 | 32 GB |
+| `GpuType.NVIDIA_RTX_6000_ADA_GENERATION` | RTX 6000 Ada | 48 GB |
+| `GpuType.NVIDIA_L4` | L4 | 24 GB |
+| `GpuType.NVIDIA_A100_80GB_PCIe` | A100 PCIe | 80 GB |
+| `GpuType.NVIDIA_A100_SXM4_80GB` | A100 SXM4 | 80 GB |
+| `GpuType.NVIDIA_H100_80GB_HBM3` | H100 | 80 GB |
+| `GpuType.NVIDIA_H200` | H200 | 141 GB |
 
-3. Add to `main.py`:
-```python
-from workers.my_worker import router as my_router
-app.include_router(my_router, prefix="/my_worker")
-```
+## CPU Types
 
-### Add a CPU Worker
-
-Same pattern but use `CpuLiveServerless`:
-```python
-from runpod_flash import remote, CpuLiveServerless, CpuInstanceType
-
-config = CpuLiveServerless(
-    name="my_cpu_worker",
-    instanceIds=[CpuInstanceType.CPU3G_2_8]
-)
-
-@remote(resource_config=config, dependencies=["requests"])
-async def fetch_data(url: str) -> dict:
-    import requests
-    return requests.get(url).json()
-```
-
-## Adding Dependencies
-
-Specify dependencies in the `@remote` decorator:
-```python
-@remote(
-    resource_config=config,
-    dependencies=["torch>=2.0.0", "transformers"],  # Python packages
-    system_dependencies=["ffmpeg"]  # System packages
-)
-async def my_function(data: dict) -> dict:
-    # Dependencies are automatically installed
-    import torch
-    import transformers
-```
+| Config | vCPU | RAM |
+|--------|------|-----|
+| `CpuInstanceType.CPU3G_2_8` | 2 | 8 GB |
+| `CpuInstanceType.CPU3C_4_8` | 4 | 8 GB |
+| `CpuInstanceType.CPU5G_4_16` | 4 | 16 GB |
 
 ## Environment Variables
 
@@ -248,16 +178,13 @@ async def my_function(data: dict) -> dict:
 RUNPOD_API_KEY=your_api_key
 
 # Optional
-FLASH_HOST=localhost  # Host to bind the server to (default: localhost)
-FLASH_PORT=8888       # Port to bind the server to (default: 8888)
-LOG_LEVEL=INFO        # Logging level (default: INFO)
+FLASH_HOST=localhost   # Server host (default: localhost)
+FLASH_PORT=8888        # Server port (default: 8888)
+LOG_LEVEL=INFO         # Logging level (default: INFO)
 ```
 
-## Next Steps
+## Deploy
 
-- Add your ML models or processing logic
-- Configure GPU/CPU resources based on your needs
-- Add authentication to your endpoints
-- Implement error handling and retries
-- Add monitoring and logging
-- Deploy to production with `flash deploy`
+```bash
+flash deploy
+```

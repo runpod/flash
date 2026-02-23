@@ -3,7 +3,7 @@ Direct GraphQL communication with Runpod API.
 Bypasses the outdated runpod-python SDK limitations.
 """
 
-import json
+import json  # noqa: F401 - used in commented debug logs
 import logging
 import os
 from typing import Any, Dict, Optional, List
@@ -70,9 +70,14 @@ class RunpodGraphQLClient:
     async def _get_session(self) -> aiohttp.ClientSession:
         """Get or create an aiohttp session."""
         if self.session is None or self.session.closed:
+            from runpod_flash.core.utils.user_agent import get_user_agent
+
             timeout = aiohttp.ClientTimeout(total=300)  # 5 minute timeout
             connector = aiohttp.TCPConnector(resolver=ThreadedResolver())
-            headers = {"Content-Type": "application/json"}
+            headers = {
+                "User-Agent": get_user_agent(),
+                "Content-Type": "application/json",
+            }
             if self.api_key:
                 headers["Authorization"] = f"Bearer {self.api_key}"
             self.session = aiohttp.ClientSession(
@@ -90,19 +95,19 @@ class RunpodGraphQLClient:
 
         payload = {"query": query, "variables": variables or {}}
 
-        log.debug(f"GraphQL Query: {query}")
-        sanitized_vars = _sanitize_for_logging(variables)
-        log.debug(f"GraphQL Variables: {json.dumps(sanitized_vars, indent=2)}")
+        # log.debug(f"GraphQL Query: {query}")
+        # sanitized_vars = _sanitize_for_logging(variables)
+        # log.debug(f"GraphQL Variables: {json.dumps(sanitized_vars, indent=2)}")
 
         try:
             async with session.post(self.GRAPHQL_URL, json=payload) as response:
                 response_data = await response.json()
 
-                log.debug(f"GraphQL Response Status: {response.status}")
-                sanitized_response = _sanitize_for_logging(response_data)
-                log.debug(
-                    f"GraphQL Response: {json.dumps(sanitized_response, indent=2)}"
-                )
+                # log.debug(f"GraphQL Response Status: {response.status}")
+                # sanitized_response = _sanitize_for_logging(response_data)
+                # log.debug(
+                #     f"GraphQL Response: {json.dumps(sanitized_response, indent=2)}"
+                # )
 
                 if response.status >= 400:
                     sanitized_err = _sanitize_for_logging(response_data)
@@ -123,6 +128,42 @@ class RunpodGraphQLClient:
         except aiohttp.ClientError as e:
             log.error(f"HTTP client error: {e}")
             raise Exception(f"HTTP request failed: {e}")
+
+    async def update_template(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+        mutation = """
+        mutation saveTemplate($input: SaveTemplateInput) {
+            saveTemplate(input: $input) {
+                id
+                containerDiskInGb
+                dockerArgs
+                env {
+                    key
+                    value
+                }
+                imageName
+                name
+                readme
+            }
+        }
+        """
+
+        variables = {"input": input_data}
+
+        log.debug(
+            f"Updating template with GraphQL: {input_data.get('name', 'unnamed')}"
+        )
+
+        result = await self._execute_graphql(mutation, variables)
+
+        if "saveTemplate" not in result:
+            raise Exception("Unexpected GraphQL response structure")
+
+        template_data = result["saveTemplate"]
+        log.debug(
+            f"Updated template: {template_data.get('id', 'unknown')} - {template_data.get('name', 'unnamed')}"
+        )
+
+        return template_data
 
     async def save_endpoint(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -164,7 +205,7 @@ class RunpodGraphQLClient:
 
         variables = {"input": input_data}
 
-        log.debug(f"Saving endpoint with GraphQL: {input_data.get('name', 'unnamed')}")
+        log.debug(f"GraphQL saveEndpoint: {input_data.get('name', 'unnamed')}")
 
         result = await self._execute_graphql(mutation, variables)
 
@@ -172,8 +213,8 @@ class RunpodGraphQLClient:
             raise Exception("Unexpected GraphQL response structure")
 
         endpoint_data = result["saveEndpoint"]
-        log.info(
-            f"Saved endpoint: {endpoint_data.get('id', 'unknown')} - {endpoint_data.get('name', 'unnamed')}"
+        log.debug(
+            f"GraphQL response: {endpoint_data.get('id', 'unknown')} ({endpoint_data.get('name', 'unnamed')})"
         )
 
         return endpoint_data
@@ -243,7 +284,7 @@ class RunpodGraphQLClient:
         """
 
         variables = {"id": endpoint_id}
-        log.info(f"Deleting endpoint: {endpoint_id}")
+        log.debug(f"Deleting endpoint: {endpoint_id}")
 
         result = await self._execute_graphql(mutation, variables)
 
@@ -316,8 +357,6 @@ class RunpodGraphQLClient:
         """
         variables = {"input": input_data}
 
-        log.debug(f"finalizing upload for flash app: {input_data}")
-
         result = await self._execute_graphql(mutation, variables)
         return result["finalizeFlashArtifactUpload"]
 
@@ -369,7 +408,6 @@ class RunpodGraphQLClient:
         """
         variables = {"flashAppName": app_name}
 
-        log.debug(f"Fetching flash app by name for input: {app_name}")
         result = await self._execute_graphql(query, variables)
         return result["flashAppByName"]
 
@@ -422,7 +460,6 @@ class RunpodGraphQLClient:
         """
         variables = {"input": input_data}
 
-        log.debug(f"Fetching flash environment by name for input: {variables}")
         result = await self._execute_graphql(query, variables)
 
         return result["flashEnvironmentByName"]
@@ -474,8 +511,6 @@ class RunpodGraphQLClient:
         """
 
         variables = {"input": input_data}
-
-        log.debug(f"Deploying flash environment with vars: {input_data}")
 
         result = await self._execute_graphql(mutation, variables)
         return result["deployBuildToEnvironment"]
@@ -706,7 +741,7 @@ class RunpodGraphQLClient:
         """
 
         variables = {"flashAppId": app_id}
-        log.info(f"Deleting flash app: {app_id}")
+        log.debug(f"Deleting flash app: {app_id}")
 
         result = await self._execute_graphql(mutation, variables)
         return {"success": "deleteFlashApp" in result}
@@ -720,7 +755,7 @@ class RunpodGraphQLClient:
         """
 
         variables = {"flashEnvironmentId": environment_id}
-        log.info(f"Deleting flash environment: {environment_id}")
+        log.debug(f"Deleting flash environment: {environment_id}")
 
         result = await self._execute_graphql(mutation, variables)
         return {"success": "deleteFlashEnvironment" in result}
@@ -746,7 +781,7 @@ class RunpodGraphQLClient:
             log.debug(f"Endpoint {endpoint_id} exists: {exists}")
             return exists
         except Exception as e:
-            log.error(f"Error checking endpoint existence: {e}")
+            log.debug(f"Error checking endpoint existence: {e}")
             return False
 
     async def create_flash_auth_request(self) -> Dict[str, Any]:
@@ -804,8 +839,13 @@ class RunpodRestClient:
     async def _get_session(self) -> aiohttp.ClientSession:
         """Get or create an aiohttp session."""
         if self.session is None or self.session.closed:
+            from runpod_flash.core.utils.user_agent import get_user_agent
+
             timeout = aiohttp.ClientTimeout(total=300)  # 5 minute timeout
-            headers = {"Content-Type": "application/json"}
+            headers = {
+                "User-Agent": get_user_agent(),
+                "Content-Type": "application/json",
+            }
             if self.api_key:
                 headers["Authorization"] = f"Bearer {self.api_key}"
             self.session = aiohttp.ClientSession(timeout=timeout, headers=headers)
@@ -817,15 +857,15 @@ class RunpodRestClient:
         """Execute a REST API request."""
         session = await self._get_session()
 
-        log.debug(f"REST Request: {method} {url}")
-        log.debug(f"REST Data: {json.dumps(data, indent=2) if data else 'None'}")
+        # log.debug(f"REST Request: {method} {url}")
+        # log.debug(f"REST Data: {json.dumps(data, indent=2) if data else 'None'}")
 
         try:
             async with session.request(method, url, json=data) as response:
                 response_data = await response.json()
 
-                log.debug(f"REST Response Status: {response.status}")
-                log.debug(f"REST Response: {json.dumps(response_data, indent=2)}")
+                # log.debug(f"REST Response Status: {response.status}")
+                # log.debug(f"REST Response: {json.dumps(response_data, indent=2)}")
 
                 if response.status >= 400:
                     raise Exception(
@@ -846,7 +886,7 @@ class RunpodRestClient:
             "POST", f"{RUNPOD_REST_API_URL}/networkvolumes", payload
         )
 
-        log.info(
+        log.debug(
             f"Created network volume: {result.get('id', 'unknown')} - {result.get('name', 'unnamed')}"
         )
 

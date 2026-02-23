@@ -6,8 +6,6 @@ import asyncio
 from typing import TYPE_CHECKING, Dict, Optional, Tuple
 import typer
 from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
 from rich.prompt import Confirm
 import questionary
 
@@ -56,20 +54,20 @@ def _get_serverless_resources(
 
 
 def _get_resource_status(resource) -> Tuple[str, str]:
-    """Get resource status with icon and text.
+    """Get resource status color and text.
 
     Args:
         resource: DeployableResource to check
 
     Returns:
-        Tuple of (status_icon, status_text)
+        Tuple of (color, status_text)
     """
     try:
         if resource.is_deployed():
-            return "🟢", "Active"
-        return "🔴", "Inactive"
+            return "green", "active"
+        return "red", "inactive"
     except Exception:
-        return "❓", "Unknown"
+        return "yellow", "unknown"
 
 
 def _get_resource_type(resource) -> str:
@@ -94,80 +92,47 @@ def list_command():
     resources = _get_serverless_resources(all_resources)
 
     if not resources:
-        console.print(
-            Panel(
-                "No endpoints found\n\n"
-                "Endpoints are automatically tracked when you use @remote decorator.",
-                title="Tracked Endpoints",
-                expand=False,
-            )
-        )
+        console.print("No endpoints found.")
         return
-
-    table = Table(title="Tracked RunPod Serverless Endpoints")
-    table.add_column("Name", style="cyan", no_wrap=True)
-    table.add_column("Endpoint ID", style="magenta")
-    table.add_column("Status", justify="center")
-    table.add_column("Type", style="yellow")
-    table.add_column("Resource ID", style="dim", no_wrap=True)
 
     active_count = 0
     inactive_count = 0
 
+    console.print()
     for resource_id, resource in resources.items():
-        status_icon, status_text = _get_resource_status(resource)
-        if status_text == "Active":
+        color, status_text = _get_resource_status(resource)
+        if status_text == "active":
             active_count += 1
-        elif status_text == "Inactive":
+        elif status_text == "inactive":
             inactive_count += 1
 
-        # Get name if available
         name = getattr(resource, "name", "N/A")
         endpoint_id = getattr(resource, "id", "N/A")
-        resource_type = _get_resource_type(resource)
 
-        # Truncate resource_id for display
-        display_resource_id = (
-            resource_id[:12] + "..." if len(resource_id) > 12 else resource_id
+        console.print(
+            f"  [{color}]●[/{color}] [bold]{name}[/bold]  "
+            f"[{color}]{status_text}[/{color}]  [dim]{endpoint_id}[/dim]"
         )
 
-        table.add_row(
-            name,
-            endpoint_id,
-            f"{status_icon} {status_text}",
-            resource_type,
-            display_resource_id,
-        )
-
-    console.print(table)
-
-    # Summary
     total = len(resources)
     unknown_count = total - active_count - inactive_count
-    summary = f"Total: {total} endpoint{'s' if total != 1 else ''}"
+    parts = []
     if active_count > 0:
-        summary += f" ({active_count} active"
+        parts.append(f"[green]{active_count} active[/green]")
     if inactive_count > 0:
-        summary += (
-            f", {inactive_count} inactive"
-            if active_count > 0
-            else f" ({inactive_count} inactive"
-        )
+        parts.append(f"[red]{inactive_count} inactive[/red]")
     if unknown_count > 0:
-        summary += (
-            f", {unknown_count} unknown"
-            if (active_count > 0 or inactive_count > 0)
-            else f" ({unknown_count} unknown"
-        )
-    if active_count > 0 or inactive_count > 0 or unknown_count > 0:
-        summary += ")"
+        parts.append(f"[yellow]{unknown_count} unknown[/yellow]")
 
-    console.print(f"\n{summary}\n")
-    console.print("💡 Use [bold]flash undeploy <name>[/bold] to remove an endpoint")
-    console.print("💡 Use [bold]flash undeploy --all[/bold] to remove all endpoints")
     console.print(
-        "💡 Use [bold]flash undeploy --interactive[/bold] for checkbox selection"
+        f"\n  {total} endpoint{'s' if total != 1 else ''}  {', '.join(parts)}"
     )
+
+    console.print("\n  [bold]Commands[/bold]")
+    console.print("    [dim]flash undeploy <name>[/dim]         Remove an endpoint")
+    console.print("    [dim]flash undeploy --all[/dim]          Remove all endpoints")
+    console.print("    [dim]flash undeploy --interactive[/dim]  Checkbox selection")
+    console.print()
 
 
 def _cleanup_stale_endpoints(
@@ -179,61 +144,45 @@ def _cleanup_stale_endpoints(
         resources: Dictionary of resource_id -> DeployableResource
         manager: ResourceManager instance for removing resources
     """
-    console.print(
-        Panel(
-            "Checking for inactive endpoints...\n\n"
-            "This will remove endpoints from tracking that are no longer active\n"
-            "(already deleted via RunPod UI or API).",
-            title="Cleanup Stale Endpoints",
-            expand=False,
-        )
-    )
+    console.print("[bold]Cleanup stale endpoints[/bold]\n")
 
-    # Find inactive endpoints
     inactive = []
     with console.status("Checking endpoint status..."):
         for resource_id, resource in resources.items():
-            status_icon, status_text = _get_resource_status(resource)
-            if status_text == "Inactive":
+            color, status_text = _get_resource_status(resource)
+            if status_text == "inactive":
                 inactive.append((resource_id, resource))
 
     if not inactive:
-        console.print("\n[green]✓[/green] No inactive endpoints found")
+        console.print("[green]No inactive endpoints found[/green]")
         return
 
-    # Show what will be removed
-    console.print(f"\nFound [yellow]{len(inactive)}[/yellow] inactive endpoint(s):")
+    console.print(f"Found [yellow]{len(inactive)}[/yellow] inactive endpoint(s):")
     for resource_id, resource in inactive:
-        console.print(f"  • {resource.name} ({getattr(resource, 'id', 'N/A')})")
+        console.print(f"  {resource.name}  {getattr(resource, 'id', 'N/A')}")
 
-    # Confirm removal
     if not Confirm.ask(
-        "\n[yellow]⚠️  Remove these from tracking?[/yellow]",
+        "\n[yellow]Remove these from tracking?[/yellow]",
         default=False,
     ):
         console.print("[yellow]Cancelled[/yellow]")
         return
 
-    # Undeploy inactive endpoints (force remove from tracking even if already deleted remotely)
     removed_count = 0
     for resource_id, resource in inactive:
         result = asyncio.run(
             manager.undeploy_resource(resource_id, resource.name, force_remove=True)
         )
 
-        if result["success"]:
+        if result.get("success"):
             removed_count += 1
-            console.print(
-                f"[green]✓[/green] Removed [cyan]{resource.name}[/cyan] from tracking"
-            )
+            console.print(f"  [green]Removed[/green] {resource.name}")
         else:
-            # Resource already deleted remotely, but force_remove cleaned up tracking
-            removed_count += 1
             console.print(
-                f"[yellow]⚠[/yellow] {resource.name}: Already deleted remotely, removed from tracking"
+                f"  [red]Failed[/red] {resource.name}: {result.get('message', 'unknown error')}"
             )
 
-    console.print(f"\n[green]✓[/green] Cleaned up {removed_count} inactive endpoint(s)")
+    console.print(f"\n[green]Cleaned up {removed_count} endpoint(s)[/green]")
 
 
 def undeploy_command(
@@ -275,7 +224,6 @@ def undeploy_command(
         # Remove stale endpoint tracking (already deleted externally)
         flash undeploy --cleanup-stale
     """
-    # Handle "list" as a special case
     if name == "list":
         list_command()
         return
@@ -284,22 +232,13 @@ def undeploy_command(
     resources = manager.list_all_resources()
 
     if not resources:
-        console.print(
-            Panel(
-                "No endpoints found to undeploy\n\n"
-                "Use @remote decorator to deploy endpoints.",
-                title="No Endpoints",
-                expand=False,
-            )
-        )
+        console.print("No endpoints found to undeploy.")
         return
 
-    # Handle cleanup-stale mode
     if cleanup_stale:
         _cleanup_stale_endpoints(resources, manager)
         return
 
-    # Handle different modes
     if interactive:
         _interactive_undeploy(resources, skip_confirm=force)
     elif all:
@@ -308,16 +247,8 @@ def undeploy_command(
         _undeploy_by_name(name, resources, skip_confirm=force)
     else:
         console.print(
-            Panel(
-                "Usage: flash undeploy [name | list | --all | --interactive | --cleanup-stale]",
-                title="Undeploy Help",
-                expand=False,
-            )
-        )
-        console.print(
             "[red]Error:[/red] Please specify a name, use --all/--interactive, or run `flash undeploy list`"
         )
-        # Exit 0: Treat usage help display as successful operation for better UX
         raise typer.Exit(0)
 
 
@@ -329,7 +260,6 @@ def _undeploy_by_name(name: str, resources: dict, skip_confirm: bool = False):
         resources: Dict of all resources
         skip_confirm: Skip confirmation prompts
     """
-    # Find matching resources
     matches = []
     for resource_id, resource in resources.items():
         if hasattr(resource, "name") and resource.name == name:
@@ -337,32 +267,14 @@ def _undeploy_by_name(name: str, resources: dict, skip_confirm: bool = False):
 
     if not matches:
         console.print(f"[red]Error:[/red] No endpoint found with name '{name}'")
-        console.print(
-            "\n💡 Use [bold]flash undeploy list[/bold] to see available endpoints"
-        )
+        console.print("\n  [dim]flash undeploy list[/dim]  Show available endpoints")
         raise typer.Exit(1)
 
-    # Show what will be deleted
-    console.print(
-        Panel(
-            "[yellow]⚠️  The following endpoint(s) will be deleted:[/yellow]\n",
-            title="Undeploy Confirmation",
-            expand=False,
-        )
-    )
-
+    console.print()
     for resource_id, resource in matches:
         endpoint_id = getattr(resource, "id", "N/A")
-        resource_type = _get_resource_type(resource)
-        status_icon, status_text = _get_resource_status(resource)
-
-        console.print(f"  • [bold]{resource.name}[/bold]")
-        console.print(f"    Endpoint ID: {endpoint_id}")
-        console.print(f"    Type: {resource_type}")
-        console.print(f"    Status: {status_icon} {status_text}")
-        console.print()
-
-    console.print("[red]🚨 This action cannot be undone![/red]\n")
+        console.print(f"  [bold]{resource.name}[/bold]  {endpoint_id}")
+    console.print("\n  [yellow]This action cannot be undone.[/yellow]\n")
 
     if not skip_confirm:
         try:
@@ -371,34 +283,25 @@ def _undeploy_by_name(name: str, resources: dict, skip_confirm: bool = False):
             ).ask()
 
             if not confirmed:
-                console.print("Undeploy cancelled")
+                console.print("[yellow]Cancelled[/yellow]")
                 raise typer.Exit(0)
         except KeyboardInterrupt:
-            console.print("\nUndeploy cancelled")
+            console.print("\n[yellow]Cancelled[/yellow]")
             raise typer.Exit(0)
 
-    # Delete endpoints
+    console.print()
     manager = _get_resource_manager()
-    with console.status("Deleting endpoint(s)..."):
-        results = []
-        for resource_id, resource in matches:
+    results = []
+    for resource_id, resource in matches:
+        with console.status(f"Deleting {resource.name}..."):
             result = asyncio.run(manager.undeploy_resource(resource_id, resource.name))
-            results.append(result)
+        if result["success"]:
+            console.print(f"  [green]Deleted[/green] {resource.name}")
+        else:
+            console.print(f"  [red]Failed[/red] {resource.name}")
+        results.append(result)
 
-    # Show results
-    success_count = sum(1 for r in results if r["success"])
-    fail_count = len(results) - success_count
-
-    if success_count > 0:
-        console.print(
-            f"\n[green]✓[/green] Successfully deleted {success_count} endpoint(s)"
-        )
-    if fail_count > 0:
-        console.print(f"[red]✗[/red] Failed to delete {fail_count} endpoint(s)")
-        console.print("\nErrors:")
-        for result in results:
-            if not result["success"]:
-                console.print(f"  • {result['message']}")
+    _print_undeploy_summary(results)
 
 
 def _undeploy_all(resources: dict, skip_confirm: bool = False):
@@ -408,21 +311,15 @@ def _undeploy_all(resources: dict, skip_confirm: bool = False):
         resources: Dict of all resources
         skip_confirm: Skip confirmation prompts
     """
-    # Show what will be deleted
-    console.print(
-        Panel(
-            f"[yellow]⚠️  ALL {len(resources)} endpoint(s) will be deleted![/yellow]\n",
-            title="Undeploy All Confirmation",
-            expand=False,
-        )
-    )
-
+    console.print()
     for resource_id, resource in resources.items():
         name = getattr(resource, "name", "N/A")
         endpoint_id = getattr(resource, "id", "N/A")
-        console.print(f"  • {name} ({endpoint_id})")
-
-    console.print("\n[red]🚨 This action cannot be undone![/red]\n")
+        console.print(f"  [bold]{name}[/bold]  {endpoint_id}")
+    console.print(
+        f"\n  [yellow]All {len(resources)} endpoint(s) will be deleted. "
+        f"This action cannot be undone.[/yellow]\n"
+    )
 
     if not skip_confirm:
         try:
@@ -431,43 +328,32 @@ def _undeploy_all(resources: dict, skip_confirm: bool = False):
             ).ask()
 
             if not confirmed:
-                console.print("Undeploy cancelled")
+                console.print("[yellow]Cancelled[/yellow]")
                 raise typer.Exit(0)
 
-            # Double confirmation for --all
             typed_confirm = questionary.text("Type 'DELETE ALL' to confirm:").ask()
 
             if typed_confirm != "DELETE ALL":
-                console.print("Confirmation failed - text does not match")
+                console.print("[red]Confirmation failed[/red] - text does not match")
                 raise typer.Exit(1)
         except KeyboardInterrupt:
-            console.print("\nUndeploy cancelled")
+            console.print("\n[yellow]Cancelled[/yellow]")
             raise typer.Exit(0)
 
-    # Delete all endpoints
+    console.print()
     manager = _get_resource_manager()
-    with console.status(f"Deleting {len(resources)} endpoint(s)..."):
-        results = []
-        for resource_id, resource in resources.items():
-            name = getattr(resource, "name", "N/A")
+    results = []
+    for resource_id, resource in resources.items():
+        name = getattr(resource, "name", "N/A")
+        with console.status(f"Deleting {name}..."):
             result = asyncio.run(manager.undeploy_resource(resource_id, name))
-            results.append(result)
+        if result["success"]:
+            console.print(f"  [green]Deleted[/green] {name}")
+        else:
+            console.print(f"  [red]Failed[/red] {name}")
+        results.append(result)
 
-    # Show results
-    success_count = sum(1 for r in results if r["success"])
-    fail_count = len(results) - success_count
-
-    console.print("\n" + "=" * 50)
-    if success_count > 0:
-        console.print(
-            f"[green]✓[/green] Successfully deleted {success_count} endpoint(s)"
-        )
-    if fail_count > 0:
-        console.print(f"[red]✗[/red] Failed to delete {fail_count} endpoint(s)")
-        console.print("\nErrors:")
-        for result in results:
-            if not result["success"]:
-                console.print(f"  • {result['message']}")
+    _print_undeploy_summary(results)
 
 
 def _interactive_undeploy(resources: dict, skip_confirm: bool = False):
@@ -477,16 +363,15 @@ def _interactive_undeploy(resources: dict, skip_confirm: bool = False):
         resources: Dict of all resources
         skip_confirm: Skip confirmation prompts
     """
-    # Create choices for questionary
     choices = []
     resource_map = {}
 
     for resource_id, resource in resources.items():
         name = getattr(resource, "name", "N/A")
         endpoint_id = getattr(resource, "id", "N/A")
-        status_icon, status_text = _get_resource_status(resource)
+        color, status_text = _get_resource_status(resource)
 
-        choice_text = f"{name} ({endpoint_id}) - {status_icon} {status_text}"
+        choice_text = f"{name} ({endpoint_id}) - {status_text}"
         choices.append(choice_text)
         resource_map[choice_text] = (resource_id, resource)
 
@@ -500,24 +385,15 @@ def _interactive_undeploy(resources: dict, skip_confirm: bool = False):
             console.print("No endpoints selected")
             raise typer.Exit(0)
 
-        # Show confirmation
-        console.print(
-            Panel(
-                f"[yellow]⚠️  {len(selected)} endpoint(s) will be deleted:[/yellow]\n",
-                title="Undeploy Confirmation",
-                expand=False,
-            )
-        )
-
         selected_resources = []
+        console.print()
         for choice in selected:
             resource_id, resource = resource_map[choice]
             selected_resources.append((resource_id, resource))
             name = getattr(resource, "name", "N/A")
             endpoint_id = getattr(resource, "id", "N/A")
-            console.print(f"  • {name} ({endpoint_id})")
-
-        console.print("\n[red]🚨 This action cannot be undone![/red]\n")
+            console.print(f"  [bold]{name}[/bold]  {endpoint_id}")
+        console.print("\n  [yellow]This action cannot be undone.[/yellow]\n")
 
         if not skip_confirm:
             confirmed = questionary.confirm(
@@ -525,33 +401,42 @@ def _interactive_undeploy(resources: dict, skip_confirm: bool = False):
             ).ask()
 
             if not confirmed:
-                console.print("Undeploy cancelled")
+                console.print("[yellow]Cancelled[/yellow]")
                 raise typer.Exit(0)
     except KeyboardInterrupt:
-        console.print("\nUndeploy cancelled")
+        console.print("\n[yellow]Cancelled[/yellow]")
         raise typer.Exit(0)
 
-    # Delete selected endpoints
+    console.print()
     manager = _get_resource_manager()
-    with console.status(f"Deleting {len(selected_resources)} endpoint(s)..."):
-        results = []
-        for resource_id, resource in selected_resources:
-            name = getattr(resource, "name", "N/A")
+    results = []
+    for resource_id, resource in selected_resources:
+        name = getattr(resource, "name", "N/A")
+        with console.status(f"Deleting {name}..."):
             result = asyncio.run(manager.undeploy_resource(resource_id, name))
-            results.append(result)
+        if result["success"]:
+            console.print(f"  [green]Deleted[/green] {name}")
+        else:
+            console.print(f"  [red]Failed[/red] {name}")
+        results.append(result)
 
-    # Show results
+    _print_undeploy_summary(results)
+
+
+def _print_undeploy_summary(results: list[dict]):
+    """Print summary after undeploy operations."""
     success_count = sum(1 for r in results if r["success"])
     fail_count = len(results) - success_count
-
-    console.print("\n" + "=" * 50)
-    if success_count > 0:
+    console.print()
+    if fail_count == 0:
         console.print(
-            f"[green]✓[/green] Successfully deleted {success_count} endpoint(s)"
+            f"[green]Deleted[/green] {success_count} "
+            f"endpoint{'s' if success_count != 1 else ''}"
         )
-    if fail_count > 0:
-        console.print(f"[red]✗[/red] Failed to delete {fail_count} endpoint(s)")
-        console.print("\nErrors:")
+    else:
+        console.print(
+            f"[red]{fail_count}[/red] of {len(results)} endpoint(s) failed to delete"
+        )
         for result in results:
             if not result["success"]:
-                console.print(f"  • {result['message']}")
+                console.print(f"  {result['message']}")

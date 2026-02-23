@@ -1,13 +1,73 @@
-# runpod-flash Project Configuration
+# {{REPO_NAME}} - {{BRANCH_NAME}} Worktree
 
-## Claude Code Configuration
+> This worktree inherits shared development patterns from main. See: {{MAIN_CLAUDE_MD}}
 
-When using Claude Code on this project, always prefer the flash-code-intel MCP tools for code exploration instead of using Explore agents or generic search:
+## Branch Context
 
-- `mcp__flash-code-intel__find_symbol` - Search for classes, functions, methods by name
-- `mcp__flash-code-intel__get_class_interface` - Inspect class methods and properties
-- `mcp__flash-code-intel__list_file_symbols` - View file structure without reading full content
-- `mcp__flash-code-intel__list_classes` - Explore the class hierarchy
-- `mcp__flash-code-intel__find_by_decorator` - Find decorated items (e.g., `@property`, `@remote`)
+**Purpose:** [Describe the goal of this branch - what feature, fix, or improvement are you implementing?]
 
-**Do NOT** use the Task tool with the "Explore" subagent for codebase exploration. Use the MCP tools directly instead.
+**Status:** In development
+
+**Related Issues/PRs:** [Link to relevant GitHub issues or PRs]
+
+**Dependencies:**
+- [ ] [List any dependencies on other branches or external factors]
+
+## Branch-Specific Configuration
+
+[Document any configuration unique to this branch:]
+- Environment variables needed
+- Special test data requirements
+- Modified build/deployment settings
+- External service configurations
+
+## Progress Tracking
+
+### Completed
+- [ ] [Tasks completed so far]
+
+### In Progress
+- [ ] [Current work items]
+
+### Next Steps
+- [ ] [Upcoming tasks]
+
+## Technical Notes
+
+[Add branch-specific technical details:]
+- Architecture decisions made for this branch
+- Implementation approaches tried
+- Known issues or limitations
+- Performance considerations
+- Testing strategy
+
+## Learnings & Discoveries
+
+[Document insights gained while working on this branch:]
+- Unexpected behaviors discovered
+- Better approaches found
+- Code patterns that worked well
+- Areas for future refactoring
+
+## Merge Checklist
+
+Before merging this branch:
+- [ ] All tests passing locally (`make quality-check`)
+- [ ] Test coverage maintained/improved
+- [ ] CLAUDE.md updated in main if patterns changed
+- [ ] Documentation updated
+- [ ] No merge conflicts with main
+- [ ] CI/CD passing
+- [ ] Code reviewed
+- [ ] Migration plan documented (if needed)
+
+## Context for Claude Code
+
+[Provide context that helps Claude Code assist more effectively:]
+- What should Claude know about this branch's goals?
+- What patterns or constraints should be followed?
+- What areas need special attention?
+
+---
+
+**Note:** This worktree uses the git worktree workflow. See main CLAUDE.md for shared development patterns and quality requirements.

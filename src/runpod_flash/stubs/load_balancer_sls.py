@@ -11,11 +11,14 @@ from typing import Any, Callable, Dict, List, Optional
 import httpx
 
 from runpod_flash.core.utils.http import get_authenticated_httpx_client
+from runpod_flash.runtime.api_key_context import get_api_key
 from runpod_flash.runtime.serialization import (
     deserialize_arg,
     serialize_args,
     serialize_kwargs,
 )
+from runpod_flash.core.resources.constants import DEFAULT_LB_STUB_TIMEOUT
+
 from .live_serverless import get_function_source
 
 log = logging.getLogger(__name__)
@@ -46,17 +49,15 @@ class LoadBalancerSlsStub:
         result = await stub(my_func, deps, sys_deps, accel, arg1, arg2)
     """
 
-    DEFAULT_TIMEOUT = 30.0  # Default timeout in seconds
-
     def __init__(self, server: Any, timeout: Optional[float] = None) -> None:
         """Initialize stub with LoadBalancerSlsResource server.
 
         Args:
             server: LoadBalancerSlsResource instance with endpoint_url configured
-            timeout: Request timeout in seconds (default: 30.0)
+            timeout: Request timeout in seconds (default: DEFAULT_LB_STUB_TIMEOUT)
         """
         self.server = server
-        self.timeout = timeout if timeout is not None else self.DEFAULT_TIMEOUT
+        self.timeout = timeout if timeout is not None else DEFAULT_LB_STUB_TIMEOUT
 
     def _should_use_execute_endpoint(self, func: Callable[..., Any]) -> bool:
         """Determine if /execute endpoint should be used for this function.
@@ -74,11 +75,15 @@ class LoadBalancerSlsStub:
         Returns:
             True if /execute should be used, False if user route should be used
         """
-        from ..core.resources.live_serverless import LiveLoadBalancer
+        from ..core.resources.live_serverless import LiveServerlessMixin
 
-        # Always use /execute for LiveLoadBalancer (local development)
-        if isinstance(self.server, LiveLoadBalancer):
-            log.debug(f"Using /execute endpoint for LiveLoadBalancer: {func.__name__}")
+        # Always use /execute for live resources (local development)
+        if isinstance(self.server, LiveServerlessMixin):
+            log.debug(
+                "Using /execute endpoint for live resource %s (type=%s)",
+                func.__name__,
+                type(self.server).__name__,
+            )
             return True
 
         # Check if function has routing metadata
@@ -133,7 +138,7 @@ class LoadBalancerSlsStub:
         # Determine execution path based on resource type and routing metadata
         if self._should_use_execute_endpoint(func):
             # Local development or backward compatibility: use /execute endpoint
-            request = self._prepare_request(
+            request = await self._prepare_request(
                 func,
                 dependencies,
                 system_dependencies,
@@ -154,7 +159,7 @@ class LoadBalancerSlsStub:
                 **kwargs,
             )
 
-    def _prepare_request(
+    async def _prepare_request(
         self,
         func: Callable[..., Any],
         dependencies: Optional[List[str]],
@@ -166,6 +171,7 @@ class LoadBalancerSlsStub:
         """Prepare HTTP request payload.
 
         Extracts function source code and serializes arguments using cloudpickle.
+        Detects @remote dependencies and injects dispatch stubs for stacked execution.
 
         Args:
             func: Function to serialize
@@ -179,6 +185,20 @@ class LoadBalancerSlsStub:
             Request dictionary with serialized function and arguments
         """
         source, _ = get_function_source(func)
+
+        # Detect and resolve @remote dependencies for stacked execution
+        from .dependency_resolver import (
+            build_augmented_source,
+            generate_stub_code,
+            resolve_dependencies,
+        )
+
+        original_func = inspect.unwrap(func)
+        remote_deps = await resolve_dependencies(source, original_func.__globals__)
+        if remote_deps:
+            stub_codes = [generate_stub_code(dep) for dep in remote_deps]
+            source = build_augmented_source(source, stub_codes)
+
         log.debug(f"Extracted source for {func.__name__} ({len(source)} bytes)")
 
         request = {
@@ -224,7 +244,11 @@ class LoadBalancerSlsStub:
         execute_url = f"{self.server.endpoint_url}/execute"
 
         try:
-            async with get_authenticated_httpx_client(timeout=self.timeout) as client:
+            # Get API key from context (if available) for propagation
+            context_api_key = get_api_key()
+            async with get_authenticated_httpx_client(
+                timeout=self.timeout, api_key_override=context_api_key
+            ) as client:
                 response = await client.post(execute_url, json=request)
                 response.raise_for_status()
                 return response.json()
@@ -296,7 +320,11 @@ class LoadBalancerSlsStub:
         log.debug(f"Executing via user route: {method} {url}")
 
         try:
-            async with get_authenticated_httpx_client(timeout=self.timeout) as client:
+            # Get API key from context (if available) for propagation
+            context_api_key = get_api_key()
+            async with get_authenticated_httpx_client(
+                timeout=self.timeout, api_key_override=context_api_key
+            ) as client:
                 response = await client.request(method, url, json=body)
                 response.raise_for_status()
                 result = response.json()

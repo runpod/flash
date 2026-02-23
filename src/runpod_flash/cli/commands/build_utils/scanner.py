@@ -3,12 +3,68 @@
 import ast
 import importlib
 import logging
+import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
+
+
+def file_to_url_prefix(file_path: Path, project_root: Path) -> str:
+    """Derive the local dev server URL prefix from a source file path.
+
+    Args:
+        file_path: Absolute path to the Python source file
+        project_root: Absolute path to the project root directory
+
+    Returns:
+        URL prefix starting with "/" (e.g., /longruns/stage1)
+
+    Example:
+        longruns/stage1.py  →  /longruns/stage1
+    """
+    rel = file_path.relative_to(project_root).with_suffix("")
+    return "/" + str(rel).replace(os.sep, "/")
+
+
+def file_to_resource_name(file_path: Path, project_root: Path) -> str:
+    """Derive the manifest resource name from a source file path.
+
+    Slashes and hyphens are replaced with underscores to produce a valid
+    Python identifier suitable for use as a resource name.
+
+    Args:
+        file_path: Absolute path to the Python source file
+        project_root: Absolute path to the project root directory
+
+    Returns:
+        Resource name using underscores (e.g., longruns_stage1)
+
+    Example:
+        longruns/stage1.py  →  longruns_stage1
+        my-worker.py        →  my_worker
+    """
+    rel = file_path.relative_to(project_root).with_suffix("")
+    return str(rel).replace(os.sep, "_").replace("/", "_").replace("-", "_")
+
+
+def file_to_module_path(file_path: Path, project_root: Path) -> str:
+    """Derive the Python dotted module path from a source file path.
+
+    Args:
+        file_path: Absolute path to the Python source file
+        project_root: Absolute path to the project root directory
+
+    Returns:
+        Dotted module path (e.g., longruns.stage1)
+
+    Example:
+        longruns/stage1.py  →  longruns.stage1
+    """
+    rel = file_path.relative_to(project_root).with_suffix("")
+    return str(rel).replace(os.sep, ".").replace("/", ".")
 
 
 @dataclass
@@ -29,6 +85,24 @@ class RemoteFunctionMetadata:
         False  # LiveLoadBalancer (vs deployed LoadBalancerSlsResource)
     )
     config_variable: Optional[str] = None  # Variable name like "gpu_config"
+    calls_remote_functions: bool = (
+        False  # Does this function call other @remote functions?
+    )
+    called_remote_functions: List[str] = field(
+        default_factory=list
+    )  # Names of @remote functions called
+    is_lb_route_handler: bool = (
+        False  # LB @remote with method= and path= — runs directly as HTTP handler
+    )
+    class_methods: List[str] = field(
+        default_factory=list
+    )  # Public methods for @remote classes
+    param_names: List[str] = field(
+        default_factory=list
+    )  # Function params excluding self
+    class_method_params: Dict[str, List[str]] = field(
+        default_factory=dict
+    )  # method_name -> param_names (for classes)
 
 
 class RemoteDecoratorScanner:
@@ -56,7 +130,9 @@ class RemoteDecoratorScanner:
                 rel_path = f.relative_to(self.project_dir)
                 # Check if first part of path is in excluded_root_dirs
                 if rel_path.parts and rel_path.parts[0] not in excluded_root_dirs:
-                    self.py_files.append(f)
+                    # Exclude __init__.py — not valid worker entry points
+                    if f.name != "__init__.py":
+                        self.py_files.append(f)
             except (ValueError, IndexError):
                 # Include files that can't be made relative
                 self.py_files.append(f)
@@ -68,11 +144,11 @@ class RemoteDecoratorScanner:
                 tree = ast.parse(content)
                 self._extract_resource_configs(tree, py_file)
             except UnicodeDecodeError:
-                logger.debug(f"Skipping non-UTF-8 file: {py_file}")
+                pass
             except SyntaxError as e:
                 logger.warning(f"Syntax error in {py_file}: {e}")
-            except Exception as e:
-                logger.debug(f"Failed to parse {py_file}: {e}")
+            except Exception:
+                pass
 
         # Second pass: extract @remote decorated functions
         for py_file in self.py_files:
@@ -81,11 +157,39 @@ class RemoteDecoratorScanner:
                 tree = ast.parse(content)
                 functions.extend(self._extract_remote_functions(tree, py_file))
             except UnicodeDecodeError:
-                logger.debug(f"Skipping non-UTF-8 file: {py_file}")
+                pass
             except SyntaxError as e:
                 logger.warning(f"Syntax error in {py_file}: {e}")
-            except Exception as e:
-                logger.debug(f"Failed to parse {py_file}: {e}")
+            except Exception:
+                pass
+
+        # Third pass: analyze function call graphs
+        remote_function_names = {f.function_name for f in functions}
+        for py_file in self.py_files:
+            try:
+                content = py_file.read_text(encoding="utf-8")
+                tree = ast.parse(content)
+
+                # Build a map of function name -> function node for this file (single pass)
+                func_node_map: Dict[str, ast.AST] = {}
+                for node in ast.walk(tree):
+                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        # Store first occurrence if multiple functions share same name
+                        func_node_map.setdefault(node.name, node)
+
+                # Find each @remote function and analyze its calls
+                for func_meta in [f for f in functions if f.file_path == py_file]:
+                    node = func_node_map.get(func_meta.function_name)
+                    if node is not None:
+                        self._analyze_function_calls(
+                            node, func_meta, remote_function_names
+                        )
+            except UnicodeDecodeError:
+                pass
+            except SyntaxError as e:
+                logger.warning(f"Syntax error in {py_file}: {e}")
+            except Exception:
+                pass
 
         return functions
 
@@ -186,6 +290,39 @@ class RemoteDecoratorScanner:
                             {"is_load_balanced": False, "is_live_resource": False},
                         )
 
+                        # An LB route handler is an LB @remote function that has
+                        # both method= and path= declared. Its body runs directly
+                        # on the LB endpoint — it is NOT a remote dispatch stub.
+                        is_lb_route_handler = (
+                            flags["is_load_balanced"]
+                            and http_method is not None
+                            and http_path is not None
+                        )
+
+                        # Extract public methods for @remote classes
+                        class_methods: List[str] = []
+                        class_method_params: Dict[str, List[str]] = {}
+                        if is_class:
+                            for n in node.body:
+                                if isinstance(
+                                    n, (ast.FunctionDef, ast.AsyncFunctionDef)
+                                ) and not n.name.startswith("_"):
+                                    class_methods.append(n.name)
+                                    class_method_params[n.name] = [
+                                        arg.arg
+                                        for arg in n.args.args
+                                        if arg.arg != "self"
+                                    ]
+
+                        # Extract param names for functions (not classes)
+                        param_names: List[str] = []
+                        if not is_class and isinstance(
+                            node, (ast.FunctionDef, ast.AsyncFunctionDef)
+                        ):
+                            param_names = [
+                                arg.arg for arg in node.args.args if arg.arg != "self"
+                            ]
+
                         metadata = RemoteFunctionMetadata(
                             function_name=node.name,
                             module_path=module_path,
@@ -201,6 +338,10 @@ class RemoteDecoratorScanner:
                             config_variable=self.resource_variables.get(
                                 resource_config_name
                             ),
+                            is_lb_route_handler=is_lb_route_handler,
+                            class_methods=class_methods,
+                            param_names=param_names,
+                            class_method_params=class_method_params,
                         )
                         functions.append(metadata)
 
@@ -316,6 +457,42 @@ class RemoteDecoratorScanner:
                     if isinstance(keyword.value, ast.Constant):
                         return keyword.value.value
         return None
+
+    def _analyze_function_calls(
+        self,
+        func_node: ast.AST,
+        function_metadata: RemoteFunctionMetadata,
+        remote_function_names: set[str],
+    ) -> None:
+        """Analyze if a function calls other @remote functions.
+
+        Args:
+            func_node: AST node for the function
+            function_metadata: Metadata to update with call information
+            remote_function_names: Set of all @remote function names
+        """
+        # Walk AST looking for function calls
+        for node in ast.walk(func_node):
+            if isinstance(node, ast.Call):
+                # Handle direct calls: some_function()
+                if isinstance(node.func, ast.Name):
+                    called_name = node.func.id
+                    if called_name in remote_function_names:
+                        function_metadata.calls_remote_functions = True
+                        if called_name not in function_metadata.called_remote_functions:
+                            function_metadata.called_remote_functions.append(
+                                called_name
+                            )
+
+                # Handle attribute calls: obj.some_function()
+                elif isinstance(node.func, ast.Attribute):
+                    called_name = node.func.attr
+                    if called_name in remote_function_names:
+                        function_metadata.calls_remote_functions = True
+                        if called_name not in function_metadata.called_remote_functions:
+                            function_metadata.called_remote_functions.append(
+                                called_name
+                            )
 
     def _get_resource_type(self, resource_config_name: str) -> str:
         """Get the resource type for a given config name."""
@@ -450,10 +627,63 @@ def detect_main_app(
                                 # Check for custom routes (not just @remote)
                                 has_routes = _has_custom_routes(tree, app_variable)
 
+                                # 1. Extract direct app routes
+                                module_path = filename.replace(".py", "")
+                                app_routes = _extract_fastapi_routes(
+                                    tree, app_variable, module_path
+                                )
+
+                                # 2. Find included routers
+                                included_routers = _find_included_routers(
+                                    tree, app_variable
+                                )
+
+                                # 3. Extract routes from each included router
+                                router_routes = []
+                                for router_var, prefix in included_routers:
+                                    router_file = _resolve_router_import(
+                                        router_var, tree, main_path, project_root
+                                    )
+                                    if router_file and router_file.exists():
+                                        try:
+                                            router_content = router_file.read_text(
+                                                encoding="utf-8"
+                                            )
+                                            router_tree = ast.parse(router_content)
+                                            router_module = router_file.stem
+
+                                            routes = _extract_router_routes(
+                                                router_tree,
+                                                router_var,
+                                                router_module,
+                                                prefix,
+                                                router_file,
+                                            )
+                                            router_routes.extend(routes)
+                                        except (
+                                            UnicodeDecodeError,
+                                            SyntaxError,
+                                            PermissionError,
+                                            OSError,
+                                        ) as e:
+                                            logger.debug(
+                                                f"Failed to parse router file {router_file}: {e}"
+                                            )
+
+                                # 4. Combine all routes
+                                all_fastapi_routes = app_routes + router_routes
+
+                                # 5. Update file_path for all routes
+                                for route in all_fastapi_routes:
+                                    if route.file_path == Path(module_path):
+                                        route.file_path = main_path
+
                                 return {
                                     "file_path": main_path,
                                     "app_variable": app_variable,
-                                    "has_routes": has_routes,
+                                    "has_routes": has_routes
+                                    or bool(all_fastapi_routes),
+                                    "fastapi_routes": all_fastapi_routes,
                                 }
         except UnicodeDecodeError:
             logger.debug(f"Skipping non-UTF-8 file: {main_path}")
@@ -500,6 +730,251 @@ def _has_custom_routes(tree: ast.AST, app_variable: str) -> bool:
     return False
 
 
+def _find_included_routers(tree: ast.AST, app_variable: str) -> List[Tuple[str, str]]:
+    """Find all routers included in FastAPI app via include_router().
+
+    Args:
+        tree: AST of the main file
+        app_variable: FastAPI app variable name (e.g., 'app')
+
+    Returns:
+        List of (router_variable_name, prefix) tuples
+        Example: [('user_router', '/users'), ('api_router', '/api')]
+    """
+    included_routers = []
+
+    for node in ast.walk(tree):
+        # Look for: app.include_router(router_var, prefix="/path", ...)
+        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
+            call = node.value
+
+            # Check if it's app.include_router
+            if (
+                isinstance(call.func, ast.Attribute)
+                and call.func.attr == "include_router"
+                and isinstance(call.func.value, ast.Name)
+                and call.func.value.id == app_variable
+            ):
+                # Extract router variable from first positional arg
+                if call.args and isinstance(call.args[0], ast.Name):
+                    router_var = call.args[0].id
+
+                    # Extract prefix from keyword args
+                    prefix = ""
+                    for keyword in call.keywords:
+                        if keyword.arg == "prefix" and isinstance(
+                            keyword.value, ast.Constant
+                        ):
+                            prefix = keyword.value.value
+
+                    included_routers.append((router_var, prefix))
+
+    return included_routers
+
+
+def _resolve_router_import(
+    router_variable: str, tree: ast.AST, main_file_path: Path, project_root: Path
+) -> Optional[Path]:
+    """Resolve router variable to its source file via import statements.
+
+    Args:
+        router_variable: Name like 'user_router'
+        tree: AST of main.py
+        main_file_path: Path to main.py
+        project_root: Project root directory
+
+    Returns:
+        Path to module defining the router, or None if not found
+    """
+    for node in ast.walk(tree):
+        # Handle: from module import router_variable
+        if isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                imported_name = alias.asname if alias.asname else alias.name
+                if imported_name == router_variable:
+                    # Found the import!
+                    module_path = node.module
+                    if not module_path:
+                        continue
+
+                    # Handle relative imports
+                    if node.level > 0:
+                        # Relative import (e.g., from .routers import user_router)
+                        parent_dir = main_file_path.parent
+                        for _ in range(node.level - 1):
+                            parent_dir = parent_dir.parent
+                        module_parts = module_path.split(".") if module_path else []
+                        target_path = parent_dir.joinpath(*module_parts)
+                    else:
+                        # Absolute import (e.g., from routers.users import user_router)
+                        module_parts = module_path.split(".")
+                        target_path = project_root.joinpath(*module_parts)
+
+                    # Try both .py file and __init__.py in package
+                    py_file = target_path.with_suffix(".py")
+                    if py_file.exists():
+                        return py_file
+
+                    init_file = target_path / "__init__.py"
+                    if init_file.exists():
+                        return init_file
+
+    return None
+
+
+# Supported HTTP methods for route extraction
+SUPPORTED_HTTP_METHODS = ["get", "post", "put", "delete", "patch", "options", "head"]
+
+
+def _normalize_route_path(url_prefix: str, http_path: str) -> str:
+    """Normalize URL path by combining prefix and path with proper slashes.
+
+    Args:
+        url_prefix: URL prefix (e.g., '/users' or '')
+        http_path: HTTP path (e.g., '/' or '/list')
+
+    Returns:
+        Normalized path starting with '/' (e.g., '/users/list')
+    """
+    # Handle empty cases
+    if not url_prefix and not http_path:
+        return "/"
+    if not url_prefix:
+        return f"/{http_path.lstrip('/')}" if http_path else "/"
+    if not http_path or http_path == "/":
+        # When path is just "/", append it to prefix
+        return f"/{url_prefix.strip('/')}/"
+
+    # Combine prefix and path
+    prefix_part = url_prefix.strip("/")
+    path_part = http_path.lstrip("/")
+
+    return f"/{prefix_part}/{path_part}"
+
+
+def _extract_routes_from_decorator(
+    tree: ast.AST,
+    decorator_object: str,
+    module_path: str,
+    url_prefix: str,
+    file_path: Path,
+) -> List[RemoteFunctionMetadata]:
+    """Extract routes from decorators (@app.get, @router.post, etc.).
+
+    Unified implementation for both FastAPI app and APIRouter route extraction.
+
+    Args:
+        tree: AST of the file
+        decorator_object: Variable name ('app', 'user_router', etc.)
+        module_path: Module path for imports
+        url_prefix: URL prefix to prepend (empty string for no prefix)
+        file_path: Path to the source file
+
+    Returns:
+        List of RemoteFunctionMetadata for discovered routes
+    """
+    routes = []
+
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+
+        for decorator in node.decorator_list:
+            # Look for @decorator_object.METHOD(...) pattern
+            if not isinstance(decorator, ast.Call):
+                continue
+
+            if not isinstance(decorator.func, ast.Attribute):
+                continue
+
+            # Check decorator object match
+            if not (
+                isinstance(decorator.func.value, ast.Name)
+                and decorator.func.value.id == decorator_object
+            ):
+                continue
+
+            # Get HTTP method
+            method = decorator.func.attr
+            if method not in SUPPORTED_HTTP_METHODS:
+                continue
+
+            # Extract path from first positional argument
+            http_path = None
+            if decorator.args and isinstance(decorator.args[0], ast.Constant):
+                http_path = decorator.args[0].value
+
+            if not http_path:
+                continue
+
+            # Normalize path with prefix
+            full_path = _normalize_route_path(url_prefix, http_path)
+
+            routes.append(
+                RemoteFunctionMetadata(
+                    function_name=node.name,
+                    module_path=module_path,
+                    resource_config_name="mothership",
+                    resource_type="CpuLiveLoadBalancer",
+                    is_async=isinstance(node, ast.AsyncFunctionDef),
+                    is_class=False,
+                    file_path=file_path,
+                    http_method=method.upper(),
+                    http_path=full_path,
+                    is_load_balanced=True,
+                    is_live_resource=True,
+                    config_variable=None,
+                )
+            )
+            break  # Only process first matching decorator per function
+
+    return routes
+
+
+def _extract_router_routes(
+    tree: ast.AST,
+    router_variable: str,
+    module_path: str,
+    url_prefix: str,
+    router_file: Path,
+) -> List[RemoteFunctionMetadata]:
+    """Extract routes from APIRouter decorators (@router.get, etc.).
+
+    Args:
+        tree: AST of module containing the router
+        router_variable: Router variable name (e.g., 'user_router')
+        module_path: Module path for imports
+        url_prefix: URL prefix from include_router (e.g., '/users')
+        router_file: Path to router file
+
+    Returns:
+        Routes with prefixed paths
+    """
+    return _extract_routes_from_decorator(
+        tree, router_variable, module_path, url_prefix, router_file
+    )
+
+
+def _extract_fastapi_routes(
+    tree: ast.AST, app_variable: str, module_path: str
+) -> List[RemoteFunctionMetadata]:
+    """Extract routes from FastAPI decorators (@app.get, @app.post, etc.).
+
+    Args:
+        tree: AST tree of the file
+        app_variable: FastAPI app variable name (e.g., 'app', 'router')
+        module_path: Module import path (e.g., 'main')
+
+    Returns:
+        List of RemoteFunctionMetadata for each FastAPI route found
+    """
+    # Use unified extraction with no prefix and placeholder path
+    # The caller will update file_path with the actual path
+    return _extract_routes_from_decorator(
+        tree, app_variable, module_path, "", Path(module_path)
+    )
+
+
 def detect_explicit_mothership(project_root: Path) -> Optional[Dict]:
     """Detect explicitly configured mothership resource in mothership.py.
 
@@ -542,7 +1017,7 @@ def detect_explicit_mothership(project_root: Path) -> Optional[Dict]:
                                 "resource_type": resource_type,
                                 "name": kwargs.get("name", "mothership"),
                                 "workersMin": kwargs.get("workersMin", 1),
-                                "workersMax": kwargs.get("workersMax", 3),
+                                "workersMax": kwargs.get("workersMax", 1),
                                 "is_explicit": True,
                             }
 

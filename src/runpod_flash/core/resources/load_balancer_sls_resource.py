@@ -198,7 +198,7 @@ class LoadBalancerSlsResource(ServerlessResource):
         if not self.id:
             raise ValueError("Cannot wait for health: endpoint not deployed")
 
-        log.info(
+        log.debug(
             f"Waiting for LB endpoint {self.name} ({self.id}) to become healthy... "
             f"(max {max_retries} retries, {retry_interval}s interval)"
         )
@@ -206,7 +206,7 @@ class LoadBalancerSlsResource(ServerlessResource):
         for attempt in range(max_retries):
             try:
                 if await self._check_ping_endpoint():
-                    log.info(
+                    log.debug(
                         f"LB endpoint {self.name} is healthy (attempt {attempt + 1})"
                     )
                     return True
@@ -223,7 +223,7 @@ class LoadBalancerSlsResource(ServerlessResource):
             if attempt < max_retries - 1:
                 await asyncio.sleep(retry_interval)
 
-        log.error(
+        log.debug(
             f"LB endpoint {self.name} failed to become healthy after "
             f"{max_retries} attempts"
         )
@@ -231,20 +231,18 @@ class LoadBalancerSlsResource(ServerlessResource):
 
     async def _do_deploy(self) -> "LoadBalancerSlsResource":
         """
-        Deploy LB endpoint and wait for health.
+        Deploy LB endpoint without blocking on health checks.
 
         Deployment flow:
         1. Validate LB configuration
         2. Call parent deploy (creates endpoint in RunPod)
-        3. Poll /ping endpoint until healthy or timeout
-        4. Return deployed resource
+        3. Return deployed resource immediately
 
         Returns:
             Deployed LoadBalancerSlsResource instance
 
         Raises:
             ValueError: If LB configuration invalid or deployment fails
-            TimeoutError: If /ping endpoint doesn't respond in time
         """
         # Validate before deploying
         self._validate_lb_configuration()
@@ -261,34 +259,14 @@ class LoadBalancerSlsResource(ServerlessResource):
             self.env["FLASH_IS_MOTHERSHIP"] = "true"
 
             # Call parent deploy (creates endpoint via RunPod API)
-            log.info(f"Deploying LB endpoint {self.name}...")
+            log.info(f"Deploying LB endpoint: {self.name}")
             deployed = await super()._do_deploy()
 
-            # Wait for /ping endpoint to become available
-            timeout_seconds = (
-                DEFAULT_HEALTH_CHECK_RETRIES * DEFAULT_HEALTH_CHECK_INTERVAL
-            )
-            log.info(
-                f"Endpoint created, waiting for /ping to respond "
-                f"({timeout_seconds}s timeout)..."
-            )
-
-            healthy = await self._wait_for_health(
-                max_retries=DEFAULT_HEALTH_CHECK_RETRIES,
-                retry_interval=DEFAULT_HEALTH_CHECK_INTERVAL,
-            )
-
-            if not healthy:
-                raise TimeoutError(
-                    f"LB endpoint {self.name} ({deployed.id}) failed to become "
-                    f"healthy within {timeout_seconds}s"
-                )
-
-            log.info(f"LB endpoint {self.name} ({deployed.id}) deployed and healthy")
+            log.info(f"Deployed: {self.name} ({deployed.url})")
             return deployed
 
         except Exception as e:
-            log.error(f"Failed to deploy LB endpoint {self.name}: {e}")
+            log.debug(f"Failed to deploy LB endpoint {self.name}: {e}")
             raise
 
     def is_deployed(self) -> bool:

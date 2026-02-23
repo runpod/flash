@@ -20,14 +20,15 @@ test_lb_resource = LoadBalancerSlsResource(
 class TestLoadBalancerSlsStubPrepareRequest:
     """Test suite for _prepare_request method."""
 
-    def test_prepare_request_with_no_args(self):
+    @pytest.mark.asyncio
+    async def test_prepare_request_with_no_args(self):
         """Test request preparation with no arguments."""
         stub = LoadBalancerSlsStub(test_lb_resource)
 
         def test_func():
             return "result"
 
-        request = stub._prepare_request(test_func, None, None, True)
+        request = await stub._prepare_request(test_func, None, None, True)
 
         assert request["function_name"] == "test_func"
         assert "def test_func" in request["function_code"]
@@ -37,7 +38,8 @@ class TestLoadBalancerSlsStubPrepareRequest:
         assert "args" not in request or request["args"] == []
         assert "kwargs" not in request or request["kwargs"] == {}
 
-    def test_prepare_request_with_args(self):
+    @pytest.mark.asyncio
+    async def test_prepare_request_with_args(self):
         """Test request preparation with positional arguments."""
         stub = LoadBalancerSlsStub(test_lb_resource)
 
@@ -46,7 +48,7 @@ class TestLoadBalancerSlsStubPrepareRequest:
 
         arg1 = 5
         arg2 = 3
-        request = stub._prepare_request(add, None, None, True, arg1, arg2)
+        request = await stub._prepare_request(add, None, None, True, arg1, arg2)
 
         assert request["function_name"] == "add"
         assert len(request["args"]) == 2
@@ -57,14 +59,15 @@ class TestLoadBalancerSlsStubPrepareRequest:
         assert decoded_arg1 == 5
         assert decoded_arg2 == 3
 
-    def test_prepare_request_with_kwargs(self):
+    @pytest.mark.asyncio
+    async def test_prepare_request_with_kwargs(self):
         """Test request preparation with keyword arguments."""
         stub = LoadBalancerSlsStub(test_lb_resource)
 
         def greet(name, greeting="Hello"):
             return f"{greeting}, {name}!"
 
-        request = stub._prepare_request(
+        request = await stub._prepare_request(
             greet, None, None, True, name="Alice", greeting="Hi"
         )
 
@@ -79,7 +82,8 @@ class TestLoadBalancerSlsStubPrepareRequest:
         assert decoded_name == "Alice"
         assert decoded_greeting == "Hi"
 
-    def test_prepare_request_with_dependencies(self):
+    @pytest.mark.asyncio
+    async def test_prepare_request_with_dependencies(self):
         """Test request preparation includes dependencies."""
         stub = LoadBalancerSlsStub(test_lb_resource)
 
@@ -89,7 +93,9 @@ class TestLoadBalancerSlsStubPrepareRequest:
         dependencies = ["requests", "numpy"]
         system_deps = ["git"]
 
-        request = stub._prepare_request(test_func, dependencies, system_deps, True)
+        request = await stub._prepare_request(
+            test_func, dependencies, system_deps, True
+        )
 
         assert request["dependencies"] == dependencies
         assert request["system_dependencies"] == system_deps

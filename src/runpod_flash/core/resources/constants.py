@@ -32,10 +32,13 @@ FLASH_CPU_LB_IMAGE = os.environ.get(
 
 # Worker configuration defaults
 DEFAULT_WORKERS_MIN = 1
-DEFAULT_WORKERS_MAX = 3
+DEFAULT_WORKERS_MAX = 1
 
 # Flash app artifact upload constants
 TARBALL_CONTENT_TYPE = "application/gzip"
 MAX_TARBALL_SIZE_MB = 500  # Maximum tarball size in megabytes
 VALID_TARBALL_EXTENSIONS = (".tar.gz", ".tgz")  # Valid tarball file extensions
 GZIP_MAGIC_BYTES = (0x1F, 0x8B)  # Magic bytes for gzip files
+
+# Load balancer stub timeout (seconds)
+DEFAULT_LB_STUB_TIMEOUT = 60.0

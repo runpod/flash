@@ -1,7 +1,9 @@
 import asyncio
+import json
 import logging
 import os
 from enum import Enum
+from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Optional, Set
 
 from pydantic import (
@@ -154,7 +156,7 @@ class ServerlessResource(DeployableResource):
     # === Input Fields ===
     executionTimeoutMs: Optional[int] = 0
     gpuCount: Optional[int] = 1
-    idleTimeout: Optional[int] = 5
+    idleTimeout: Optional[int] = 60
     instanceIds: Optional[List[CpuInstanceType]] = None
     locations: Optional[str] = None
     name: str
@@ -164,7 +166,7 @@ class ServerlessResource(DeployableResource):
     scalerValue: Optional[int] = 4
     templateId: Optional[str] = None
     type: Optional[ServerlessType] = ServerlessType.QB
-    workersMax: Optional[int] = 3
+    workersMax: Optional[int] = 1
     workersMin: Optional[int] = 0
     workersPFBTarget: Optional[int] = 0
 
@@ -364,7 +366,7 @@ class ServerlessResource(DeployableResource):
         # Auto-size if using default value
         default_disk_size = PodTemplate.model_fields["containerDiskInGb"].default
         if template.containerDiskInGb == default_disk_size:
-            log.info(
+            log.debug(
                 f"Auto-sizing containerDiskInGb from {default_disk_size}GB "
                 f"to {cpu_limit}GB (CPU instance limit)"
             )
@@ -472,21 +474,151 @@ class ServerlessResource(DeployableResource):
             if not self.id:
                 return False
 
+            # During flash run, skip the health check. Newly-created endpoints
+            # can fail health checks due to RunPod propagation delay — the
+            # endpoint exists but the health API hasn't registered it yet.
+            # Trusting the cached ID is correct here; actual failures surface
+            # on the first real run/run_sync call.
+            # Case-insensitive check; unset env var defaults to "" via getenv.
+            if os.getenv("FLASH_IS_LIVE_PROVISIONING", "").lower() == "true":
+                return True
+
             response = self.endpoint.health()
             return response is not None
         except Exception as e:
-            log.error(f"Error checking {self}: {e}")
+            log.debug(f"Error checking {self}: {e}")
             return False
 
     def _payload_exclude(self) -> Set[str]:
         # flashEnvironmentId is input-only but must be sent when provided
         exclude_fields = set(self._input_only or set())
         exclude_fields.discard("flashEnvironmentId")
+        # When templateId is already set, exclude template from the payload.
+        # RunPod rejects requests that contain both fields simultaneously.
+        # Both can coexist after deploy mutates config (sets templateId while
+        # template remains from initialization) — templateId takes precedence.
+        if self.templateId:
+            exclude_fields.add("template")
         return exclude_fields
+
+    @staticmethod
+    def _build_template_update_payload(
+        template: PodTemplate, template_id: str
+    ) -> Dict[str, Any]:
+        """Build saveTemplate payload from template model.
+
+        Keep this to fields supported by saveTemplate to avoid passing endpoint-only
+        fields to the template mutation.
+        """
+        template_data = template.model_dump(exclude_none=True, mode="json")
+        allowed_fields = {
+            "name",
+            "imageName",
+            "containerDiskInGb",
+            "dockerArgs",
+            "env",
+            "readme",
+        }
+        payload = {
+            key: value for key, value in template_data.items() if key in allowed_fields
+        }
+        # savetemplate mutation requires volumeInGb, but for sls this is always 0
+        payload["volumeInGb"] = 0
+        payload["id"] = template_id
+        return payload
+
+    def _check_makes_remote_calls(self) -> bool:
+        """Check if resource makes remote calls from build manifest.
+
+        Reads flash_manifest.json to determine if this resource config
+        has makes_remote_calls=True.
+
+        Returns:
+            True if makes remote calls, False if local-only,
+            True (safe default) if manifest not found.
+        """
+        try:
+            manifest_path = Path.cwd() / "flash_manifest.json"
+            if not manifest_path.exists():
+                # Try alternative locations
+                manifest_path = Path("/flash_manifest.json")  # Container path
+
+            if not manifest_path.exists():
+                log.debug("Manifest not found, assuming makes_remote_calls=True")
+                return True  # Safe default
+
+            with open(manifest_path) as f:
+                manifest_data = json.load(f)
+
+            resources = manifest_data.get("resources", {})
+
+            # Strip -fb suffix and live- prefix to match manifest name
+            lookup_name = self.name
+            if lookup_name.endswith("-fb"):
+                lookup_name = lookup_name[:-3]
+            if lookup_name.startswith(LIVE_PREFIX):
+                lookup_name = lookup_name[len(LIVE_PREFIX) :]
+
+            resource_config = resources.get(lookup_name)
+
+            if not resource_config:
+                log.debug(
+                    f"Resource '{lookup_name}' (from '{self.name}') not in manifest, assuming makes_remote_calls=True"
+                )
+                return True  # Safe default
+
+            makes_remote_calls = resource_config.get("makes_remote_calls", True)
+            log.debug(
+                f"Resource '{lookup_name}' (from '{self.name}') makes_remote_calls={makes_remote_calls}"
+            )
+            return makes_remote_calls
+
+        except Exception as e:
+            log.warning(
+                f"Failed to read manifest: {e}, assuming makes_remote_calls=True"
+            )
+            return True  # Safe default on error
+
+    def _get_module_path(self) -> Optional[str]:
+        """Get module_path from build manifest for this resource.
+
+        Returns:
+            Dotted module path (e.g., 'preprocess.first_pass'), or None if not found.
+        """
+        try:
+            manifest_path = Path.cwd() / "flash_manifest.json"
+            if not manifest_path.exists():
+                manifest_path = Path("/flash_manifest.json")
+            if not manifest_path.exists():
+                return None
+
+            with open(manifest_path) as f:
+                manifest_data = json.load(f)
+
+            resources = manifest_data.get("resources", {})
+
+            lookup_name = self.name
+            if lookup_name.endswith("-fb"):
+                lookup_name = lookup_name[:-3]
+            if lookup_name.startswith(LIVE_PREFIX):
+                lookup_name = lookup_name[len(LIVE_PREFIX) :]
+
+            resource_config = resources.get(lookup_name)
+            if not resource_config:
+                return None
+
+            return resource_config.get("module_path")
+
+        except Exception:
+            return None
 
     async def _do_deploy(self) -> "DeployableResource":
         """
         Deploys the serverless resource using the provided configuration.
+
+        For queue-based endpoints that make remote calls, injects RUNPOD_API_KEY.
+        For load-balanced endpoints, injects FLASH_MODULE_PATH.
+
         Returns a DeployableResource object.
         """
         try:
@@ -495,7 +627,43 @@ class ServerlessResource(DeployableResource):
                 log.debug(f"{self} exists")
                 return self
 
-            # NEW: Ensure network volume is deployed first
+            # Inject API key for queue-based endpoints that make remote calls
+            if self.type == ServerlessType.QB:
+                env_dict = self.env or {}
+
+                # Check if this resource makes remote calls (from build manifest)
+                makes_remote_calls = self._check_makes_remote_calls()
+
+                if makes_remote_calls:
+                    # Inject RUNPOD_API_KEY if not already set
+                    if "RUNPOD_API_KEY" not in env_dict:
+                        api_key = os.getenv("RUNPOD_API_KEY")
+                        if api_key:
+                            env_dict["RUNPOD_API_KEY"] = api_key
+                            log.info(
+                                f"{self.name}: Injected RUNPOD_API_KEY for remote calls "
+                                f"(makes_remote_calls=True)"
+                            )
+                        else:
+                            log.warning(
+                                f"{self.name}: makes_remote_calls=True but RUNPOD_API_KEY not set. "
+                                f"Remote calls to other endpoints will fail."
+                            )
+
+                self.env = env_dict
+
+            # Inject module path for load-balanced endpoints
+            elif self.type == ServerlessType.LB:
+                env_dict = self.env or {}
+
+                module_path = self._get_module_path()
+                if module_path and "FLASH_MODULE_PATH" not in env_dict:
+                    env_dict["FLASH_MODULE_PATH"] = module_path
+                    log.info(f"{self.name}: Injected FLASH_MODULE_PATH={module_path}")
+
+                self.env = env_dict
+
+            # Ensure network volume is deployed first
             await self._ensure_network_volume_deployed()
 
             async with RunpodGraphQLClient() as client:
@@ -507,6 +675,10 @@ class ServerlessResource(DeployableResource):
             if endpoint := self.__class__(**result):
                 endpoint = await self._sync_graphql_object_with_inputs(endpoint)
                 self.id = endpoint.id
+                self.templateId = endpoint.templateId
+                self.template = (
+                    None  # templateId takes precedence; clear to avoid conflict
+                )
                 return endpoint
 
             raise ValueError("Deployment failed, no endpoint was returned.")
@@ -535,13 +707,9 @@ class ServerlessResource(DeployableResource):
             raise ValueError("Cannot update: endpoint not deployed")
 
         try:
-            # Log if version-triggering changes detected (informational only)
-            if self._has_structural_changes(new_config):
-                log.info(
-                    f"{self.name}: Version-triggering changes detected. "
-                    "Server will increment version and recreate workers."
-                )
-            else:
+            resolved_template_id = self.templateId or new_config.templateId
+            # Check for version-triggering changes
+            if not self._has_structural_changes(new_config):
                 log.info(f"Updating endpoint '{self.name}' (ID: {self.id})")
 
             # Ensure network volume is deployed if specified
@@ -557,9 +725,38 @@ class ServerlessResource(DeployableResource):
                 payload["id"] = self.id  # Critical: include ID for update
 
                 result = await client.save_endpoint(payload)
+                resolved_template_id = (
+                    result.get("templateId") or self.templateId or new_config.templateId
+                )
+
+                if new_config.template:
+                    if resolved_template_id:
+                        template_payload = self._build_template_update_payload(
+                            new_config.template, resolved_template_id
+                        )
+                        await client.update_template(template_payload)
+                        log.debug(
+                            f"Updated template '{resolved_template_id}' for endpoint '{self.name}'"
+                        )
+                    else:
+                        log.warning(
+                            "Template provided during endpoint update but no templateId could "
+                            "be resolved; skipping separate saveTemplate call"
+                        )
 
             if updated := self.__class__(**result):
-                log.info(f"Successfully updated endpoint '{self.name}' (ID: {self.id})")
+                if not updated.templateId:
+                    updated.templateId = (
+                        resolved_template_id or self.templateId or new_config.templateId
+                    )
+                # Keep local input-only state on the hydrated model. The GraphQL
+                # response does not include many user-provided fields (for example
+                # env, networkVolume, datacenter), and dropping them causes
+                # repeated false drift on subsequent deploys.
+                updated = await new_config._sync_graphql_object_with_inputs(updated)
+                log.debug(
+                    f"Successfully updated endpoint '{self.name}' (ID: {self.id})"
+                )
                 return updated
 
             raise ValueError("Update failed, no endpoint was returned.")
@@ -614,11 +811,9 @@ class ServerlessResource(DeployableResource):
             # Handle list comparison
             if isinstance(old_val, list) and isinstance(new_val, list):
                 if sorted(str(v) for v in old_val) != sorted(str(v) for v in new_val):
-                    log.debug(f"Structural change in '{field}': {old_val} → {new_val}")
                     return True
             # Handle other types
             elif old_val != new_val:
-                log.debug(f"Structural change in '{field}': {old_val} → {new_val}")
                 return True
 
         return False
@@ -629,6 +824,7 @@ class ServerlessResource(DeployableResource):
         # hydrate the id onto the resource so it's usable when this is called directly
         # on a config
         self.id = resource.id
+        self.templateId = getattr(resource, "templateId", None)
         return self
 
     async def _do_undeploy(self) -> bool:
@@ -651,21 +847,21 @@ class ServerlessResource(DeployableResource):
                 success = result.get("success", False)
 
                 if success:
-                    log.info(f"{self} successfully undeployed")
+                    log.debug(f"{self} successfully undeployed")
                     return True
                 else:
-                    log.error(f"{self} failed to undeploy")
+                    log.debug(f"{self} failed to undeploy")
                     return False
 
         except Exception as e:
-            log.error(f"{self} failed to undeploy: {e}")
+            log.debug(f"{self} failed to undeploy: {e}")
 
             # Deletion failed. Check if endpoint still exists.
             # If it doesn't exist, treat as successful cleanup (orphaned endpoint).
             try:
                 async with RunpodGraphQLClient() as client:
                     if not await client.endpoint_exists(self.id):
-                        log.info(
+                        log.debug(
                             f"{self} no longer exists on RunPod, removing from cache"
                         )
                         return True
@@ -696,14 +892,14 @@ class ServerlessResource(DeployableResource):
         try:
             # log.debug(f"[{self}] Payload: {payload}")
 
-            log.info(f"{self} | API /run_sync")
+            log.debug(f"{self} | API /run_sync")
             response = await asyncio.to_thread(_fetch_job)
             return JobOutput(**response)
 
         except Exception as e:
             health = await asyncio.to_thread(self.endpoint.health)
             health = ServerlessHealth(**health)
-            log.info(f"{self} | Health {health.workers.status}")
+            log.debug(f"{self} | Health {health.workers.status}")
             log.error(f"{self} | Exception: {e}")
             raise
 
@@ -721,12 +917,12 @@ class ServerlessResource(DeployableResource):
             # log.debug(f"[{self}] Payload: {payload}")
 
             # Create a job using the endpoint
-            log.info(f"{self} | API /run")
+            log.debug(f"{self} | API /run")
             job = await asyncio.to_thread(self.endpoint.run, request_input=payload)
 
             log_subgroup = f"Job:{job.job_id}"
 
-            log.info(f"{self} | Started {log_subgroup}")
+            log.debug(f"{self} | Started {log_subgroup}")
 
             current_pace = 0
             attempt = 0
@@ -745,10 +941,10 @@ class ServerlessResource(DeployableResource):
                     attempt += 1
                     indicator = "." * (attempt // 2) if attempt % 2 == 0 else ""
                     if indicator:
-                        log.info(f"{log_subgroup} | {indicator}")
+                        log.debug(f"{log_subgroup} | {indicator}")
                 else:
                     # status changed, reset the gap
-                    log.info(f"{log_subgroup} | Status: {job_status}")
+                    log.debug(f"{log_subgroup} | Status: {job_status}")
                     attempt = 0
 
                 last_status = job_status
@@ -762,7 +958,7 @@ class ServerlessResource(DeployableResource):
 
         except Exception as e:
             if job and job.job_id:
-                log.info(f"{self} | Cancelling job {job.job_id}")
+                log.debug(f"{self} | Cancelling job {job.job_id}")
                 await asyncio.to_thread(job.cancel)
 
             log.error(f"{self} | Exception: {e}")
@@ -835,8 +1031,8 @@ class JobOutput(BaseModel):
 
     def model_post_init(self, _: Any) -> None:
         log_group = f"Worker:{self.workerId}"
-        log.info(f"{log_group} | Delay Time: {self.delayTime} ms")
-        log.info(f"{log_group} | Execution Time: {self.executionTime} ms")
+        log.debug(f"{log_group} | Delay Time: {self.delayTime} ms")
+        log.debug(f"{log_group} | Execution Time: {self.executionTime} ms")
 
 
 class Status(str, Enum):

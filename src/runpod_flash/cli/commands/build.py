@@ -14,16 +14,16 @@ from typing import Optional
 
 import typer
 from rich.console import Console
-from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, TextColumn
-from rich.table import Table
 
 try:
     import tomllib  # Python 3.11+
 except ImportError:
     import tomli as tomllib  # Python 3.9-3.10
 
+from runpod_flash.core.resources.constants import MAX_TARBALL_SIZE_MB
+
 from ..utils.ignore import get_file_tree, load_ignore_patterns
+from .build_utils.lb_handler_generator import LBHandlerGenerator
 from .build_utils.manifest import ManifestBuilder
 from .build_utils.scanner import RemoteDecoratorScanner
 
@@ -38,9 +38,6 @@ PIP_INSTALL_TIMEOUT_SECONDS = 600
 ENSUREPIP_TIMEOUT_SECONDS = 30
 # Timeout for version checks (should be instant)
 VERSION_CHECK_TIMEOUT_SECONDS = 5
-
-# RunPod serverless deployment limit (hard limit enforced by platform)
-RUNPOD_MAX_ARCHIVE_SIZE_MB = 500
 
 # RunPod Serverless platform specifications
 # RunPod serverless runs on x86_64 Linux, regardless of build platform
@@ -185,12 +182,181 @@ def _remove_runpod_flash_from_requirements(build_dir: Path) -> None:
             shutil.rmtree(dist_info)
 
 
+def run_build(
+    project_dir: Path,
+    app_name: str,
+    no_deps: bool = False,
+    output_name: str | None = None,
+    exclude: str | None = None,
+    use_local_flash: bool = False,
+    verbose: bool = False,
+) -> Path:
+    """Run the build process and return the artifact path.
+
+    Contains all build steps: validate, collect files, manifest, deps, tarball.
+    Always keeps the build directory — caller decides cleanup.
+
+    Args:
+        project_dir: Flash project directory
+        app_name: Application name
+        no_deps: Skip transitive dependencies during pip install
+        output_name: Custom archive name (default: artifact.tar.gz)
+        exclude: Comma-separated packages to exclude
+        use_local_flash: Bundle local runpod_flash source
+        verbose: Show archive and build directory paths in summary
+
+    Returns:
+        Path to the created artifact archive
+
+    Raises:
+        typer.Exit: On build failure (including when archive exceeds 500 MB)
+    """
+    if not validate_project_structure(project_dir):
+        console.print("[red]Error:[/red] Not a valid Flash project")
+        console.print("Run [bold]flash init[/bold] to create a Flash project")
+        raise typer.Exit(1)
+
+    # Create build directory first to ensure clean state before collecting files
+    build_dir = create_build_directory(project_dir, app_name)
+
+    # Parse exclusions
+    excluded_packages = []
+    if exclude:
+        excluded_packages = [pkg.strip().lower() for pkg in exclude.split(",")]
+
+    spec = load_ignore_patterns(project_dir)
+    files = get_file_tree(project_dir, spec)
+
+    try:
+        copy_project_files(files, project_dir, build_dir)
+
+        try:
+            scanner = RemoteDecoratorScanner(build_dir)
+            remote_functions = scanner.discover_remote_functions()
+
+            manifest_builder = ManifestBuilder(
+                app_name, remote_functions, scanner, build_dir=build_dir
+            )
+            manifest = manifest_builder.build()
+            manifest_path = build_dir / "flash_manifest.json"
+            manifest_path.write_text(json.dumps(manifest, indent=2))
+
+            lb_generator = LBHandlerGenerator(manifest, build_dir)
+            lb_generator.generate_handlers()
+
+            flash_dir = project_dir / ".flash"
+            deployment_manifest_path = flash_dir / "flash_manifest.json"
+            shutil.copy2(manifest_path, deployment_manifest_path)
+
+        except (ImportError, SyntaxError) as e:
+            console.print(f"[red]Error:[/red] Code analysis failed: {e}")
+            logger.exception("Code analysis failed")
+            raise typer.Exit(1)
+        except ValueError as e:
+            console.print(f"[red]Error:[/red] {e}")
+            logger.exception("Handler generation validation failed")
+            raise typer.Exit(1)
+        except Exception as e:
+            logger.exception("Handler generation failed")
+            console.print(f"[yellow]Warning:[/yellow] Handler generation failed: {e}")
+
+    except typer.Exit:
+        if build_dir.exists():
+            shutil.rmtree(build_dir)
+        raise
+    except Exception as e:
+        if build_dir.exists():
+            shutil.rmtree(build_dir)
+        console.print(f"[red]Error:[/red] Build failed: {e}")
+        logger.exception("Build failed")
+        raise typer.Exit(1)
+
+    flash_deps = []
+    if use_local_flash:
+        flash_pkg = _find_local_runpod_flash()
+        if flash_pkg:
+            flash_deps = _extract_runpod_flash_dependencies(flash_pkg)
+
+    # install dependencies
+    requirements = collect_requirements(project_dir, build_dir)
+    requirements.extend(flash_deps)
+
+    # filter out excluded packages
+    if excluded_packages:
+        matched_exclusions = set()
+        filtered_requirements = []
+
+        for req in requirements:
+            if should_exclude_package(req, excluded_packages):
+                pkg_name = extract_package_name(req)
+                if pkg_name in excluded_packages:
+                    matched_exclusions.add(pkg_name)
+            else:
+                filtered_requirements.append(req)
+
+        requirements = filtered_requirements
+
+        unmatched = set(excluded_packages) - matched_exclusions
+        if unmatched:
+            console.print(
+                f"[yellow]Warning:[/yellow] No packages matched exclusions: "
+                f"{', '.join(sorted(unmatched))}"
+            )
+
+    if requirements:
+        with console.status(f"Installing {len(requirements)} packages..."):
+            success = install_dependencies(build_dir, requirements, no_deps)
+
+        if not success:
+            console.print("[red]Error:[/red] Failed to install dependencies")
+            raise typer.Exit(1)
+
+    # bundle local runpod_flash if requested
+    if use_local_flash:
+        if _bundle_local_runpod_flash(build_dir):
+            _remove_runpod_flash_from_requirements(build_dir)
+
+    # clean up and create archive
+    cleanup_python_bytecode(build_dir)
+
+    archive_name = output_name or "artifact.tar.gz"
+    archive_path = project_dir / ".flash" / archive_name
+
+    with console.status("Creating archive..."):
+        create_tarball(build_dir, archive_path, app_name)
+
+    size_mb = archive_path.stat().st_size / (1024 * 1024)
+
+    # fail build if archive exceeds size limit
+    if size_mb > MAX_TARBALL_SIZE_MB:
+        console.print()
+        console.print(
+            f"[red]Error:[/red] Archive exceeds RunPod limit "
+            f"({size_mb:.1f} MB / {MAX_TARBALL_SIZE_MB} MB)"
+        )
+        console.print(
+            "  Use --exclude to skip packages in base image: "
+            "[dim]flash deploy --exclude torch,torchvision,torchaudio[/dim]"
+        )
+
+        if archive_path.exists():
+            archive_path.unlink()
+        if build_dir.exists():
+            shutil.rmtree(build_dir)
+
+        raise typer.Exit(1)
+
+    # Success summary
+    _display_build_summary(
+        archive_path, app_name, len(files), len(requirements), size_mb, verbose=verbose
+    )
+
+    return archive_path
+
+
 def build_command(
     no_deps: bool = typer.Option(
         False, "--no-deps", help="Skip transitive dependencies during pip install"
-    ),
-    keep_build: bool = typer.Option(
-        False, "--keep-build", help="Keep .build directory after creating archive"
     ),
     output_name: str | None = typer.Option(
         None, "--output", "-o", help="Custom archive name (default: artifact.tar.gz)"
@@ -205,319 +371,37 @@ def build_command(
         "--use-local-flash",
         help="Bundle local runpod_flash source instead of PyPI version (for development/testing)",
     ),
-    preview: bool = typer.Option(
-        False,
-        "--preview",
-        help="Launch local test environment after successful build",
-    ),
 ):
     """
-    Build Flash application for deployment.
+    Build Flash application for debugging (build only, no deploy).
 
-    Packages the application code and dependencies into a self-contained tarball,
-    similar to AWS Lambda packaging. All pip packages are installed as local modules.
+    Creates the build artifact and keeps the .build directory for inspection.
+    For build + deploy, use 'flash deploy' instead.
 
     Examples:
       flash build                              # Build with all dependencies
       flash build --no-deps                    # Skip transitive dependencies
-      flash build --keep-build                 # Keep temporary build directory
-      flash build --preview                    # Build and launch local test environment
       flash build -o my-app.tar.gz             # Custom archive name
       flash build --exclude torch,torchvision  # Exclude large packages (assume in base image)
     """
     try:
-        # Validate project structure
         project_dir, app_name = discover_flash_project()
 
-        if not validate_project_structure(project_dir):
-            console.print("[red]Error:[/red] Not a valid Flash project")
-            console.print("Run [bold]flash init[/bold] to create a Flash project")
-            raise typer.Exit(1)
-
-        # Auto-enable keep_build if preview requested (preview needs build directory)
-        if preview:
-            keep_build = True
-            logger.debug("Preview mode: automatically enabling keep_build")
-
-        # Create build directory first to ensure clean state before collecting files
-        build_dir = create_build_directory(project_dir, app_name)
-
-        # Parse exclusions
-        excluded_packages = []
-        if exclude:
-            excluded_packages = [pkg.strip().lower() for pkg in exclude.split(",")]
-
-        # Display configuration
-        _display_build_config(
-            project_dir, app_name, no_deps, keep_build, output_name, excluded_packages
+        run_build(
+            project_dir=project_dir,
+            app_name=app_name,
+            no_deps=no_deps,
+            output_name=output_name,
+            exclude=exclude,
+            use_local_flash=use_local_flash,
+            verbose=True,
         )
-
-        # Execute build
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=console,
-        ) as progress:
-            # Load ignore patterns
-            ignore_task = progress.add_task("Loading ignore patterns...")
-            spec = load_ignore_patterns(project_dir)
-            progress.update(ignore_task, description="[green]✓ Loaded ignore patterns")
-            progress.stop_task(ignore_task)
-
-            # Collect files
-            collect_task = progress.add_task("Collecting project files...")
-            files = get_file_tree(project_dir, spec)
-            progress.update(
-                collect_task,
-                description=f"[green]✓ Found {len(files)} files to package",
-            )
-            progress.stop_task(collect_task)
-
-            # Note: build directory already created before progress tracking
-            build_task = progress.add_task("Creating build directory...")
-            progress.update(
-                build_task,
-                description="[green]✓ Created .flash/.build/",
-            )
-            progress.stop_task(build_task)
-
-            try:
-                # Copy files
-                copy_task = progress.add_task("Copying project files...")
-                copy_project_files(files, project_dir, build_dir)
-                progress.update(
-                    copy_task, description=f"[green]✓ Copied {len(files)} files"
-                )
-                progress.stop_task(copy_task)
-
-                # Generate manifest
-                manifest_task = progress.add_task("Generating service manifest...")
-                try:
-                    scanner = RemoteDecoratorScanner(build_dir)
-                    remote_functions = scanner.discover_remote_functions()
-
-                    # Always build manifest (includes mothership even without @remote functions)
-                    manifest_builder = ManifestBuilder(
-                        app_name, remote_functions, scanner, build_dir=build_dir
-                    )
-                    manifest = manifest_builder.build()
-                    manifest_path = build_dir / "flash_manifest.json"
-                    manifest_path.write_text(json.dumps(manifest, indent=2))
-
-                    # Copy manifest to .flash/ directory for deployment reference
-                    # This avoids needing to extract from tarball during deploy
-                    flash_dir = project_dir / ".flash"
-                    deployment_manifest_path = flash_dir / "flash_manifest.json"
-                    shutil.copy2(manifest_path, deployment_manifest_path)
-
-                    manifest_resources = manifest.get("resources", {})
-
-                    if manifest_resources:
-                        progress.update(
-                            manifest_task,
-                            description=f"[green]✓ Generated manifest with {len(manifest_resources)} resources",
-                        )
-                    else:
-                        progress.update(
-                            manifest_task,
-                            description="[yellow]⚠ No resources detected",
-                        )
-
-                except (ImportError, SyntaxError) as e:
-                    progress.stop_task(manifest_task)
-                    console.print(f"[red]Error:[/red] Code analysis failed: {e}")
-                    logger.exception("Code analysis failed")
-                    raise typer.Exit(1)
-                except ValueError as e:
-                    progress.stop_task(manifest_task)
-                    console.print(f"[red]Error:[/red] {e}")
-                    logger.exception("Handler generation validation failed")
-                    raise typer.Exit(1)
-                except Exception as e:
-                    progress.stop_task(manifest_task)
-                    logger.exception("Handler generation failed")
-                    console.print(
-                        f"[yellow]Warning:[/yellow] Handler generation failed: {e}"
-                    )
-
-                progress.stop_task(manifest_task)
-
-            except typer.Exit:
-                # Clean up on fatal errors (ImportError, SyntaxError, ValueError)
-                if build_dir.exists():
-                    shutil.rmtree(build_dir)
-                raise
-            except Exception as e:
-                # Clean up on unexpected errors
-                if build_dir.exists():
-                    shutil.rmtree(build_dir)
-                console.print(f"[red]Error:[/red] Build failed: {e}")
-                logger.exception("Build failed")
-                raise typer.Exit(1)
-
-            # Extract runpod_flash dependencies if bundling local version
-            flash_deps = []
-            if use_local_flash:
-                flash_pkg = _find_local_runpod_flash()
-                if flash_pkg:
-                    flash_deps = _extract_runpod_flash_dependencies(flash_pkg)
-
-            # Install dependencies
-            deps_task = progress.add_task("Installing dependencies...")
-            requirements = collect_requirements(project_dir, build_dir)
-
-            # Add runpod_flash dependencies if bundling local version
-            # This ensures all runpod_flash runtime dependencies are available in the build
-            requirements.extend(flash_deps)
-
-            # Filter out excluded packages
-            if excluded_packages:
-                original_count = len(requirements)
-                matched_exclusions = set()
-                filtered_requirements = []
-
-                for req in requirements:
-                    if should_exclude_package(req, excluded_packages):
-                        # Extract which exclusion matched
-                        pkg_name = extract_package_name(req)
-                        if pkg_name in excluded_packages:
-                            matched_exclusions.add(pkg_name)
-                    else:
-                        filtered_requirements.append(req)
-
-                requirements = filtered_requirements
-                excluded_count = original_count - len(requirements)
-
-                if excluded_count > 0:
-                    console.print(
-                        f"[yellow]Excluded {excluded_count} package(s) "
-                        f"(assumed in base image)[/yellow]"
-                    )
-
-                # Warn about exclusions that didn't match any packages
-                unmatched = set(excluded_packages) - matched_exclusions
-                if unmatched:
-                    console.print(
-                        f"[yellow]Warning: No packages matched exclusions: "
-                        f"{', '.join(sorted(unmatched))}[/yellow]"
-                    )
-
-            if not requirements:
-                progress.update(
-                    deps_task,
-                    description="[yellow]⚠ No dependencies found",
-                )
-            else:
-                progress.update(
-                    deps_task,
-                    description=f"Installing {len(requirements)} packages...",
-                )
-
-                success = install_dependencies(build_dir, requirements, no_deps)
-
-                if not success:
-                    progress.stop_task(deps_task)
-                    console.print("[red]Error:[/red] Failed to install dependencies")
-                    raise typer.Exit(1)
-
-                progress.update(
-                    deps_task,
-                    description=f"[green]✓ Installed {len(requirements)} packages",
-                )
-
-            progress.stop_task(deps_task)
-
-            # Bundle local runpod_flash if requested
-            if use_local_flash:
-                flash_task = progress.add_task("Bundling local runpod_flash...")
-                if _bundle_local_runpod_flash(build_dir):
-                    _remove_runpod_flash_from_requirements(build_dir)
-                    progress.update(
-                        flash_task,
-                        description="[green]✓ Bundled local runpod_flash",
-                    )
-                else:
-                    progress.update(
-                        flash_task,
-                        description="[yellow]⚠ Using PyPI runpod_flash",
-                    )
-                progress.stop_task(flash_task)
-
-            # Clean up Python bytecode before archiving
-            cleanup_python_bytecode(build_dir)
-
-            # Create archive
-            archive_task = progress.add_task("Creating archive...")
-            archive_name = output_name or "artifact.tar.gz"
-            archive_path = project_dir / ".flash" / archive_name
-
-            create_tarball(build_dir, archive_path, app_name)
-
-            # Get archive size
-            size_mb = archive_path.stat().st_size / (1024 * 1024)
-
-            progress.update(
-                archive_task,
-                description=f"[green]✓ Created {archive_name} ({size_mb:.1f} MB)",
-            )
-            progress.stop_task(archive_task)
-
-            # Warning for size limit
-            if size_mb > RUNPOD_MAX_ARCHIVE_SIZE_MB:
-                console.print()
-                console.print(
-                    Panel(
-                        f"[yellow bold]⚠ WARNING: Archive exceeds RunPod limit[/yellow bold]\n\n"
-                        f"[yellow]Archive size:[/yellow] {size_mb:.1f} MB\n"
-                        f"[yellow]RunPod limit:[/yellow] {RUNPOD_MAX_ARCHIVE_SIZE_MB} MB\n"
-                        f"[yellow]Over by:[/yellow] {size_mb - RUNPOD_MAX_ARCHIVE_SIZE_MB:.1f} MB\n\n"
-                        f"[dim]Use --exclude to skip packages in base image:\n"
-                        f"  flash build --exclude torch,torchvision,torchaudio[/dim]",
-                        title="Deployment Size Warning",
-                        border_style="yellow",
-                    )
-                )
-                console.print()
-
-            # Cleanup
-            if not keep_build:
-                cleanup_task = progress.add_task("Cleaning up...")
-                cleanup_build_directory(build_dir)
-                progress.update(
-                    cleanup_task, description="[green]✓ Removed .build directory"
-                )
-                progress.stop_task(cleanup_task)
-
-        # Success summary
-        _display_build_summary(archive_path, app_name, len(files), len(requirements))
-
-        # Launch preview environment if requested
-        if preview:
-            console.print(
-                "\n[bold cyan]Launching multi-container preview...[/bold cyan]"
-            )
-            console.print("[dim]Starting all endpoints locally in Docker...[/dim]\n")
-
-            try:
-                from .preview import launch_preview
-
-                # Manifest is in .flash/flash_manifest.json
-                manifest_path = project_dir / ".flash" / "flash_manifest.json"
-
-                launch_preview(
-                    build_dir=build_dir,
-                    manifest_path=manifest_path,
-                )
-            except KeyboardInterrupt:
-                console.print("\n[yellow]Preview stopped by user[/yellow]")
-            except Exception as e:
-                console.print(f"[red]Preview error:[/red] {e}")
-                logger.exception("Preview launch failed")
-                raise typer.Exit(1)
 
     except KeyboardInterrupt:
         console.print("\n[yellow]Build cancelled by user[/yellow]")
         raise typer.Exit(1)
+    except typer.Exit:
+        raise
     except Exception as e:
         console.print(f"\n[red]Build failed:[/red] {e}")
         import traceback
@@ -546,28 +430,19 @@ def validate_project_structure(project_dir: Path) -> bool:
     """
     Validate that directory is a Flash project.
 
+    A Flash project is any directory containing Python files. The
+    RemoteDecoratorScanner validates that @remote functions exist.
+
     Args:
         project_dir: Directory to validate
 
     Returns:
         True if valid Flash project
     """
-    main_py = project_dir / "main.py"
-
-    if not main_py.exists():
-        console.print(f"[red]Error:[/red] main.py not found in {project_dir}")
+    py_files = list(project_dir.rglob("*.py"))
+    if not py_files:
+        console.print(f"[red]Error:[/red] No Python files found in {project_dir}")
         return False
-
-    # Check if main.py has FastAPI app
-    try:
-        content = main_py.read_text(encoding="utf-8")
-        if "FastAPI" not in content:
-            console.print(
-                "[yellow]Warning:[/yellow] main.py does not appear to have a FastAPI app"
-            )
-    except Exception:
-        pass
-
     return True
 
 
@@ -937,7 +812,7 @@ def install_dependencies(
         platform_str = "x86_64-unknown-linux-gnu"
     else:
         platform_str = f"{len(RUNPOD_PLATFORMS)} manylinux variants"
-    console.print(f"[dim]Installing for: {platform_str}, Python {python_version}[/dim]")
+    logger.debug(f"Installing for: {platform_str}, Python {python_version}")
 
     try:
         result = subprocess.run(
@@ -992,71 +867,21 @@ def cleanup_build_directory(build_base: Path) -> None:
         shutil.rmtree(build_base)
 
 
-def _display_build_config(
-    project_dir: Path,
-    app_name: str,
-    no_deps: bool,
-    keep_build: bool,
-    output_name: str | None,
-    excluded_packages: list[str],
-):
-    """Display build configuration."""
-    archive_name = output_name or "artifact.tar.gz"
-
-    config_text = (
-        f"[bold]Project:[/bold] {app_name}\n"
-        f"[bold]Directory:[/bold] {project_dir}\n"
-        f"[bold]Archive:[/bold] .flash/{archive_name}\n"
-        f"[bold]Skip transitive deps:[/bold] {no_deps}\n"
-        f"[bold]Keep build dir:[/bold] {keep_build}"
-    )
-
-    if excluded_packages:
-        config_text += (
-            f"\n[bold]Excluded packages:[/bold] {', '.join(excluded_packages)}"
-        )
-
-    console.print(
-        Panel(
-            config_text,
-            title="Flash Build Configuration",
-            expand=False,
-        )
-    )
-
-
 def _display_build_summary(
-    archive_path: Path, app_name: str, file_count: int, dep_count: int
+    archive_path: Path,
+    app_name: str,
+    file_count: int,
+    dep_count: int,
+    size_mb: float,
+    verbose: bool = False,
 ):
     """Display build summary."""
-    size_mb = archive_path.stat().st_size / (1024 * 1024)
-
-    summary = Table(show_header=False, box=None)
-    summary.add_column("Item", style="bold")
-    summary.add_column("Value", style="cyan")
-
-    summary.add_row("Application", app_name)
-    summary.add_row("Files packaged", str(file_count))
-    summary.add_row("Dependencies", str(dep_count))
-    summary.add_row("Archive", str(archive_path.relative_to(Path.cwd())))
-    summary.add_row("Size", f"{size_mb:.1f} MB")
-
-    console.print("\n")
-    console.print(summary)
-
-    archive_rel = archive_path.relative_to(Path.cwd())
-
-    next_steps = (
-        f"[bold]{app_name}[/bold] built successfully!\n\n"
-        f"[bold]Archive:[/bold] {archive_rel}\n\n"
-        f"Next: Use [cyan]flash deploy[/cyan] to deploy to RunPod."
-    )
-
     console.print(
-        Panel(
-            next_steps,
-            title="✓ Build Complete",
-            expand=False,
-            border_style="green",
-        )
+        f"[green]Built[/green] [bold]{app_name}[/bold]  "
+        f"[dim]{file_count} files, {dep_count} deps, {size_mb:.1f} MB[/dim]"
     )
+    if verbose:
+        console.print(f"  [dim]Archive:[/dim]  {archive_path}")
+        build_dir = archive_path.parent / ".build"
+        if build_dir.exists():
+            console.print(f"  [dim]Build:[/dim]    {build_dir}")
