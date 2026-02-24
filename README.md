@@ -179,7 +179,7 @@ This template includes:
     - Pre-configured worker scaling limits using the `LiveServerless()` object.
     - A `@remote` decorated function that returns a response from a worker.
 
-When you run `flash run`, it auto-discovers all `@remote` functions and generates a local development server at `.flash/server.py`. Queue-based workers are exposed at `/{file_prefix}/run_sync` (e.g., `/gpu_worker/run_sync`).
+When you run `flash run`, it auto-discovers all `@remote` functions and generates a local development server at `.flash/server.py`. Queue-based workers are exposed at `/{file_prefix}/runsync` (e.g., `/gpu_worker/runsync`).
 
 ### Step 3: Install Python dependencies
 
@@ -228,9 +228,9 @@ flash run
 Open a new terminal tab or window and test your GPU API using cURL:
 
 ```bash
-curl -X POST http://localhost:8888/gpu_worker/run_sync \
+curl -X POST http://localhost:8888/gpu_worker/runsync \
     -H "Content-Type: application/json" \
-    -d '{"message": "Hello from the GPU!"}'
+    -d '{"input": {"message": "Hello from the GPU!"}}'
 ```
 
 If you switch back to the terminal tab where you used `flash run`, you'll see the details of the job's progress.
@@ -253,7 +253,7 @@ Besides starting the API server, `flash run` also starts an interactive API expl
 
 To run remote functions in the explorer:
 
-1. Expand one of the available endpoints (e.g., `/gpu_worker/run_sync`).
+1. Expand one of the available endpoints (e.g., `/gpu_worker/runsync`).
 2. Click **Try it out** and then **Execute**.
 
 You'll get a response from your workers right in the explorer.
