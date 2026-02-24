@@ -474,10 +474,8 @@ class TestLoadBalancerSlsStubActivityLogs:
         ) as mock_client_factory:
             mock_client = AsyncMock()
             mock_client.request.return_value = mock_response
-            mock_client_factory.return_value.__aenter__ = AsyncMock(
-                return_value=mock_client
-            )
-            mock_client_factory.return_value.__aexit__ = AsyncMock(return_value=False)
+            mock_client_factory.return_value.__aenter__.return_value = mock_client
+            mock_client_factory.return_value.__aexit__.return_value = False
 
             with caplog.at_level(
                 logging.INFO, logger="runpod_flash.stubs.load_balancer_sls"
