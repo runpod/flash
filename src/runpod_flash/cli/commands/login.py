@@ -4,7 +4,6 @@ from typing import Optional
 
 import typer
 from rich.console import Console
-from rich.panel import Panel
 
 from runpod_flash.core.api.runpod import RunpodGraphQLClient
 from runpod_flash.core.credentials import save_api_key
@@ -33,13 +32,12 @@ async def _login_async(open_browser: bool, timeout_seconds: float) -> None:
             raise RuntimeError("auth request failed to initialize")
 
         auth_url = f"{CONSOLE_BASE_URL}/flash/login?request={request_id}"
-        console.print(
-            Panel(
-                f"[bold]open this url to authorize flash:[/bold]\n{auth_url}",
-                title="flash login",
-                expand=False,
-            )
-        )
+
+        console.print()
+        console.print("[bold]Authorize flash in your browser:[/bold]")
+        console.print(f"  [link={auth_url}]{auth_url}[/link]")
+        console.print()
+
         if open_browser:
             typer.launch(auth_url)
 
@@ -50,21 +48,18 @@ async def _login_async(open_browser: bool, timeout_seconds: float) -> None:
         if expires_at and expires_at < deadline:
             deadline = expires_at
 
-        with console.status("[cyan]waiting for authorization...[/cyan]"):
+        with console.status("[dim]Waiting for authorization...[/dim]"):
             while True:
                 status_payload = await client.get_flash_auth_request_status(request_id)
                 status = status_payload.get("status")
                 api_key = status_payload.get("apiKey")
 
-                if status == "APPROVED" and api_key:
+                if api_key and status in {"APPROVED", "CONSUMED"}:
                     path = save_api_key(api_key)
                     console.print(
-                        Panel(
-                            f"[green]logged in![/green]\ncredentials saved to {path}",
-                            title="flash login",
-                            expand=False,
-                        )
+                        f"[green]Logged in.[/green] Credentials saved to [dim]{path}[/dim]"
                     )
+                    console.print()
                     return
 
                 if status in {"DENIED", "EXPIRED", "CONSUMED"}:
