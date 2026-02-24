@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import os
 from typing import Dict, Any
 from datetime import datetime
 from pathlib import Path
@@ -10,7 +11,7 @@ from pathlib import Path
 from runpod_flash.config import get_paths
 from runpod_flash.core.resources.app import FlashApp
 from runpod_flash.core.resources.resource_manager import ResourceManager
-from runpod_flash.runtime.mothership_provisioner import create_resource_from_manifest
+from runpod_flash.runtime.resource_provisioner import create_resource_from_manifest
 
 log = logging.getLogger(__name__)
 
@@ -107,7 +108,6 @@ async def provision_resources_for_build(
         resource = create_resource_from_manifest(
             resource_name,
             resource_config,
-            mothership_url="",  # Intentionally left empty during CLI provisioning
         )
         resources_to_provision.append((resource_name, resource))
 
@@ -133,7 +133,7 @@ async def provision_resources_for_build(
         raise RuntimeError(f"Failed to provision resources: {e}") from e
 
     # Build resources_endpoints mapping
-    mothership_url = None
+    lb_endpoint_url = None
     for (resource_name, _), deployed_resource in zip(
         resources_to_provision, provisioning_results
     ):
@@ -146,11 +146,9 @@ async def provision_resources_for_build(
 
         resources_endpoints[resource_name] = endpoint_url
 
-        # Track mothership URL for prominent logging
-        if resource_name == "mothership" or manifest["resources"][resource_name].get(
-            "is_mothership"
-        ):
-            mothership_url = endpoint_url
+        # Track load balancer URL for prominent logging
+        if manifest["resources"][resource_name].get("is_load_balanced"):
+            lb_endpoint_url = endpoint_url
 
         if show_progress:
             print(f"  ✓ {resource_name}: {endpoint_url}")
@@ -161,11 +159,11 @@ async def provision_resources_for_build(
 
     if show_progress:
         print("✓ All resources provisioned and manifest updated")
-        # Display mothership URL prominently if present
-        if mothership_url:
+        # Display load balancer URL prominently if present
+        if lb_endpoint_url:
             print()
             print("=" * 60)
-            print(f"Mothership Endpoint: {mothership_url}")
+            print(f"Load Balancer Endpoint: {lb_endpoint_url}")
             print("=" * 60)
 
     return resources_endpoints
@@ -199,8 +197,21 @@ async def reconcile_and_provision_resources(
         Updated manifest with deployment information
 
     Raises:
+        ValueError: If RUNPOD_API_KEY is missing when resources make remote calls
         RuntimeError: If reconciliation or provisioning fails
     """
+    # Validate RUNPOD_API_KEY is available if any resource makes remote calls
+    has_remote_callers = any(
+        config.get("makes_remote_calls", False)
+        for config in local_manifest.get("resources", {}).values()
+    )
+    if has_remote_callers and not os.getenv("RUNPOD_API_KEY"):
+        raise ValueError(
+            "RUNPOD_API_KEY environment variable is required when deploying "
+            "resources that make remote calls. Set it in your environment "
+            "before running flash deploy."
+        )
+
     # Load State Manager manifest for comparison
     try:
         state_manifest = await app.get_build_manifest(build_id)
@@ -232,7 +243,6 @@ async def reconcile_and_provision_resources(
         resource = create_resource_from_manifest(
             resource_name,
             resource_config,
-            mothership_url="",
             flash_environment_id=environment_id,
         )
         actions.append(
@@ -256,7 +266,6 @@ async def reconcile_and_provision_resources(
             resource = create_resource_from_manifest(
                 resource_name,
                 local_config,
-                mothership_url="",
                 flash_environment_id=environment_id,
             )
             actions.append(
@@ -314,23 +323,23 @@ async def reconcile_and_provision_resources(
                 f"{resource_name} -> {endpoint_url}"
             )
 
-    # Validate mothership was provisioned
-    mothership_resources = [
+    # Validate load balancer was provisioned
+    lb_resources = [
         name
         for name, config in local_manifest.get("resources", {}).items()
-        if config.get("is_mothership", False)
+        if config.get("is_load_balanced", False)
     ]
 
-    if mothership_resources:
+    if lb_resources:
         missing = [
             name
-            for name in mothership_resources
+            for name in lb_resources
             if name not in local_manifest.get("resources_endpoints", {})
         ]
         if missing:
             provisioned = list(local_manifest.get("resources_endpoints", {}).keys())
             raise RuntimeError(
-                f"Mothership resource(s) {missing} not provisioned. "
+                f"Load balancer resource(s) {missing} not provisioned. "
                 f"Successfully provisioned: {provisioned}"
             )
 

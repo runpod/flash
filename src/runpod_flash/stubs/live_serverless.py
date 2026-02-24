@@ -146,7 +146,7 @@ class LiveServerlessStub(RemoteExecutorStub):
             payload = request.model_dump(exclude_none=True)
 
             if sync:
-                job = await self.server.run_sync(payload)
+                job = await self.server.runsync(payload)
             else:
                 job = await self.server.run(payload)
 

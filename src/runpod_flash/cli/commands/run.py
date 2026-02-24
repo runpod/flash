@@ -117,6 +117,8 @@ def _scan_project_workers(project_root: Path) -> List[WorkerInfo]:
                     "path": f.http_path,
                     "fn_name": f.function_name,
                     "config_variable": f.config_variable,
+                    "docstring": f.docstring,
+                    "local": f.local,
                 }
                 for f in lb_funcs
             ]
@@ -133,6 +135,7 @@ def _scan_project_workers(project_root: Path) -> List[WorkerInfo]:
             )
 
     return workers
+
 
 
 def _print_startup_table(workers: List[WorkerInfo], host: str, port: int) -> None:

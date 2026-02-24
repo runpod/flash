@@ -23,7 +23,7 @@ def get_authenticated_httpx_client(
     Args:
         timeout: Request timeout in seconds. Defaults to 30.0.
         api_key_override: Optional API key to use instead of RUNPOD_API_KEY env var.
-                         Used for propagating API keys from mothership to worker endpoints.
+                         Used for propagating API keys from load-balanced to worker endpoints.
 
     Returns:
         Configured httpx.AsyncClient with User-Agent and Authorization headers
@@ -67,7 +67,7 @@ def get_authenticated_requests_session(
 
     Args:
         api_key_override: Optional API key to use instead of RUNPOD_API_KEY env var.
-                         Used for propagating API keys from mothership to worker endpoints.
+                         Used for propagating API keys from load-balanced to worker endpoints.
 
     Returns:
         Configured requests.Session with User-Agent and Authorization headers

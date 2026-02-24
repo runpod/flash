@@ -1,13 +1,17 @@
-"""Tests for _run_server_helpers: make_input_model, call_with_body, to_dict."""
+"""Tests for _run_server_helpers: make_input_model, make_wrapped_model, call_with_body, to_dict, lb_execute."""
 
+import logging
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from pydantic import BaseModel
 
 from runpod_flash.cli.commands._run_server_helpers import (
     call_with_body,
+    lb_execute,
     make_input_model,
+    make_wrapped_model,
     to_dict,
 )
 
@@ -108,6 +112,44 @@ def test_make_input_model_failure_graceful():
     assert result is None
 
 
+# --- make_wrapped_model ---
+
+
+def test_make_wrapped_model_wraps_input_field():
+    """Wrapped model has a single required 'input' field of the inner type."""
+
+    async def process(text: str, count: int):
+        pass
+
+    Inner = make_input_model("process_Input", process)
+    Wrapped = make_wrapped_model("process_Request", Inner)
+    assert issubclass(Wrapped, BaseModel)
+    fields = Wrapped.model_fields
+    assert "input" in fields
+    assert len(fields) == 1
+    assert fields["input"].is_required()
+
+
+def test_make_wrapped_model_roundtrip():
+    """Wrapped model can be instantiated and inner data extracted via .input."""
+
+    async def process(text: str, count: int):
+        pass
+
+    Inner = make_input_model("process_Input", process)
+    Wrapped = make_wrapped_model("process_Request", Inner)
+    instance = Wrapped(input={"text": "hello", "count": 5})
+    assert instance.input.text == "hello"
+    assert instance.input.count == 5
+
+
+def test_make_wrapped_model_with_dict_inner():
+    """Wrapped model works with dict as the inner type (fallback case)."""
+    Wrapped = make_wrapped_model("fallback_Request", dict)
+    instance = Wrapped(input={"key": "value"})
+    assert instance.input == {"key": "value"}
+
+
 # --- call_with_body ---
 
 
@@ -177,3 +219,73 @@ def test_to_dict_plain_dict():
     result = to_dict(body)
     assert result == body
     assert result is body
+
+
+# --- lb_execute ---
+
+
+@pytest.mark.asyncio
+async def test_lb_execute_emits_route_label_info_logs(caplog):
+    """lb_execute emits INFO logs with the user's route label and execution complete."""
+    mock_resource_config = MagicMock()
+    mock_resource_config.name = "test-lb"
+    mock_deployed = MagicMock()
+
+    async def fake_func(x: int):
+        return x
+
+    fake_func.__remote_config__ = {"method": "GET", "path": "/images/{filename}"}
+
+    with (
+        patch(
+            "runpod_flash.cli.commands._run_server_helpers._resource_manager"
+        ) as mock_rm,
+        patch(
+            "runpod_flash.cli.commands._run_server_helpers.LoadBalancerSlsStub"
+        ) as mock_stub_cls,
+    ):
+        mock_rm.get_or_deploy_resource = AsyncMock(return_value=mock_deployed)
+        mock_stub_instance = AsyncMock(return_value=42)
+        mock_stub_cls.return_value = mock_stub_instance
+
+        with caplog.at_level(
+            logging.INFO, logger="runpod_flash.cli.commands._run_server_helpers"
+        ):
+            result = await lb_execute(mock_resource_config, fake_func, {"x": 1})
+
+    assert result == 42
+    info_messages = [r.message for r in caplog.records if r.levelno == logging.INFO]
+    assert any("GET /images/{filename}" in m for m in info_messages)
+    assert any("Execution complete" in m for m in info_messages)
+
+
+@pytest.mark.asyncio
+async def test_lb_execute_falls_back_to_func_name_without_routing(caplog):
+    """lb_execute falls back to function name when no routing config exists."""
+    mock_resource_config = MagicMock()
+    mock_resource_config.name = "test-lb"
+    mock_deployed = MagicMock()
+
+    async def my_handler(x: int):
+        return x
+
+    with (
+        patch(
+            "runpod_flash.cli.commands._run_server_helpers._resource_manager"
+        ) as mock_rm,
+        patch(
+            "runpod_flash.cli.commands._run_server_helpers.LoadBalancerSlsStub"
+        ) as mock_stub_cls,
+    ):
+        mock_rm.get_or_deploy_resource = AsyncMock(return_value=mock_deployed)
+        mock_stub_instance = AsyncMock(return_value=99)
+        mock_stub_cls.return_value = mock_stub_instance
+
+        with caplog.at_level(
+            logging.INFO, logger="runpod_flash.cli.commands._run_server_helpers"
+        ):
+            result = await lb_execute(mock_resource_config, my_handler, {"x": 1})
+
+    assert result == 99
+    info_messages = [r.message for r in caplog.records if r.levelno == logging.INFO]
+    assert any("my_handler" in m for m in info_messages)

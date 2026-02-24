@@ -90,7 +90,7 @@ flash dev
     ├── Scans project for @remote functions
     ├── Builds FastAPI app programmatically
     ├── Starts local server (e.g. localhost:8888)
-    │   ├── QB routes: /{file_prefix}/run_sync (local execution)
+    │   ├── QB routes: /{file_prefix}/runsync (local execution)
     │   └── LB routes: /{file_prefix}/{path} (remote dispatch)
     │
     └── On @remote function call:

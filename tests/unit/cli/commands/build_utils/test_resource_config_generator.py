@@ -43,12 +43,12 @@ class TestGenerateAllResourceConfigs:
                 "preprocess": "cpu_worker",
                 "gpu_inference": "gpu_worker",
                 "postprocess": "cpu_worker",
-                "classify": "mothership",
+                "classify": "load_balancer",
             },
             "resources": {
                 "cpu_worker": {"type": "queue"},
                 "gpu_worker": {"type": "queue"},
-                "mothership": {"type": "load_balancer"},
+                "load_balancer": {"type": "load_balancer"},
             },
         }
 
@@ -78,7 +78,7 @@ class TestGenerateAllResourceConfigs:
         # Check resource names are present
         assert '"cpu_worker"' in content
         assert '"gpu_worker"' in content
-        assert '"mothership"' in content
+        assert '"load_balancer"' in content
 
     def test_config_maps_functions_correctly(self, sample_manifest, build_dir):
         """Functions are mapped to correct resources."""
@@ -96,7 +96,7 @@ class TestGenerateAllResourceConfigs:
         # GPU worker should have gpu_inference
         assert '"gpu_inference"' in content
 
-        # Mothership should have classify
+        # LB endpoint should have classify
         assert '"classify"' in content
 
     def test_config_is_valid_python(self, sample_manifest, build_dir):
@@ -192,7 +192,7 @@ class TestGenerateAllResourceConfigs:
         """Logs summary of generated configuration."""
         import logging
 
-        caplog.set_level(logging.INFO)
+        caplog.set_level(logging.DEBUG)
 
         generate_all_resource_configs(sample_manifest, build_dir)
 

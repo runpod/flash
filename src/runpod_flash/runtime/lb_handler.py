@@ -16,20 +16,228 @@ Security Model:
     Users should NOT expose the /execute endpoint to untrusted clients.
 """
 
+import asyncio
 import inspect
 import logging
-from typing import Any, Callable, Dict
+import re
+from typing import Any, Callable, Dict, get_type_hints
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, File, Form, Request
+from pydantic import BaseModel, create_model
 
 from .api_key_context import clear_api_key, set_api_key
-from .serialization import (
-    deserialize_args,
-    deserialize_kwargs,
-    serialize_arg,
-)
 
 logger = logging.getLogger(__name__)
+
+_BODY_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+_PATH_PARAM_RE = re.compile(r"\{(\w+)\}")
+_SKIP_KINDS = (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
+
+
+def _make_input_model(
+    name: str, func: Callable, exclude: set[str] | None = None
+) -> type | None:
+    """Create a Pydantic model from a function's signature for FastAPI body typing.
+
+    Returns None for zero-param functions or on introspection failure.
+    """
+    exclude = exclude or set()
+    try:
+        sig = inspect.signature(func)
+        hints = get_type_hints(func)
+    except (ValueError, TypeError) as e:
+        logger.warning(
+            "Failed to introspect signature for %s: %s. "
+            "Skipping input model generation.",
+            name,
+            e,
+        )
+        return None
+
+    fields: dict[str, Any] = {}
+    for param_name, param in sig.parameters.items():
+        if param_name == "self" or param_name in exclude or param.kind in _SKIP_KINDS:
+            continue
+        annotation = hints.get(param_name, Any)
+        if param.default is not inspect.Parameter.empty:
+            fields[param_name] = (annotation, param.default)
+        else:
+            fields[param_name] = (annotation, ...)
+
+    if not fields:
+        return None
+
+    return create_model(name, **fields)
+
+
+def _build_file_upload_wrapper(
+    handler: Callable,
+    file_params: list[tuple[str, type, Any]],
+    form_params: list[tuple[str, type, Any]],
+    path_params: set[str],
+    hints: dict[str, Any],
+    sig: inspect.Signature,
+) -> Callable:
+    """Build a FastAPI-compatible wrapper with File() and Form() annotations.
+
+    Constructs a wrapper function whose signature uses File(...) for bytes
+    params and Form(...) for non-file params, enabling multipart upload
+    via FastAPI's native support.
+    """
+    is_async = asyncio.iscoroutinefunction(handler)
+
+    params: list[inspect.Parameter] = []
+    annotations: dict[str, Any] = {}
+
+    # Path params first (no default annotation needed)
+    for pname in path_params:
+        if pname in sig.parameters:
+            ann = hints.get(pname, Any)
+            params.append(
+                inspect.Parameter(
+                    pname, inspect.Parameter.POSITIONAL_OR_KEYWORD, annotation=ann
+                )
+            )
+            annotations[pname] = ann
+
+    # File params with File(...)
+    for pname, ann, default in file_params:
+        file_default = (
+            File(...) if default is inspect.Parameter.empty else File(default)
+        )
+        params.append(
+            inspect.Parameter(
+                pname,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                default=file_default,
+                annotation=bytes,
+            )
+        )
+        annotations[pname] = bytes
+
+    # Form params with Form(...)
+    for pname, ann, default in form_params:
+        form_default = (
+            Form(...) if default is inspect.Parameter.empty else Form(default)
+        )
+        params.append(
+            inspect.Parameter(
+                pname,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                default=form_default,
+                annotation=ann,
+            )
+        )
+        annotations[pname] = ann
+
+    if is_async:
+
+        async def wrapper(**kwargs):
+            return await handler(**kwargs)
+    else:
+
+        def wrapper(**kwargs):
+            return handler(**kwargs)
+
+    wrapper.__signature__ = inspect.Signature(parameters=params)
+    wrapper.__annotations__ = annotations
+    wrapper.__name__ = getattr(handler, "__name__", "handler")
+    wrapper.__doc__ = handler.__doc__
+    return wrapper
+
+
+def _wrap_handler_with_body_model(handler: Callable, path: str) -> Callable:
+    """Wrap a handler so FastAPI reads its parameters from the JSON body.
+
+    If the handler already accepts a single Pydantic BaseModel parameter,
+    or has no eligible body parameters, returns it unchanged.
+    """
+    try:
+        sig = inspect.signature(handler)
+        hints = get_type_hints(handler)
+    except (ValueError, TypeError) as e:
+        logger.warning(
+            "Failed to introspect handler %s for body model wrapping: %s. "
+            "Returning handler unwrapped.",
+            getattr(handler, "__name__", "unknown"),
+            e,
+        )
+        return handler
+
+    path_params = set(_PATH_PARAM_RE.findall(path))
+
+    # Check if any non-path param is already a Pydantic model
+    for pname, param in sig.parameters.items():
+        if pname in path_params or pname == "self" or param.kind in _SKIP_KINDS:
+            continue
+        annotation = hints.get(pname, Any)
+        if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+            return handler
+
+    # Detect bytes params for file upload support
+    file_params: list[tuple[str, type, Any]] = []
+    form_params: list[tuple[str, type, Any]] = []
+    for pname, param in sig.parameters.items():
+        if pname in path_params or pname == "self" or param.kind in _SKIP_KINDS:
+            continue
+        annotation = hints.get(pname, Any)
+        if annotation is bytes:
+            file_params.append((pname, annotation, param.default))
+        else:
+            form_params.append((pname, annotation, param.default))
+
+    if file_params:
+        return _build_file_upload_wrapper(
+            handler, file_params, form_params, path_params, hints, sig
+        )
+
+    model_name = handler.__name__.title().replace("_", "") + "Body"
+    model = _make_input_model(model_name, handler, exclude=path_params)
+    if model is None:
+        return handler
+
+    is_async = asyncio.iscoroutinefunction(handler)
+
+    if path_params:
+        if is_async:
+
+            async def wrapped_with_path(body, **kwargs):  # type: ignore[valid-type]
+                return await handler(**body.model_dump(), **kwargs)
+        else:
+
+            def wrapped_with_path(body, **kwargs):  # type: ignore[valid-type]
+                return handler(**body.model_dump(), **kwargs)
+
+        # Build explicit signature so FastAPI maps path params correctly
+        params = [
+            inspect.Parameter(
+                "body", inspect.Parameter.POSITIONAL_OR_KEYWORD, annotation=model
+            )
+        ]
+        annotations = {"body": model}
+        for pname in path_params:
+            if pname in sig.parameters:
+                ann = hints.get(pname, Any)
+                params.append(
+                    inspect.Parameter(
+                        pname, inspect.Parameter.POSITIONAL_OR_KEYWORD, annotation=ann
+                    )
+                )
+                annotations[pname] = ann
+        wrapped_with_path.__signature__ = inspect.Signature(parameters=params)
+        wrapped_with_path.__annotations__ = annotations
+        return wrapped_with_path
+    else:
+        if is_async:
+
+            async def wrapped(body: model):  # type: ignore[valid-type]
+                return await handler(**body.model_dump())
+        else:
+
+            def wrapped(body: model):  # type: ignore[valid-type]
+                return handler(**body.model_dump())
+
+        return wrapped
 
 
 async def extract_api_key_middleware(request: Request, call_next):
@@ -37,7 +245,7 @@ async def extract_api_key_middleware(request: Request, call_next):
 
     This middleware extracts the Bearer token from the Authorization header
     and makes it available to downstream code via context variables. This
-    enables mothership endpoints to propagate API keys to worker endpoints.
+    enables load-balanced endpoints to propagate API keys to worker endpoints.
 
     Args:
         request: Incoming FastAPI request
@@ -90,6 +298,7 @@ def create_lb_handler(
 
     # Register /execute endpoint for @remote stub execution (if enabled)
     if include_execute:
+        from .serialization import deserialize_args, deserialize_kwargs, serialize_arg
 
         @app.post("/execute")
         async def execute_remote_function(request: Request) -> Dict[str, Any]:
@@ -207,6 +416,9 @@ def create_lb_handler(
     # Register user-defined routes from registry
     for (method, path), handler in route_registry.items():
         method_upper = method.upper()
+
+        if method_upper in _BODY_METHODS:
+            handler = _wrap_handler_with_body_model(handler, path)
 
         if method_upper == "GET":
             app.get(path)(handler)

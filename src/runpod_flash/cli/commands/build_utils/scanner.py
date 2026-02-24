@@ -1,13 +1,14 @@
 """AST scanner for discovering @remote decorated functions and classes."""
 
 import ast
-import importlib
 import logging
 import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+
+from runpod_flash.cli.utils.ignore import get_file_tree, load_ignore_patterns
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +104,11 @@ class RemoteFunctionMetadata:
     class_method_params: Dict[str, List[str]] = field(
         default_factory=dict
     )  # method_name -> param_names (for classes)
+    docstring: Optional[str] = None  # First line of function/class docstring
+    class_method_docstrings: Dict[str, Optional[str]] = field(
+        default_factory=dict
+    )  # method_name -> first line of docstring
+    local: bool = False  # Execute locally instead of remote dispatch
 
 
 class RemoteDecoratorScanner:
@@ -120,22 +126,13 @@ class RemoteDecoratorScanner:
         """Discover all @remote decorated functions and classes."""
         functions = []
 
-        # Find all Python files, excluding root-level directories that shouldn't be scanned
-        all_py_files = self.project_dir.rglob("*.py")
-        # Only exclude these directories if they're direct children of project_dir
-        excluded_root_dirs = {".venv", ".flash", ".runpod"}
-        self.py_files = []
-        for f in all_py_files:
-            try:
-                rel_path = f.relative_to(self.project_dir)
-                # Check if first part of path is in excluded_root_dirs
-                if rel_path.parts and rel_path.parts[0] not in excluded_root_dirs:
-                    # Exclude __init__.py — not valid worker entry points
-                    if f.name != "__init__.py":
-                        self.py_files.append(f)
-            except (ValueError, IndexError):
-                # Include files that can't be made relative
-                self.py_files.append(f)
+        # Use .gitignore / .flashignore aware file walker with early directory pruning.
+        # This avoids descending into .venv, __pycache__, .flash, etc.
+        spec = load_ignore_patterns(self.project_dir)
+        all_files = get_file_tree(self.project_dir, spec)
+        self.py_files = [
+            f for f in all_files if f.suffix == ".py" and f.name != "__init__.py"
+        ]
 
         # First pass: extract all resource configs from all files
         for py_file in self.py_files:
@@ -221,7 +218,7 @@ class RemoteDecoratorScanner:
                             self.resource_configs[resource_name] = resource_name
                             self.resource_types[resource_name] = config_type
 
-                            # Store variable name for test-mothership config discovery
+                            # Store variable name for config discovery during provisioning
                             self.resource_variables[resource_name] = variable_name
 
                             # Also store variable name mapping for local lookups in same module
@@ -284,6 +281,9 @@ class RemoteDecoratorScanner:
                             remote_decorator
                         )
 
+                        # Extract local execution flag
+                        local = self._extract_local_flag(remote_decorator)
+
                         # Get flags for this resource
                         flags = self.resource_flags.get(
                             resource_config_name,
@@ -299,9 +299,16 @@ class RemoteDecoratorScanner:
                             and http_path is not None
                         )
 
+                        # Extract docstring (first line only)
+                        raw_docstring = ast.get_docstring(node)
+                        docstring: Optional[str] = None
+                        if raw_docstring:
+                            docstring = raw_docstring.split("\n")[0].strip()
+
                         # Extract public methods for @remote classes
                         class_methods: List[str] = []
                         class_method_params: Dict[str, List[str]] = {}
+                        class_method_docstrings: Dict[str, Optional[str]] = {}
                         if is_class:
                             for n in node.body:
                                 if isinstance(
@@ -313,6 +320,13 @@ class RemoteDecoratorScanner:
                                         for arg in n.args.args
                                         if arg.arg != "self"
                                     ]
+                                    raw_method_doc = ast.get_docstring(n)
+                                    if raw_method_doc:
+                                        class_method_docstrings[n.name] = (
+                                            raw_method_doc.split("\n")[0].strip()
+                                        )
+                                    else:
+                                        class_method_docstrings[n.name] = None
 
                         # Extract param names for functions (not classes)
                         param_names: List[str] = []
@@ -342,6 +356,9 @@ class RemoteDecoratorScanner:
                             class_methods=class_methods,
                             param_names=param_names,
                             class_method_params=class_method_params,
+                            docstring=docstring,
+                            class_method_docstrings=class_method_docstrings,
+                            local=local,
                         )
                         functions.append(metadata)
 
@@ -418,22 +435,24 @@ class RemoteDecoratorScanner:
 
         return None
 
+    # All ServerlessResource subclasses exported by runpod_flash.__init__.py.
+    # Checked at test time by test_resource_config_types_matches_exports().
+    _RESOURCE_CONFIG_TYPES = frozenset(
+        {
+            "ServerlessEndpoint",
+            "CpuServerlessEndpoint",
+            "LoadBalancerSlsResource",
+            "CpuLoadBalancerSlsResource",
+            "LiveServerless",
+            "CpuLiveServerless",
+            "LiveLoadBalancer",
+            "CpuLiveLoadBalancer",
+        }
+    )
+
     def _is_resource_config_type(self, type_name: str) -> bool:
-        """Check if a type represents a ServerlessResource subclass.
-
-        Returns True only if the class can be imported and is a ServerlessResource.
-        """
-        from runpod_flash.core.resources.serverless import ServerlessResource
-
-        try:
-            module = importlib.import_module("runpod_flash")
-            if hasattr(module, type_name):
-                cls = getattr(module, type_name)
-                return isinstance(cls, type) and issubclass(cls, ServerlessResource)
-        except (ImportError, AttributeError, TypeError):
-            pass
-
-        return False
+        """Check if a type name is a known ServerlessResource subclass."""
+        return type_name in self._RESOURCE_CONFIG_TYPES
 
     def _get_call_type(self, expr: ast.expr) -> Optional[str]:
         """Get the type name of a call expression."""
@@ -466,6 +485,13 @@ class RemoteDecoratorScanner:
     ) -> None:
         """Analyze if a function calls other @remote functions.
 
+        Only matches direct calls (e.g. ``generate(prompt)``) — not attribute
+        calls (e.g. ``model.generate(prompt)``).  In flash, ``@remote``
+        functions are always invoked as direct calls after import, never via
+        attribute access.  Matching on bare method names would cause false
+        positives whenever an unrelated object happens to have a method with
+        the same name as a ``@remote`` function.
+
         Args:
             func_node: AST node for the function
             function_metadata: Metadata to update with call information
@@ -477,16 +503,6 @@ class RemoteDecoratorScanner:
                 # Handle direct calls: some_function()
                 if isinstance(node.func, ast.Name):
                     called_name = node.func.id
-                    if called_name in remote_function_names:
-                        function_metadata.calls_remote_functions = True
-                        if called_name not in function_metadata.called_remote_functions:
-                            function_metadata.called_remote_functions.append(
-                                called_name
-                            )
-
-                # Handle attribute calls: obj.some_function()
-                elif isinstance(node.func, ast.Attribute):
-                    called_name = node.func.attr
                     if called_name in remote_function_names:
                         function_metadata.calls_remote_functions = True
                         if called_name not in function_metadata.called_remote_functions:
@@ -573,18 +589,32 @@ class RemoteDecoratorScanner:
 
         return http_method, http_path
 
+    def _extract_local_flag(self, decorator: ast.expr) -> bool:
+        """Extract local=True/False from @remote decorator.
+
+        Returns True if the decorator has local=True, False otherwise.
+        """
+        if not isinstance(decorator, ast.Call):
+            return False
+
+        for keyword in decorator.keywords:
+            if keyword.arg == "local" and isinstance(keyword.value, ast.Constant):
+                return bool(keyword.value.value)
+
+        return False
+
 
 def detect_main_app(
-    project_root: Path, explicit_mothership_exists: bool = False
+    project_root: Path, explicit_lb_exists: bool = False
 ) -> Optional[dict]:
-    """Detect main.py FastAPI app and return mothership config.
+    """Detect main.py FastAPI app and return load balancer config.
 
     Searches for main.py/app.py/server.py and parses AST to find FastAPI app.
     Only returns config if app has custom routes (not just @remote calls).
 
     Args:
         project_root: Root directory of Flash project
-        explicit_mothership_exists: If True, skip auto-detection (explicit config takes precedence)
+        explicit_lb_exists: If True, skip auto-detection (explicit config takes precedence)
 
     Returns:
         Dict with app metadata: {
@@ -592,10 +622,10 @@ def detect_main_app(
             'app_variable': str,
             'has_routes': bool,
         }
-        Returns None if no FastAPI app found with custom routes or explicit_mothership_exists is True.
+        Returns None if no FastAPI app found with custom routes or explicit_lb_exists is True.
     """
-    if explicit_mothership_exists:
-        # Explicit mothership config exists, skip auto-detection
+    if explicit_lb_exists:
+        # Explicit load balancer config exists, skip auto-detection
         return None
     for filename in ["main.py", "app.py", "server.py"]:
         main_path = project_root / filename
@@ -914,7 +944,7 @@ def _extract_routes_from_decorator(
                 RemoteFunctionMetadata(
                     function_name=node.name,
                     module_path=module_path,
-                    resource_config_name="mothership",
+                    resource_config_name="load_balancer",
                     resource_type="CpuLiveLoadBalancer",
                     is_async=isinstance(node, ast.AsyncFunctionDef),
                     is_class=False,
@@ -973,99 +1003,3 @@ def _extract_fastapi_routes(
     return _extract_routes_from_decorator(
         tree, app_variable, module_path, "", Path(module_path)
     )
-
-
-def detect_explicit_mothership(project_root: Path) -> Optional[Dict]:
-    """Detect explicitly configured mothership resource in mothership.py.
-
-    Parses mothership.py to extract resource configuration.
-
-    Args:
-        project_root: Root directory of Flash project
-
-    Returns:
-        Dict with mothership config if found:
-            {
-                'resource_type': str (e.g., 'CpuLiveLoadBalancer'),
-                'name': str,
-                'workersMin': int,
-                'workersMax': int,
-                'is_explicit': bool,
-            }
-        Returns None if mothership.py doesn't exist or can't be parsed.
-    """
-    mothership_file = project_root / "mothership.py"
-
-    if not mothership_file.exists():
-        return None
-
-    try:
-        content = mothership_file.read_text(encoding="utf-8")
-        tree = ast.parse(content)
-
-        # Look for variable assignment: mothership = SomeResource(...)
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Assign):
-                for target in node.targets:
-                    if isinstance(target, ast.Name) and target.id == "mothership":
-                        # Found mothership variable assignment
-                        if isinstance(node.value, ast.Call):
-                            resource_type = _extract_resource_type(node.value)
-                            kwargs = _extract_call_kwargs(node.value)
-
-                            return {
-                                "resource_type": resource_type,
-                                "name": kwargs.get("name", "mothership"),
-                                "workersMin": kwargs.get("workersMin", 1),
-                                "workersMax": kwargs.get("workersMax", 1),
-                                "is_explicit": True,
-                            }
-
-        return None
-
-    except UnicodeDecodeError:
-        logger.debug(f"Skipping non-UTF-8 file: {mothership_file}")
-        return None
-    except SyntaxError as e:
-        logger.debug(f"Syntax error in mothership.py: {e}")
-        return None
-    except Exception as e:
-        logger.debug(f"Failed to parse mothership.py: {e}")
-        return None
-
-
-def _extract_resource_type(call_node: ast.Call) -> str:
-    """Extract resource type from Call node.
-
-    Args:
-        call_node: AST Call node representing resource instantiation
-
-    Returns:
-        Resource type name (e.g., 'CpuLiveLoadBalancer'), or default if not found
-    """
-    if isinstance(call_node.func, ast.Name):
-        return call_node.func.id
-    elif isinstance(call_node.func, ast.Attribute):
-        return call_node.func.attr
-    return "CpuLiveLoadBalancer"  # Default
-
-
-def _extract_call_kwargs(call_node: ast.Call) -> Dict:
-    """Extract keyword arguments from Call node.
-
-    Args:
-        call_node: AST Call node
-
-    Returns:
-        Dict of keyword arguments with evaluated values (numbers, strings)
-    """
-    kwargs = {}
-    for keyword in call_node.keywords:
-        if keyword.arg:
-            try:
-                # Try to evaluate simple literal values
-                kwargs[keyword.arg] = ast.literal_eval(keyword.value)
-            except (ValueError, SyntaxError, TypeError):
-                # Skip non-literal arguments
-                pass
-    return kwargs

@@ -316,14 +316,14 @@ RUNPOD_API_KEY=your_api_key_here
 curl http://localhost:8888/ping
 
 # Call GPU worker
-curl -X POST http://localhost:8888/gpu_worker/run_sync \
+curl -X POST http://localhost:8888/gpu_worker/runsync \
   -H "Content-Type: application/json" \
-  -d '{"message": "Hello GPU!"}'
+  -d '{"input": {"message": "Hello GPU!"}}'
 
 # Call CPU worker
-curl -X POST http://localhost:8888/cpu_worker/run_sync \
+curl -X POST http://localhost:8888/cpu_worker/runsync \
   -H "Content-Type: application/json" \
-  -d '{"message": "Hello CPU!"}'
+  -d '{"input": {"message": "Hello CPU!"}}'
 ```
 
 ## Getting Help

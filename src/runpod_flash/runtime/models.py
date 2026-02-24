@@ -1,6 +1,7 @@
 """Type-safe models for manifest handling."""
 
 from dataclasses import asdict, dataclass, field
+from dataclasses import fields as dataclass_fields
 from typing import Any, Dict, List, Optional
 
 
@@ -23,17 +24,25 @@ class ResourceConfig:
     resource_type: str
     functions: List[FunctionMetadata] = field(default_factory=list)
     makes_remote_calls: bool = True  # Default true for safety
+    is_load_balanced: bool = (
+        False  # LB endpoint (LoadBalancerSlsResource or LiveLoadBalancer)
+    )
+    is_live_resource: bool = False  # LiveLoadBalancer/LiveServerless (local dev only)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "ResourceConfig":
         """Load ResourceConfig from dict."""
+        fm_fields = {f.name for f in dataclass_fields(FunctionMetadata)}
         functions = [
-            FunctionMetadata(**func_data) for func_data in data.get("functions", [])
+            FunctionMetadata(**{k: v for k, v in fd.items() if k in fm_fields})
+            for fd in data.get("functions", [])
         ]
         return cls(
             resource_type=data["resource_type"],
             functions=functions,
             makes_remote_calls=data.get("makes_remote_calls", True),
+            is_load_balanced=data.get("is_load_balanced", False),
+            is_live_resource=data.get("is_live_resource", False),
         )
 
 
@@ -47,6 +56,7 @@ class Manifest:
     function_registry: Dict[str, str]
     resources: Dict[str, ResourceConfig]
     routes: Optional[Dict[str, Dict[str, str]]] = None
+    resources_endpoints: Optional[Dict[str, str]] = None
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Manifest":
@@ -62,12 +72,15 @@ class Manifest:
             function_registry=data.get("function_registry", {}),
             resources=resources,
             routes=data.get("routes"),
+            resources_endpoints=data.get("resources_endpoints"),
         )
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to JSON-serializable dict."""
         result = asdict(self)
-        # Remove None routes to keep JSON clean
+        # Remove None optional fields to keep JSON clean
         if result.get("routes") is None:
             result.pop("routes", None)
+        if result.get("resources_endpoints") is None:
+            result.pop("resources_endpoints", None)
         return result

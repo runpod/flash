@@ -760,7 +760,7 @@ class TestServerlessResourceDeployment:
             "endpoint",
             new_callable=lambda: property(lambda self: mock_endpoint),
         ):
-            result = await serverless.run_sync(payload)
+            result = await serverless.runsync(payload)
 
         assert isinstance(result, JobOutput)
         assert result.id == "job-123"
@@ -775,7 +775,7 @@ class TestServerlessResourceDeployment:
         serverless = ServerlessResource(name="test")
 
         with pytest.raises(ValueError, match="Serverless is not deployed"):
-            await serverless.run_sync({"input": "test"})
+            await serverless.runsync({"input": "test"})
 
     @pytest.mark.asyncio
     async def test_run_async_success(self):
@@ -1049,7 +1049,7 @@ class TestServerlessResourceEdgeCases:
             new_callable=lambda: property(lambda self: mock_endpoint),
         ):
             with pytest.raises(Exception, match="Request failed"):
-                await serverless.run_sync({"input": "test"})
+                await serverless.runsync({"input": "test"})
 
 
 class TestLivePrefixNaming:
