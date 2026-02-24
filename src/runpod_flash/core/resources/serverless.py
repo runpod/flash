@@ -478,7 +478,7 @@ class ServerlessResource(DeployableResource):
             # can fail health checks due to RunPod propagation delay — the
             # endpoint exists but the health API hasn't registered it yet.
             # Trusting the cached ID is correct here; actual failures surface
-            # on the first real run/run_sync call.
+            # on the first real run/runsync call.
             # Case-insensitive check; unset env var defaults to "" via getenv.
             if os.getenv("FLASH_IS_LIVE_PROVISIONING", "").lower() == "true":
                 return True
@@ -640,7 +640,7 @@ class ServerlessResource(DeployableResource):
                         api_key = os.getenv("RUNPOD_API_KEY")
                         if api_key:
                             env_dict["RUNPOD_API_KEY"] = api_key
-                            log.info(
+                            log.debug(
                                 f"{self.name}: Injected RUNPOD_API_KEY for remote calls "
                                 f"(makes_remote_calls=True)"
                             )
@@ -659,7 +659,7 @@ class ServerlessResource(DeployableResource):
                 module_path = self._get_module_path()
                 if module_path and "FLASH_MODULE_PATH" not in env_dict:
                     env_dict["FLASH_MODULE_PATH"] = module_path
-                    log.info(f"{self.name}: Injected FLASH_MODULE_PATH={module_path}")
+                    log.debug(f"{self.name}: Injected FLASH_MODULE_PATH={module_path}")
 
                 self.env = env_dict
 
@@ -876,7 +876,7 @@ class ServerlessResource(DeployableResource):
         log.debug(f"undeployment result: {result}")
         return result
 
-    async def run_sync(self, payload: Dict[str, Any]) -> "JobOutput":
+    async def runsync(self, payload: Dict[str, Any]) -> "JobOutput":
         """
         Executes a serverless endpoint request with the payload.
         Returns a JobOutput object.
@@ -885,6 +885,7 @@ class ServerlessResource(DeployableResource):
             raise ValueError("Serverless is not deployed")
 
         def _fetch_job():
+            log.info(f"{self} | API /runsync")
             return self.endpoint.rp_client.post(
                 f"{self.id}/runsync", payload, timeout=60
             )
@@ -892,7 +893,6 @@ class ServerlessResource(DeployableResource):
         try:
             # log.debug(f"[{self}] Payload: {payload}")
 
-            log.debug(f"{self} | API /run_sync")
             response = await asyncio.to_thread(_fetch_job)
             return JobOutput(**response)
 
@@ -917,12 +917,12 @@ class ServerlessResource(DeployableResource):
             # log.debug(f"[{self}] Payload: {payload}")
 
             # Create a job using the endpoint
-            log.debug(f"{self} | API /run")
+            log.info(f"{self} | API /run")
             job = await asyncio.to_thread(self.endpoint.run, request_input=payload)
 
             log_subgroup = f"Job:{job.job_id}"
 
-            log.debug(f"{self} | Started {log_subgroup}")
+            log.info(f"{self} | Started {log_subgroup}")
 
             current_pace = 0
             attempt = 0
@@ -941,10 +941,10 @@ class ServerlessResource(DeployableResource):
                     attempt += 1
                     indicator = "." * (attempt // 2) if attempt % 2 == 0 else ""
                     if indicator:
-                        log.debug(f"{log_subgroup} | {indicator}")
+                        log.info(f"{log_subgroup} | {indicator}")
                 else:
                     # status changed, reset the gap
-                    log.debug(f"{log_subgroup} | Status: {job_status}")
+                    log.info(f"{log_subgroup} | Status: {job_status}")
                     attempt = 0
 
                 last_status = job_status
@@ -1031,8 +1031,8 @@ class JobOutput(BaseModel):
 
     def model_post_init(self, _: Any) -> None:
         log_group = f"Worker:{self.workerId}"
-        log.debug(f"{log_group} | Delay Time: {self.delayTime} ms")
-        log.debug(f"{log_group} | Execution Time: {self.executionTime} ms")
+        log.info(f"{log_group} | Delay Time: {self.delayTime} ms")
+        log.info(f"{log_group} | Execution Time: {self.executionTime} ms")
 
 
 class Status(str, Enum):

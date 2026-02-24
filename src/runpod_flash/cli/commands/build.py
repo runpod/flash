@@ -23,8 +23,10 @@ except ImportError:
 from runpod_flash.core.resources.constants import MAX_TARBALL_SIZE_MB
 
 from ..utils.ignore import get_file_tree, load_ignore_patterns
+from .build_utils.handler_generator import HandlerGenerator
 from .build_utils.lb_handler_generator import LBHandlerGenerator
 from .build_utils.manifest import ManifestBuilder
+from .build_utils.resource_config_generator import generate_all_resource_configs
 from .build_utils.scanner import RemoteDecoratorScanner
 
 logger = logging.getLogger(__name__)
@@ -244,6 +246,9 @@ def run_build(
             lb_generator = LBHandlerGenerator(manifest, build_dir)
             lb_generator.generate_handlers()
 
+            qb_generator = HandlerGenerator(manifest, build_dir)
+            qb_generator.generate_handlers()
+
             flash_dir = project_dir / ".flash"
             deployment_manifest_path = flash_dir / "flash_manifest.json"
             shutil.copy2(manifest_path, deployment_manifest_path)
@@ -271,15 +276,8 @@ def run_build(
         logger.exception("Build failed")
         raise typer.Exit(1)
 
-    flash_deps = []
-    if use_local_flash:
-        flash_pkg = _find_local_runpod_flash()
-        if flash_pkg:
-            flash_deps = _extract_runpod_flash_dependencies(flash_pkg)
-
     # install dependencies
     requirements = collect_requirements(project_dir, build_dir)
-    requirements.extend(flash_deps)
 
     # filter out excluded packages
     if excluded_packages:
@@ -315,6 +313,13 @@ def run_build(
     if use_local_flash:
         if _bundle_local_runpod_flash(build_dir):
             _remove_runpod_flash_from_requirements(build_dir)
+
+    # Generate _flash_resource_config.py for @remote local-vs-stub dispatch.
+    # Must happen AFTER _bundle_local_runpod_flash which replaces build_dir/runpod_flash/.
+    manifest_json_path = build_dir / "flash_manifest.json"
+    if manifest_json_path.exists():
+        manifest_data = json.loads(manifest_json_path.read_text())
+        generate_all_resource_configs(manifest_data, build_dir)
 
     # clean up and create archive
     cleanup_python_bytecode(build_dir)

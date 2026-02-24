@@ -1,7 +1,11 @@
 """Unit tests for flash build command."""
 
+import json
+from unittest.mock import MagicMock, patch
+
 from runpod_flash.cli.commands.build import (
     extract_package_name,
+    run_build,
     should_exclude_package,
 )
 
@@ -135,3 +139,101 @@ class TestPackageExclusionIntegration:
         # scipy and pandas didn't match
         unmatched = set(exclusions) - matched
         assert unmatched == {"scipy", "pandas"}
+
+
+class TestRunBuildHandlerGeneration:
+    """Tests for QB handler generation in the build pipeline."""
+
+    def test_run_build_calls_handler_generator(self, tmp_path):
+        """Test that run_build invokes HandlerGenerator.generate_handlers()."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+
+        # Create minimal Python file with @remote decorator
+        worker_file = project_dir / "worker.py"
+        worker_file.write_text(
+            "from runpod_flash import remote, LiveServerless\n"
+            "gpu = LiveServerless()\n"
+            "@remote(gpu)\n"
+            "def my_func(prompt: str) -> str:\n"
+            "    return prompt\n"
+        )
+
+        mock_handler_gen = MagicMock()
+        mock_lb_gen = MagicMock()
+
+        with (
+            patch(
+                "runpod_flash.cli.commands.build.HandlerGenerator",
+                return_value=mock_handler_gen,
+            ) as mock_handler_cls,
+            patch(
+                "runpod_flash.cli.commands.build.LBHandlerGenerator",
+                return_value=mock_lb_gen,
+            ),
+            patch(
+                "runpod_flash.cli.commands.build.install_dependencies",
+                return_value=True,
+            ),
+        ):
+            run_build(project_dir, "test_app", no_deps=True)
+
+        mock_handler_cls.assert_called_once()
+        mock_handler_gen.generate_handlers.assert_called_once()
+
+    def test_run_build_produces_qb_handler_files(self, tmp_path):
+        """Test that run_build produces handler_<name>.py files for QB resources."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+
+        worker_file = project_dir / "worker.py"
+        worker_file.write_text(
+            "from runpod_flash import remote, LiveServerless\n"
+            "gpu = LiveServerless()\n"
+            "@remote(gpu)\n"
+            "def my_func(prompt: str) -> str:\n"
+            "    return prompt\n"
+        )
+
+        with patch(
+            "runpod_flash.cli.commands.build.install_dependencies",
+            return_value=True,
+        ):
+            run_build(project_dir, "test_app", no_deps=True)
+
+        build_dir = project_dir / ".flash" / ".build"
+        handler_files = list(build_dir.glob("handler_*.py"))
+        assert len(handler_files) >= 1
+
+        # Verify handler file content uses deployed template (is_live_resource=False for non-Live resources)
+        handler_content = handler_files[0].read_text()
+        assert "handler" in handler_content
+
+    def test_run_build_manifest_includes_handler_file(self, tmp_path):
+        """Test that run_build manifest includes handler_file for QB resources."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+
+        worker_file = project_dir / "worker.py"
+        worker_file.write_text(
+            "from runpod_flash import remote, LiveServerless\n"
+            "gpu = LiveServerless()\n"
+            "@remote(gpu)\n"
+            "def my_func(prompt: str) -> str:\n"
+            "    return prompt\n"
+        )
+
+        with patch(
+            "runpod_flash.cli.commands.build.install_dependencies",
+            return_value=True,
+        ):
+            run_build(project_dir, "test_app", no_deps=True)
+
+        manifest_path = project_dir / ".flash" / "flash_manifest.json"
+        assert manifest_path.exists()
+
+        manifest = json.loads(manifest_path.read_text())
+        for resource_name, resource_data in manifest["resources"].items():
+            if not resource_data.get("is_load_balanced", False):
+                assert "handler_file" in resource_data
+                assert resource_data["handler_file"] == f"handler_{resource_name}.py"

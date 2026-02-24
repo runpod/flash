@@ -317,7 +317,7 @@ class LoadBalancerSlsStub:
 
         # Construct full URL
         url = f"{self.server.endpoint_url}{path}"
-        log.debug(f"Executing via user route: {method} {url}")
+        log.info(f"{self.server} | {method} {path}")
 
         try:
             # Get API key from context (if available) for propagation
@@ -328,6 +328,7 @@ class LoadBalancerSlsStub:
                 response = await client.request(method, url, json=body)
                 response.raise_for_status()
                 result = response.json()
+                log.info(f"{self.server} | Execution complete")
                 log.debug(
                     f"User route execution successful (type={type(result).__name__})"
                 )

@@ -1,6 +1,7 @@
 """Unit tests for LoadBalancerSlsStub functionality."""
 
 import base64
+import logging
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -449,3 +450,40 @@ class TestLoadBalancerSlsStubRouting:
             assert result == "handled"
 
         await run_test()
+
+
+class TestLoadBalancerSlsStubActivityLogs:
+    """Test suite for INFO-level activity logging."""
+
+    @pytest.mark.asyncio
+    async def test_execute_via_user_route_emits_info_logs(self, caplog):
+        """_execute_via_user_route emits INFO logs with method and path."""
+        mock_resource = MagicMock()
+        mock_resource.endpoint_url = "http://localhost:8000"
+        mock_resource.name = "test-lb"
+        stub = LoadBalancerSlsStub(mock_resource)
+
+        def add(x, y):
+            return x + y
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"result": 8}
+
+        with patch(
+            "runpod_flash.stubs.load_balancer_sls.get_authenticated_httpx_client"
+        ) as mock_client_factory:
+            mock_client = AsyncMock()
+            mock_client.request.return_value = mock_response
+            mock_client_factory.return_value.__aenter__ = AsyncMock(
+                return_value=mock_client
+            )
+            mock_client_factory.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            with caplog.at_level(
+                logging.INFO, logger="runpod_flash.stubs.load_balancer_sls"
+            ):
+                await stub._execute_via_user_route(add, "POST", "/api/add", 5, 3)
+
+        info_messages = [r.message for r in caplog.records if r.levelno == logging.INFO]
+        assert any("POST /api/add" in m for m in info_messages)
+        assert any("Execution complete" in m for m in info_messages)

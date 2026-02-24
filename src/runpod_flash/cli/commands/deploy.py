@@ -1,12 +1,13 @@
 """Flash deploy command - build and deploy in one step."""
 
+from __future__ import annotations
+
 import asyncio
-import json
 import logging
 import shutil
+from typing import Any
 
 import typer
-from pathlib import Path
 from rich.console import Console
 
 from ..utils.app import discover_flash_project
@@ -94,57 +95,94 @@ def deploy_command(
         raise typer.Exit(1)
 
 
+def _print_curl_example(url: str, method: str = "POST") -> None:
+    """Print a curl example for the given URL."""
+    indent = "      "
+    lines = [f"{indent}curl -X {method} {url}"]
+    if method == "POST":
+        lines.append(f'{indent}    -H "Content-Type: application/json"')
+    lines.append(f'{indent}    -H "Authorization: Bearer $RUNPOD_API_KEY"')
+    if method == "POST":
+        lines.append(f"""{indent}    -d '{{"input": {{}}}}'""")
+    curl_cmd = " \\\n".join(lines)
+    console.print("\n    [bold]Try it:[/bold]")
+    console.print(curl_cmd)
+
+
 def _display_post_deployment_guidance(
-    env_name: str, mothership_url: str | None = None
+    env_name: str,
+    resources_endpoints: dict[str, str],
+    resources: dict[str, Any],
+    routes: dict[str, dict[str, str]],
 ) -> None:
     """Display helpful next steps after successful deployment."""
-    manifest_path = Path.cwd() / ".flash" / "flash_manifest.json"
-    mothership_routes = {}
+    lb_entries: list[tuple[str, str, dict[str, str]]] = []
+    qb_entries: list[tuple[str, str]] = []
 
-    try:
-        with open(manifest_path) as f:
-            manifest = json.load(f)
-            resources_endpoints = manifest.get("resources_endpoints", {})
-            resources = manifest.get("resources", {})
-            routes = manifest.get("routes", {})
+    for resource_name, url in resources_endpoints.items():
+        if resources.get(resource_name, {}).get("is_load_balanced", False):
+            lb_routes = routes.get(resource_name, {})
+            lb_entries.append((resource_name, url, lb_routes))
+        else:
+            qb_entries.append((resource_name, url))
 
-            for resource_name in resources_endpoints:
-                if resources.get(resource_name, {}).get("is_mothership", False):
-                    mothership_routes = routes.get(resource_name, {})
+    if lb_entries:
+        console.print("\n  [bold]Load-balanced endpoints:[/bold]")
+        for i, (name, url, lb_routes) in enumerate(lb_entries):
+            if i > 0:
+                console.print()
+            console.print(f"    [bold]{url}[/bold]  [dim]({name})[/dim]")
+            for route_key in sorted(lb_routes.keys()):
+                method, path = route_key.split(" ", 1)
+                console.print(f"      {method:6s} {path}")
+
+        # One curl example using the first LB endpoint's first route (prefer POST, fall back to GET)
+        curl_shown = False
+        for _name, curl_url, lb_routes in lb_entries:
+            post_routes = [
+                k.split(" ", 1)[1]
+                for k in sorted(lb_routes.keys())
+                if k.startswith("POST ")
+            ]
+            if post_routes:
+                _print_curl_example(f"{curl_url}{post_routes[0]}")
+                curl_shown = True
+                break
+
+        if not curl_shown:
+            for _name, curl_url, lb_routes in lb_entries:
+                get_routes = [
+                    k.split(" ", 1)[1]
+                    for k in sorted(lb_routes.keys())
+                    if k.startswith("GET ")
+                ]
+                if get_routes:
+                    _print_curl_example(f"{curl_url}{get_routes[0]}", method="GET")
                     break
-    except (FileNotFoundError, json.JSONDecodeError) as e:
-        logger.debug(f"Could not read manifest: {e}")
 
-    if mothership_routes:
-        console.print("\n[bold]Routes:[/bold]")
-        for route_key in sorted(mothership_routes.keys()):
-            method, path = route_key.split(" ", 1)
-            console.print(f"  {method:6s} {path}")
+    if qb_entries:
+        console.print("\n  [bold]Queue-based endpoints:[/bold]")
+        for name, url in qb_entries:
+            console.print(f"    [bold]{url}[/bold]  [dim]({name})[/dim]")
 
-    # curl example using the first POST route
-    if mothership_url and mothership_routes:
-        post_routes = [
-            k.split(" ", 1)[1]
-            for k in sorted(mothership_routes.keys())
-            if k.startswith("POST ")
-        ]
-        if post_routes:
-            example_route = post_routes[0]
-            curl_cmd = (
-                f"curl -X POST {mothership_url}{example_route} \\\n"
-                f'    -H "Content-Type: application/json" \\\n'
-                '    -H "Authorization: Bearer $RUNPOD_API_KEY" \\\n'
-                "    -d '{\"input\": {}}'"
-            )
-            console.print("\n[bold]Try it:[/bold]")
-            console.print(f"  [dim]{curl_cmd}[/dim]")
+        # One curl example using the first QB endpoint
+        first_qb_url = qb_entries[0][1]
+        _print_curl_example(f"{first_qb_url}/runsync")
 
     console.print("\n[bold]Useful commands:[/bold]")
     console.print(
-        f"  [dim]flash env get {env_name}[/dim]       View environment status"
+        f"  [cyan]flash env get {env_name}[/cyan]       View environment status"
     )
-    console.print(f"  [dim]flash deploy --env {env_name}[/dim]  Update deployment")
-    console.print(f"  [dim]flash env delete {env_name}[/dim]    Remove deployment")
+    console.print(f"  [cyan]flash deploy --env {env_name}[/cyan]  Update deployment")
+    console.print(f"  [cyan]flash env delete {env_name}[/cyan]    Remove deployment")
+
+    if lb_entries or qb_entries:
+        console_url = "https://console.runpod.io/serverless"
+        docs_requests = "https://docs.runpod.io/serverless/endpoints/send-requests"
+        docs_lb = "https://docs.runpod.io/serverless/load-balancing/overview"
+        console.print(f"\n  Console: [link={console_url}]{console_url}[/link]")
+        console.print(f"  Docs:    [link={docs_requests}]{docs_requests}[/link]")
+        console.print(f"           [link={docs_lb}]{docs_lb}[/link]")
 
 
 def _launch_preview(project_dir):
@@ -179,27 +217,17 @@ async def _resolve_and_deploy(
         result = await deploy_from_uploaded_build(
             app, build["id"], resolved_env_name, local_manifest
         )
-    console.print(f"[green]Deployed[/green] to [bold]{resolved_env_name}[/bold]")
+
+    console.print(f"\n[green]Deployed[/green] to [bold]{resolved_env_name}[/bold]")
 
     resources_endpoints = result.get("resources_endpoints", {})
-    local_manifest = result.get("local_manifest", {})
-    resources = local_manifest.get("resources", {})
+    manifest = result.get("local_manifest", {})
+    resources = manifest.get("resources", {})
+    routes = manifest.get("routes", {})
 
-    # mothership first, then workers
-    mothership_url = None
-    if resources_endpoints:
-        console.print()
-        other_items = []
-        for resource_name, url in resources_endpoints.items():
-            if resources.get(resource_name, {}).get("is_mothership", False):
-                mothership_url = url
-                console.print(f"  [bold]{url}[/bold]  [dim]({resource_name})[/dim]")
-            else:
-                other_items.append((resource_name, url))
-        for resource_name, url in other_items:
-            console.print(f"  [dim]{url}  ({resource_name})[/dim]")
-
-    _display_post_deployment_guidance(resolved_env_name, mothership_url=mothership_url)
+    _display_post_deployment_guidance(
+        resolved_env_name, resources_endpoints, resources, routes
+    )
 
 
 async def _resolve_environment(

@@ -30,6 +30,7 @@ if TYPE_CHECKING:
         PodTemplate,
         ResourceManager,
         ServerlessEndpoint,
+        ServerlessScalerType,
         ServerlessType,
         FlashApp,
     )
@@ -58,6 +59,7 @@ def __getattr__(name):
         "PodTemplate",
         "ResourceManager",
         "ServerlessEndpoint",
+        "ServerlessScalerType",
         "ServerlessType",
         "FlashApp",
     ):
@@ -78,6 +80,7 @@ def __getattr__(name):
             PodTemplate,
             ResourceManager,
             ServerlessEndpoint,
+            ServerlessScalerType,
             ServerlessType,
             FlashApp,
         )
@@ -99,6 +102,7 @@ def __getattr__(name):
             "PodTemplate": PodTemplate,
             "ResourceManager": ResourceManager,
             "ServerlessEndpoint": ServerlessEndpoint,
+            "ServerlessScalerType": ServerlessScalerType,
             "ServerlessType": ServerlessType,
             "FlashApp": FlashApp,
         }
@@ -124,6 +128,7 @@ __all__ = [
     "PodTemplate",
     "ResourceManager",
     "ServerlessEndpoint",
+    "ServerlessScalerType",
     "ServerlessType",
     "FlashApp",
 ]

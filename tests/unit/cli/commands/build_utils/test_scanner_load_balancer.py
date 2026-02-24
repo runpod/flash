@@ -1,10 +1,9 @@
-"""Tests for main.py FastAPI app detection and explicit mothership config in scanner."""
+"""Tests for main.py FastAPI app detection in scanner."""
 
 import tempfile
 from pathlib import Path
 
 from runpod_flash.cli.commands.build_utils.scanner import (
-    detect_explicit_mothership,
     detect_main_app,
 )
 
@@ -240,8 +239,8 @@ def delete_item(item_id: int):
             assert result is not None
             assert result["has_routes"] is True
 
-    def test_detect_main_app_respects_explicit_mothership_flag(self):
-        """Test that explicit_mothership_exists flag prevents auto-detection."""
+    def test_detect_main_app_respects_explicit_lb_flag(self):
+        """Test that explicit_lb_exists flag prevents auto-detection."""
         with tempfile.TemporaryDirectory() as tmpdir:
             project_root = Path(tmpdir)
             main_file = project_root / "main.py"
@@ -258,179 +257,10 @@ def root():
             )
 
             # Without flag, should detect
-            result = detect_main_app(project_root, explicit_mothership_exists=False)
+            result = detect_main_app(project_root, explicit_lb_exists=False)
             assert result is not None
             assert result["has_routes"] is True
 
             # With flag, should not detect
-            result = detect_main_app(project_root, explicit_mothership_exists=True)
+            result = detect_main_app(project_root, explicit_lb_exists=True)
             assert result is None
-
-
-class TestDetectExplicitMothership:
-    """Test explicit mothership.py configuration detection."""
-
-    def test_detect_explicit_mothership_with_valid_config(self):
-        """Test detecting explicit mothership.py with valid CPU config."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            project_root = Path(tmpdir)
-            mothership_file = project_root / "mothership.py"
-            mothership_file.write_text(
-                """
-from runpod_flash import CpuLiveLoadBalancer
-
-mothership = CpuLiveLoadBalancer(
-    name="mothership",
-    workersMin=2,
-    workersMax=5,
-)
-"""
-            )
-
-            result = detect_explicit_mothership(project_root)
-
-            assert result is not None
-            assert result["resource_type"] == "CpuLiveLoadBalancer"
-            assert result["name"] == "mothership"
-            assert result["workersMin"] == 2
-            assert result["workersMax"] == 5
-            assert result["is_explicit"] is True
-
-    def test_detect_explicit_mothership_with_custom_name(self):
-        """Test detecting mothership with custom endpoint name."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            project_root = Path(tmpdir)
-            mothership_file = project_root / "mothership.py"
-            mothership_file.write_text(
-                """
-from runpod_flash import CpuLiveLoadBalancer
-
-mothership = CpuLiveLoadBalancer(
-    name="my-api-gateway",
-    workersMin=1,
-    workersMax=3,
-)
-"""
-            )
-
-            result = detect_explicit_mothership(project_root)
-
-            assert result is not None
-            assert result["name"] == "my-api-gateway"
-
-    def test_detect_explicit_mothership_with_live_load_balancer(self):
-        """Test detecting mothership with GPU LiveLoadBalancer."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            project_root = Path(tmpdir)
-            mothership_file = project_root / "mothership.py"
-            mothership_file.write_text(
-                """
-from runpod_flash import LiveLoadBalancer
-
-mothership = LiveLoadBalancer(
-    name="gpu-mothership",
-    workersMin=1,
-    workersMax=2,
-)
-"""
-            )
-
-            result = detect_explicit_mothership(project_root)
-
-            assert result is not None
-            assert result["resource_type"] == "LiveLoadBalancer"
-            assert result["name"] == "gpu-mothership"
-
-    def test_detect_explicit_mothership_no_file(self):
-        """Test that None is returned when mothership.py doesn't exist."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            project_root = Path(tmpdir)
-
-            result = detect_explicit_mothership(project_root)
-
-            assert result is None
-
-    def test_detect_explicit_mothership_no_mothership_variable(self):
-        """Test returns None if file doesn't have mothership variable."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            project_root = Path(tmpdir)
-            mothership_file = project_root / "mothership.py"
-            mothership_file.write_text(
-                """
-from runpod_flash import CpuLiveLoadBalancer
-
-# No mothership variable defined
-some_config = CpuLiveLoadBalancer(name="other")
-"""
-            )
-
-            result = detect_explicit_mothership(project_root)
-
-            assert result is None
-
-    def test_detect_explicit_mothership_syntax_error(self):
-        """Test gracefully handles syntax errors in mothership.py."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            project_root = Path(tmpdir)
-            mothership_file = project_root / "mothership.py"
-            mothership_file.write_text(
-                """
-from runpod_flash import CpuLiveLoadBalancer
-
-mothership = CpuLiveLoadBalancer(
-    name="mothership"
-    # Missing comma and closing paren
-"""
-            )
-
-            result = detect_explicit_mothership(project_root)
-
-            assert result is None
-
-    def test_detect_explicit_mothership_defaults(self):
-        """Test default values when not explicitly specified."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            project_root = Path(tmpdir)
-            mothership_file = project_root / "mothership.py"
-            mothership_file.write_text(
-                """
-from runpod_flash import CpuLiveLoadBalancer
-
-mothership = CpuLiveLoadBalancer()
-"""
-            )
-
-            result = detect_explicit_mothership(project_root)
-
-            assert result is not None
-            assert result["name"] == "mothership"  # Default name
-            assert result["workersMin"] == 1  # Default min
-            assert result["workersMax"] == 1  # Default max
-
-    def test_detect_explicit_mothership_with_comments(self):
-        """Test detection works with commented code around mothership."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            project_root = Path(tmpdir)
-            mothership_file = project_root / "mothership.py"
-            mothership_file.write_text(
-                """
-# Mothership configuration
-from runpod_flash import CpuLiveLoadBalancer
-
-# Use CPU load balancer for cost efficiency
-mothership = CpuLiveLoadBalancer(
-    name="mothership",
-    workersMin=1,
-    workersMax=3,
-)
-
-# Could also use GPU:
-# from runpod_flash import LiveLoadBalancer
-# mothership = LiveLoadBalancer(name="gpu-mothership")
-"""
-            )
-
-            result = detect_explicit_mothership(project_root)
-
-            assert result is not None
-            assert result["resource_type"] == "CpuLiveLoadBalancer"

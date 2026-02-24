@@ -3,8 +3,9 @@
 import tempfile
 from pathlib import Path
 
-
+import runpod_flash
 from runpod_flash.cli.commands.build_utils.scanner import RemoteDecoratorScanner
+from runpod_flash.core.resources.serverless import ServerlessResource
 
 
 def test_discover_simple_function():
@@ -356,6 +357,49 @@ async def project_function(data):
         assert functions[0].resource_config_name == "project_config"
 
 
+def test_exclude_nested_venv_directory():
+    """Test that nested .venv directories (not just root-level) are excluded."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project_dir = Path(tmpdir)
+
+        # Create a nested .venv inside a subdirectory (the original bug)
+        nested_venv = project_dir / "subproject" / ".venv" / "lib" / "python3.11"
+        nested_venv.mkdir(parents=True)
+        venv_file = nested_venv / "site_package.py"
+        venv_file.write_text(
+            """
+from runpod_flash import LiveServerless, remote
+
+config = LiveServerless(name="nested_venv_config")
+
+@remote(config)
+async def nested_venv_function(data):
+    return data
+"""
+        )
+
+        # Create legitimate project file
+        project_file = project_dir / "worker.py"
+        project_file.write_text(
+            """
+from runpod_flash import LiveServerless, remote
+
+config = LiveServerless(name="project_config")
+
+@remote(config)
+async def project_function(data):
+    return data
+"""
+        )
+
+        scanner = RemoteDecoratorScanner(project_dir)
+        functions = scanner.discover_remote_functions()
+
+        # Should only find the project function, not the nested venv one
+        assert len(functions) == 1
+        assert functions[0].resource_config_name == "project_config"
+
+
 def test_fallback_to_variable_name_when_name_parameter_missing():
     """Test that variable name is used when resource config has no name= parameter."""
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -653,9 +697,7 @@ def create_user():
 """)
 
         # Detect routes
-        main_app_config = detect_main_app(
-            project_root, explicit_mothership_exists=False
-        )
+        main_app_config = detect_main_app(project_root, explicit_lb_exists=False)
 
         assert main_app_config is not None
         routes = main_app_config["fastapi_routes"]
@@ -712,9 +754,7 @@ def admin_dashboard():
     return {}
 """)
 
-        main_app_config = detect_main_app(
-            project_root, explicit_mothership_exists=False
-        )
+        main_app_config = detect_main_app(project_root, explicit_lb_exists=False)
 
         routes = main_app_config["fastapi_routes"]
         assert len(routes) == 2
@@ -746,9 +786,7 @@ def home():
     return {}
 """)
 
-        main_app_config = detect_main_app(
-            project_root, explicit_mothership_exists=False
-        )
+        main_app_config = detect_main_app(project_root, explicit_lb_exists=False)
 
         # Should still work, just skip the missing router
         routes = main_app_config["fastapi_routes"]
@@ -788,9 +826,7 @@ def get_data():
     return {}
 """)
 
-        main_app_config = detect_main_app(
-            project_root, explicit_mothership_exists=False
-        )
+        main_app_config = detect_main_app(project_root, explicit_lb_exists=False)
 
         routes = main_app_config["fastapi_routes"]
         assert len(routes) == 2
@@ -831,9 +867,7 @@ def get_user(user_id: int):
     return {}
 """)
 
-        main_app_config = detect_main_app(
-            project_root, explicit_mothership_exists=False
-        )
+        main_app_config = detect_main_app(project_root, explicit_lb_exists=False)
 
         routes = main_app_config["fastapi_routes"]
         assert len(routes) == 1
@@ -869,9 +903,7 @@ async def process_data():
     return {}
 """)
 
-        main_app_config = detect_main_app(
-            project_root, explicit_mothership_exists=False
-        )
+        main_app_config = detect_main_app(project_root, explicit_lb_exists=False)
 
         routes = main_app_config["fastapi_routes"]
         assert len(routes) == 1
@@ -1127,3 +1159,236 @@ class ImageProcessor:
         }
         # Classes should have empty param_names
         assert meta.param_names == []
+
+
+def test_calls_remote_functions_direct_call():
+    """Direct call to another @remote function sets calls_remote_functions=True."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project_dir = Path(tmpdir)
+
+        test_file = project_dir / "workers.py"
+        test_file.write_text(
+            """
+from runpod_flash import LiveServerless, remote
+
+gpu_config = LiveServerless(name="gpu_worker")
+cpu_config = LiveServerless(name="cpu_worker")
+
+@remote(gpu_config)
+async def generate(prompt):
+    return {"image": "..."}
+
+@remote(cpu_config)
+async def orchestrate(prompt):
+    result = generate(prompt)
+    return result
+"""
+        )
+
+        scanner = RemoteDecoratorScanner(project_dir)
+        functions = scanner.discover_remote_functions()
+
+        orchestrate = next(f for f in functions if f.function_name == "orchestrate")
+        assert orchestrate.calls_remote_functions is True
+        assert "generate" in orchestrate.called_remote_functions
+
+
+def test_attribute_call_does_not_trigger_calls_remote_functions():
+    """Attribute call obj.remote_name() must not flag calls_remote_functions.
+
+    Regression test: if a @remote function named 'generate' exists, then
+    model.generate() should NOT trigger a false positive. @remote functions
+    are always invoked as direct calls after import, never via attribute access.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project_dir = Path(tmpdir)
+
+        test_file = project_dir / "workers.py"
+        test_file.write_text(
+            """
+from runpod_flash import LiveServerless, remote
+
+gpu_config = LiveServerless(name="gpu_worker")
+cpu_config = LiveServerless(name="cpu_worker")
+
+@remote(gpu_config)
+async def generate(prompt):
+    return {"image": "..."}
+
+@remote(cpu_config)
+async def run_pipeline(prompt):
+    model = load_model()
+    result = model.generate(prompt)
+    return result
+"""
+        )
+
+        scanner = RemoteDecoratorScanner(project_dir)
+        functions = scanner.discover_remote_functions()
+
+        run_pipeline = next(f for f in functions if f.function_name == "run_pipeline")
+        assert run_pipeline.calls_remote_functions is False
+        assert run_pipeline.called_remote_functions == []
+
+
+def test_no_remote_calls_sets_calls_remote_functions_false():
+    """Standalone function with no remote calls stays False."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project_dir = Path(tmpdir)
+
+        test_file = project_dir / "worker.py"
+        test_file.write_text(
+            """
+from runpod_flash import LiveServerless, remote
+
+config = LiveServerless(name="worker")
+
+@remote(config)
+async def process(data):
+    return {"result": data.upper()}
+"""
+        )
+
+        scanner = RemoteDecoratorScanner(project_dir)
+        functions = scanner.discover_remote_functions()
+
+        assert len(functions) == 1
+        assert functions[0].calls_remote_functions is False
+        assert functions[0].called_remote_functions == []
+
+
+def test_calls_remote_functions_multiple_cross_calls():
+    """Multiple cross-calls tracked in called_remote_functions list."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project_dir = Path(tmpdir)
+
+        test_file = project_dir / "workers.py"
+        test_file.write_text(
+            """
+from runpod_flash import LiveServerless, remote
+
+gpu_a = LiveServerless(name="gpu_a")
+gpu_b = LiveServerless(name="gpu_b")
+cpu = LiveServerless(name="cpu")
+
+@remote(gpu_a)
+async def transcribe(audio):
+    return {"text": "..."}
+
+@remote(gpu_b)
+async def translate(text):
+    return {"translated": "..."}
+
+@remote(cpu)
+async def pipeline(audio):
+    text = transcribe(audio)
+    translated = translate(text)
+    return translated
+"""
+        )
+
+        scanner = RemoteDecoratorScanner(project_dir)
+        functions = scanner.discover_remote_functions()
+
+        pipeline = next(f for f in functions if f.function_name == "pipeline")
+        assert pipeline.calls_remote_functions is True
+        assert set(pipeline.called_remote_functions) == {"transcribe", "translate"}
+
+
+def test_local_flag_extracted_from_lb_route():
+    """Test that local=True on an LB @remote is captured in metadata."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project_dir = Path(tmpdir)
+
+        test_file = project_dir / "endpoint.py"
+        test_file.write_text(
+            """
+from runpod_flash import CpuLiveLoadBalancer, remote
+
+lb_config = CpuLiveLoadBalancer(name="lb_worker")
+
+@remote(lb_config, local=True, method="GET", path="/scripts")
+async def list_scripts():
+    return {"scripts": []}
+"""
+        )
+
+        scanner = RemoteDecoratorScanner(project_dir)
+        functions = scanner.discover_remote_functions()
+
+        assert len(functions) == 1
+        assert functions[0].local is True
+        assert functions[0].is_lb_route_handler is True
+
+
+def test_local_flag_defaults_false():
+    """Test that local defaults to False when not specified."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project_dir = Path(tmpdir)
+
+        test_file = project_dir / "endpoint.py"
+        test_file.write_text(
+            """
+from runpod_flash import CpuLiveLoadBalancer, remote
+
+lb_config = CpuLiveLoadBalancer(name="lb_worker")
+
+@remote(lb_config, method="POST", path="/classify")
+async def classify(text: str):
+    return {"label": "positive"}
+"""
+        )
+
+        scanner = RemoteDecoratorScanner(project_dir)
+        functions = scanner.discover_remote_functions()
+
+        assert len(functions) == 1
+        assert functions[0].local is False
+
+
+def test_local_flag_on_lb_route_handler():
+    """Test local=True on LB route with method and path is an LB route handler."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project_dir = Path(tmpdir)
+
+        test_file = project_dir / "api.py"
+        test_file.write_text(
+            """
+from runpod_flash import CpuLiveLoadBalancer, remote
+
+api = CpuLiveLoadBalancer(name="api_endpoint")
+
+@remote(api, local=True, method="POST", path="/process")
+async def process(data: dict):
+    return {"result": data}
+
+@remote(api, method="GET", path="/health")
+async def health():
+    return {"status": "ok"}
+"""
+        )
+
+        scanner = RemoteDecoratorScanner(project_dir)
+        functions = scanner.discover_remote_functions()
+
+        assert len(functions) == 2
+
+        process_fn = next(f for f in functions if f.function_name == "process")
+        assert process_fn.local is True
+        assert process_fn.is_lb_route_handler is True
+        assert process_fn.http_method == "POST"
+        assert process_fn.http_path == "/process"
+
+        health_fn = next(f for f in functions if f.function_name == "health")
+        assert health_fn.local is False
+        assert health_fn.is_lb_route_handler is True
+
+
+def test_resource_config_types_matches_exports():
+    """Static _RESOURCE_CONFIG_TYPES must include all ServerlessResource subclasses from runpod_flash."""
+    for type_name in RemoteDecoratorScanner._RESOURCE_CONFIG_TYPES:
+        cls = getattr(runpod_flash, type_name, None)
+        assert cls is not None, f"{type_name} not found in runpod_flash exports"
+        assert issubclass(cls, ServerlessResource), (
+            f"{type_name} is not a ServerlessResource subclass"
+        )
