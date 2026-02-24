@@ -152,14 +152,14 @@ def _print_startup_table(workers: List[WorkerInfo], host: str, port: int) -> Non
         if worker.worker_type == "QB":
             if len(worker.functions) == 1:
                 table.add_row(
-                    f"POST  {worker.url_prefix}/run_sync",
+                    f"POST  {worker.url_prefix}/runsync",
                     worker.resource_name,
                     "QB",
                 )
             else:
                 for fn in worker.functions:
                     table.add_row(
-                        f"POST  {worker.url_prefix}/{fn}/run_sync",
+                        f"POST  {worker.url_prefix}/{fn}/runsync",
                         worker.resource_name,
                         "QB",
                     )

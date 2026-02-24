@@ -179,7 +179,7 @@ This template includes:
     - Pre-configured worker scaling limits using the `LiveServerless()` object.
     - A `@remote` decorated function that returns a response from a worker.
 
-When you run `flash dev`, it auto-discovers all `@remote` functions and builds a local development server programmatically. Queue-based workers are exposed at `/{file_prefix}/run_sync` (e.g., `/gpu_worker/run_sync`).
+When you run `flash dev`, it auto-discovers all `@remote` functions and builds a local development server programmatically. Queue-based workers are exposed at `/{file_prefix}/runsync` (e.g., `/gpu_worker/runsync`).
 
 ### Step 3: Install Python dependencies
 

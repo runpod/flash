@@ -107,13 +107,13 @@ def _register_qb_routes(
 ) -> None:
     """Register queue-based (QB) routes.
 
-    Single-function workers get one ``/run_sync`` endpoint.
-    Multi-function workers get ``/<fn_name>/run_sync`` for each function.
+    Single-function workers get one ``/runsync`` endpoint.
+    Multi-function workers get ``/<fn_name>/runsync`` for each function.
     """
     if len(worker.functions) == 1:
         fn_name = worker.functions[0]
         fn = _import_from_module(worker.module_path, fn_name, project_root)
-        path = f"{worker.url_prefix}/run_sync"
+        path = f"{worker.url_prefix}/runsync"
 
         async def qb_handler(body: dict, _fn=fn):
             result = await _fn(body.get("input", body))
@@ -123,12 +123,12 @@ def _register_qb_routes(
                 "output": result,
             }
 
-        qb_handler.__name__ = f"{worker.resource_name}_run_sync"
+        qb_handler.__name__ = f"{worker.resource_name}_runsync"
         app.add_api_route(path, qb_handler, methods=["POST"], tags=[tag])
     else:
         for fn_name in worker.functions:
             fn = _import_from_module(worker.module_path, fn_name, project_root)
-            path = f"{worker.url_prefix}/{fn_name}/run_sync"
+            path = f"{worker.url_prefix}/{fn_name}/runsync"
 
             async def qb_handler(body: dict, _fn=fn):
                 result = await _fn(body.get("input", body))
@@ -138,7 +138,7 @@ def _register_qb_routes(
                     "output": result,
                 }
 
-            qb_handler.__name__ = f"{worker.resource_name}_{fn_name}_run_sync"
+            qb_handler.__name__ = f"{worker.resource_name}_{fn_name}_runsync"
             app.add_api_route(path, qb_handler, methods=["POST"], tags=[tag])
 
 

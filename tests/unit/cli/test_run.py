@@ -186,7 +186,7 @@ class TestCreateApp:
         try:
             test_app = create_app(project_root=tmp_path, workers=[worker])
             client = TestClient(test_app)
-            resp = client.post("/worker/run_sync", json={"input": "hello"})
+            resp = client.post("/worker/runsync", json={"input": "hello"})
             assert resp.status_code == 200
             assert resp.json()["output"] == {"echo": "hello"}
         finally:
@@ -202,7 +202,7 @@ class TestCreateApp:
 class TestRegisterQBRoutes:
     """Test QB route registration and invocation."""
 
-    def test_single_function_run_sync(self, tmp_path):
+    def test_single_function_runsync(self, tmp_path):
         mod = tmp_path / "worker.py"
         mod.write_text("async def process(data):\n    return {'echo': data}\n")
 
@@ -219,7 +219,7 @@ class TestRegisterQBRoutes:
             test_app = FastAPI()
             _register_qb_routes(test_app, worker, tmp_path, "test [QB]")
             client = TestClient(test_app)
-            resp = client.post("/worker/run_sync", json={"input": {"k": "v"}})
+            resp = client.post("/worker/runsync", json={"input": {"k": "v"}})
             body = resp.json()
             assert resp.status_code == 200
             assert body["status"] == "COMPLETED"
@@ -248,13 +248,13 @@ class TestRegisterQBRoutes:
             _register_qb_routes(test_app, worker, tmp_path, "test [QB]")
             client = TestClient(test_app)
             assert (
-                client.post("/multi/alpha/run_sync", json={"input": {}}).json()[
+                client.post("/multi/alpha/runsync", json={"input": {}}).json()[
                     "output"
                 ]
                 == "a"
             )
             assert (
-                client.post("/multi/beta/run_sync", json={"input": {}}).json()["output"]
+                client.post("/multi/beta/runsync", json={"input": {}}).json()["output"]
                 == "b"
             )
         finally:

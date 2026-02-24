@@ -35,7 +35,7 @@ With `flash dev`, your system runs in a **hybrid architecture**:
 
 **Key points:**
 - **`flash dev` auto-discovers `@remote` functions** and builds routes programmatically
-- **Queue-based (QB) routes execute locally** at `/{file_prefix}/run_sync`
+- **Queue-based (QB) routes execute locally** at `/{file_prefix}/runsync`
 - **Load-balanced (LB) routes dispatch remotely** via `LoadBalancerSlsStub`
 - **`@remote` functions run on Runpod** as serverless endpoints
 - **Hot reload** watches your project directory via uvicorn's built-in reloader
