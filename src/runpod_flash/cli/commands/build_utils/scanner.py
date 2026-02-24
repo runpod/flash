@@ -108,6 +108,7 @@ class RemoteFunctionMetadata:
     class_method_docstrings: Dict[str, Optional[str]] = field(
         default_factory=dict
     )  # method_name -> first line of docstring
+    local: bool = False  # Execute locally instead of remote dispatch
 
 
 class RemoteDecoratorScanner:
@@ -280,6 +281,9 @@ class RemoteDecoratorScanner:
                             remote_decorator
                         )
 
+                        # Extract local execution flag
+                        local = self._extract_local_flag(remote_decorator)
+
                         # Get flags for this resource
                         flags = self.resource_flags.get(
                             resource_config_name,
@@ -354,6 +358,7 @@ class RemoteDecoratorScanner:
                             class_method_params=class_method_params,
                             docstring=docstring,
                             class_method_docstrings=class_method_docstrings,
+                            local=local,
                         )
                         functions.append(metadata)
 
@@ -583,6 +588,20 @@ class RemoteDecoratorScanner:
             )
 
         return http_method, http_path
+
+    def _extract_local_flag(self, decorator: ast.expr) -> bool:
+        """Extract local=True/False from @remote decorator.
+
+        Returns True if the decorator has local=True, False otherwise.
+        """
+        if not isinstance(decorator, ast.Call):
+            return False
+
+        for keyword in decorator.keywords:
+            if keyword.arg == "local" and isinstance(keyword.value, ast.Constant):
+                return bool(keyword.value.value)
+
+        return False
 
 
 def detect_main_app(

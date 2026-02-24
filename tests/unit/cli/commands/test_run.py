@@ -1,8 +1,16 @@
 """Tests for flash run dev server generation."""
 
+import inspect
 import tempfile
 from pathlib import Path
 
+from fastapi import FastAPI
+
+from runpod_flash.cli.commands._run_server_helpers import (
+    has_file_params,
+    make_input_model,
+    register_file_upload_lb_route,
+)
 from runpod_flash.cli.commands.run import (
     WorkerInfo,
     _generate_flash_server,
@@ -596,3 +604,308 @@ def test_codegen_lb_get_with_multiple_path_params():
         assert "version_id: str" in content
         assert '"item_id": item_id' in content
         assert '"version_id": version_id' in content
+
+
+# -- File upload support tests --
+
+
+class TestHasFileParams:
+    """Tests for has_file_params detection utility."""
+
+    def test_detects_bytes_param(self):
+        async def upload(data: bytes) -> dict: ...
+
+        assert has_file_params(upload) is True
+
+    def test_no_bytes_param(self):
+        async def classify(text: str) -> dict: ...
+
+        assert has_file_params(classify) is False
+
+    def test_mixed_params(self):
+        async def upload(file_data: bytes, label: str) -> dict: ...
+
+        assert has_file_params(upload) is True
+
+    def test_no_params(self):
+        async def health() -> dict: ...
+
+        assert has_file_params(health) is False
+
+    def test_return_type_bytes_not_detected(self):
+        """bytes in return annotation should not trigger detection."""
+
+        async def get_data() -> bytes: ...
+
+        assert has_file_params(get_data) is False
+
+
+class TestMakeInputModelExcludesBytes:
+    """Tests that make_input_model excludes bytes params."""
+
+    def test_bytes_param_excluded(self):
+        async def upload(data: bytes, label: str) -> dict: ...
+
+        model = make_input_model("UploadInput", upload)
+        assert model is not None
+        assert "label" in model.model_fields
+        assert "data" not in model.model_fields
+
+    def test_all_bytes_returns_none(self):
+        async def upload(data: bytes) -> dict: ...
+
+        model = make_input_model("UploadInput", upload)
+        assert model is None
+
+
+class TestRegisterFileUploadLbRoute:
+    """Tests for register_file_upload_lb_route."""
+
+    def test_registers_route_on_app(self):
+        async def upload(data: bytes) -> dict:
+            return {"size": len(data)}
+
+        app = FastAPI()
+        # Use a dummy config and func -- we just verify the route is registered
+        register_file_upload_lb_route(
+            app, "post", "/upload", None, upload, "test", "Upload file"
+        )
+
+        paths = [route.path for route in app.routes]
+        assert "/upload" in paths
+
+    def test_wrapper_has_file_annotation(self):
+        from fastapi import File
+
+        async def upload(data: bytes) -> dict:
+            return {"size": len(data)}
+
+        app = FastAPI()
+        register_file_upload_lb_route(
+            app, "post", "/upload", None, upload, "test", "Upload"
+        )
+
+        # Find the registered handler and inspect its signature
+        for route in app.routes:
+            if hasattr(route, "path") and route.path == "/upload":
+                sig = inspect.signature(route.endpoint)
+                param = sig.parameters["data"]
+                assert isinstance(param.default, type(File(...)))
+                break
+
+    def test_mixed_params_registered_correctly(self):
+        from fastapi import File, Form
+
+        async def upload(file_data: bytes, label: str) -> dict:
+            return {"size": len(file_data), "label": label}
+
+        app = FastAPI()
+        register_file_upload_lb_route(
+            app, "post", "/upload", None, upload, "test", "Upload"
+        )
+
+        for route in app.routes:
+            if hasattr(route, "path") and route.path == "/upload":
+                sig = inspect.signature(route.endpoint)
+                assert isinstance(sig.parameters["file_data"].default, type(File(...)))
+                assert isinstance(sig.parameters["label"].default, type(Form(...)))
+                break
+
+
+def test_codegen_lb_file_upload_route():
+    """Test that LB POST route with bytes param uses register_file_upload_lb_route."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project_root = Path(tmpdir)
+
+        workers = [
+            WorkerInfo(
+                file_path=Path("worker.py"),
+                url_prefix="/worker",
+                module_path="worker",
+                resource_name="worker",
+                worker_type="LB",
+                functions=["upload_file"],
+                lb_routes=[
+                    {
+                        "method": "POST",
+                        "path": "/upload",
+                        "fn_name": "upload_file",
+                        "config_variable": "cpu_config",
+                    },
+                ],
+            ),
+        ]
+
+        server_path = _generate_flash_server(project_root, workers)
+        content = server_path.read_text()
+
+        # Should have conditional: file upload vs JSON body
+        assert "_has_file_params(upload_file)" in content
+        assert "_register_file_upload_lb_route(" in content
+        # The JSON fallback should still be present
+        assert "_worker_upload_file_Input" in content
+
+
+def test_codegen_lb_non_file_route_unchanged():
+    """Test that LB POST route without bytes param still uses inline codegen."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project_root = Path(tmpdir)
+
+        workers = [
+            WorkerInfo(
+                file_path=Path("worker.py"),
+                url_prefix="/worker",
+                module_path="worker",
+                resource_name="worker",
+                worker_type="LB",
+                functions=["classify"],
+                lb_routes=[
+                    {
+                        "method": "POST",
+                        "path": "/classify",
+                        "fn_name": "classify",
+                        "config_variable": "api_config",
+                    },
+                ],
+            ),
+        ]
+
+        server_path = _generate_flash_server(project_root, workers)
+        content = server_path.read_text()
+
+        # Should still have the conditional check
+        assert "_has_file_params(classify)" in content
+        # Should have JSON body handler in else branch
+        assert "_worker_classify_Input" in content
+        assert "_lb_execute(" in content
+
+
+def test_codegen_imports_file_upload_helpers():
+    """Test that generated server.py imports file upload helpers."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project_root = Path(tmpdir)
+
+        workers = [
+            WorkerInfo(
+                file_path=Path("worker.py"),
+                url_prefix="/worker",
+                module_path="worker",
+                resource_name="worker",
+                worker_type="LB",
+                functions=["upload"],
+                lb_routes=[
+                    {
+                        "method": "POST",
+                        "path": "/upload",
+                        "fn_name": "upload",
+                        "config_variable": "cfg",
+                    },
+                ],
+            ),
+        ]
+
+        server_path = _generate_flash_server(project_root, workers)
+        content = server_path.read_text()
+
+        assert "has_file_params as _has_file_params" in content
+        assert (
+            "register_file_upload_lb_route as _register_file_upload_lb_route" in content
+        )
+
+
+def test_codegen_local_lb_get_direct_call():
+    """Test local=True LB GET route generates _call_with_body, not _lb_execute."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project_root = Path(tmpdir)
+
+        workers = [
+            WorkerInfo(
+                file_path=Path("worker.py"),
+                url_prefix="/worker",
+                module_path="worker",
+                resource_name="worker",
+                worker_type="LB",
+                functions=["list_scripts"],
+                lb_routes=[
+                    {
+                        "method": "GET",
+                        "path": "/scripts",
+                        "fn_name": "list_scripts",
+                        "config_variable": "lb_config",
+                        "local": True,
+                    },
+                ],
+            ),
+        ]
+
+        server_path = _generate_flash_server(project_root, workers)
+        content = server_path.read_text()
+
+        # Should use _call_with_body for local execution, not _lb_execute
+        assert "_call_with_body(list_scripts," in content
+        assert "_lb_execute(" not in content
+
+
+def test_codegen_local_lb_post_direct_call():
+    """Test local=True LB POST route generates _call_with_body, not _lb_execute."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project_root = Path(tmpdir)
+
+        workers = [
+            WorkerInfo(
+                file_path=Path("worker.py"),
+                url_prefix="/worker",
+                module_path="worker",
+                resource_name="worker",
+                worker_type="LB",
+                functions=["process"],
+                lb_routes=[
+                    {
+                        "method": "POST",
+                        "path": "/process",
+                        "fn_name": "process",
+                        "config_variable": "lb_config",
+                        "local": True,
+                    },
+                ],
+            ),
+        ]
+
+        server_path = _generate_flash_server(project_root, workers)
+        content = server_path.read_text()
+
+        # Should use _call_with_body for local execution
+        assert "_call_with_body(process," in content
+        assert "_lb_execute(" not in content
+
+
+def test_codegen_non_local_lb_still_uses_lb_execute():
+    """Test non-local LB routes still use _lb_execute (backward compat)."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project_root = Path(tmpdir)
+
+        workers = [
+            WorkerInfo(
+                file_path=Path("worker.py"),
+                url_prefix="/worker",
+                module_path="worker",
+                resource_name="worker",
+                worker_type="LB",
+                functions=["classify"],
+                lb_routes=[
+                    {
+                        "method": "POST",
+                        "path": "/classify",
+                        "fn_name": "classify",
+                        "config_variable": "api_config",
+                        "local": False,
+                    },
+                ],
+            ),
+        ]
+
+        server_path = _generate_flash_server(project_root, workers)
+        content = server_path.read_text()
+
+        # Non-local should still dispatch via _lb_execute
+        assert "_lb_execute(" in content

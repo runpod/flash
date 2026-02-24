@@ -1295,6 +1295,95 @@ async def pipeline(audio):
         assert set(pipeline.called_remote_functions) == {"transcribe", "translate"}
 
 
+def test_local_flag_extracted_from_lb_route():
+    """Test that local=True on an LB @remote is captured in metadata."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project_dir = Path(tmpdir)
+
+        test_file = project_dir / "endpoint.py"
+        test_file.write_text(
+            """
+from runpod_flash import CpuLiveLoadBalancer, remote
+
+lb_config = CpuLiveLoadBalancer(name="lb_worker")
+
+@remote(lb_config, local=True, method="GET", path="/scripts")
+async def list_scripts():
+    return {"scripts": []}
+"""
+        )
+
+        scanner = RemoteDecoratorScanner(project_dir)
+        functions = scanner.discover_remote_functions()
+
+        assert len(functions) == 1
+        assert functions[0].local is True
+        assert functions[0].is_lb_route_handler is True
+
+
+def test_local_flag_defaults_false():
+    """Test that local defaults to False when not specified."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project_dir = Path(tmpdir)
+
+        test_file = project_dir / "endpoint.py"
+        test_file.write_text(
+            """
+from runpod_flash import CpuLiveLoadBalancer, remote
+
+lb_config = CpuLiveLoadBalancer(name="lb_worker")
+
+@remote(lb_config, method="POST", path="/classify")
+async def classify(text: str):
+    return {"label": "positive"}
+"""
+        )
+
+        scanner = RemoteDecoratorScanner(project_dir)
+        functions = scanner.discover_remote_functions()
+
+        assert len(functions) == 1
+        assert functions[0].local is False
+
+
+def test_local_flag_on_lb_route_handler():
+    """Test local=True on LB route with method and path is an LB route handler."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project_dir = Path(tmpdir)
+
+        test_file = project_dir / "api.py"
+        test_file.write_text(
+            """
+from runpod_flash import CpuLiveLoadBalancer, remote
+
+api = CpuLiveLoadBalancer(name="api_endpoint")
+
+@remote(api, local=True, method="POST", path="/process")
+async def process(data: dict):
+    return {"result": data}
+
+@remote(api, method="GET", path="/health")
+async def health():
+    return {"status": "ok"}
+"""
+        )
+
+        scanner = RemoteDecoratorScanner(project_dir)
+        functions = scanner.discover_remote_functions()
+
+        assert len(functions) == 2
+
+        process_fn = next(f for f in functions if f.function_name == "process")
+        assert process_fn.local is True
+        assert process_fn.is_lb_route_handler is True
+        assert process_fn.http_method == "POST"
+        assert process_fn.http_path == "/process"
+
+        health_fn = next(f for f in functions if f.function_name == "health")
+        assert health_fn.local is False
+        assert health_fn.is_lb_route_handler is True
+
+
 def test_resource_config_types_matches_exports():
     """Static _RESOURCE_CONFIG_TYPES must include all ServerlessResource subclasses from runpod_flash."""
     for type_name in RemoteDecoratorScanner._RESOURCE_CONFIG_TYPES:
