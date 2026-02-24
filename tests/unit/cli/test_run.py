@@ -248,9 +248,7 @@ class TestRegisterQBRoutes:
             _register_qb_routes(test_app, worker, tmp_path, "test [QB]")
             client = TestClient(test_app)
             assert (
-                client.post("/multi/alpha/runsync", json={"input": {}}).json()[
-                    "output"
-                ]
+                client.post("/multi/alpha/runsync", json={"input": {}}).json()["output"]
                 == "a"
             )
             assert (
@@ -417,7 +415,6 @@ class TestImportFromModule:
         finally:
             sys.path.remove(str(tmp_path))
             sys.modules.pop("01_worker", None)
-
 
 
 # ---------------------------------------------------------------------------

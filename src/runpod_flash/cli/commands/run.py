@@ -137,7 +137,6 @@ def _scan_project_workers(project_root: Path) -> List[WorkerInfo]:
     return workers
 
 
-
 def _print_startup_table(workers: List[WorkerInfo], host: str, port: int) -> None:
     """Print the startup table showing local paths, resource names, and types."""
     console.print(f"\n[bold green]Flash Dev Server[/bold green]  http://{host}:{port}")
