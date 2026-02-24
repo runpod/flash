@@ -470,12 +470,11 @@ class TestLoadBalancerSlsStubActivityLogs:
         mock_response.json.return_value = {"result": 8}
 
         with patch(
-            "runpod_flash.stubs.load_balancer_sls.get_authenticated_httpx_client"
-        ) as mock_client_factory:
-            mock_client = AsyncMock()
-            mock_client.request.return_value = mock_response
-            mock_client_factory.return_value.__aenter__.return_value = mock_client
-            mock_client_factory.return_value.__aexit__.return_value = False
+            "runpod_flash.stubs.load_balancer_sls.httpx.AsyncClient"
+        ) as mock_client_class:
+            mock_client_class.return_value.__aenter__.return_value.request = AsyncMock(
+                return_value=mock_response
+            )
 
             with caplog.at_level(
                 logging.INFO, logger="runpod_flash.stubs.load_balancer_sls"

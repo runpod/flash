@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.4.0](https://github.com/runpod/flash/compare/v1.3.0...v1.4.0) (2026-02-24)
+
+
+### Features
+
+* fully deployed environment ([#215](https://github.com/runpod/flash/issues/215)) ([8aa4349](https://github.com/runpod/flash/commit/8aa43495e8bba6a565767a82727cc7fbf016f606))
+
+
+### Bug Fixes
+
+* **test:** align LB activity log mock with Python 3.14 compatible pattern ([#218](https://github.com/runpod/flash/issues/218)) ([cba753e](https://github.com/runpod/flash/commit/cba753ed0e3f8a6d8214678bdc40715cc2dfb315))
+* **test:** stabilize flaky async context manager mock pattern ([#216](https://github.com/runpod/flash/issues/216)) ([1bc369c](https://github.com/runpod/flash/commit/1bc369cce4239b8fdfa7847f7d908d87018bdee0))
+
 ## [1.3.0](https://github.com/runpod/flash/compare/v1.2.0...v1.3.0) (2026-02-20)
 
 
