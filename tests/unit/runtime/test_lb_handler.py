@@ -3,6 +3,7 @@
 import inspect
 from typing import Any
 
+from fastapi import File, Form
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
@@ -231,3 +232,118 @@ class TestCreateLbHandlerBodyParsing:
         resp = client.post("/classify", json={"text": "hello"})
         assert resp.status_code == 200
         assert resp.json() == {"label": "hello"}
+
+
+class TestWrapHandlerDetectsBytes:
+    """Tests for bytes param detection in _wrap_handler_with_body_model."""
+
+    def test_bytes_param_gets_file_wrapper(self):
+        """Handler with bytes param gets File() annotated wrapper."""
+
+        async def upload(data: bytes) -> dict:
+            return {"size": len(data)}
+
+        wrapped = _wrap_handler_with_body_model(upload, "/upload")
+        assert wrapped is not upload
+        sig = inspect.signature(wrapped)
+        assert "data" in sig.parameters
+        # Should have File(...) default, not be a Pydantic body param
+        assert "body" not in sig.parameters
+        param = sig.parameters["data"]
+        assert isinstance(param.default, type(File(...)))
+
+    def test_mixed_bytes_and_str_params(self):
+        """Handler with bytes + str params gets File() and Form() wrapper."""
+
+        async def upload(file_data: bytes, description: str) -> dict:
+            return {"size": len(file_data), "desc": description}
+
+        wrapped = _wrap_handler_with_body_model(upload, "/upload")
+        sig = inspect.signature(wrapped)
+        assert "file_data" in sig.parameters
+        assert "description" in sig.parameters
+        assert "body" not in sig.parameters
+        assert isinstance(sig.parameters["file_data"].default, type(File(...)))
+        assert isinstance(sig.parameters["description"].default, type(Form(...)))
+
+    def test_non_bytes_handler_unchanged(self):
+        """Handler with only str/dict params still uses Pydantic JSON model."""
+
+        async def classify(text: str) -> dict:
+            return {"label": text}
+
+        wrapped = _wrap_handler_with_body_model(classify, "/classify")
+        sig = inspect.signature(wrapped)
+        # Should use body model wrapping, not file upload
+        assert "body" in sig.parameters
+
+    def test_bytes_with_path_params(self):
+        """Handler with bytes + path params preserves path params."""
+
+        async def upload_to(bucket: str, data: bytes) -> dict:
+            return {"bucket": bucket, "size": len(data)}
+
+        wrapped = _wrap_handler_with_body_model(upload_to, "/buckets/{bucket}")
+        sig = inspect.signature(wrapped)
+        assert "bucket" in sig.parameters
+        assert "data" in sig.parameters
+        # bucket should NOT have File/Form default (it's a path param)
+        assert sig.parameters["bucket"].default is inspect.Parameter.empty
+
+    def test_bytes_with_default_value(self):
+        """Bytes param with default preserves the default in File()."""
+
+        async def upload(data: bytes = b"") -> dict:
+            return {"size": len(data)}
+
+        wrapped = _wrap_handler_with_body_model(upload, "/upload")
+        sig = inspect.signature(wrapped)
+        param = sig.parameters["data"]
+        assert isinstance(param.default, type(File(b"")))
+
+
+class TestFileUploadIntegration:
+    """Integration tests via TestClient for file upload routes."""
+
+    def test_bytes_param_accepts_multipart_upload(self):
+        """Route with bytes param accepts multipart file upload."""
+
+        async def upload(data: bytes) -> dict:
+            return {"size": len(data), "content": data.decode("utf-8")}
+
+        app = create_lb_handler({("POST", "/upload"): upload})
+        client = TestClient(app)
+
+        resp = client.post("/upload", files={"data": ("test.txt", b"hello world")})
+        assert resp.status_code == 200
+        assert resp.json() == {"size": 11, "content": "hello world"}
+
+    def test_mixed_file_and_form_upload(self):
+        """Route with bytes + str params accepts file + form data."""
+
+        async def upload(file_data: bytes, label: str) -> dict:
+            return {"size": len(file_data), "label": label}
+
+        app = create_lb_handler({("POST", "/upload"): upload})
+        client = TestClient(app)
+
+        resp = client.post(
+            "/upload",
+            files={"file_data": ("doc.bin", b"\x00\x01\x02")},
+            data={"label": "test-doc"},
+        )
+        assert resp.status_code == 200
+        assert resp.json() == {"size": 3, "label": "test-doc"}
+
+    def test_json_route_unaffected_by_file_upload_support(self):
+        """Non-bytes routes continue working as JSON body routes."""
+
+        async def classify(text: str, threshold: float = 0.5) -> dict:
+            return {"text": text, "threshold": threshold}
+
+        app = create_lb_handler({("POST", "/classify"): classify})
+        client = TestClient(app)
+
+        resp = client.post("/classify", json={"text": "hello"})
+        assert resp.status_code == 200
+        assert resp.json() == {"text": "hello", "threshold": 0.5}
