@@ -37,8 +37,44 @@ if TYPE_CHECKING:
     )
 
 
+_DEPRECATED_RESOURCE_CLASSES = frozenset({
+    "CpuLiveLoadBalancer",
+    "CpuLiveServerless",
+    "CpuLoadBalancerSlsResource",
+    "CpuServerlessEndpoint",
+    "LiveLoadBalancer",
+    "LiveServerless",
+    "LoadBalancerSlsResource",
+    "ServerlessEndpoint",
+})
+
+_RESOURCE_NAMES = frozenset({
+    "CpuInstanceType",
+    "CpuLiveLoadBalancer",
+    "CpuLiveServerless",
+    "CpuLoadBalancerSlsResource",
+    "CpuServerlessEndpoint",
+    "CudaVersion",
+    "DataCenter",
+    "GpuGroup",
+    "GpuType",
+    "LiveLoadBalancer",
+    "LiveServerless",
+    "LoadBalancerSlsResource",
+    "NetworkVolume",
+    "PodTemplate",
+    "ResourceManager",
+    "ServerlessEndpoint",
+    "ServerlessScalerType",
+    "ServerlessType",
+    "FlashApp",
+})
+
+
 def __getattr__(name):
     """Lazily import core modules only when accessed."""
+    import warnings
+
     if name == "Endpoint":
         from .endpoint import Endpoint
 
@@ -50,28 +86,13 @@ def __getattr__(name):
     elif name == "remote":
         from .client import remote
 
+        warnings.warn(
+            "runpod_flash.remote is deprecated. Use runpod_flash.Endpoint instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return remote
-    elif name in (
-        "CpuInstanceType",
-        "CpuLiveLoadBalancer",
-        "CpuLiveServerless",
-        "CpuLoadBalancerSlsResource",
-        "CpuServerlessEndpoint",
-        "CudaVersion",
-        "DataCenter",
-        "GpuGroup",
-        "GpuType",
-        "LiveLoadBalancer",
-        "LiveServerless",
-        "LoadBalancerSlsResource",
-        "NetworkVolume",
-        "PodTemplate",
-        "ResourceManager",
-        "ServerlessEndpoint",
-        "ServerlessScalerType",
-        "ServerlessType",
-        "FlashApp",
-    ):
+    elif name in _RESOURCE_NAMES:
         from .core.resources import (
             CpuInstanceType,
             CpuLiveLoadBalancer,
@@ -115,6 +136,14 @@ def __getattr__(name):
             "ServerlessType": ServerlessType,
             "FlashApp": FlashApp,
         }
+
+        if name in _DEPRECATED_RESOURCE_CLASSES:
+            warnings.warn(
+                f"runpod_flash.{name} is deprecated. Use runpod_flash.Endpoint instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
         return attrs[name]
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
