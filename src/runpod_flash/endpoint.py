@@ -82,29 +82,56 @@ def _normalize_cpu(
 class Endpoint:
     """unified configuration and decorator for flash endpoints.
 
-    usage patterns:
+    three usage modes:
 
-    queue-based (one function = one endpoint = own workers):
+    1. your code (decorator mode):
 
-        @Endpoint(name="my-worker", gpu=GpuGroup.ADA_24, workers=(0, 3))
-        async def process(data: dict) -> dict:
-            return {"result": data}
+        queue-based (one function = one endpoint = own workers):
 
-    load-balanced (multiple routes, shared workers):
+            @Endpoint(name="my-worker", gpu=GpuGroup.ADA_24, workers=(0, 3))
+            async def process(data: dict) -> dict:
+                return {"result": data}
 
-        api = Endpoint(name="my-api", gpu=GpuGroup.ADA_24, workers=(1, 5))
+        load-balanced (multiple routes, shared workers):
 
-        @api.get("/health")
-        async def health():
-            return {"status": "ok"}
+            api = Endpoint(name="my-api", gpu=GpuGroup.ADA_24, workers=(1, 5))
 
-        @api.post("/compute")
-        async def compute(request: dict) -> dict:
-            return {"result": request}
+            @api.get("/health")
+            async def health():
+                return {"status": "ok"}
 
-    the endpoint type (queue-based vs load-balanced) is inferred from usage:
-    - decorating a function directly = queue-based
-    - calling .get()/.post()/etc = load-balanced
+            @api.post("/compute")
+            async def compute(request: dict) -> dict:
+                return {"result": request}
+
+    2. external image (deploy a pre-built image, call it as an API client):
+
+        vllm = Endpoint(name="vllm", image="vllm/vllm-openai:latest", gpu=GpuGroup.ADA_24)
+
+        # LB-style calls
+        result = await vllm.post("/v1/completions", {"prompt": "hello"})
+        models = await vllm.get("/v1/models")
+
+        # QB-style calls
+        result = await vllm.run({"prompt": "hello"})
+        result = await vllm.runsync({"prompt": "hello"})
+        status = await vllm.status(job_id)
+
+    3. existing endpoint (connect to an already-deployed endpoint by id):
+
+        ep = Endpoint(id="abc123")
+
+        # same client methods as image mode, no provisioning
+        result = await ep.runsync({"prompt": "hello"})
+        result = await ep.post("/v1/completions", {"prompt": "hello"})
+
+    behavior is determined by context:
+    - no image, no id: decorator mode (your code)
+    - image= set: deploys the image, then client mode
+    - id= set: pure client, no provisioning
+    - .get()/.post() with data arg = HTTP client call
+    - .get()/.post() with no data arg = route decorator
+    - .run()/.runsync()/.status() = QB client calls
 
     gpu vs cpu is a parameter:
     - gpu=GpuGroup.ADA_24 for gpu endpoints (default: GpuGroup.ANY)
@@ -116,8 +143,9 @@ class Endpoint:
 
     def __init__(
         self,
-        name: str,
+        name: Optional[str] = None,
         *,
+        id: Optional[str] = None,
         gpu: Optional[Union[GpuGroup, GpuType, List[Union[GpuGroup, GpuType]]]] = None,
         cpu: Optional[Union[str, CpuInstanceType, List[Union[str, CpuInstanceType]]]] = None,
         workers: Union[int, Tuple[int, int], None] = None,
@@ -135,8 +163,14 @@ class Endpoint:
     ):
         if gpu is not None and cpu is not None:
             raise ValueError("gpu and cpu are mutually exclusive. specify one or neither.")
+        if id is not None and image is not None:
+            raise ValueError("id and image are mutually exclusive. id= connects to an "
+                             "existing endpoint, image= deploys a new one.")
+        if name is None and id is None:
+            raise ValueError("name or id is required.")
 
         self.name = name
+        self.id = id
         self._gpu = _normalize_gpu(gpu)
         self._cpu = _normalize_cpu(cpu)
         self._is_cpu = _is_cpu_config(cpu)
@@ -153,19 +187,32 @@ class Endpoint:
         self.flashboot = flashboot
         self.image = image
 
-        # if no gpu or cpu specified, default to gpu any
-        if not self._is_cpu and self._gpu is None:
+        # if no gpu or cpu specified, default to gpu any (unless pure client mode)
+        if not self._is_cpu and self._gpu is None and not self.is_client:
             self._gpu = [GpuGroup.ANY]
 
-        # lb routes registered via .get()/.post()/etc
+        # lb routes registered via .get()/.post()/etc (decorator mode only)
         self._routes: List[Dict[str, Any]] = []
 
         # tracks whether this endpoint was used as a direct decorator (qb mode)
         self._qb_target: Any = None
 
+        # cached resource config built by _build_resource_config()
+        self._cached_resource_config: Any = None
+
     @property
     def is_cpu(self) -> bool:
         return self._is_cpu
+
+    @property
+    def is_client(self) -> bool:
+        """true when this endpoint is a client for an external/existing resource.
+
+        client mode is active when image= or id= is provided. in client mode,
+        .get()/.post()/etc make HTTP calls instead of returning decorators,
+        and .run()/.runsync()/.status() submit/poll QB jobs.
+        """
+        return self.image is not None or self.id is not None
 
     @property
     def is_load_balanced(self) -> bool:
@@ -186,7 +233,13 @@ class Endpoint:
         - qb vs lb (inferred from usage)
         - gpu vs cpu (from params)
         - live vs deploy (from environment)
+
+        returns a cached instance on repeated calls so that the resource
+        manager sees the same object and avoids redundant provisioning.
         """
+        if self._cached_resource_config is not None:
+            return self._cached_resource_config
+
         is_lb = self.is_load_balanced
         is_cpu = self._is_cpu
         live = _is_live_provisioning()
@@ -228,28 +281,31 @@ class Endpoint:
         # select the right class
         if is_lb and is_cpu and live:
             from .core.resources.live_serverless import CpuLiveLoadBalancer
-            return CpuLiveLoadBalancer(**kwargs)
+            config = CpuLiveLoadBalancer(**kwargs)
         elif is_lb and is_cpu and not live:
             from .core.resources.load_balancer_sls_resource import CpuLoadBalancerSlsResource
-            return CpuLoadBalancerSlsResource(**kwargs)
+            config = CpuLoadBalancerSlsResource(**kwargs)
         elif is_lb and not is_cpu and live:
             from .core.resources.live_serverless import LiveLoadBalancer
-            return LiveLoadBalancer(**kwargs)
+            config = LiveLoadBalancer(**kwargs)
         elif is_lb and not is_cpu and not live:
             from .core.resources.load_balancer_sls_resource import LoadBalancerSlsResource
-            return LoadBalancerSlsResource(**kwargs)
+            config = LoadBalancerSlsResource(**kwargs)
         elif not is_lb and is_cpu and live:
             from .core.resources.live_serverless import CpuLiveServerless
-            return CpuLiveServerless(**kwargs)
+            config = CpuLiveServerless(**kwargs)
         elif not is_lb and is_cpu and not live:
             from .core.resources.serverless_cpu import CpuServerlessEndpoint
-            return CpuServerlessEndpoint(**kwargs)
+            config = CpuServerlessEndpoint(**kwargs)
         elif not is_lb and not is_cpu and live:
             from .core.resources.live_serverless import LiveServerless
-            return LiveServerless(**kwargs)
+            config = LiveServerless(**kwargs)
         else:
             from .core.resources.serverless import ServerlessEndpoint
-            return ServerlessEndpoint(**kwargs)
+            config = ServerlessEndpoint(**kwargs)
+
+        self._cached_resource_config = config
+        return config
 
     # -- direct decorator (qb mode) --
 
@@ -317,22 +373,50 @@ class Endpoint:
 
         return decorator
 
-    def get(self, path: str):
-        """register a GET route."""
+    def get(self, path: str, data: Any = None, **kwargs):
+        """GET route decorator (decorator mode) or HTTP GET call (client mode)."""
+        if self.is_client:
+            return self._client_request("GET", path, data, **kwargs)
         return self._route("GET", path)
 
-    def post(self, path: str):
-        """register a POST route."""
+    def post(self, path: str, data: Any = None, **kwargs):
+        """POST route decorator (decorator mode) or HTTP POST call (client mode)."""
+        if self.is_client:
+            return self._client_request("POST", path, data, **kwargs)
         return self._route("POST", path)
 
-    def put(self, path: str):
-        """register a PUT route."""
+    def put(self, path: str, data: Any = None, **kwargs):
+        """PUT route decorator (decorator mode) or HTTP PUT call (client mode)."""
+        if self.is_client:
+            return self._client_request("PUT", path, data, **kwargs)
         return self._route("PUT", path)
 
-    def delete(self, path: str):
-        """register a DELETE route."""
+    def delete(self, path: str, data: Any = None, **kwargs):
+        """DELETE route decorator (decorator mode) or HTTP DELETE call (client mode)."""
+        if self.is_client:
+            return self._client_request("DELETE", path, data, **kwargs)
         return self._route("DELETE", path)
 
-    def patch(self, path: str):
-        """register a PATCH route."""
+    def patch(self, path: str, data: Any = None, **kwargs):
+        """PATCH route decorator (decorator mode) or HTTP PATCH call (client mode)."""
+        if self.is_client:
+            return self._client_request("PATCH", path, data, **kwargs)
         return self._route("PATCH", path)
+
+    # -- client methods (image= or id= mode) --
+
+    async def run(self, input_data: Any) -> dict:
+        """submit a QB job (fire and forget). returns job metadata including id."""
+        raise NotImplementedError("client mode (.run/.runsync/.status) is not yet implemented")
+
+    async def runsync(self, input_data: Any) -> dict:
+        """submit a QB job and wait for the result."""
+        raise NotImplementedError("client mode (.run/.runsync/.status) is not yet implemented")
+
+    async def status(self, job_id: str) -> dict:
+        """check the status of a QB job."""
+        raise NotImplementedError("client mode (.run/.runsync/.status) is not yet implemented")
+
+    async def _client_request(self, method: str, path: str, data: Any = None, **kwargs) -> Any:
+        """make an HTTP request to a deployed LB endpoint."""
+        raise NotImplementedError("client mode (.get/.post/etc with data) is not yet implemented")

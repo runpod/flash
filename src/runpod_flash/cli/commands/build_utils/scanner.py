@@ -121,6 +121,11 @@ class RemoteDecoratorScanner:
         self.resource_types: Dict[str, str] = {}  # name -> type
         self.resource_flags: Dict[str, Dict[str, bool]] = {}  # name -> {flag: bool}
         self.resource_variables: Dict[str, str] = {}  # name -> variable_name
+        # tracks Endpoint(...) variable assignments for LB route detection.
+        # maps variable_name -> resource_name
+        self._endpoint_variables: Dict[str, str] = {}
+        # maps module_path:variable_name -> resource_name for cross-module lookups
+        self._endpoint_variables_qualified: Dict[str, str] = {}
 
     def discover_remote_functions(self) -> List[RemoteFunctionMetadata]:
         """Discover all @remote decorated functions and classes."""
@@ -194,7 +199,8 @@ class RemoteDecoratorScanner:
         """Extract resource config variable assignments and determine type flags.
 
         This method extracts resource configurations and determines is_load_balanced
-        and is_live_resource flags using string-based type matching.
+        and is_live_resource flags using string-based type matching. Handles both
+        legacy resource classes (LiveServerless, etc.) and the unified Endpoint class.
         """
         module_path = self._get_module_path(py_file)
 
@@ -205,6 +211,13 @@ class RemoteDecoratorScanner:
                     if isinstance(target, ast.Name):
                         variable_name = target.id
                         config_type = self._get_call_type(node.value)
+
+                        # handle Endpoint(...) assignments (LB pattern)
+                        if config_type == "Endpoint":
+                            self._register_endpoint_variable(
+                                node.value, variable_name, module_path
+                            )
+                            continue
 
                         # Accept any class that looks like a resource config (DeployableResource)
                         if config_type and self._is_resource_config_type(config_type):
@@ -251,15 +264,74 @@ class RemoteDecoratorScanner:
                                 "is_live_resource": is_live_resource,
                             }
 
+    def _register_endpoint_variable(
+        self, call_node: ast.Call, variable_name: str, module_path: str
+    ) -> None:
+        """Register an Endpoint(...) variable assignment for LB route detection.
+
+        ep = Endpoint(name="my-api", ...) is stored so that @ep.get("/path")
+        decorators in pass 2 can be resolved back to this endpoint config.
+        """
+        resource_name = self._extract_resource_name(call_node)
+        if not resource_name:
+            resource_name = variable_name
+
+        var_key = f"{module_path}:{variable_name}"
+
+        # track as endpoint variable for route decorator resolution
+        self._endpoint_variables[variable_name] = resource_name
+        self._endpoint_variables_qualified[var_key] = resource_name
+
+        # also register in the standard resource tracking dicts so that
+        # downstream code (manifest, server gen) can find it
+        self.resource_configs[resource_name] = resource_name
+        self.resource_types[resource_name] = "Endpoint"
+        self.resource_variables[resource_name] = variable_name
+
+        self.resource_configs[var_key] = resource_name
+        self.resource_types[var_key] = "Endpoint"
+        self.resource_variables[var_key] = variable_name
+
+        # endpoint variable assignments are LB (route-based) by default.
+        # if someone uses @ep directly as a decorator (QB), they would
+        # use the inline @Endpoint(...) pattern instead of an assignment.
+        flags = {"is_load_balanced": True, "is_live_resource": True}
+        self.resource_flags[resource_name] = flags
+        self.resource_flags[var_key] = flags
+
     def _extract_remote_functions(
         self, tree: ast.AST, py_file: Path
     ) -> List[RemoteFunctionMetadata]:
-        """Extract @remote decorated functions and classes."""
+        """Extract @remote, @Endpoint(...), and @ep.get/post/... decorated functions and classes."""
         module_path = self._get_module_path(py_file)
         functions = []
 
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                # check for @ep.get("/path") endpoint route decorator (LB mode)
+                route_info = self._find_endpoint_route_decorator(
+                    node.decorator_list, module_path
+                )
+                if route_info is not None:
+                    functions.append(
+                        self._build_endpoint_route_metadata(
+                            node, route_info, module_path, py_file
+                        )
+                    )
+                    continue
+
+                # check for @Endpoint(...) decorator (QB mode)
+                endpoint_decorator = self._find_endpoint_qb_decorator(
+                    node.decorator_list
+                )
+                if endpoint_decorator is not None:
+                    functions.append(
+                        self._build_endpoint_qb_metadata(
+                            node, endpoint_decorator, module_path, py_file
+                        )
+                    )
+                    continue
+
                 # Check if this node has @remote decorator
                 remote_decorator = self._find_remote_decorator(node.decorator_list)
 
@@ -380,6 +452,165 @@ class RemoteDecoratorScanner:
                         return decorator
 
         return None
+
+    def _find_endpoint_qb_decorator(
+        self, decorators: List[ast.expr]
+    ) -> Optional[ast.Call]:
+        """Find @Endpoint(...) decorator used in QB (direct decoration) mode.
+
+        Returns the Call node if found, None otherwise.
+        """
+        for decorator in decorators:
+            if isinstance(decorator, ast.Call):
+                if isinstance(decorator.func, ast.Name) and decorator.func.id == "Endpoint":
+                    return decorator
+                if (
+                    isinstance(decorator.func, ast.Attribute)
+                    and decorator.func.attr == "Endpoint"
+                ):
+                    return decorator
+        return None
+
+    def _find_endpoint_route_decorator(
+        self, decorators: List[ast.expr], module_path: str
+    ) -> Optional[Dict[str, str]]:
+        """Find @ep.get("/path") style route decorators on Endpoint instances.
+
+        Returns dict with keys: variable_name, resource_name, method, path.
+        Returns None if no matching decorator found.
+        """
+        for decorator in decorators:
+            if not isinstance(decorator, ast.Call):
+                continue
+            if not isinstance(decorator.func, ast.Attribute):
+                continue
+            method_name = decorator.func.attr
+            if method_name not in ("get", "post", "put", "delete", "patch"):
+                continue
+            if not isinstance(decorator.func.value, ast.Name):
+                continue
+
+            variable_name = decorator.func.value.id
+
+            # resolve variable to a known Endpoint instance
+            var_key = f"{module_path}:{variable_name}"
+            resource_name = self._endpoint_variables_qualified.get(var_key)
+            if resource_name is None:
+                resource_name = self._endpoint_variables.get(variable_name)
+            if resource_name is None:
+                continue
+
+            # extract path from first positional arg
+            path = None
+            if decorator.args and isinstance(decorator.args[0], ast.Constant):
+                path = decorator.args[0].value
+            if not path:
+                continue
+
+            return {
+                "variable_name": variable_name,
+                "resource_name": resource_name,
+                "method": method_name.upper(),
+                "path": path,
+            }
+        return None
+
+    def _build_endpoint_qb_metadata(
+        self,
+        node: ast.AST,
+        decorator: ast.Call,
+        module_path: str,
+        py_file: Path,
+    ) -> RemoteFunctionMetadata:
+        """Build metadata for a @Endpoint(...) QB-decorated function or class."""
+        resource_name = self._extract_resource_name(decorator)
+        if not resource_name:
+            resource_name = node.name
+
+        is_async = isinstance(node, ast.AsyncFunctionDef)
+        is_class = isinstance(node, ast.ClassDef)
+
+        docstring = None
+        raw_docstring = ast.get_docstring(node)
+        if raw_docstring:
+            docstring = raw_docstring.split("\n")[0].strip()
+
+        class_methods: List[str] = []
+        class_method_params: Dict[str, List[str]] = {}
+        class_method_docstrings: Dict[str, Optional[str]] = {}
+        param_names: List[str] = []
+
+        if is_class:
+            for n in node.body:
+                if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and not n.name.startswith("_"):
+                    class_methods.append(n.name)
+                    class_method_params[n.name] = [
+                        arg.arg for arg in n.args.args if arg.arg != "self"
+                    ]
+                    raw_method_doc = ast.get_docstring(n)
+                    class_method_docstrings[n.name] = (
+                        raw_method_doc.split("\n")[0].strip() if raw_method_doc else None
+                    )
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            param_names = [arg.arg for arg in node.args.args if arg.arg != "self"]
+
+        return RemoteFunctionMetadata(
+            function_name=node.name,
+            module_path=module_path,
+            resource_config_name=resource_name,
+            resource_type="Endpoint",
+            is_async=is_async,
+            is_class=is_class,
+            file_path=py_file,
+            http_method=None,
+            http_path=None,
+            is_load_balanced=False,
+            is_live_resource=True,
+            config_variable=None,
+            is_lb_route_handler=False,
+            class_methods=class_methods,
+            param_names=param_names,
+            class_method_params=class_method_params,
+            docstring=docstring,
+            class_method_docstrings=class_method_docstrings,
+        )
+
+    def _build_endpoint_route_metadata(
+        self,
+        node: ast.AST,
+        route_info: Dict[str, str],
+        module_path: str,
+        py_file: Path,
+    ) -> RemoteFunctionMetadata:
+        """Build metadata for a @ep.get("/path") LB route handler."""
+        is_async = isinstance(node, ast.AsyncFunctionDef)
+
+        docstring = None
+        raw_docstring = ast.get_docstring(node)
+        if raw_docstring:
+            docstring = raw_docstring.split("\n")[0].strip()
+
+        param_names: List[str] = []
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            param_names = [arg.arg for arg in node.args.args if arg.arg != "self"]
+
+        return RemoteFunctionMetadata(
+            function_name=node.name,
+            module_path=module_path,
+            resource_config_name=route_info["resource_name"],
+            resource_type="Endpoint",
+            is_async=is_async,
+            is_class=False,
+            file_path=py_file,
+            http_method=route_info["method"],
+            http_path=route_info["path"],
+            is_load_balanced=True,
+            is_live_resource=True,
+            config_variable=route_info["variable_name"],
+            is_lb_route_handler=True,
+            param_names=param_names,
+            docstring=docstring,
+        )
 
     def _extract_resource_config_name(
         self, decorator: ast.expr, module_path: str

@@ -465,6 +465,100 @@ class TestResourceConfigTypeMatrix:
         assert type(config).__name__ == "CpuLoadBalancerSlsResource"
 
 
+# -- id= and client mode --
+
+
+class TestEndpointId:
+    def test_id_only(self):
+        ep = Endpoint(id="abc123")
+        assert ep.id == "abc123"
+        assert ep.name is None
+        assert ep.is_client is True
+
+    def test_id_with_name(self):
+        ep = Endpoint(name="my-ep", id="abc123")
+        assert ep.id == "abc123"
+        assert ep.name == "my-ep"
+        assert ep.is_client is True
+
+    def test_id_and_image_mutually_exclusive(self):
+        with pytest.raises(ValueError, match="id and image are mutually exclusive"):
+            Endpoint(name="test", id="abc123", image="img:latest")
+
+    def test_name_or_id_required(self):
+        with pytest.raises(ValueError, match="name or id is required"):
+            Endpoint()
+
+    def test_id_no_default_gpu(self):
+        """client-only endpoints dont default to GPU ANY."""
+        ep = Endpoint(id="abc123")
+        assert ep._gpu is None
+        assert ep._is_cpu is False
+
+
+class TestClientMode:
+    def test_image_is_client(self):
+        ep = Endpoint(name="test", image="vllm:latest")
+        assert ep.is_client is True
+
+    def test_id_is_client(self):
+        ep = Endpoint(id="abc123")
+        assert ep.is_client is True
+
+    def test_no_image_no_id_is_not_client(self):
+        ep = Endpoint(name="test")
+        assert ep.is_client is False
+
+    def test_image_post_returns_coroutine(self):
+        ep = Endpoint(name="test", image="vllm:latest")
+        result = ep.post("/v1/completions", {"prompt": "hello"})
+        # should be a coroutine (awaitable), not a decorator
+        import asyncio
+        assert asyncio.iscoroutine(result)
+        result.close()
+
+    def test_image_get_returns_coroutine(self):
+        ep = Endpoint(name="test", image="vllm:latest")
+        result = ep.get("/v1/models")
+        import asyncio
+        assert asyncio.iscoroutine(result)
+        result.close()
+
+    def test_decorator_mode_post_returns_callable(self):
+        ep = Endpoint(name="test")
+        result = ep.post("/compute")
+        # should be a decorator (callable), not a coroutine
+        assert callable(result)
+
+    @pytest.mark.asyncio
+    async def test_client_methods_raise_not_implemented(self):
+        ep = Endpoint(id="abc123")
+        with pytest.raises(NotImplementedError, match="client mode"):
+            await ep.run({"prompt": "hello"})
+        with pytest.raises(NotImplementedError, match="client mode"):
+            await ep.runsync({"prompt": "hello"})
+        with pytest.raises(NotImplementedError, match="client mode"):
+            await ep.status("job-123")
+
+    @pytest.mark.asyncio
+    async def test_client_request_raises_not_implemented(self):
+        ep = Endpoint(name="test", image="vllm:latest")
+        with pytest.raises(NotImplementedError, match="client mode"):
+            await ep.post("/v1/completions", {"prompt": "hello"})
+
+
+# -- resource config caching --
+
+
+class TestResourceConfigCaching:
+    @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "true"})
+    def test_build_resource_config_is_cached(self):
+        ep = Endpoint(name="test", gpu=GpuGroup.ADA_24)
+        config1 = ep._build_resource_config()
+        config2 = ep._build_resource_config()
+        assert config1 is config2
+
+
 # -- public import --
 
 
