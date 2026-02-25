@@ -45,6 +45,16 @@ def get_or_cache_class_data(
         # Cache miss - extract and cache class code
         clean_class_code = extract_class_code_simple(cls)
 
+        # Prepend module-level context (imports, constants, helpers)
+        try:
+            from .stubs.module_context import extract_module_context
+
+            module_context = extract_module_context(cls, clean_class_code)
+            if module_context:
+                clean_class_code = module_context + "\n\n" + clean_class_code
+        except Exception as e:
+            log.debug(f"Module context extraction skipped for {cls.__name__}: {e}")
+
         try:
             serialized_args, serialized_kwargs = serialize_constructor_args(
                 args, kwargs

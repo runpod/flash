@@ -454,6 +454,100 @@ class TestLoadBalancerSlsStubRouting:
         await run_test()
 
 
+class TestPrepareRequestExcludesRemoteImports:
+    """Verify _prepare_request excludes @remote dependency imports from module context."""
+
+    @pytest.mark.asyncio
+    async def test_remote_dep_import_excluded_from_function_code(self, tmp_path):
+        """Import of @remote functions from local module must not appear in function_code.
+
+        Reproduces the real bug: pipeline.py does
+            from gpu_worker import generate_tts_audio, render_slide_image
+        Both are @remote-decorated. When the pipeline function is serialized,
+        this import would fail on the worker (gpu_worker is a local file).
+        The stubs replace those names, so the import must be dropped.
+        """
+        import importlib.util
+        import sys
+        import textwrap
+
+        # Write a "gpu_worker" module with a @remote-decorated function
+        gpu_path = tmp_path / "gpu_worker.py"
+        gpu_path.write_text(
+            textwrap.dedent("""\
+            def remote(func):
+                func.__remote_config__ = {
+                    "resource_config": None,
+                    "dependencies": [],
+                    "system_dependencies": [],
+                }
+                return func
+
+            @remote
+            def generate_tts(text):
+                return {"audio": text}
+        """)
+        )
+
+        # Write a "pipeline" module that imports generate_tts
+        pipeline_path = tmp_path / "pipeline.py"
+        pipeline_path.write_text(
+            textwrap.dedent("""\
+            from gpu_worker import generate_tts
+
+            VOLUME = "/data"
+
+            async def orchestrate(script):
+                result = await generate_tts(script)
+                return {"path": VOLUME, "result": result}
+        """)
+        )
+
+        # Load pipeline module
+        sys.path.insert(0, str(tmp_path))
+        try:
+            spec = importlib.util.spec_from_file_location(
+                "_pipeline", str(pipeline_path)
+            )
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            func = mod.orchestrate
+        finally:
+            sys.path.remove(str(tmp_path))
+
+        stub = LoadBalancerSlsStub(test_lb_resource)
+
+        # Mock resolve_dependencies to avoid actual endpoint provisioning
+        mock_dep = MagicMock()
+        mock_dep.name = "generate_tts"
+        mock_dep.endpoint_id = "ep-test-123"
+        mock_dep.source = "async def generate_tts(text): return {'audio': text}\n"
+        mock_dep.dependencies = []
+        mock_dep.system_dependencies = []
+
+        with (
+            patch(
+                "runpod_flash.stubs.dependency_resolver.resolve_dependencies",
+                new_callable=AsyncMock,
+                return_value=[mock_dep],
+            ),
+            patch(
+                "runpod_flash.stubs.dependency_resolver.generate_stub_code",
+                return_value="async def generate_tts(text): return {'stub': True}\n",
+            ),
+        ):
+            request = await stub._prepare_request(func, None, None, False, "test")
+
+        code = request["function_code"]
+
+        # The import must NOT be in the function code (would fail on worker)
+        assert "from gpu_worker import" not in code
+        # The constant VOLUME must still be extracted
+        assert 'VOLUME = "/data"' in code
+        # The stub must be present
+        assert "generate_tts" in code
+
+
 class TestLoadBalancerSlsStubActivityLogs:
     """Test suite for INFO-level activity logging."""
 
