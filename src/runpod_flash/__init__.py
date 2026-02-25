@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING  # noqa: E402
 
 if TYPE_CHECKING:
     from .client import remote
+    from .endpoint import Endpoint
     from .core.resources import (
         CpuInstanceType,
         CpuLiveLoadBalancer,
@@ -38,7 +39,11 @@ if TYPE_CHECKING:
 
 def __getattr__(name):
     """Lazily import core modules only when accessed."""
-    if name == "remote":
+    if name == "Endpoint":
+        from .endpoint import Endpoint
+
+        return Endpoint
+    elif name == "remote":
         from .client import remote
 
         return remote
@@ -111,6 +116,7 @@ def __getattr__(name):
 
 
 __all__ = [
+    "Endpoint",
     "remote",
     "CpuInstanceType",
     "CpuLiveLoadBalancer",
