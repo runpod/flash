@@ -200,6 +200,9 @@ class Endpoint:
         # cached resource config built by _build_resource_config()
         self._cached_resource_config: Any = None
 
+        # cached endpoint url resolved by _ensure_endpoint_ready()
+        self._endpoint_url: Optional[str] = None
+
     @property
     def is_cpu(self) -> bool:
         return self._is_cpu
@@ -405,18 +408,92 @@ class Endpoint:
 
     # -- client methods (image= or id= mode) --
 
-    async def run(self, input_data: Any) -> dict:
-        """submit a QB job (fire and forget). returns job metadata including id."""
-        raise NotImplementedError("client mode (.run/.runsync/.status) is not yet implemented")
+    async def _ensure_endpoint_ready(self) -> str:
+        """ensure the endpoint is provisioned and return its base url.
 
-    async def runsync(self, input_data: Any) -> dict:
-        """submit a QB job and wait for the result."""
-        raise NotImplementedError("client mode (.run/.runsync/.status) is not yet implemented")
+        for id= mode: resolves the endpoint url from the id directly.
+        for image= mode: provisions via ResourceManager, then returns url.
+
+        caches the resolved url for subsequent calls.
+        """
+        if self._endpoint_url is not None:
+            return self._endpoint_url
+
+        if self.id is not None:
+            # pure client mode: build url from endpoint id
+            import runpod
+            base = runpod.endpoint_url_base
+            self._endpoint_url = f"{base}/{self.id}"
+            return self._endpoint_url
+
+        # image= mode: provision and deploy, then extract url
+        resource_config = self._build_resource_config()
+        from .core.resources import ResourceManager
+        resource_manager = ResourceManager()
+        deployed = await resource_manager.get_or_deploy_resource(resource_config)
+        if hasattr(deployed, "endpoint_url") and deployed.endpoint_url:
+            self._endpoint_url = deployed.endpoint_url
+        elif hasattr(deployed, "id") and deployed.id:
+            import runpod
+            base = runpod.endpoint_url_base
+            self._endpoint_url = f"{base}/{deployed.id}"
+        else:
+            raise RuntimeError(
+                f"endpoint '{self.name}' was deployed but has no endpoint url or id"
+            )
+        return self._endpoint_url
+
+    async def run(self, input_data: Any) -> dict:
+        """submit a QB job asynchronously. returns job metadata including id.
+
+        the returned dict contains at minimum {"id": "<job_id>", "status": "IN_QUEUE"}.
+        use .status(job_id) to poll for completion.
+        """
+        url = await self._ensure_endpoint_ready()
+        return await self._api_post(f"{url}/run", {"input": input_data})
+
+    async def runsync(self, input_data: Any, timeout: float = 60.0) -> dict:
+        """submit a QB job and wait for the result.
+
+        returns the full job output dict including {"output": ..., "status": "COMPLETED"}.
+        """
+        url = await self._ensure_endpoint_ready()
+        return await self._api_post(
+            f"{url}/runsync", {"input": input_data}, timeout=timeout
+        )
 
     async def status(self, job_id: str) -> dict:
-        """check the status of a QB job."""
-        raise NotImplementedError("client mode (.run/.runsync/.status) is not yet implemented")
+        """check the status of a previously submitted QB job."""
+        url = await self._ensure_endpoint_ready()
+        return await self._api_get(f"{url}/status/{job_id}")
 
     async def _client_request(self, method: str, path: str, data: Any = None, **kwargs) -> Any:
-        """make an HTTP request to a deployed LB endpoint."""
-        raise NotImplementedError("client mode (.get/.post/etc with data) is not yet implemented")
+        """make an HTTP request to a deployed LB endpoint.
+
+        for LB endpoints this sends a request to the endpoint's base url + path.
+        """
+        url = await self._ensure_endpoint_ready()
+        full_url = f"{url}{path}"
+        timeout = kwargs.pop("timeout", 60.0)
+
+        from .core.utils.http import get_authenticated_httpx_client
+        async with get_authenticated_httpx_client(timeout=timeout) as client:
+            response = await client.request(method, full_url, json=data)
+            response.raise_for_status()
+            return response.json()
+
+    async def _api_post(self, url: str, payload: Any, timeout: float = 60.0) -> dict:
+        """authenticated POST to the runpod api."""
+        from .core.utils.http import get_authenticated_httpx_client
+        async with get_authenticated_httpx_client(timeout=timeout) as client:
+            response = await client.post(url, json=payload)
+            response.raise_for_status()
+            return response.json()
+
+    async def _api_get(self, url: str, timeout: float = 30.0) -> dict:
+        """authenticated GET to the runpod api."""
+        from .core.utils.http import get_authenticated_httpx_client
+        async with get_authenticated_httpx_client(timeout=timeout) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            return response.json()

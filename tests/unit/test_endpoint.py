@@ -530,21 +530,9 @@ class TestClientMode:
         # should be a decorator (callable), not a coroutine
         assert callable(result)
 
-    @pytest.mark.asyncio
-    async def test_client_methods_raise_not_implemented(self):
+    def test_endpoint_url_initially_none(self):
         ep = Endpoint(id="abc123")
-        with pytest.raises(NotImplementedError, match="client mode"):
-            await ep.run({"prompt": "hello"})
-        with pytest.raises(NotImplementedError, match="client mode"):
-            await ep.runsync({"prompt": "hello"})
-        with pytest.raises(NotImplementedError, match="client mode"):
-            await ep.status("job-123")
-
-    @pytest.mark.asyncio
-    async def test_client_request_raises_not_implemented(self):
-        ep = Endpoint(name="test", image="vllm:latest")
-        with pytest.raises(NotImplementedError, match="client mode"):
-            await ep.post("/v1/completions", {"prompt": "hello"})
+        assert ep._endpoint_url is None
 
 
 # -- resource config caching --
