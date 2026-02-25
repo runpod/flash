@@ -41,7 +41,7 @@ make validate-wheel
 - Or test specific module: `uv run pytest --cov=src/runpod_flash/cli/utils/skeleton`
 
 **Hidden files require explicit glob patterns**
-- Pattern `**/.*` needed in pyproject.toml to include `.env`, `.gitignore`, `.flashignore`
+- Pattern `**/.*` needed in pyproject.toml to include `.env`, `.gitignore`
 - Verify with: `unzip -l dist/runpod_flash-*.whl | grep skeleton_template`
 
 ## Pre-Release Checklist
