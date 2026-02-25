@@ -184,26 +184,46 @@ class LoadBalancerSlsStub:
             Request dictionary with serialized function and arguments
         """
         source, _ = get_function_source(func)
+        original_func = inspect.unwrap(func)
 
-        # Detect and resolve @remote dependencies for stacked execution
+        # Detect @remote dependencies first so their names can be excluded
+        # from module context extraction (stubs will provide them).
         from .dependency_resolver import (
             build_augmented_source,
+            detect_remote_dependencies,
             generate_stub_code,
             resolve_dependencies,
             resolve_in_function_imports,
             strip_remote_imports,
         )
 
-        original_func = inspect.unwrap(func)
+        remote_dep_names = detect_remote_dependencies(source, original_func.__globals__)
+
+        # Extract module-level context, excluding @remote dependency names
+        # whose imports would fail on the worker (local project modules).
+        from .module_context import extract_module_context
+
+        module_context = extract_module_context(
+            original_func,
+            source,
+            exclude_names=set(remote_dep_names) if remote_dep_names else None,
+        )
+
         augmented_globals = resolve_in_function_imports(
             source, original_func.__globals__
         )
         remote_deps = await resolve_dependencies(source, augmented_globals)
+
+        # Build augmented source with module context and stubs
+        all_prepended = []
+        if module_context:
+            all_prepended.append(module_context)
         if remote_deps:
             remote_names = {dep.name for dep in remote_deps}
             source = strip_remote_imports(source, remote_names)
-            stub_codes = [generate_stub_code(dep) for dep in remote_deps]
-            source = build_augmented_source(source, stub_codes)
+            all_prepended.extend(generate_stub_code(dep) for dep in remote_deps)
+        if all_prepended:
+            source = build_augmented_source(source, all_prepended)
 
         log.debug(f"Extracted source for {func.__name__} ({len(source)} bytes)")
 
