@@ -1,9 +1,5 @@
 """tests that skeleton templates use the Endpoint API."""
 
-from pathlib import Path
-
-import pytest
-
 from runpod_flash.cli.utils.skeleton import create_project_skeleton
 
 

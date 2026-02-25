@@ -1,7 +1,7 @@
 """tests for the unified Endpoint class."""
 
 import os
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pytest
 

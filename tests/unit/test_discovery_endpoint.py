@@ -4,7 +4,6 @@ import os
 from textwrap import dedent
 from unittest.mock import patch
 
-import pytest
 
 from runpod_flash.core.discovery import ResourceDiscovery
 from runpod_flash.core.resources.base import DeployableResource
