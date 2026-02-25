@@ -127,6 +127,11 @@ class ManifestBuilder:
                 if hasattr(module, config_variable):
                     resource_config = getattr(module, config_variable)
 
+                    # if the config is an Endpoint facade, unwrap to the
+                    # internal resource config for property extraction
+                    if hasattr(resource_config, "_build_resource_config"):
+                        resource_config = resource_config._build_resource_config()
+
                     # Extract deployment config properties
                     if (
                         hasattr(resource_config, "imageName")
