@@ -113,7 +113,7 @@ Auto-provisioning discovers and deploys Serverless endpoints before the Flash de
 1. **Resource Discovery**: Scans project files for `@remote` decorated functions
 2. **Parallel Deployment**: Deploys resources concurrently (up to 3 at a time)
 3. **Confirmation**: Asks for confirmation if deploying more than 5 endpoints
-4. **Caching**: Stores deployed resources in `.runpod/resources.pkl` for reuse across runs
+4. **Caching**: Stores deployed resources in `.flash/resources.pkl` for reuse across runs
 5. **Smart Updates**: Recognizes when endpoints already exist and updates them if configuration changed
 
 ### Using Auto-Provisioning
@@ -155,7 +155,7 @@ flash run --auto-provision
 flash run --auto-provision
 ```
 
-Resources persist in `.runpod/resources.pkl` and survive server restarts. Configuration changes are detected automatically and trigger re-deployment only when needed.
+Resources persist in `.flash/resources.pkl` and survive server restarts. Configuration changes are detected automatically and trigger re-deployment only when needed.
 
 ## Testing
 

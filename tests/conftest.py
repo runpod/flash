@@ -240,23 +240,23 @@ def worker_temp_dir(
 
 
 @pytest.fixture(scope="session")
-def worker_runpod_dir(worker_temp_dir: Path) -> Path:
-    """Provide worker-specific .runpod directory for state file isolation.
+def worker_flash_dir(worker_temp_dir: Path) -> Path:
+    """Provide worker-specific .flash directory for state file isolation.
 
     Args:
         worker_temp_dir: Worker-specific temporary directory.
 
     Returns:
-        Path to worker-specific .runpod directory.
+        Path to worker-specific .flash directory.
     """
-    runpod_dir = worker_temp_dir / ".runpod"
-    runpod_dir.mkdir(parents=True, exist_ok=True)
-    return runpod_dir
+    flash_dir = worker_temp_dir / ".flash"
+    flash_dir.mkdir(parents=True, exist_ok=True)
+    return flash_dir
 
 
 @pytest.fixture(autouse=True)
 def isolate_resource_state_file(
-    monkeypatch: pytest.MonkeyPatch, worker_runpod_dir: Path
+    monkeypatch: pytest.MonkeyPatch, worker_flash_dir: Path
 ) -> Path:
     """Automatically isolate RESOURCE_STATE_FILE per worker.
 
@@ -265,16 +265,16 @@ def isolate_resource_state_file(
 
     Args:
         monkeypatch: Pytest's monkeypatch fixture.
-        worker_runpod_dir: Worker-specific .runpod directory.
+        worker_flash_dir: Worker-specific .flash directory.
 
     Returns:
         Path to worker-specific state file.
     """
     from runpod_flash.core.resources import resource_manager
 
-    worker_state_file = worker_runpod_dir / "resources.pkl"
+    worker_state_file = worker_flash_dir / "resources.pkl"
     monkeypatch.setattr(resource_manager, "RESOURCE_STATE_FILE", worker_state_file)
-    monkeypatch.setattr(resource_manager, "RUNPOD_FLASH_DIR", worker_runpod_dir)
+    monkeypatch.setattr(resource_manager, "RUNPOD_FLASH_DIR", worker_flash_dir)
 
     return worker_state_file
 

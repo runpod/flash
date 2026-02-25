@@ -27,7 +27,7 @@ build/
 *.egg-info/
 
 # Flash resources
-.runpod/
+.flash/
 
 # Tests
 tests/
