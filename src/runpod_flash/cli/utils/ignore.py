@@ -13,7 +13,7 @@ def parse_ignore_file(file_path: Path) -> list[str]:
     Parse an ignore file and return list of patterns.
 
     Args:
-        file_path: Path to ignore file (.flashignore or .gitignore)
+        file_path: Path to ignore file (.gitignore)
 
     Returns:
         List of pattern strings
@@ -40,7 +40,7 @@ def parse_ignore_file(file_path: Path) -> list[str]:
 
 def load_ignore_patterns(project_dir: Path) -> pathspec.PathSpec:
     """
-    Load ignore patterns from .flashignore and .gitignore files.
+    Load ignore patterns from .gitignore and built-in defaults.
 
     Args:
         project_dir: Flash project directory
@@ -50,12 +50,14 @@ def load_ignore_patterns(project_dir: Path) -> pathspec.PathSpec:
     """
     patterns = []
 
-    # Load .flashignore
+    # Warn if project still has a .flashignore (removed in v1.4)
     flashignore = project_dir / ".flashignore"
     if flashignore.exists():
-        flash_patterns = parse_ignore_file(flashignore)
-        patterns.extend(flash_patterns)
-        log.debug(f"Loaded {len(flash_patterns)} patterns from .flashignore")
+        log.warning(
+            ".flashignore is no longer supported; "
+            "patterns are now built-in. "
+            "Move any custom patterns to .gitignore and delete .flashignore."
+        )
 
     # Load .gitignore
     gitignore = project_dir / ".gitignore"
@@ -64,19 +66,41 @@ def load_ignore_patterns(project_dir: Path) -> pathspec.PathSpec:
         patterns.extend(git_patterns)
         log.debug(f"Loaded {len(git_patterns)} patterns from .gitignore")
 
-    # Always exclude build artifacts, virtual environments, and Python bytecode
+    # Built-in patterns: always excluded from Flash builds.
+    # Includes build artifacts, caches, virtual environments, IDE files,
+    # and files tracked by git but irrelevant to deployment (tests, docs).
     always_ignore = [
+        # Build artifacts and caches
         ".build/",
         ".flash/",
         ".runpod/",
-        ".venv/",
-        "venv/",
         "*.tar.gz",
         ".git/",
         "__pycache__/",
         "*.pyc",
         "*.pyo",
         "*.pyd",
+        "*.egg-info/",
+        "dist/",
+        "build/",
+        # Virtual environments
+        ".venv/",
+        "venv/",
+        "env/",
+        # IDE
+        ".vscode/",
+        ".idea/",
+        # Environment files
+        ".env",
+        ".env.local",
+        # Tests (tracked by git, excluded from Flash builds)
+        "tests/",
+        "test_*.py",
+        "*_test.py",
+        # Documentation (tracked by git, excluded from Flash builds)
+        "docs/",
+        "*.md",
+        "!README.md",
     ]
     patterns.extend(always_ignore)
 
