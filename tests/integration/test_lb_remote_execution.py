@@ -185,7 +185,7 @@ def get_status():
 
         with tempfile.TemporaryDirectory() as tmpdir:
             project_dir = Path(tmpdir)
-            py_file = project_dir / "test_api.py"
+            py_file = project_dir / "api_worker.py"
             py_file.write_text(code)
 
             scanner = RemoteDecoratorScanner(project_dir)
