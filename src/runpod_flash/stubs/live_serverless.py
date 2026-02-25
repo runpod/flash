@@ -83,6 +83,12 @@ class LiveServerlessStub(RemoteExecutorStub):
     ):
         source, src_hash = get_function_source(func)
 
+        # Extract module-level context (imports, constants, helpers)
+        from .module_context import extract_module_context
+
+        original_func = inspect.unwrap(func)
+        module_context = extract_module_context(original_func, source)
+
         # Detect and resolve @remote dependencies for stacked execution
         from .dependency_resolver import (
             build_augmented_source,
@@ -92,19 +98,29 @@ class LiveServerlessStub(RemoteExecutorStub):
             strip_remote_imports,
         )
 
-        original_func = inspect.unwrap(func)
         augmented_globals = resolve_in_function_imports(
             source, original_func.__globals__
         )
         remote_deps = await resolve_dependencies(source, augmented_globals)
+
+        # Build augmented source with module context and stubs
+        all_prepended = []
+        if module_context:
+            all_prepended.append(module_context)
         if remote_deps:
             remote_names = {dep.name for dep in remote_deps}
             source = strip_remote_imports(source, remote_names)
-            stub_codes = [generate_stub_code(dep) for dep in remote_deps]
-            source = build_augmented_source(source, stub_codes)
-            # Recompute cache key to include dependency endpoints
-            dep_key = "|".join(f"{d.name}:{d.endpoint_id}" for d in remote_deps)
-            src_hash = hashlib.sha256((source + dep_key).encode("utf-8")).hexdigest()
+            all_prepended.extend(generate_stub_code(dep) for dep in remote_deps)
+        if all_prepended:
+            source = build_augmented_source(source, all_prepended)
+            # Recompute cache key to include context and dependency endpoints
+            extra_key = hashlib.sha256(source.encode("utf-8")).hexdigest()
+            if remote_deps:
+                dep_key = "|".join(f"{d.name}:{d.endpoint_id}" for d in remote_deps)
+                extra_key = hashlib.sha256(
+                    (source + dep_key).encode("utf-8")
+                ).hexdigest()
+            src_hash = extra_key
 
         request = {
             "function_name": func.__name__,
