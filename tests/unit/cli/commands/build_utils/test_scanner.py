@@ -314,49 +314,6 @@ async def project_function(data):
         assert functions[0].resource_config_name == "project_config"
 
 
-def test_exclude_runpod_directory():
-    """Test that .runpod directory is excluded from scanning."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        project_dir = Path(tmpdir)
-
-        # Create .runpod directory with Python files
-        runpod_dir = project_dir / ".runpod" / "cache"
-        runpod_dir.mkdir(parents=True)
-        runpod_file = runpod_dir / "cached.py"
-        runpod_file.write_text(
-            """
-from runpod_flash import LiveServerless, remote
-
-config = LiveServerless(name="runpod_config")
-
-@remote(config)
-async def runpod_function(data):
-    return data
-"""
-        )
-
-        # Create legitimate project file
-        project_file = project_dir / "main.py"
-        project_file.write_text(
-            """
-from runpod_flash import LiveServerless, remote
-
-config = LiveServerless(name="project_config")
-
-@remote(config)
-async def project_function(data):
-    return data
-"""
-        )
-
-        scanner = RemoteDecoratorScanner(project_dir)
-        functions = scanner.discover_remote_functions()
-
-        # Should only find the project function, not the runpod one
-        assert len(functions) == 1
-        assert functions[0].resource_config_name == "project_config"
-
-
 def test_exclude_nested_venv_directory():
     """Test that nested .venv directories (not just root-level) are excluded."""
     with tempfile.TemporaryDirectory() as tmpdir:

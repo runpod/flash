@@ -86,7 +86,7 @@ def _get_resource_type(resource) -> str:
 
 
 def list_command():
-    """List all deployed endpoints tracked in .runpod/resources.pkl."""
+    """List all deployed endpoints tracked in .flash/resources.pkl."""
     manager = _get_resource_manager()
     all_resources = manager.list_all_resources()
     resources = _get_serverless_resources(all_resources)

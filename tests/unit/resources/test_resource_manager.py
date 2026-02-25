@@ -31,7 +31,7 @@ class TestResourceManager:
     @pytest.fixture
     def mock_resource_file(self, tmp_path):
         """Mock the resource state file path."""
-        resource_file = tmp_path / ".runpod" / "resources.pkl"
+        resource_file = tmp_path / ".flash" / "resources.pkl"
         with patch(
             "runpod_flash.core.resources.resource_manager.RESOURCE_STATE_FILE",
             resource_file,
