@@ -21,7 +21,7 @@ class TestSkeletonUsesEndpoint:
         content = (tmp_path / "cpu_worker.py").read_text()
         assert "from runpod_flash import Endpoint" in content
         assert "@Endpoint(" in content
-        assert 'cpu=' in content
+        assert "cpu=" in content
         assert "@remote" not in content
         assert "CpuLiveServerless" not in content
 

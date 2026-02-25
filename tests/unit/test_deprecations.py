@@ -75,9 +75,9 @@ class TestNonDeprecatedNames:
             _ = getattr(runpod_flash, name)
 
         deprecation_warnings = [
-            x for x in w
-            if issubclass(x.category, DeprecationWarning)
-            and name in str(x.message)
+            x
+            for x in w
+            if issubclass(x.category, DeprecationWarning) and name in str(x.message)
         ]
         assert len(deprecation_warnings) == 0, (
             f"unexpected DeprecationWarning for {name!r}"

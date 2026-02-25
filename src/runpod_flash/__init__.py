@@ -37,38 +37,42 @@ if TYPE_CHECKING:
     )
 
 
-_DEPRECATED_RESOURCE_CLASSES = frozenset({
-    "CpuLiveLoadBalancer",
-    "CpuLiveServerless",
-    "CpuLoadBalancerSlsResource",
-    "CpuServerlessEndpoint",
-    "LiveLoadBalancer",
-    "LiveServerless",
-    "LoadBalancerSlsResource",
-    "ServerlessEndpoint",
-})
+_DEPRECATED_RESOURCE_CLASSES = frozenset(
+    {
+        "CpuLiveLoadBalancer",
+        "CpuLiveServerless",
+        "CpuLoadBalancerSlsResource",
+        "CpuServerlessEndpoint",
+        "LiveLoadBalancer",
+        "LiveServerless",
+        "LoadBalancerSlsResource",
+        "ServerlessEndpoint",
+    }
+)
 
-_RESOURCE_NAMES = frozenset({
-    "CpuInstanceType",
-    "CpuLiveLoadBalancer",
-    "CpuLiveServerless",
-    "CpuLoadBalancerSlsResource",
-    "CpuServerlessEndpoint",
-    "CudaVersion",
-    "DataCenter",
-    "GpuGroup",
-    "GpuType",
-    "LiveLoadBalancer",
-    "LiveServerless",
-    "LoadBalancerSlsResource",
-    "NetworkVolume",
-    "PodTemplate",
-    "ResourceManager",
-    "ServerlessEndpoint",
-    "ServerlessScalerType",
-    "ServerlessType",
-    "FlashApp",
-})
+_RESOURCE_NAMES = frozenset(
+    {
+        "CpuInstanceType",
+        "CpuLiveLoadBalancer",
+        "CpuLiveServerless",
+        "CpuLoadBalancerSlsResource",
+        "CpuServerlessEndpoint",
+        "CudaVersion",
+        "DataCenter",
+        "GpuGroup",
+        "GpuType",
+        "LiveLoadBalancer",
+        "LiveServerless",
+        "LoadBalancerSlsResource",
+        "NetworkVolume",
+        "PodTemplate",
+        "ResourceManager",
+        "ServerlessEndpoint",
+        "ServerlessScalerType",
+        "ServerlessType",
+        "FlashApp",
+    }
+)
 
 
 def __getattr__(name):

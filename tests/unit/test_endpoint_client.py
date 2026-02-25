@@ -62,9 +62,7 @@ class TestEndpointJob:
 
     def test_init_failed(self):
         ep = Endpoint(id="ep-1")
-        job = EndpointJob(
-            {"id": "j-1", "status": "FAILED", "error": "oom"}, ep
-        )
+        job = EndpointJob({"id": "j-1", "status": "FAILED", "error": "oom"}, ep)
         assert job.done is True
         assert job.error == "oom"
 
@@ -129,9 +127,7 @@ class TestEndpointJobCancel:
         ep._endpoint_url = "https://api.runpod.ai/v2/ep-1"
         job = EndpointJob({"id": "j-1", "status": "IN_QUEUE"}, ep)
 
-        client = _mock_httpx_client(
-            post_return={"id": "j-1", "status": "CANCELLED"}
-        )
+        client = _mock_httpx_client(post_return={"id": "j-1", "status": "CANCELLED"})
 
         with patch(_HTTP_CLIENT, return_value=client):
             result = await job.cancel()
@@ -182,9 +178,7 @@ class TestEndpointJobWait:
     async def test_wait_returns_immediately_if_already_done(self):
         ep = Endpoint(id="ep-1")
         ep._endpoint_url = "https://api.runpod.ai/v2/ep-1"
-        job = EndpointJob(
-            {"id": "j-1", "status": "COMPLETED", "output": 42}, ep
-        )
+        job = EndpointJob({"id": "j-1", "status": "COMPLETED", "output": 42}, ep)
 
         # no HTTP calls should happen
         result = await job.wait()
@@ -265,7 +259,11 @@ class TestEndpointRunsync:
         ep._endpoint_url = "https://api.runpod.ai/v2/ep-123"
 
         client = _mock_httpx_client(
-            post_return={"id": "job-1", "status": "COMPLETED", "output": {"text": "world"}}
+            post_return={
+                "id": "job-1",
+                "status": "COMPLETED",
+                "output": {"text": "world"},
+            }
         )
 
         with patch(_HTTP_CLIENT, return_value=client):
@@ -294,9 +292,7 @@ class TestEndpointCancel:
         ep = Endpoint(id="ep-123")
         ep._endpoint_url = "https://api.runpod.ai/v2/ep-123"
 
-        client = _mock_httpx_client(
-            post_return={"id": "job-1", "status": "CANCELLED"}
-        )
+        client = _mock_httpx_client(post_return={"id": "job-1", "status": "CANCELLED"})
 
         with patch(_HTTP_CLIENT, return_value=client):
             job = await ep.cancel("job-1")
@@ -467,7 +463,9 @@ class TestEndToEndFlow:
         def make_poll_response():
             nonlocal poll_idx
             resp = MagicMock()
-            resp.json.return_value = poll_responses[min(poll_idx, len(poll_responses) - 1)]
+            resp.json.return_value = poll_responses[
+                min(poll_idx, len(poll_responses) - 1)
+            ]
             resp.raise_for_status = MagicMock()
             poll_idx += 1
             return resp
@@ -512,8 +510,10 @@ class TestEndToEndFlow:
 class TestEndpointJobImport:
     def test_import_from_package(self):
         from runpod_flash import EndpointJob as EJ
+
         assert EJ.__name__ == "EndpointJob"
 
     def test_in_all(self):
         import runpod_flash
+
         assert "EndpointJob" in runpod_flash.__all__

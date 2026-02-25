@@ -3,6 +3,7 @@
 # test directly: python gpu_worker.py
 from runpod_flash import Endpoint, GpuType
 
+
 @Endpoint(name="gpu_worker", gpu=GpuType.ANY, dependencies=["torch"])
 async def gpu_hello(input_data: dict) -> dict:
     """GPU worker that returns GPU hardware info."""

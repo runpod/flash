@@ -171,7 +171,9 @@ def _normalize_gpu(
         return [gpu]
     if isinstance(gpu, list):
         return gpu
-    raise ValueError(f"gpu must be a GpuGroup, GpuType, or list, got {type(gpu).__name__}")
+    raise ValueError(
+        f"gpu must be a GpuGroup, GpuType, or list, got {type(gpu).__name__}"
+    )
 
 
 def _normalize_cpu(
@@ -185,7 +187,9 @@ def _normalize_cpu(
         return [CpuInstanceType(cpu)]
     if isinstance(cpu, list):
         return [CpuInstanceType(c) if isinstance(c, str) else c for c in cpu]
-    raise ValueError(f"cpu must be a CpuInstanceType, string, or list, got {type(cpu).__name__}")
+    raise ValueError(
+        f"cpu must be a CpuInstanceType, string, or list, got {type(cpu).__name__}"
+    )
 
 
 class Endpoint:
@@ -256,7 +260,9 @@ class Endpoint:
         *,
         id: Optional[str] = None,
         gpu: Optional[Union[GpuGroup, GpuType, List[Union[GpuGroup, GpuType]]]] = None,
-        cpu: Optional[Union[str, CpuInstanceType, List[Union[str, CpuInstanceType]]]] = None,
+        cpu: Optional[
+            Union[str, CpuInstanceType, List[Union[str, CpuInstanceType]]]
+        ] = None,
         workers: Union[int, Tuple[int, int], None] = None,
         idle_timeout: int = 60,
         dependencies: Optional[List[str]] = None,
@@ -271,10 +277,14 @@ class Endpoint:
         image: Optional[str] = None,
     ):
         if gpu is not None and cpu is not None:
-            raise ValueError("gpu and cpu are mutually exclusive. specify one or neither.")
+            raise ValueError(
+                "gpu and cpu are mutually exclusive. specify one or neither."
+            )
         if id is not None and image is not None:
-            raise ValueError("id and image are mutually exclusive. id= connects to an "
-                             "existing endpoint, image= deploys a new one.")
+            raise ValueError(
+                "id and image are mutually exclusive. id= connects to an "
+                "existing endpoint, image= deploys a new one."
+            )
         if name is None and id is None:
             raise ValueError("name or id is required.")
 
@@ -364,7 +374,9 @@ class Endpoint:
             "idleTimeout": self.idle_timeout,
             "executionTimeoutMs": self.execution_timeout_ms,
             "flashboot": self.flashboot,
-            "datacenter": self.datacenter.value if hasattr(self.datacenter, "value") else self.datacenter,
+            "datacenter": self.datacenter.value
+            if hasattr(self.datacenter, "value")
+            else self.datacenter,
         }
 
         if self.volume is not None:
@@ -393,27 +405,39 @@ class Endpoint:
         # select the right class
         if is_lb and is_cpu and live:
             from .core.resources.live_serverless import CpuLiveLoadBalancer
+
             config = CpuLiveLoadBalancer(**kwargs)
         elif is_lb and is_cpu and not live:
-            from .core.resources.load_balancer_sls_resource import CpuLoadBalancerSlsResource
+            from .core.resources.load_balancer_sls_resource import (
+                CpuLoadBalancerSlsResource,
+            )
+
             config = CpuLoadBalancerSlsResource(**kwargs)
         elif is_lb and not is_cpu and live:
             from .core.resources.live_serverless import LiveLoadBalancer
+
             config = LiveLoadBalancer(**kwargs)
         elif is_lb and not is_cpu and not live:
-            from .core.resources.load_balancer_sls_resource import LoadBalancerSlsResource
+            from .core.resources.load_balancer_sls_resource import (
+                LoadBalancerSlsResource,
+            )
+
             config = LoadBalancerSlsResource(**kwargs)
         elif not is_lb and is_cpu and live:
             from .core.resources.live_serverless import CpuLiveServerless
+
             config = CpuLiveServerless(**kwargs)
         elif not is_lb and is_cpu and not live:
             from .core.resources.serverless_cpu import CpuServerlessEndpoint
+
             config = CpuServerlessEndpoint(**kwargs)
         elif not is_lb and not is_cpu and live:
             from .core.resources.live_serverless import LiveServerless
+
             config = LiveServerless(**kwargs)
         else:
             from .core.resources.serverless import ServerlessEndpoint
+
             config = ServerlessEndpoint(**kwargs)
 
         self._cached_resource_config = config
@@ -451,7 +475,9 @@ class Endpoint:
         """register an http route on this endpoint (lb mode)."""
         method = method.upper()
         if method not in _VALID_HTTP_METHODS:
-            raise ValueError(f"method must be one of {_VALID_HTTP_METHODS}, got: {method}")
+            raise ValueError(
+                f"method must be one of {_VALID_HTTP_METHODS}, got: {method}"
+            )
         if not path.startswith("/"):
             raise ValueError(f"path must start with '/', got: {path}")
         if self._qb_target is not None:
@@ -461,12 +487,14 @@ class Endpoint:
             )
 
         def decorator(func):
-            self._routes.append({
-                "method": method,
-                "path": path,
-                "function": func,
-                "function_name": func.__name__,
-            })
+            self._routes.append(
+                {
+                    "method": method,
+                    "path": path,
+                    "function": func,
+                    "function_name": func.__name__,
+                }
+            )
 
             resource_config = self._build_resource_config()
 
@@ -531,6 +559,7 @@ class Endpoint:
         if self.id is not None:
             # pure client mode: build url from endpoint id
             import runpod
+
             base = runpod.endpoint_url_base
             self._endpoint_url = f"{base}/{self.id}"
             return self._endpoint_url
@@ -538,12 +567,14 @@ class Endpoint:
         # image= mode: provision and deploy, then extract url
         resource_config = self._build_resource_config()
         from .core.resources import ResourceManager
+
         resource_manager = ResourceManager()
         deployed = await resource_manager.get_or_deploy_resource(resource_config)
         if hasattr(deployed, "endpoint_url") and deployed.endpoint_url:
             self._endpoint_url = deployed.endpoint_url
         elif hasattr(deployed, "id") and deployed.id:
             import runpod
+
             base = runpod.endpoint_url_base
             self._endpoint_url = f"{base}/{deployed.id}"
         else:
@@ -577,8 +608,8 @@ class Endpoint:
     async def runsync(self, input_data: Any, timeout: float = 60.0) -> EndpointJob:
         """submit a QB job and wait for the result.
 
-            job = await ep.runsync({"prompt": "hello"})
-            print(job.output)
+        job = await ep.runsync({"prompt": "hello"})
+        print(job.output)
         """
         url = await self._ensure_endpoint_ready()
         data = await self._api_post(
@@ -589,15 +620,17 @@ class Endpoint:
     async def cancel(self, job_id: str) -> EndpointJob:
         """cancel a previously submitted QB job.
 
-            job = await ep.run({"prompt": "hello"})
-            await job.cancel()       # via the job object
-            await ep.cancel(job.id)  # or via the endpoint directly
+        job = await ep.run({"prompt": "hello"})
+        await job.cancel()       # via the job object
+        await ep.cancel(job.id)  # or via the endpoint directly
         """
         url = await self._ensure_endpoint_ready()
         data = await self._api_post(f"{url}/cancel/{job_id}", None)
         return EndpointJob(data, self)
 
-    async def _client_request(self, method: str, path: str, data: Any = None, **kwargs) -> Any:
+    async def _client_request(
+        self, method: str, path: str, data: Any = None, **kwargs
+    ) -> Any:
         """make an HTTP request to a deployed LB endpoint.
 
         for LB endpoints this sends a request to the endpoint's base url + path.
@@ -607,6 +640,7 @@ class Endpoint:
         timeout = kwargs.pop("timeout", 60.0)
 
         from .core.utils.http import get_authenticated_httpx_client
+
         async with get_authenticated_httpx_client(timeout=timeout) as client:
             response = await client.request(method, full_url, json=data)
             response.raise_for_status()
@@ -615,6 +649,7 @@ class Endpoint:
     async def _api_post(self, url: str, payload: Any, timeout: float = 60.0) -> dict:
         """authenticated POST to the runpod api."""
         from .core.utils.http import get_authenticated_httpx_client
+
         async with get_authenticated_httpx_client(timeout=timeout) as client:
             response = await client.post(url, json=payload)
             response.raise_for_status()
@@ -623,6 +658,7 @@ class Endpoint:
     async def _api_get(self, url: str, timeout: float = 30.0) -> dict:
         """authenticated GET to the runpod api."""
         from .core.utils.http import get_authenticated_httpx_client
+
         async with get_authenticated_httpx_client(timeout=timeout) as client:
             response = await client.get(url)
             response.raise_for_status()

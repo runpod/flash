@@ -265,9 +265,7 @@ async def info():
             assert by_name["info"].http_path == "/info"
 
             # all routes share the same resource
-            assert all(
-                f.resource_config_name == "my-api" for f in functions
-            )
+            assert all(f.resource_config_name == "my-api" for f in functions)
             assert all(f.config_variable == "api" for f in functions)
             assert all(f.is_lb_route_handler for f in functions)
 

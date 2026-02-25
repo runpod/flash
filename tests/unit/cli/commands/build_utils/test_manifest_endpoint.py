@@ -130,7 +130,9 @@ class TestManifestEndpointLB:
 
         assert len(manifest["resources"]) == 2
         assert manifest["resources"]["worker"]["resource_type"] == "Endpoint"
-        assert manifest["resources"]["legacy_config"]["resource_type"] == "LiveServerless"
+        assert (
+            manifest["resources"]["legacy_config"]["resource_type"] == "LiveServerless"
+        )
 
 
 class TestExtractDeploymentConfigEndpoint:

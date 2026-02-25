@@ -135,7 +135,14 @@ class TestIsLoadBalanced:
     def test_with_routes(self):
         ep = Endpoint(name="test")
         # manually add a route to simulate .get()/.post() usage
-        ep._routes.append({"method": "GET", "path": "/health", "function": lambda: None, "function_name": "health"})
+        ep._routes.append(
+            {
+                "method": "GET",
+                "path": "/health",
+                "function": lambda: None,
+                "function_name": "health",
+            }
+        )
         assert ep.is_load_balanced is True
 
 
@@ -150,15 +157,19 @@ class TestBuildResourceConfig:
         ep = Endpoint(name="test", gpu=GpuGroup.ADA_24, workers=(0, 3))
         config = ep._build_resource_config()
         from runpod_flash.core.resources.live_serverless import LiveServerless
+
         assert isinstance(config, LiveServerless)
         assert config.workersMin == 0
         assert config.workersMax == 3
 
     @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "false"})
     def test_qb_gpu_deploy(self):
-        ep = Endpoint(name="test", gpu=GpuGroup.ADA_24, workers=3, image="my-image:latest")
+        ep = Endpoint(
+            name="test", gpu=GpuGroup.ADA_24, workers=3, image="my-image:latest"
+        )
         config = ep._build_resource_config()
         from runpod_flash.core.resources.serverless import ServerlessEndpoint
+
         assert isinstance(config, ServerlessEndpoint)
 
     @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "true"})
@@ -166,45 +177,88 @@ class TestBuildResourceConfig:
         ep = Endpoint(name="test", cpu=CpuInstanceType.CPU3G_2_8, workers=2)
         config = ep._build_resource_config()
         from runpod_flash.core.resources.live_serverless import CpuLiveServerless
+
         assert isinstance(config, CpuLiveServerless)
 
     @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "false"})
     def test_qb_cpu_deploy(self):
-        ep = Endpoint(name="test", cpu=CpuInstanceType.CPU3G_2_8, workers=2, image="my-cpu-image:latest")
+        ep = Endpoint(
+            name="test",
+            cpu=CpuInstanceType.CPU3G_2_8,
+            workers=2,
+            image="my-cpu-image:latest",
+        )
         config = ep._build_resource_config()
         from runpod_flash.core.resources.serverless_cpu import CpuServerlessEndpoint
+
         assert isinstance(config, CpuServerlessEndpoint)
 
     @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "true"})
     def test_lb_gpu_live(self):
         ep = Endpoint(name="test", gpu=GpuGroup.ADA_24)
-        ep._routes.append({"method": "GET", "path": "/health", "function": lambda: None, "function_name": "health"})
+        ep._routes.append(
+            {
+                "method": "GET",
+                "path": "/health",
+                "function": lambda: None,
+                "function_name": "health",
+            }
+        )
         config = ep._build_resource_config()
         from runpod_flash.core.resources.live_serverless import LiveLoadBalancer
+
         assert isinstance(config, LiveLoadBalancer)
 
     @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "false"})
     def test_lb_gpu_deploy(self):
         ep = Endpoint(name="test", gpu=GpuGroup.ADA_24, image="my-lb:latest")
-        ep._routes.append({"method": "GET", "path": "/health", "function": lambda: None, "function_name": "health"})
+        ep._routes.append(
+            {
+                "method": "GET",
+                "path": "/health",
+                "function": lambda: None,
+                "function_name": "health",
+            }
+        )
         config = ep._build_resource_config()
-        from runpod_flash.core.resources.load_balancer_sls_resource import LoadBalancerSlsResource
+        from runpod_flash.core.resources.load_balancer_sls_resource import (
+            LoadBalancerSlsResource,
+        )
+
         assert isinstance(config, LoadBalancerSlsResource)
 
     @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "true"})
     def test_lb_cpu_live(self):
         ep = Endpoint(name="test", cpu="cpu3g-2-8")
-        ep._routes.append({"method": "POST", "path": "/run", "function": lambda: None, "function_name": "run"})
+        ep._routes.append(
+            {
+                "method": "POST",
+                "path": "/run",
+                "function": lambda: None,
+                "function_name": "run",
+            }
+        )
         config = ep._build_resource_config()
         from runpod_flash.core.resources.live_serverless import CpuLiveLoadBalancer
+
         assert isinstance(config, CpuLiveLoadBalancer)
 
     @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "false"})
     def test_lb_cpu_deploy(self):
         ep = Endpoint(name="test", cpu="cpu3g-2-8", image="my-cpu-lb:latest")
-        ep._routes.append({"method": "POST", "path": "/run", "function": lambda: None, "function_name": "run"})
+        ep._routes.append(
+            {
+                "method": "POST",
+                "path": "/run",
+                "function": lambda: None,
+                "function_name": "run",
+            }
+        )
         config = ep._build_resource_config()
-        from runpod_flash.core.resources.load_balancer_sls_resource import CpuLoadBalancerSlsResource
+        from runpod_flash.core.resources.load_balancer_sls_resource import (
+            CpuLoadBalancerSlsResource,
+        )
+
         assert isinstance(config, CpuLoadBalancerSlsResource)
 
     @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "true"})
@@ -212,6 +266,7 @@ class TestBuildResourceConfig:
         ep = Endpoint(name="test")
         config = ep._build_resource_config()
         from runpod_flash.core.resources.live_serverless import LiveServerless
+
         assert isinstance(config, LiveServerless)
 
     @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "true"})
@@ -305,6 +360,7 @@ class TestQBDecorator:
             return data
 
         with pytest.raises(ValueError, match="cannot add routes"):
+
             @ep.get("/health")
             async def health():
                 return {"status": "ok"}
@@ -399,7 +455,9 @@ class TestLBDecorator:
         async def health():
             return {"status": "ok"}
 
-        with pytest.raises(ValueError, match="cannot use Endpoint as a direct decorator"):
+        with pytest.raises(
+            ValueError, match="cannot use Endpoint as a direct decorator"
+        ):
 
             @ep
             async def my_func(data: dict) -> dict:
@@ -439,28 +497,56 @@ class TestResourceConfigTypeMatrix:
     @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "true"})
     def test_lb_gpu_live_is_live_load_balancer(self):
         ep = Endpoint(name="t", gpu=GpuGroup.ADA_24)
-        ep._routes.append({"method": "GET", "path": "/h", "function": lambda: None, "function_name": "h"})
+        ep._routes.append(
+            {
+                "method": "GET",
+                "path": "/h",
+                "function": lambda: None,
+                "function_name": "h",
+            }
+        )
         config = ep._build_resource_config()
         assert type(config).__name__ == "LiveLoadBalancer"
 
     @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "false"})
     def test_lb_gpu_deploy_is_load_balancer_sls_resource(self):
         ep = Endpoint(name="t", gpu=GpuGroup.ADA_24, image="img:latest")
-        ep._routes.append({"method": "GET", "path": "/h", "function": lambda: None, "function_name": "h"})
+        ep._routes.append(
+            {
+                "method": "GET",
+                "path": "/h",
+                "function": lambda: None,
+                "function_name": "h",
+            }
+        )
         config = ep._build_resource_config()
         assert type(config).__name__ == "LoadBalancerSlsResource"
 
     @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "true"})
     def test_lb_cpu_live_is_cpu_live_load_balancer(self):
         ep = Endpoint(name="t", cpu=CpuInstanceType.CPU3G_2_8)
-        ep._routes.append({"method": "GET", "path": "/h", "function": lambda: None, "function_name": "h"})
+        ep._routes.append(
+            {
+                "method": "GET",
+                "path": "/h",
+                "function": lambda: None,
+                "function_name": "h",
+            }
+        )
         config = ep._build_resource_config()
         assert type(config).__name__ == "CpuLiveLoadBalancer"
 
     @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "false"})
     def test_lb_cpu_deploy_is_cpu_load_balancer_sls_resource(self):
         ep = Endpoint(name="t", cpu=CpuInstanceType.CPU3G_2_8, image="img:latest")
-        ep._routes.append({"method": "GET", "path": "/h", "function": lambda: None, "function_name": "h"})
+        ep._routes.append(
+            {
+                "method": "GET",
+                "path": "/h",
+                "function": lambda: None,
+                "function_name": "h",
+            }
+        )
         config = ep._build_resource_config()
         assert type(config).__name__ == "CpuLoadBalancerSlsResource"
 
@@ -514,6 +600,7 @@ class TestClientMode:
         result = ep.post("/v1/completions", {"prompt": "hello"})
         # should be a coroutine (awaitable), not a decorator
         import asyncio
+
         assert asyncio.iscoroutine(result)
         result.close()
 
@@ -521,6 +608,7 @@ class TestClientMode:
         ep = Endpoint(name="test", image="vllm:latest")
         result = ep.get("/v1/models")
         import asyncio
+
         assert asyncio.iscoroutine(result)
         result.close()
 
@@ -553,9 +641,11 @@ class TestResourceConfigCaching:
 class TestPublicImport:
     def test_import_from_package(self):
         from runpod_flash import Endpoint as E
+
         assert E.__name__ == "Endpoint"
         assert E.__module__ == "runpod_flash.endpoint"
 
     def test_in_all(self):
         import runpod_flash
+
         assert "Endpoint" in runpod_flash.__all__

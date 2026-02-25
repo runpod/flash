@@ -175,7 +175,10 @@ async def compute(data: dict) -> dict:
 
             # should import the endpoint variable and functions
             assert "from api import api" in content
-            assert "from api import health" in content or "from api import compute" in content
+            assert (
+                "from api import health" in content
+                or "from api import compute" in content
+            )
 
             # should generate LB routes
             assert "/api/health" in content

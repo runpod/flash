@@ -462,7 +462,10 @@ class RemoteDecoratorScanner:
         """
         for decorator in decorators:
             if isinstance(decorator, ast.Call):
-                if isinstance(decorator.func, ast.Name) and decorator.func.id == "Endpoint":
+                if (
+                    isinstance(decorator.func, ast.Name)
+                    and decorator.func.id == "Endpoint"
+                ):
                     return decorator
                 if (
                     isinstance(decorator.func, ast.Attribute)
@@ -542,14 +545,18 @@ class RemoteDecoratorScanner:
 
         if is_class:
             for n in node.body:
-                if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and not n.name.startswith("_"):
+                if isinstance(
+                    n, (ast.FunctionDef, ast.AsyncFunctionDef)
+                ) and not n.name.startswith("_"):
                     class_methods.append(n.name)
                     class_method_params[n.name] = [
                         arg.arg for arg in n.args.args if arg.arg != "self"
                     ]
                     raw_method_doc = ast.get_docstring(n)
                     class_method_docstrings[n.name] = (
-                        raw_method_doc.split("\n")[0].strip() if raw_method_doc else None
+                        raw_method_doc.split("\n")[0].strip()
+                        if raw_method_doc
+                        else None
                     )
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             param_names = [arg.arg for arg in node.args.args if arg.arg != "self"]

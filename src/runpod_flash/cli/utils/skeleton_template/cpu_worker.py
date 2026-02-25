@@ -3,6 +3,7 @@
 # test directly: python cpu_worker.py
 from runpod_flash import Endpoint
 
+
 @Endpoint(name="cpu_worker", cpu="cpu3c-1-2")
 async def cpu_hello(input_data: dict) -> dict:
     """CPU worker that returns a greeting."""

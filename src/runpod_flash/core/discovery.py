@@ -112,7 +112,9 @@ class ResourceDiscovery:
             for node in ast.walk(tree):
                 if isinstance(node, ast.Assign) and len(node.targets) == 1:
                     target = node.targets[0]
-                    if isinstance(target, ast.Name) and isinstance(node.value, ast.Call):
+                    if isinstance(target, ast.Name) and isinstance(
+                        node.value, ast.Call
+                    ):
                         func = node.value.func
                         call_name = None
                         if isinstance(func, ast.Name):
@@ -134,7 +136,9 @@ class ResourceDiscovery:
                                 var_names.add(var_name)
 
                         # @ep.get("/path"), @ep.post("/path"), etc
-                        elif self._is_endpoint_route_decorator(decorator, endpoint_vars):
+                        elif self._is_endpoint_route_decorator(
+                            decorator, endpoint_vars
+                        ):
                             var_name = self._extract_endpoint_var_from_route(decorator)
                             if var_name:
                                 var_names.add(var_name)
