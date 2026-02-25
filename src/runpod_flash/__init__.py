@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING  # noqa: E402
 
 if TYPE_CHECKING:
     from .client import remote
-    from .endpoint import Endpoint
+    from .endpoint import Endpoint, EndpointJob
     from .core.resources import (
         CpuInstanceType,
         CpuLiveLoadBalancer,
@@ -43,6 +43,10 @@ def __getattr__(name):
         from .endpoint import Endpoint
 
         return Endpoint
+    elif name == "EndpointJob":
+        from .endpoint import EndpointJob
+
+        return EndpointJob
     elif name == "remote":
         from .client import remote
 
@@ -117,6 +121,7 @@ def __getattr__(name):
 
 __all__ = [
     "Endpoint",
+    "EndpointJob",
     "remote",
     "CpuInstanceType",
     "CpuLiveLoadBalancer",

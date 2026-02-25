@@ -21,6 +21,115 @@ log = logging.getLogger(__name__)
 # valid http methods for load-balanced endpoints
 _VALID_HTTP_METHODS = frozenset({"GET", "POST", "PUT", "DELETE", "PATCH"})
 
+# terminal job statuses that won't change
+_TERMINAL_STATUSES = frozenset({"COMPLETED", "FAILED", "CANCELLED", "TIMED_OUT"})
+
+# default polling interval bounds (seconds)
+_POLL_INITIAL_INTERVAL = 0.25
+_POLL_MAX_INTERVAL = 5.0
+_POLL_BACKOFF_FACTOR = 1.5
+
+
+class EndpointJob:
+    """a submitted job on a runpod endpoint.
+
+    returned by Endpoint.run() and Endpoint.runsync(). properties read from
+    an internal _data dict that is updated in place by status()/cancel()/wait().
+
+    usage:
+        job = await ep.run({"prompt": "hello"})
+        job.id       # "job-abc123"
+
+        s = await job.status()  # polls, updates _data, returns status string
+        s                       # "IN_PROGRESS"
+        s = await job.status()
+        s                       # "COMPLETED"
+        job.output              # {"text": "world"}
+
+        # or wait for completion in one call
+        job = await ep.run({"prompt": "hello"})
+        await job.wait()
+        job.output   # {"text": "world"}
+
+        # cancel
+        await job.cancel()
+    """
+
+    def __init__(self, data: dict, endpoint: "Endpoint"):
+        self._data = data
+        self._endpoint = endpoint
+
+    @property
+    def id(self) -> str:
+        """job id assigned by runpod."""
+        return self._data.get("id", "")
+
+    @property
+    def output(self) -> Any:
+        """job output payload. available after status() returns COMPLETED."""
+        return self._data.get("output")
+
+    @property
+    def error(self) -> Optional[str]:
+        """error message. available after status() returns FAILED."""
+        return self._data.get("error")
+
+    @property
+    def done(self) -> bool:
+        """true if the job has reached a terminal status."""
+        return self._data.get("status", "UNKNOWN") in _TERMINAL_STATUSES
+
+    async def status(self) -> str:
+        """poll the endpoint for current job status.
+
+        updates _data in place (so .output, .error, .done reflect the
+        latest state) and returns the status string.
+        """
+        url = await self._endpoint._ensure_endpoint_ready()
+        self._data = await self._endpoint._api_get(f"{url}/status/{self.id}")
+        return self._data.get("status", "UNKNOWN")
+
+    async def cancel(self) -> "EndpointJob":
+        """cancel this job. updates _data in place and returns self."""
+        url = await self._endpoint._ensure_endpoint_ready()
+        data = await self._endpoint._api_post(f"{url}/cancel/{self.id}", None)
+        self._data.update(data)
+        return self
+
+    async def wait(self, timeout: Optional[float] = None) -> "EndpointJob":
+        """poll until the job reaches a terminal status.
+
+        uses exponential backoff between polls. updates _data in place
+        and returns self.
+
+        args:
+            timeout: max seconds to wait. None means wait indefinitely.
+
+        raises:
+            TimeoutError: if timeout is reached before job completes.
+        """
+        import asyncio
+        import time
+
+        deadline = (time.monotonic() + timeout) if timeout is not None else None
+        interval = _POLL_INITIAL_INTERVAL
+
+        while not self.done:
+            if deadline is not None and time.monotonic() >= deadline:
+                raise TimeoutError(
+                    f"job {self.id} did not complete within {timeout}s "
+                    f"(last status: {self._data.get('status', 'UNKNOWN')})"
+                )
+            await asyncio.sleep(interval)
+            await self.status()
+            interval = min(interval * _POLL_BACKOFF_FACTOR, _POLL_MAX_INTERVAL)
+
+        return self
+
+    def __repr__(self) -> str:
+        status = self._data.get("status", "UNKNOWN")
+        return f"EndpointJob(id={self.id!r}, status={status!r})"
+
 
 def _normalize_workers(
     workers: Union[int, Tuple[int, int], None],
@@ -443,29 +552,50 @@ class Endpoint:
             )
         return self._endpoint_url
 
-    async def run(self, input_data: Any) -> dict:
-        """submit a QB job asynchronously. returns job metadata including id.
+    async def run(
+        self, input_data: Any, *, webhook: Optional[str] = None
+    ) -> EndpointJob:
+        """submit a QB job asynchronously.
 
-        the returned dict contains at minimum {"id": "<job_id>", "status": "IN_QUEUE"}.
-        use .status(job_id) to poll for completion.
+        returns an EndpointJob that can be polled or awaited:
+
+            job = await ep.run({"prompt": "hello"})
+            await job.wait()
+            print(job.output)
+
+        args:
+            input_data: payload to send as the job input.
+            webhook: optional URL that runpod will POST to when the job completes.
         """
         url = await self._ensure_endpoint_ready()
-        return await self._api_post(f"{url}/run", {"input": input_data})
+        payload: Dict[str, Any] = {"input": input_data}
+        if webhook is not None:
+            payload["webhook"] = webhook
+        data = await self._api_post(f"{url}/run", payload)
+        return EndpointJob(data, self)
 
-    async def runsync(self, input_data: Any, timeout: float = 60.0) -> dict:
+    async def runsync(self, input_data: Any, timeout: float = 60.0) -> EndpointJob:
         """submit a QB job and wait for the result.
 
-        returns the full job output dict including {"output": ..., "status": "COMPLETED"}.
+            job = await ep.runsync({"prompt": "hello"})
+            print(job.output)
         """
         url = await self._ensure_endpoint_ready()
-        return await self._api_post(
+        data = await self._api_post(
             f"{url}/runsync", {"input": input_data}, timeout=timeout
         )
+        return EndpointJob(data, self)
 
-    async def status(self, job_id: str) -> dict:
-        """check the status of a previously submitted QB job."""
+    async def cancel(self, job_id: str) -> EndpointJob:
+        """cancel a previously submitted QB job.
+
+            job = await ep.run({"prompt": "hello"})
+            await job.cancel()       # via the job object
+            await ep.cancel(job.id)  # or via the endpoint directly
+        """
         url = await self._ensure_endpoint_ready()
-        return await self._api_get(f"{url}/status/{job_id}")
+        data = await self._api_post(f"{url}/cancel/{job_id}", None)
+        return EndpointJob(data, self)
 
     async def _client_request(self, method: str, path: str, data: Any = None, **kwargs) -> Any:
         """make an HTTP request to a deployed LB endpoint.
