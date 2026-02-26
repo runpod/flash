@@ -66,6 +66,28 @@ graph TB
 
 ## CLI Commands Reference
 
+### flash login
+
+Authenticate the CLI and store a RunPod API key locally.
+
+```bash
+flash login [--no-open] [--timeout <seconds>]
+```
+
+**What it does:**
+1. Creates an auth request via GraphQL
+2. Opens a browser to approve the request
+3. Polls for approval and receives an API key
+4. Stores the key at `~/.config/runpod/credentials.toml` (or `RUNPOD_CREDENTIALS_FILE`)
+
+**Notes:**
+- `RUNPOD_API_KEY` still takes precedence if set
+- Use `--no-open` to print the URL only
+
+**Implementation:** `src/runpod_flash/cli/commands/login.py`
+
+---
+
 ### flash env create
 
 Create a new deployment environment.
