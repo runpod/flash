@@ -38,6 +38,20 @@ def create_resource_from_manifest(
 
     resource_type = resource_data.get("resource_type", "ServerlessResource")
 
+    # resolve Endpoint to the appropriate underlying resource class.
+    # gpu endpoints have gpuIds in the manifest, cpu endpoints do not.
+    if resource_type == "Endpoint":
+        is_lb = resource_data.get("is_load_balanced", False)
+        is_gpu = bool(resource_data.get("gpuIds"))
+        if is_lb and is_gpu:
+            resource_type = "LiveLoadBalancer"
+        elif is_lb:
+            resource_type = "CpuLiveLoadBalancer"
+        elif is_gpu:
+            resource_type = "LiveServerless"
+        else:
+            resource_type = "CpuLiveServerless"
+
     # Support both Serverless and LoadBalancer resource types
     if resource_type not in [
         "ServerlessResource",
