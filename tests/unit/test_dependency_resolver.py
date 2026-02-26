@@ -535,6 +535,41 @@ class TestResolveInFunctionImports:
         assert "preprocess" in result
         assert "inference" in result
 
+    def test_preserves_first_discovered_import_on_duplicate_name(self):
+        """If the same name is imported from two modules, keep the first one."""
+        fake_mod1 = MagicMock()
+        fn1 = MagicMock()
+        fn1.__remote_config__ = {"resource_config": MagicMock()}
+        fake_mod1.process = fn1
+
+        fake_mod2 = MagicMock()
+        fn2 = MagicMock()
+        fn2.__remote_config__ = {"resource_config": MagicMock()}
+        fake_mod2.process = fn2
+
+        source = textwrap.dedent("""\
+        async def pipeline(text: str) -> dict:
+            from module1 import process
+            from module2 import process
+            return await process(text)
+        """)
+
+        def import_side_effect(name):
+            if name == "module1":
+                return fake_mod1
+            if name == "module2":
+                return fake_mod2
+            raise ModuleNotFoundError(name)
+
+        with patch(
+            "runpod_flash.stubs.dependency_resolver.importlib.import_module",
+            side_effect=import_side_effect,
+        ):
+            result = resolve_in_function_imports(source, {})
+
+        assert "process" in result
+        assert result["process"] is fn1  # first discovered wins
+
 
 # ---------------------------------------------------------------------------
 # Tests: strip_remote_imports
@@ -625,6 +660,17 @@ class TestStripRemoteImports:
             line for line in result.splitlines() if "from worker import" in line
         ][0]
         assert "gpu_inference" not in import_line
+
+    def test_skips_relative_imports(self):
+        """Relative imports (from . import foo) have module=None and should be skipped."""
+        source = textwrap.dedent("""\
+        async def classify(text: str) -> dict:
+            from . import helper
+            return helper(text)
+        """)
+        result = strip_remote_imports(source, {"helper"})
+        # Relative import should remain untouched
+        assert "from . import helper" in result
 
 
 # ---------------------------------------------------------------------------

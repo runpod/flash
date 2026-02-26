@@ -98,7 +98,7 @@ def resolve_in_function_imports(
 
         for alias in node.names:
             name = alias.asname or alias.name
-            if name in func_globals:
+            if name in func_globals or name in discovered:
                 continue
             obj = getattr(mod, alias.name, None)
             if obj is not None and hasattr(obj, "__remote_config__"):
@@ -141,7 +141,7 @@ def strip_remote_imports(source: str, remote_names: set[str]) -> str:
     edits: list[tuple[int, int, str | None]] = []  # (start, end, replacement)
 
     for node in ast.walk(tree):
-        if not isinstance(node, ast.ImportFrom):
+        if not isinstance(node, ast.ImportFrom) or node.module is None:
             continue
 
         names_in_import = [alias.asname or alias.name for alias in node.names]
