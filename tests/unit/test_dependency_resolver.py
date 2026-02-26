@@ -16,6 +16,8 @@ from runpod_flash.stubs.dependency_resolver import (
     detect_remote_dependencies,
     generate_stub_code,
     resolve_dependencies,
+    resolve_in_function_imports,
+    strip_remote_imports,
 )
 
 
@@ -370,3 +372,364 @@ class TestExecIntegration:
         assert "funcB" in namespace
         assert callable(namespace["funcA"])
         assert callable(namespace["funcB"])
+
+
+# ---------------------------------------------------------------------------
+# Tests: resolve_in_function_imports
+# ---------------------------------------------------------------------------
+
+
+class TestResolveInFunctionImports:
+    def test_discovers_remote_import_in_function_body(self):
+        """In-body import of a @remote function should be added to globals."""
+        # Create a fake module with a @remote function
+        fake_module = MagicMock()
+        remote_fn = MagicMock()
+        remote_fn.__remote_config__ = {"resource_config": MagicMock()}
+        fake_module.gpu_inference = remote_fn
+
+        source = textwrap.dedent("""\
+        async def classify(text: str) -> dict:
+            from fake_gpu_module import gpu_inference
+            return await gpu_inference(text)
+        """)
+
+        with patch(
+            "runpod_flash.stubs.dependency_resolver.importlib.import_module",
+            return_value=fake_module,
+        ):
+            result = resolve_in_function_imports(source, {})
+
+        assert "gpu_inference" in result
+        assert result["gpu_inference"] is remote_fn
+
+    def test_ignores_non_remote_imports(self):
+        """Imports without __remote_config__ should not be added."""
+        fake_module = MagicMock()
+        plain_fn = MagicMock(spec=[])  # no __remote_config__
+        del plain_fn.__remote_config__
+        fake_module.plain_helper = plain_fn
+
+        source = textwrap.dedent("""\
+        async def classify(text: str) -> dict:
+            from utils import plain_helper
+            return plain_helper(text)
+        """)
+
+        with patch(
+            "runpod_flash.stubs.dependency_resolver.importlib.import_module",
+            return_value=fake_module,
+        ):
+            result = resolve_in_function_imports(source, {})
+
+        assert "plain_helper" not in result
+
+    def test_skips_unimportable_modules(self):
+        """Modules that fail to import should be silently skipped."""
+        source = textwrap.dedent("""\
+        async def classify(text: str) -> dict:
+            from nonexistent_module import something
+            return something(text)
+        """)
+
+        with patch(
+            "runpod_flash.stubs.dependency_resolver.importlib.import_module",
+            side_effect=ModuleNotFoundError("no module"),
+        ):
+            result = resolve_in_function_imports(source, {})
+
+        # Should return original globals unchanged
+        assert result == {}
+
+    def test_does_not_overwrite_existing_globals(self):
+        """Names already in func_globals should not be replaced."""
+        fake_module = MagicMock()
+        remote_fn_new = MagicMock()
+        remote_fn_new.__remote_config__ = {"resource_config": MagicMock()}
+        fake_module.funcB = remote_fn_new
+
+        source = textwrap.dedent("""\
+        async def classify(text: str) -> dict:
+            from some_module import funcB
+            return await funcB(text)
+        """)
+
+        existing_funcB = MagicMock()
+        existing_globals = {"funcB": existing_funcB}
+
+        with patch(
+            "runpod_flash.stubs.dependency_resolver.importlib.import_module",
+            return_value=fake_module,
+        ):
+            result = resolve_in_function_imports(source, existing_globals)
+
+        # Should keep original, not the new one
+        assert result["funcB"] is existing_funcB
+
+    def test_returns_original_dict_when_nothing_found(self):
+        """When no @remote imports are found, return the original dict object."""
+        source = textwrap.dedent("""\
+        async def classify(text: str) -> dict:
+            return {"result": text}
+        """)
+
+        original = {"some_key": "some_value"}
+        result = resolve_in_function_imports(source, original)
+        assert result is original
+
+    def test_handles_aliased_imports(self):
+        """from module import gpu_inference as gi should use alias as key."""
+        fake_module = MagicMock()
+        remote_fn = MagicMock()
+        remote_fn.__remote_config__ = {"resource_config": MagicMock()}
+        fake_module.gpu_inference = remote_fn
+
+        source = textwrap.dedent("""\
+        async def classify(text: str) -> dict:
+            from fake_module import gpu_inference as gi
+            return await gi(text)
+        """)
+
+        with patch(
+            "runpod_flash.stubs.dependency_resolver.importlib.import_module",
+            return_value=fake_module,
+        ):
+            result = resolve_in_function_imports(source, {})
+
+        assert "gi" in result
+        assert result["gi"] is remote_fn
+
+    def test_discovers_multiple_remote_imports(self):
+        """Multiple in-body @remote imports from different modules."""
+        fake_cpu = MagicMock()
+        cpu_fn = MagicMock()
+        cpu_fn.__remote_config__ = {"resource_config": MagicMock()}
+        fake_cpu.preprocess = cpu_fn
+
+        fake_gpu = MagicMock()
+        gpu_fn = MagicMock()
+        gpu_fn.__remote_config__ = {"resource_config": MagicMock()}
+        fake_gpu.inference = gpu_fn
+
+        source = textwrap.dedent("""\
+        async def pipeline(text: str) -> dict:
+            from cpu_worker import preprocess
+            from gpu_worker import inference
+            result = await preprocess(text)
+            return await inference(result)
+        """)
+
+        def import_side_effect(name):
+            if name == "cpu_worker":
+                return fake_cpu
+            if name == "gpu_worker":
+                return fake_gpu
+            raise ModuleNotFoundError(name)
+
+        with patch(
+            "runpod_flash.stubs.dependency_resolver.importlib.import_module",
+            side_effect=import_side_effect,
+        ):
+            result = resolve_in_function_imports(source, {})
+
+        assert "preprocess" in result
+        assert "inference" in result
+
+    def test_preserves_first_discovered_import_on_duplicate_name(self):
+        """If the same name is imported from two modules, keep the first one."""
+        fake_mod1 = MagicMock()
+        fn1 = MagicMock()
+        fn1.__remote_config__ = {"resource_config": MagicMock()}
+        fake_mod1.process = fn1
+
+        fake_mod2 = MagicMock()
+        fn2 = MagicMock()
+        fn2.__remote_config__ = {"resource_config": MagicMock()}
+        fake_mod2.process = fn2
+
+        source = textwrap.dedent("""\
+        async def pipeline(text: str) -> dict:
+            from module1 import process
+            from module2 import process
+            return await process(text)
+        """)
+
+        def import_side_effect(name):
+            if name == "module1":
+                return fake_mod1
+            if name == "module2":
+                return fake_mod2
+            raise ModuleNotFoundError(name)
+
+        with patch(
+            "runpod_flash.stubs.dependency_resolver.importlib.import_module",
+            side_effect=import_side_effect,
+        ):
+            result = resolve_in_function_imports(source, {})
+
+        assert "process" in result
+        assert result["process"] is fn1  # first discovered wins
+
+
+# ---------------------------------------------------------------------------
+# Tests: strip_remote_imports
+# ---------------------------------------------------------------------------
+
+
+class TestStripRemoteImports:
+    def test_removes_entire_import_when_all_names_are_remote(self):
+        source = textwrap.dedent("""\
+        async def classify(text: str) -> dict:
+            from gpu_worker import gpu_inference
+            return await gpu_inference(text)
+        """)
+        result = strip_remote_imports(source, {"gpu_inference"})
+        assert "from gpu_worker import" not in result
+        # Function def and call should still be there
+        assert "async def classify" in result
+        assert "await gpu_inference(text)" in result
+
+    def test_keeps_non_remote_names_in_partial_import(self):
+        source = textwrap.dedent("""\
+        async def classify(text: str) -> dict:
+            from worker import gpu_inference, helper_func
+            result = helper_func(text)
+            return await gpu_inference(result)
+        """)
+        result = strip_remote_imports(source, {"gpu_inference"})
+        assert "helper_func" in result
+        assert "from worker import helper_func" in result
+        # gpu_inference should no longer appear in the import
+        lines_with_import = [
+            line for line in result.splitlines() if "from worker import" in line
+        ]
+        assert len(lines_with_import) == 1
+        assert "gpu_inference" not in lines_with_import[0]
+
+    def test_preserves_indentation(self):
+        source = "async def classify(text: str) -> dict:\n    from gpu_worker import gpu_inference, helper\n    return helper(text)\n"
+        result = strip_remote_imports(source, {"gpu_inference"})
+        import_line = [
+            line for line in result.splitlines() if "from gpu_worker" in line
+        ][0]
+        assert import_line.startswith("    ")
+
+    def test_handles_multi_line_import(self):
+        source = textwrap.dedent("""\
+        async def classify(text: str) -> dict:
+            from worker import (
+                gpu_inference,
+                cpu_process,
+            )
+            return await gpu_inference(text)
+        """)
+        result = strip_remote_imports(source, {"gpu_inference", "cpu_process"})
+        assert "from worker import" not in result
+
+    def test_no_remote_names_returns_unchanged(self):
+        source = textwrap.dedent("""\
+        async def classify(text: str) -> dict:
+            from utils import helper
+            return helper(text)
+        """)
+        result = strip_remote_imports(source, {"gpu_inference"})
+        assert result == source
+
+    def test_handles_multiple_import_statements(self):
+        source = textwrap.dedent("""\
+        async def pipeline(text: str) -> dict:
+            from cpu_worker import preprocess
+            from gpu_worker import inference
+            result = preprocess(text)
+            return await inference(result)
+        """)
+        result = strip_remote_imports(source, {"preprocess", "inference"})
+        assert "from cpu_worker" not in result
+        assert "from gpu_worker" not in result
+        assert "async def pipeline" in result
+
+    def test_partial_strip_with_alias(self):
+        source = textwrap.dedent("""\
+        async def classify(text: str) -> dict:
+            from worker import gpu_inference as gi, helper_func
+            return helper_func(await gi(text))
+        """)
+        result = strip_remote_imports(source, {"gi"})
+        assert "helper_func" in result
+        import_line = [
+            line for line in result.splitlines() if "from worker import" in line
+        ][0]
+        assert "gpu_inference" not in import_line
+
+    def test_skips_relative_imports(self):
+        """Relative imports (from . import foo) have module=None and should be skipped."""
+        source = textwrap.dedent("""\
+        async def classify(text: str) -> dict:
+            from . import helper
+            return helper(text)
+        """)
+        result = strip_remote_imports(source, {"helper"})
+        # Relative import should remain untouched
+        assert "from . import helper" in result
+
+
+# ---------------------------------------------------------------------------
+# Tests: exec() integration with in-function imports
+# ---------------------------------------------------------------------------
+
+
+class TestExecIntegrationInFunctionImports:
+    def test_augmented_source_with_stripped_imports_executes(self):
+        """Source with in-function imports stripped and stubs injected should exec cleanly."""
+        # Simulate the pipeline: source has in-function import, we strip it and add stub
+        source_with_import = textwrap.dedent("""\
+        async def classify(text: str) -> dict:
+            from gpu_worker import gpu_inference
+            return await gpu_inference({"text": text})
+        """)
+
+        # Strip the import
+        stripped = strip_remote_imports(source_with_import, {"gpu_inference"})
+
+        # Create a simple stub (not the full HTTP stub, just enough to exec)
+        stub = textwrap.dedent("""\
+        async def gpu_inference(payload):
+            return {"stub_result": payload}
+        """)
+
+        augmented = build_augmented_source(stripped, [stub])
+
+        # Should compile and define both functions
+        namespace: dict = {}
+        exec(compile(augmented, "<test>", "exec"), namespace)
+
+        assert "classify" in namespace
+        assert "gpu_inference" in namespace
+
+    def test_real_stub_with_stripped_import_compiles(self):
+        """Full generate_stub_code output + stripped source should compile."""
+        source_with_import = textwrap.dedent("""\
+        async def classify(text: str) -> dict:
+            from gpu_worker import gpu_inference
+            return await gpu_inference({"text": text})
+        """)
+
+        gpu_source = textwrap.dedent("""\
+        async def gpu_inference(payload: dict) -> dict:
+            return {"result": payload}
+        """)
+
+        dep = RemoteDependency(
+            name="gpu_inference",
+            endpoint_id="ep-gpu-001",
+            source=gpu_source,
+            dependencies=[],
+            system_dependencies=[],
+        )
+
+        stripped = strip_remote_imports(source_with_import, {"gpu_inference"})
+        stub_code = generate_stub_code(dep)
+        augmented = build_augmented_source(stripped, [stub_code])
+
+        # Must compile without errors
+        compile(augmented, "<test>", "exec")
