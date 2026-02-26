@@ -1,6 +1,6 @@
 [project]
 name = "runpod-flash"
-version = "1.4.1"
+version = "1.4.2"
 description = "A Python library for distributed inference and serving of machine learning models"
 authors = [
     { name = "Runpod", email = "engineer@runpod.io" },
