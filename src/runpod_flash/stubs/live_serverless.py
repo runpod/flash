@@ -88,11 +88,18 @@ class LiveServerlessStub(RemoteExecutorStub):
             build_augmented_source,
             generate_stub_code,
             resolve_dependencies,
+            resolve_in_function_imports,
+            strip_remote_imports,
         )
 
         original_func = inspect.unwrap(func)
-        remote_deps = await resolve_dependencies(source, original_func.__globals__)
+        augmented_globals = resolve_in_function_imports(
+            source, original_func.__globals__
+        )
+        remote_deps = await resolve_dependencies(source, augmented_globals)
         if remote_deps:
+            remote_names = {dep.name for dep in remote_deps}
+            source = strip_remote_imports(source, remote_names)
             stub_codes = [generate_stub_code(dep) for dep in remote_deps]
             source = build_augmented_source(source, stub_codes)
             # Recompute cache key to include dependency endpoints
