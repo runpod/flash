@@ -149,6 +149,12 @@ class ManifestBuilder:
                     if hasattr(resource_config, "workersMax"):
                         config["workersMax"] = resource_config.workersMax
 
+                    if hasattr(resource_config, "env") and resource_config.env:
+                        env_dict = dict(resource_config.env)
+                        env_dict.pop("RUNPOD_API_KEY", None)
+                        if env_dict:
+                            config["env"] = env_dict
+
                     # Extract template configuration if present
                     if (
                         hasattr(resource_config, "template")
