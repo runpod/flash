@@ -183,6 +183,14 @@ def mock_logger():
     return logger
 
 
+@pytest.fixture(autouse=True)
+def isolate_credentials_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    """force tests to use a temp credentials file."""
+    credentials_path = tmp_path / "credentials.toml"
+    monkeypatch.setenv("RUNPOD_CREDENTIALS_FILE", str(credentials_path))
+    return credentials_path
+
+
 @pytest.fixture
 def sample_function_request() -> Dict[str, Any]:
     """Provide sample function request data for remote execution tests.
