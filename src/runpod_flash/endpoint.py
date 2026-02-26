@@ -151,7 +151,20 @@ def _normalize_workers(
 
 
 def _is_live_provisioning() -> bool:
-    return os.getenv("FLASH_IS_LIVE_PROVISIONING", "").lower() == "true"
+    """determine if we should use live (on-demand) resource classes.
+
+    returns True when running in local dev / flash run context. the deploy
+    resource classes (ServerlessEndpoint etc.) require imageName and are
+    only used during flash build/deploy, which explicitly sets
+    FLASH_IS_LIVE_PROVISIONING=false.
+    """
+    val = os.getenv("FLASH_IS_LIVE_PROVISIONING", "").lower()
+    if val == "false":
+        return False
+    if val == "true":
+        return True
+    # no explicit signal -- default to live unless we're in a deployed worker
+    return not (os.getenv("RUNPOD_ENDPOINT_ID") or os.getenv("RUNPOD_POD_ID"))
 
 
 def _is_cpu_config(
