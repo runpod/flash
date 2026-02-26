@@ -176,8 +176,8 @@ def _remove_runpod_flash_from_requirements(build_dir: Path) -> None:
     filtered = [
         line
         for line in lines
-        if not line.strip().startswith("runpod_flash")
-        and not line.strip().startswith("runpod-flash")
+        if not line.strip().lower().startswith("runpod_flash")
+        and not line.strip().lower().startswith("runpod-flash")
     ]
 
     req_file.write_text("\n".join(filtered) + "\n")
