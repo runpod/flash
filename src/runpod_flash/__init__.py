@@ -1,3 +1,6 @@
+# Keep in sync with pyproject.toml
+__version__ = "1.4.1"
+
 # Load .env vars from file before everything else
 from dotenv import load_dotenv
 

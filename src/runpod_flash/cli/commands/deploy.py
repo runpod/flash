@@ -33,11 +33,6 @@ def deploy_command(
         "--exclude",
         help="Comma-separated packages to exclude (e.g., 'torch,torchvision')",
     ),
-    use_local_flash: bool = typer.Option(
-        False,
-        "--use-local-flash",
-        help="Bundle local runpod_flash source instead of PyPI version (for development/testing)",
-    ),
     output_name: str | None = typer.Option(
         None, "--output", "-o", help="Custom archive name (default: artifact.tar.gz)"
     ),
@@ -71,7 +66,6 @@ def deploy_command(
             no_deps=no_deps,
             output_name=output_name,
             exclude=exclude,
-            use_local_flash=use_local_flash,
         )
 
         if preview:

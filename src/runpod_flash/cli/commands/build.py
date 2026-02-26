@@ -56,50 +56,56 @@ UV_COMMAND = "uv"
 PIP_MODULE = "pip"
 
 
-def _find_local_runpod_flash() -> Optional[Path]:
-    """Find local runpod_flash source directory if available.
+def _find_runpod_flash(project_dir: Optional[Path] = None) -> Optional[Path]:
+    """Find installed runpod_flash package directory.
+
+    Tries two strategies:
+    1. importlib.util.find_spec -- works for any installed runpod_flash
+       (dev-installed or site-packages)
+    2. Relative path search -- walks upward from project_dir looking for a sibling
+       flash repo (worktree or standard layout)
+
+    Args:
+        project_dir: Flash project directory, used for relative path search fallback
 
     Returns:
-        Path to runpod_flash package directory, or None if not found or installed from PyPI
+        Path to runpod_flash package directory, or None if not found
     """
+    # Strategy 1: importlib (any installed runpod_flash -- dev or site-packages)
     try:
         spec = importlib.util.find_spec("runpod_flash")
-
-        if not spec or not spec.origin:
-            return None
-
-        # Get package directory (spec.origin is __init__.py path)
-        pkg_dir = Path(spec.origin).parent
-
-        # Skip if installed in site-packages (PyPI install)
-        if "site-packages" in str(pkg_dir):
-            return None
-
-        # Must be development install
-        return pkg_dir
-
+        if spec and spec.origin:
+            return Path(spec.origin).parent
     except Exception:
+        pass
+
+    # Strategy 2: search upward from project_dir for flash repo
+    if project_dir is None:
         return None
 
+    current = project_dir.resolve()
+    for _ in range(6):
+        # Worktree layout: flash-project/flash/main/src/runpod_flash/
+        # Standard layout: flash-project/flash/src/runpod_flash/
+        for sub in ("flash/main/src/runpod_flash", "flash/src/runpod_flash"):
+            candidate = current / sub
+            if (candidate / "__init__.py").is_file():
+                return candidate
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
 
-def _bundle_local_runpod_flash(build_dir: Path) -> bool:
-    """Copy local runpod_flash source into build directory.
+    return None
+
+
+def _bundle_runpod_flash(build_dir: Path, flash_pkg: Path) -> None:
+    """Copy runpod_flash source into build directory.
 
     Args:
         build_dir: Target build directory
-
-    Returns:
-        True if bundled successfully, False otherwise
+        flash_pkg: Path to the runpod_flash package directory to bundle
     """
-    flash_pkg = _find_local_runpod_flash()
-
-    if not flash_pkg:
-        console.print(
-            "[yellow]⚠ Local runpod_flash not found or using PyPI install[/yellow]"
-        )
-        return False
-
-    # Copy runpod_flash to build
     dest = build_dir / "runpod_flash"
     if dest.exists():
         shutil.rmtree(dest)
@@ -110,8 +116,7 @@ def _bundle_local_runpod_flash(build_dir: Path) -> bool:
         ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".pytest_cache"),
     )
 
-    console.print(f"[cyan]✓ Bundled local runpod_flash from {flash_pkg}[/cyan]")
-    return True
+    console.print(f"[cyan]Bundled runpod_flash from {flash_pkg}[/cyan]")
 
 
 def _extract_runpod_flash_dependencies(flash_pkg_dir: Path) -> list[str]:
@@ -190,12 +195,12 @@ def run_build(
     no_deps: bool = False,
     output_name: str | None = None,
     exclude: str | None = None,
-    use_local_flash: bool = False,
     verbose: bool = False,
 ) -> Path:
     """Run the build process and return the artifact path.
 
     Contains all build steps: validate, collect files, manifest, deps, tarball.
+    Always bundles the runpod_flash installed in the current environment.
     Always keeps the build directory — caller decides cleanup.
 
     Args:
@@ -204,7 +209,6 @@ def run_build(
         no_deps: Skip transitive dependencies during pip install
         output_name: Custom archive name (default: artifact.tar.gz)
         exclude: Comma-separated packages to exclude
-        use_local_flash: Bundle local runpod_flash source
         verbose: Show archive and build directory paths in summary
 
     Returns:
@@ -309,13 +313,19 @@ def run_build(
             console.print("[red]Error:[/red] Failed to install dependencies")
             raise typer.Exit(1)
 
-    # bundle local runpod_flash if requested
-    if use_local_flash:
-        if _bundle_local_runpod_flash(build_dir):
-            _remove_runpod_flash_from_requirements(build_dir)
+    # Always bundle the installed runpod_flash
+    flash_pkg = _find_runpod_flash(project_dir)
+    if not flash_pkg:
+        console.print(
+            "[red]Error:[/red] Could not find runpod_flash.\n"
+            "  Ensure runpod-flash is installed: pip install runpod-flash"
+        )
+        raise typer.Exit(1)
+    _bundle_runpod_flash(build_dir, flash_pkg)
+    _remove_runpod_flash_from_requirements(build_dir)
 
     # Generate _flash_resource_config.py for @remote local-vs-stub dispatch.
-    # Must happen AFTER _bundle_local_runpod_flash which replaces build_dir/runpod_flash/.
+    # Must happen AFTER _bundle_runpod_flash which replaces build_dir/runpod_flash/.
     manifest_json_path = build_dir / "flash_manifest.json"
     if manifest_json_path.exists():
         manifest_data = json.loads(manifest_json_path.read_text())
@@ -371,11 +381,6 @@ def build_command(
         "--exclude",
         help="Comma-separated packages to exclude (e.g., 'torch,torchvision')",
     ),
-    use_local_flash: bool = typer.Option(
-        False,
-        "--use-local-flash",
-        help="Bundle local runpod_flash source instead of PyPI version (for development/testing)",
-    ),
 ):
     """
     Build Flash application for debugging (build only, no deploy).
@@ -398,7 +403,6 @@ def build_command(
             no_deps=no_deps,
             output_name=output_name,
             exclude=exclude,
-            use_local_flash=use_local_flash,
             verbose=True,
         )
 
