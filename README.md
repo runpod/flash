@@ -48,9 +48,15 @@ Before you can use Flash, you'll need:
 pip install runpod-flash
 ```
 
-### Step 2: Set your API key
+### Step 2: Authenticate
 
-Generate an API key from the [Runpod account settings](https://docs.runpod.io/get-started/api-keys) page and set it as an environment variable:
+The easiest way to authenticate is with `flash login`, which opens the RunPod console in your browser and stores the API key automatically:
+
+```bash
+flash login
+```
+
+Alternatively, you can set an API key manually. Generate one from the [Runpod account settings](https://docs.runpod.io/get-started/api-keys) page and either export it as an environment variable:
 
 ```bash
 export RUNPOD_API_KEY=[YOUR_API_KEY]
@@ -197,25 +203,19 @@ uv sync        # recommended
 pip install -r requirements.txt
 ```
 
-### Step 4: Configure your API key
+### Step 4: Set your API key
 
-Open the `.env` template file in a text editor and add your [Runpod API key](https://docs.runpod.io/get-started/api-keys):
+Add your [Runpod API key](https://docs.runpod.io/get-started/api-keys) to the `.env` file.
 
-```bash
-# Use your text editor of choice, e.g.
-cursor .env
-```
+Uncomment the `RUNPOD_API_KEY` line and set it to your actual API key:
 
-Remove the `#` symbol from the beginning of the `RUNPOD_API_KEY` line and replace `your_api_key_here` with your actual Runpod API key:
-
-```txt
+```env
 RUNPOD_API_KEY=your_api_key_here
 # FLASH_HOST=localhost
 # FLASH_PORT=8888
 # LOG_LEVEL=INFO
 ```
 
-Save the file and close it.
 
 ### Step 5: Start the local API server
 
@@ -272,6 +272,7 @@ Flash provides a command-line interface for project management, development, and
 
 ### Main Commands
 
+- **`flash login`** - Authenticate via the RunPod console and store credentials locally
 - **`flash init`** - Initialize a new Flash project with template structure
 - **`flash run`** - Start local development server to test your `@remote` functions with auto-reload
 - **`flash build`** - Build deployment artifact with all dependencies
@@ -662,6 +663,60 @@ export FLASH_LOG_DIR=/var/log/flash
 ```
 
 File logging is automatically disabled in deployed containers. See [flash-logging.md](src/runpod_flash/cli/docs/flash-logging.md) for complete documentation.
+
+### Environment variables
+
+Flash uses the following environment variables. Values are resolved in the listed precedence order where applicable.
+
+#### Authentication
+
+| Variable | Description |
+|----------|-------------|
+| `RUNPOD_API_KEY` | RunPod API key. Takes precedence over stored credentials. |
+| `RUNPOD_CREDENTIALS_FILE` | Path to a TOML credentials file. Defaults to `~/.config/runpod/credentials.toml` (or `$XDG_CONFIG_HOME/runpod/credentials.toml`). |
+
+**Credential precedence:** `RUNPOD_API_KEY` env var > credentials file (`flash login` stores the key here) > none (error).
+
+#### API and runtime
+
+| Variable | Description |
+|----------|-------------|
+| `RUNPOD_API_BASE_URL` | Base URL for the RunPod API. |
+| `RUNPOD_REST_API_URL` | Base URL for the RunPod REST API. |
+| `RUNPOD_ENDPOINT_ID` | Set automatically inside deployed workers. |
+| `RUNPOD_POD_ID` | Set automatically inside deployed pods. |
+| `CONSOLE_BASE_URL` | Base URL for the RunPod console UI. |
+
+#### Flash configuration
+
+| Variable | Description |
+|----------|-------------|
+| `LOG_LEVEL` | Logging verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`). Default `INFO`. |
+| `FLASH_HOST` | Host for the local dev server. Default `localhost`. |
+| `FLASH_PORT` | Port for the local dev server. Default `8888`. |
+| `FLASH_FILE_LOGGING_ENABLED` | Enable or disable file logging (`true`/`false`). |
+| `FLASH_LOG_RETENTION_DAYS` | Number of days to retain log files. Default `30`. |
+| `FLASH_LOG_DIR` | Custom directory for log files. |
+
+#### Deployment and build
+
+| Variable | Description |
+|----------|-------------|
+| `FLASH_RESOURCE_NAME` | Set on deployed workers to identify the resource. |
+| `FLASH_ENVIRONMENT_ID` | Flash environment ID for the current deployment. |
+| `FLASH_IMAGE_TAG` | Docker image tag for deployment. |
+| `FLASH_GPU_IMAGE` | Docker image for GPU workers. |
+| `FLASH_CPU_IMAGE` | Docker image for CPU workers. |
+| `FLASH_LB_IMAGE` | Docker image for GPU load-balanced endpoints. |
+| `FLASH_CPU_LB_IMAGE` | Docker image for CPU load-balanced endpoints. |
+
+#### Runtime features
+
+| Variable | Description |
+|----------|-------------|
+| `FLASH_CIRCUIT_BREAKER_ENABLED` | Enable circuit breaker for remote calls. |
+| `FLASH_LB_STRATEGY` | Load balancer routing strategy. |
+| `FLASH_RETRY_ENABLED` | Enable automatic retries for failed remote calls. |
 
 ## Workflow examples
 
