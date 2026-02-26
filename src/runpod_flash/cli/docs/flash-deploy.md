@@ -86,7 +86,6 @@ flash deploy [OPTIONS]
 - `--app, -a`: Flash app name (auto-detected from current directory)
 - `--no-deps`: Skip transitive dependencies during pip install (default: false)
 - `--exclude`: Comma-separated packages to exclude (e.g., 'torch,torchvision')
-- `--use-local-flash`: Bundle local runpod_flash source instead of PyPI version (for development/testing)
 - `--output, -o`: Custom archive name (default: artifact.tar.gz)
 - `--preview`: Build and launch local preview environment instead of deploying
 
@@ -161,14 +160,6 @@ flash deploy --exclude torch,torchvision,torchaudio
 ```
 
 Skips specified packages during dependency installation. Critical for staying under Runpod's 500MB deployment limit. See [flash build](./flash-build.md#managing-deployment-size) for base image package reference.
-
-### Local Flash Development
-
-```bash
-flash deploy --use-local-flash
-```
-
-Bundles your local `runpod_flash` source instead of the PyPI version. Only use this for development and testing.
 
 ## Preview Mode
 

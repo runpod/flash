@@ -105,7 +105,6 @@ flash deploy [OPTIONS]
 - `--app, -a`: Flash app name
 - `--no-deps`: Skip transitive dependencies during pip install
 - `--exclude`: Comma-separated packages to exclude (e.g., 'torch,torchvision')
-- `--use-local-flash`: Bundle local runpod_flash source (for development)
 - `--output, -o`: Custom archive name (default: artifact.tar.gz)
 - `--preview`: Build and launch local preview instead of deploying
 
