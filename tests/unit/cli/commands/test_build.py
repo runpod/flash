@@ -150,25 +150,29 @@ class TestRunBuildHandlerGeneration:
 
     def _bundle_patches(self):
         """Return context manager that mocks bundling (now unconditional in run_build)."""
-        from contextlib import ExitStack
+        from contextlib import ExitStack, contextmanager
         from pathlib import Path
 
-        stack = ExitStack()
-        stack.enter_context(
-            patch(
-                "runpod_flash.cli.commands.build._find_runpod_flash",
-                return_value=Path("/fake/runpod_flash"),
-            )
-        )
-        stack.enter_context(
-            patch("runpod_flash.cli.commands.build._bundle_runpod_flash")
-        )
-        stack.enter_context(
-            patch(
-                "runpod_flash.cli.commands.build._remove_runpod_flash_from_requirements"
-            )
-        )
-        return stack
+        @contextmanager
+        def _stack():
+            with ExitStack() as stack:
+                stack.enter_context(
+                    patch(
+                        "runpod_flash.cli.commands.build._find_runpod_flash",
+                        return_value=Path("/fake/runpod_flash"),
+                    )
+                )
+                stack.enter_context(
+                    patch("runpod_flash.cli.commands.build._bundle_runpod_flash")
+                )
+                stack.enter_context(
+                    patch(
+                        "runpod_flash.cli.commands.build._remove_runpod_flash_from_requirements"
+                    )
+                )
+                yield
+
+        return _stack()
 
     def test_run_build_calls_handler_generator(self, tmp_path):
         """Test that run_build invokes HandlerGenerator.generate_handlers()."""
