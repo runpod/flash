@@ -2,8 +2,6 @@
 
 import platform
 
-from runpod_flash import __version__
-
 
 def get_user_agent() -> str:
     """Get the User-Agent string for flash HTTP requests.
@@ -15,6 +13,8 @@ def get_user_agent() -> str:
         >>> get_user_agent()
         'Runpod Flash/1.4.1 (Python 3.11.12; Darwin 25.2.0; arm64)'
     """
+    from runpod_flash import __version__
+
     python_version = platform.python_version()
     os_name = platform.system()
     os_version = platform.release()
