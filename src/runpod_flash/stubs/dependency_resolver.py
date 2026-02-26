@@ -6,6 +6,7 @@ dispatch stubs so funcB resolves correctly inside the worker's exec() namespace.
 """
 
 import ast
+import importlib
 import inspect
 import logging
 from dataclasses import dataclass
@@ -59,6 +60,125 @@ def detect_remote_dependencies(source: str, func_globals: dict[str, Any]) -> lis
         if name in func_globals and hasattr(func_globals[name], "__remote_config__")
     ]
     return remote_deps
+
+
+def resolve_in_function_imports(
+    source: str, func_globals: dict[str, Any]
+) -> dict[str, Any]:
+    """Augment *func_globals* with @remote functions discovered via in-body imports.
+
+    Parses the function source for ``from X import Y`` statements, attempts to
+    import each module, and checks every imported name for ``__remote_config__``.
+    Names that are already present in *func_globals* are not overwritten.
+
+    This is safe because it runs on the developer's local machine where the
+    imported modules are available — the worker never executes this function.
+
+    Args:
+        source: Source code of the calling function.
+        func_globals: The ``__globals__`` dict of the calling function.
+
+    Returns:
+        A (shallow) copy of *func_globals* augmented with any newly discovered
+        @remote objects.  Returns the original dict unchanged when nothing new
+        is found.
+    """
+    tree = ast.parse(source)
+    discovered: dict[str, Any] = {}
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom) or node.module is None:
+            continue
+
+        try:
+            mod = importlib.import_module(node.module)
+        except Exception:
+            log.debug("Skipping unimportable module %s", node.module)
+            continue
+
+        for alias in node.names:
+            name = alias.asname or alias.name
+            if name in func_globals or name in discovered:
+                continue
+            obj = getattr(mod, alias.name, None)
+            if obj is not None and hasattr(obj, "__remote_config__"):
+                discovered[name] = obj
+                log.debug(
+                    "Discovered in-function @remote import: %s from %s",
+                    name,
+                    node.module,
+                )
+
+    if not discovered:
+        return func_globals
+
+    augmented = {**func_globals, **discovered}
+    return augmented
+
+
+def strip_remote_imports(source: str, remote_names: set[str]) -> str:
+    """Remove or trim ``from X import ...`` statements that import @remote names.
+
+    If **all** names in an import statement are in *remote_names*, the entire
+    statement (including multi-line forms) is removed.  If only **some** names
+    match, only the matching names are removed and the rest are kept.
+
+    Indentation of the original statement is preserved so that this works
+    correctly for imports inside a function body.
+
+    Args:
+        source: Source code string (may contain indented imports).
+        remote_names: Set of names whose imports should be stripped.
+
+    Returns:
+        Modified source with matching imports removed or trimmed.
+    """
+    tree = ast.parse(source)
+    lines = source.splitlines(keepends=True)
+
+    # Collect line ranges to remove/replace, processed in reverse order to
+    # keep line numbers stable.
+    edits: list[tuple[int, int, str | None]] = []  # (start, end, replacement)
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom) or node.module is None:
+            continue
+
+        names_in_import = [alias.asname or alias.name for alias in node.names]
+        matching = [n for n in names_in_import if n in remote_names]
+
+        if not matching:
+            continue
+
+        start = node.lineno - 1  # 0-indexed
+        end = node.end_lineno  # end_lineno is 1-indexed, exclusive after slicing
+
+        if len(matching) == len(names_in_import):
+            # All names are remote — remove entire statement
+            edits.append((start, end, None))
+        else:
+            # Partial — rebuild with non-remote names only
+            kept = [
+                alias
+                for alias in node.names
+                if (alias.asname or alias.name) not in remote_names
+            ]
+            indent = " " * node.col_offset
+            kept_strs = [
+                f"{alias.name} as {alias.asname}" if alias.asname else alias.name
+                for alias in kept
+            ]
+            replacement = f"{indent}from {node.module} import {', '.join(kept_strs)}\n"
+            edits.append((start, end, replacement))
+
+    # Apply edits in reverse line order so indices stay valid.
+    for start, end, replacement in sorted(edits, key=lambda e: e[0], reverse=True):
+        if replacement is None:
+            del lines[start:end]
+        else:
+            lines[start:end] = [replacement]
+
+    return "".join(lines)
 
 
 async def resolve_dependencies(

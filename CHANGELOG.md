@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.4.2](https://github.com/runpod/flash/compare/v1.4.1...v1.4.2) (2026-02-26)
+
+
+### Bug Fixes
+
+* always bundle runpod-flash in flash build + versioning report ([#227](https://github.com/runpod/flash/issues/227)) ([8f883ee](https://github.com/runpod/flash/commit/8f883ee7864a4b075e8ceb91e7753927f3c8abf5))
+
+## [1.4.1](https://github.com/runpod/flash/compare/v1.4.0...v1.4.1) (2026-02-26)
+
+
+### Bug Fixes
+
+* **stubs:** resolve in-function [@remote](https://github.com/remote) imports for cross-endpoint dispatch ([#224](https://github.com/runpod/flash/issues/224)) ([7f168f7](https://github.com/runpod/flash/commit/7f168f711d7bc80bc31cff4c013559b0fa3df141))
+
 ## [1.4.0](https://github.com/runpod/flash/compare/v1.3.0...v1.4.0) (2026-02-24)
 
 
