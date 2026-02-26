@@ -24,7 +24,7 @@ def _parse_expires_at(value: Optional[str]) -> Optional[dt.datetime]:
         return None
 
 
-async def _login_async(open_browser: bool, timeout_seconds: float) -> None:
+async def _login(open_browser: bool, timeout_seconds: float) -> None:
     async with RunpodGraphQLClient(require_api_key=False) as client:
         request = await client.create_flash_auth_request()
         request_id = request.get("id")
@@ -79,7 +79,7 @@ def login_command(
 ):
     """Authenticate and save a Runpod API key for flash."""
     try:
-        asyncio.run(_login_async(open_browser=not no_open, timeout_seconds=timeout))
+        asyncio.run(_login(open_browser=not no_open, timeout_seconds=timeout))
     except RuntimeError as exc:
         console.print(f"[red]error:[/red] {exc}")
         raise typer.Exit(code=1)

@@ -61,9 +61,14 @@ class RunpodGraphQLClient:
     GRAPHQL_URL = f"{RUNPOD_API_BASE_URL}/graphql"
 
     def __init__(self, api_key: Optional[str] = None, require_api_key: bool = True):
-        self.api_key = api_key or get_api_key()
-        if require_api_key and not self.api_key:
-            raise RunpodAPIKeyError()
+        # skip loading stored credentials for unauthenticated flows (e.g. login)
+        # so an expired key is never sent to the server
+        if require_api_key:
+            self.api_key = api_key or get_api_key()
+            if not self.api_key:
+                raise RunpodAPIKeyError()
+        else:
+            self.api_key = api_key
 
         self.session: Optional[aiohttp.ClientSession] = None
 
