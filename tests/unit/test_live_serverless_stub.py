@@ -5,8 +5,8 @@ from runpod_flash.stubs.live_serverless import get_function_source
 from runpod_flash import remote, LiveServerless
 
 
-# Create a dummy config for testing
-dummy_config = LiveServerless(name="test-endpoint")
+def _fresh_config():
+    return LiveServerless(name="test-endpoint")
 
 
 class TestGetFunctionSource:
@@ -44,7 +44,7 @@ class TestGetFunctionSource:
             """A real sync function."""
             return x * 3
 
-        decorated_real = remote(resource_config=dummy_config)(real_sync_function)
+        decorated_real = remote(resource_config=_fresh_config())(real_sync_function)
 
         source, src_hash = get_function_source(decorated_real)
 
@@ -55,7 +55,7 @@ class TestGetFunctionSource:
     def test_async_function_with_remote_decorator(self):
         """Test extraction of decorated async function source."""
 
-        @remote(resource_config=dummy_config)
+        @remote(resource_config=_fresh_config())
         async def decorated_async(x: int) -> int:
             """A decorated async function."""
             return x * 4
@@ -69,7 +69,7 @@ class TestGetFunctionSource:
     def test_function_source_excludes_decorator_line(self):
         """Test that source extraction correctly excludes decorator lines."""
 
-        @remote(resource_config=dummy_config)
+        @remote(resource_config=_fresh_config())
         async def function_with_decorator(x: int) -> int:
             """Function with decorator."""
             return x * 5
@@ -85,7 +85,7 @@ class TestGetFunctionSource:
     def test_ast_parsing_handles_async_function(self):
         """Test that AST parsing correctly identifies async functions."""
 
-        @remote(resource_config=dummy_config)
+        @remote(resource_config=_fresh_config())
         async def async_test_function(x: int) -> int:
             """Async function for AST test."""
             result = x * 6

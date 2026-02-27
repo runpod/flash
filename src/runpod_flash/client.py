@@ -223,6 +223,27 @@ def remote(
             func_or_class.__is_lb_route_handler__ = True
             return func_or_class
 
+        # queue-based endpoints support one function per resource config.
+        # a second @remote on the same config object would silently shadow the
+        # first function in the generated handler, so reject it early.
+        if not is_lb_resource:
+            func_name_for_check = (
+                func_or_class.__name__
+                if hasattr(func_or_class, "__name__")
+                else str(func_or_class)
+            )
+            existing_owner = getattr(resource_config, "_remote_function_name", None)
+            if existing_owner is not None:
+                raise ValueError(
+                    f"Queue-based resource '{resource_config.name}' is already used by "
+                    f"@remote function '{existing_owner}'. Each queue-based resource "
+                    f"config supports only one function. Create a separate resource "
+                    f"config for '{func_name_for_check}'."
+                )
+            object.__setattr__(
+                resource_config, "_remote_function_name", func_name_for_check
+            )
+
         # Local execution mode - execute without provisioning remote servers
         if local:
             func_or_class.__remote_config__ = routing_config
