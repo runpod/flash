@@ -64,6 +64,12 @@ class GpuGroup(Enum):
     HOPPER_141 = "HOPPER_141"
     """NVIDIA H200"""
 
+    BLACKWELL_96 = "BLACKWELL_96"
+    """NVIDIA RTX PRO 6000 Blackwell Server Edition, NVIDIA RTX PRO 6000 Blackwell Workstation Edition, NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition"""
+
+    BLACKWELL_180 = "BLACKWELL_180"
+    """NVIDIA B200"""
+
     @classmethod
     def all(cls) -> List["GpuGroup"]:
         """Returns all GPU groups."""
@@ -160,22 +166,32 @@ class GpuType(Enum):
     ANY = "any"
     """Any GPU"""
 
-    NVIDIA_GEFORCE_RTX_4090 = "NVIDIA GeForce RTX 4090"
-    NVIDIA_GEFORCE_RTX_5090 = "NVIDIA GeForce RTX 5090"
-    NVIDIA_RTX_6000_ADA_GENERATION = "NVIDIA RTX 6000 Ada Generation"
-    NVIDIA_H100_80GB_HBM3 = "NVIDIA H100 80GB HBM3"
-    NVIDIA_RTX_A4000 = "NVIDIA RTX A4000"
-    NVIDIA_RTX_A4500 = "NVIDIA RTX A4500"
-    NVIDIA_RTX_4000_ADA_GENERATION = "NVIDIA RTX 4000 Ada Generation"
-    NVIDIA_RTX_2000_ADA_GENERATION = "NVIDIA RTX 2000 Ada Generation"
-    NVIDIA_RTX_A5000 = "NVIDIA RTX A5000"
-    NVIDIA_L4 = "NVIDIA L4"
-    NVIDIA_GEFORCE_RTX_3090 = "NVIDIA GeForce RTX 3090"
-    NVIDIA_A40 = "NVIDIA A40"
-    NVIDIA_RTX_A6000 = "NVIDIA RTX A6000"
-    NVIDIA_A100_80GB_PCIe = "NVIDIA A100 80GB PCIe"
-    NVIDIA_A100_SXM4_80GB = "NVIDIA A100-SXM4-80GB"
-    NVIDIA_H200 = "NVIDIA H200"
+    GEFORCE_RTX_4090 = "NVIDIA GeForce RTX 4090"
+    GEFORCE_RTX_5090 = "NVIDIA GeForce RTX 5090"
+    RTX_6000_ADA_GENERATION = "NVIDIA RTX 6000 Ada Generation"
+    RTX_PRO_6000_BLACKWELL_SERVER_EDITION = (
+        "NVIDIA RTX PRO 6000 Blackwell Server Edition"
+    )
+    RTX_PRO_6000_BLACKWELL_WORKSTATION_EDITION = (
+        "NVIDIA RTX PRO 6000 Blackwell Workstation Edition"
+    )
+    RTX_PRO_6000_BLACKWELL_MAX_Q_WORKSTATION_EDITION = (
+        "NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition"
+    )
+    H100_80GB_HBM3 = "NVIDIA H100 80GB HBM3"
+    RTX_A4000 = "NVIDIA RTX A4000"
+    RTX_A4500 = "NVIDIA RTX A4500"
+    RTX_4000_ADA_GENERATION = "NVIDIA RTX 4000 Ada Generation"
+    RTX_2000_ADA_GENERATION = "NVIDIA RTX 2000 Ada Generation"
+    RTX_A5000 = "NVIDIA RTX A5000"
+    L4 = "NVIDIA L4"
+    GEFORCE_RTX_3090 = "NVIDIA GeForce RTX 3090"
+    A40 = "NVIDIA A40"
+    RTX_A6000 = "NVIDIA RTX A6000"
+    A100_80GB_PCIe = "NVIDIA A100 80GB PCIe"
+    A100_SXM4_80GB = "NVIDIA A100-SXM4-80GB"
+    H200 = "NVIDIA H200"
+    B200 = "NVIDIA B200"
 
     @classmethod
     def all(cls) -> List["GpuType"]:
@@ -190,25 +206,51 @@ class GpuType(Enum):
         return gpu_type in {m.value for m in cls}
 
 
+# deprecated aliases (old NVIDIA_ prefix names) set outside the class
+# so they don't interfere with cloudpickle serialization
+GpuType.NVIDIA_GEFORCE_RTX_4090 = GpuType.GEFORCE_RTX_4090
+GpuType.NVIDIA_GEFORCE_RTX_5090 = GpuType.GEFORCE_RTX_5090
+GpuType.NVIDIA_RTX_6000_ADA_GENERATION = GpuType.RTX_6000_ADA_GENERATION
+GpuType.NVIDIA_H100_80GB_HBM3 = GpuType.H100_80GB_HBM3
+GpuType.NVIDIA_RTX_A4000 = GpuType.RTX_A4000
+GpuType.NVIDIA_RTX_A4500 = GpuType.RTX_A4500
+GpuType.NVIDIA_RTX_4000_ADA_GENERATION = GpuType.RTX_4000_ADA_GENERATION
+GpuType.NVIDIA_RTX_2000_ADA_GENERATION = GpuType.RTX_2000_ADA_GENERATION
+GpuType.NVIDIA_RTX_A5000 = GpuType.RTX_A5000
+GpuType.NVIDIA_L4 = GpuType.L4
+GpuType.NVIDIA_GEFORCE_RTX_3090 = GpuType.GEFORCE_RTX_3090
+GpuType.NVIDIA_A40 = GpuType.A40
+GpuType.NVIDIA_RTX_A6000 = GpuType.RTX_A6000
+GpuType.NVIDIA_A100_80GB_PCIe = GpuType.A100_80GB_PCIe
+GpuType.NVIDIA_A100_SXM4_80GB = GpuType.A100_SXM4_80GB
+GpuType.NVIDIA_H200 = GpuType.H200
+
+
 POOLS_TO_TYPES = {
-    GpuGroup.ADA_24: [GpuType.NVIDIA_GEFORCE_RTX_4090],
-    GpuGroup.ADA_32_PRO: [GpuType.NVIDIA_GEFORCE_RTX_5090],
-    GpuGroup.ADA_48_PRO: [GpuType.NVIDIA_RTX_6000_ADA_GENERATION],
-    GpuGroup.ADA_80_PRO: [GpuType.NVIDIA_H100_80GB_HBM3],
+    GpuGroup.ADA_24: [GpuType.GEFORCE_RTX_4090],
+    GpuGroup.ADA_32_PRO: [GpuType.GEFORCE_RTX_5090],
+    GpuGroup.ADA_48_PRO: [GpuType.RTX_6000_ADA_GENERATION],
+    GpuGroup.ADA_80_PRO: [GpuType.H100_80GB_HBM3],
     GpuGroup.AMPERE_16: [
-        GpuType.NVIDIA_RTX_A4000,
-        GpuType.NVIDIA_RTX_A4500,
-        GpuType.NVIDIA_RTX_4000_ADA_GENERATION,
-        GpuType.NVIDIA_RTX_2000_ADA_GENERATION,
+        GpuType.RTX_A4000,
+        GpuType.RTX_A4500,
+        GpuType.RTX_4000_ADA_GENERATION,
+        GpuType.RTX_2000_ADA_GENERATION,
     ],
     GpuGroup.AMPERE_24: [
-        GpuType.NVIDIA_RTX_A5000,
-        GpuType.NVIDIA_L4,
-        GpuType.NVIDIA_GEFORCE_RTX_3090,
+        GpuType.RTX_A5000,
+        GpuType.L4,
+        GpuType.GEFORCE_RTX_3090,
     ],
-    GpuGroup.AMPERE_48: [GpuType.NVIDIA_A40, GpuType.NVIDIA_RTX_A6000],
-    GpuGroup.AMPERE_80: [GpuType.NVIDIA_A100_80GB_PCIe, GpuType.NVIDIA_A100_SXM4_80GB],
-    GpuGroup.HOPPER_141: [GpuType.NVIDIA_H200],
+    GpuGroup.AMPERE_48: [GpuType.A40, GpuType.RTX_A6000],
+    GpuGroup.AMPERE_80: [GpuType.A100_80GB_PCIe, GpuType.A100_SXM4_80GB],
+    GpuGroup.HOPPER_141: [GpuType.H200],
+    GpuGroup.BLACKWELL_96: [
+        GpuType.RTX_PRO_6000_BLACKWELL_SERVER_EDITION,
+        GpuType.RTX_PRO_6000_BLACKWELL_WORKSTATION_EDITION,
+        GpuType.RTX_PRO_6000_BLACKWELL_MAX_Q_WORKSTATION_EDITION,
+    ],
+    GpuGroup.BLACKWELL_180: [GpuType.B200],
 }
 
 
