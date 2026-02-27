@@ -209,6 +209,13 @@ class TestServerlessResourceNetworkVolume:
 class TestServerlessResourceValidation:
     """Test field validation and serialization."""
 
+    def test_workers_min_cannot_exceed_workers_max(self):
+        with pytest.raises(
+            ValueError,
+            match=r"workersMin \(5\) cannot be greater than workersMax \(1\)",
+        ):
+            ServerlessResource(name="test", workersMin=5, workersMax=1)
+
     def test_scaler_type_serialization(self):
         """Test ServerlessScalerType enum serialization."""
         serverless = ServerlessResource(

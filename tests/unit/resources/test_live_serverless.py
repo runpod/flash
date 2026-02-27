@@ -14,6 +14,13 @@ from runpod_flash.core.resources.template import PodTemplate
 class TestLiveServerless:
     """Test LiveServerless (GPU) class behavior."""
 
+    def test_live_serverless_workers_min_cannot_exceed_workers_max(self):
+        with pytest.raises(
+            ValueError,
+            match=r"workersMin \(5\) cannot be greater than workersMax \(1\)",
+        ):
+            LiveServerless(name="broken", workersMin=5, workersMax=1)
+
     def test_live_serverless_gpu_defaults(self):
         """Test LiveServerless uses GPU image and defaults."""
         live_serverless = LiveServerless(
