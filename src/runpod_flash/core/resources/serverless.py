@@ -324,6 +324,20 @@ class ServerlessResource(DeployableResource):
 
         return self
 
+    @model_validator(mode="after")
+    def validate_worker_range(self):
+        """Ensure worker scaling bounds are valid."""
+        if (
+            self.workersMin is not None
+            and self.workersMax is not None
+            and self.workersMin > self.workersMax
+        ):
+            raise ValueError(
+                f"workersMin ({self.workersMin}) cannot be greater than "
+                f"workersMax ({self.workersMax})"
+            )
+        return self
+
     def _has_cpu_instances(self) -> bool:
         """Check if endpoint has CPU instances configured.
 
