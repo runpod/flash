@@ -64,6 +64,9 @@ class GpuGroup(Enum):
     HOPPER_141 = "HOPPER_141"
     """NVIDIA H200"""
 
+    BLACKWELL_96 = "BLACKWELL_96"
+    """NVIDIA RTX PRO 6000 Blackwell Server Edition, NVIDIA RTX PRO 6000 Blackwell Workstation Edition, NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition"""
+
     BLACKWELL_180 = "BLACKWELL_180"
     """NVIDIA B200"""
 
@@ -172,6 +175,9 @@ class GpuType(Enum):
     RTX_PRO_6000_BLACKWELL_WORKSTATION_EDITION = (
         "NVIDIA RTX PRO 6000 Blackwell Workstation Edition"
     )
+    RTX_PRO_6000_BLACKWELL_MAX_Q_WORKSTATION_EDITION = (
+        "NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition"
+    )
     H100_80GB_HBM3 = "NVIDIA H100 80GB HBM3"
     RTX_A4000 = "NVIDIA RTX A4000"
     RTX_A4500 = "NVIDIA RTX A4500"
@@ -200,6 +206,26 @@ class GpuType(Enum):
         return gpu_type in {m.value for m in cls}
 
 
+# deprecated aliases (old NVIDIA_ prefix names) set outside the class
+# so they don't interfere with cloudpickle serialization
+GpuType.NVIDIA_GEFORCE_RTX_4090 = GpuType.GEFORCE_RTX_4090
+GpuType.NVIDIA_GEFORCE_RTX_5090 = GpuType.GEFORCE_RTX_5090
+GpuType.NVIDIA_RTX_6000_ADA_GENERATION = GpuType.RTX_6000_ADA_GENERATION
+GpuType.NVIDIA_H100_80GB_HBM3 = GpuType.H100_80GB_HBM3
+GpuType.NVIDIA_RTX_A4000 = GpuType.RTX_A4000
+GpuType.NVIDIA_RTX_A4500 = GpuType.RTX_A4500
+GpuType.NVIDIA_RTX_4000_ADA_GENERATION = GpuType.RTX_4000_ADA_GENERATION
+GpuType.NVIDIA_RTX_2000_ADA_GENERATION = GpuType.RTX_2000_ADA_GENERATION
+GpuType.NVIDIA_RTX_A5000 = GpuType.RTX_A5000
+GpuType.NVIDIA_L4 = GpuType.L4
+GpuType.NVIDIA_GEFORCE_RTX_3090 = GpuType.GEFORCE_RTX_3090
+GpuType.NVIDIA_A40 = GpuType.A40
+GpuType.NVIDIA_RTX_A6000 = GpuType.RTX_A6000
+GpuType.NVIDIA_A100_80GB_PCIe = GpuType.A100_80GB_PCIe
+GpuType.NVIDIA_A100_SXM4_80GB = GpuType.A100_SXM4_80GB
+GpuType.NVIDIA_H200 = GpuType.H200
+
+
 POOLS_TO_TYPES = {
     GpuGroup.ADA_24: [GpuType.GEFORCE_RTX_4090],
     GpuGroup.ADA_32_PRO: [GpuType.GEFORCE_RTX_5090],
@@ -219,6 +245,11 @@ POOLS_TO_TYPES = {
     GpuGroup.AMPERE_48: [GpuType.A40, GpuType.RTX_A6000],
     GpuGroup.AMPERE_80: [GpuType.A100_80GB_PCIe, GpuType.A100_SXM4_80GB],
     GpuGroup.HOPPER_141: [GpuType.H200],
+    GpuGroup.BLACKWELL_96: [
+        GpuType.RTX_PRO_6000_BLACKWELL_SERVER_EDITION,
+        GpuType.RTX_PRO_6000_BLACKWELL_WORKSTATION_EDITION,
+        GpuType.RTX_PRO_6000_BLACKWELL_MAX_Q_WORKSTATION_EDITION,
+    ],
     GpuGroup.BLACKWELL_180: [GpuType.B200],
 }
 
