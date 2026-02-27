@@ -99,13 +99,9 @@ def init_command(
         step_num += 1
     console.print(f"  {step_num}. pip install -r requirements.txt")
     step_num += 1
-    steps_table.add_row(
-        f"{step_num}.", "Add your RUNPOD_API_KEY to .env (or run flash login)"
-    )
+    console.print(f"  {step_num}. Add your RUNPOD_API_KEY to .env (or run flash login)")
     step_num += 1
     console.print(f"  {step_num}. flash dev")
-
-    console.print(steps_table)
 
     console.print("\n[bold]Get your API key:[/bold]")
     console.print("  https://docs.runpod.io/get-started/api-keys")
