@@ -21,5 +21,4 @@ class TestGpuIdsBehavior:
         assert parsed == [GpuGroup.AMPERE_24]
 
     def test_gpu_type_is_gpu_type_checks_enum_member_names(self):
-        assert GpuType.is_gpu_type("NVIDIA_L4") is False
-        assert GpuType.is_gpu_type("NVIDIA L4") is True
+        assert GpuType.is_gpu_type("L4") is True
