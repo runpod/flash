@@ -13,6 +13,8 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from .core.resources.cpu import CpuInstanceType
 from .core.resources.gpu import GpuGroup, GpuType
 from .core.resources.network_volume import DataCenter, NetworkVolume
+from .core.resources.serverless import ServerlessScalerType
+from .core.resources.template import PodTemplate
 
 log = logging.getLogger(__name__)
 
@@ -286,6 +288,9 @@ class Endpoint:
         execution_timeout_ms: int = 0,
         flashboot: bool = True,
         image: Optional[str] = None,
+        scaler_type: ServerlessScalerType = ServerlessScalerType.QUEUE_DELAY,
+        scaler_value: int = 4,
+        template: Optional[PodTemplate] = None,
     ):
         if gpu is not None and cpu is not None:
             raise ValueError(
@@ -316,6 +321,9 @@ class Endpoint:
         self.execution_timeout_ms = execution_timeout_ms
         self.flashboot = flashboot
         self.image = image
+        self.scaler_type = scaler_type
+        self.scaler_value = scaler_value
+        self.template = template
 
         # if no gpu or cpu specified, default to gpu any (unless pure client mode)
         if not self._is_cpu and self._gpu is None and not self.is_client:
@@ -388,7 +396,16 @@ class Endpoint:
             "datacenter": self.datacenter.value
             if hasattr(self.datacenter, "value")
             else self.datacenter,
+            "scalerType": self.scaler_type.value
+            if hasattr(self.scaler_type, "value")
+            else self.scaler_type,
+            "scalerValue": self.scaler_value,
         }
+
+        if self.template is not None:
+            # serialize to dict to avoid pydantic model identity issues
+            # when modules get re-imported across different contexts
+            kwargs["template"] = self.template.model_dump(exclude_none=True)
 
         if self.volume is not None:
             # serialize to dict to avoid pydantic model identity issues

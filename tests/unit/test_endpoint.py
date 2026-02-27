@@ -9,6 +9,8 @@ from runpod_flash.endpoint import Endpoint, _normalize_workers
 from runpod_flash.core.resources.cpu import CpuInstanceType
 from runpod_flash.core.resources.gpu import GpuGroup, GpuType
 from runpod_flash.core.resources.network_volume import DataCenter, NetworkVolume
+from runpod_flash.core.resources.serverless import ServerlessScalerType
+from runpod_flash.core.resources.template import PodTemplate
 
 
 # -- _normalize_workers --
@@ -122,6 +124,33 @@ class TestEndpointInit:
         assert ep.gpu_count == 2
         assert ep.execution_timeout_ms == 5000
         assert ep.flashboot is False
+
+    def test_scaler_type_defaults(self):
+        ep = Endpoint(name="test")
+        assert ep.scaler_type == ServerlessScalerType.QUEUE_DELAY
+        assert ep.scaler_value == 4
+
+    def test_scaler_type_custom(self):
+        ep = Endpoint(
+            name="test",
+            scaler_type=ServerlessScalerType.REQUEST_COUNT,
+            scaler_value=10,
+        )
+        assert ep.scaler_type == ServerlessScalerType.REQUEST_COUNT
+        assert ep.scaler_value == 10
+
+    def test_template_none_by_default(self):
+        ep = Endpoint(name="test")
+        assert ep.template is None
+
+    def test_template_param(self):
+        tpl = PodTemplate(
+            imageName="my-image:latest",
+            containerDiskInGb=30,
+            dockerArgs="--shm-size=2g",
+        )
+        ep = Endpoint(name="test", template=tpl)
+        assert ep.template is tpl
 
 
 # -- is_load_balanced --
@@ -297,6 +326,45 @@ class TestBuildResourceConfig:
         ep = Endpoint(name="test", gpu=GpuGroup.ADA_80_PRO, gpu_count=4)
         config = ep._build_resource_config()
         assert config.gpuCount == 4
+
+    @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "true"})
+    def test_config_passes_scaler_defaults(self):
+        ep = Endpoint(name="test")
+        config = ep._build_resource_config()
+        assert config.scalerType.value == "QUEUE_DELAY"
+        assert config.scalerValue == 4
+
+    @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "true"})
+    def test_config_passes_scaler_custom(self):
+        ep = Endpoint(
+            name="test",
+            scaler_type=ServerlessScalerType.REQUEST_COUNT,
+            scaler_value=10,
+        )
+        config = ep._build_resource_config()
+        assert config.scalerType.value == "REQUEST_COUNT"
+        assert config.scalerValue == 10
+
+    @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "true"})
+    def test_config_passes_template(self):
+        tpl = PodTemplate(
+            imageName="custom:latest",
+            containerDiskInGb=30,
+            dockerArgs="--shm-size=2g",
+        )
+        ep = Endpoint(name="test", template=tpl)
+        config = ep._build_resource_config()
+        assert config.template is not None
+        assert config.template.dockerArgs == "--shm-size=2g"
+
+    @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "true"})
+    def test_config_no_user_template_by_default(self):
+        ep = Endpoint(name="test")
+        assert ep.template is None
+        # the internal resource config auto-creates a default template,
+        # but the user-facing Endpoint.template stays None
+        config = ep._build_resource_config()
+        assert config.template is not None
 
 
 # -- decorator behavior (qb mode) --

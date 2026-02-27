@@ -154,6 +154,21 @@ class ManifestBuilder:
                     if hasattr(resource_config, "workersMax"):
                         config["workersMax"] = resource_config.workersMax
 
+                    if (
+                        hasattr(resource_config, "scalerType")
+                        and resource_config.scalerType is not None
+                    ):
+                        val = resource_config.scalerType
+                        config["scalerType"] = (
+                            val.value if hasattr(val, "value") else val
+                        )
+
+                    if (
+                        hasattr(resource_config, "scalerValue")
+                        and resource_config.scalerValue is not None
+                    ):
+                        config["scalerValue"] = resource_config.scalerValue
+
                     # Extract template configuration if present
                     if (
                         hasattr(resource_config, "template")

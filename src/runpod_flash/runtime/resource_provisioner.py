@@ -125,6 +125,10 @@ def create_resource_from_manifest(
         deployment_kwargs["workersMin"] = resource_data["workersMin"]
     if "workersMax" in resource_data:
         deployment_kwargs["workersMax"] = resource_data["workersMax"]
+    if "scalerType" in resource_data:
+        deployment_kwargs["scalerType"] = resource_data["scalerType"]
+    if "scalerValue" in resource_data:
+        deployment_kwargs["scalerValue"] = resource_data["scalerValue"]
 
     # Note: template is extracted but not passed to resource constructor
     # Let resources create their own templates with proper initialization
