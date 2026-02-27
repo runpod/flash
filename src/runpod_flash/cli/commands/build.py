@@ -532,7 +532,7 @@ def collect_requirements(project_dir: Path, build_dir: Path) -> list[str]:
 
     Args:
         project_dir: Flash project directory
-        build_dir: Build directory (to check for workers)
+        build_dir: Build directory to scan for packaged Python files
 
     Returns:
         List of requirement strings
@@ -554,11 +554,9 @@ def collect_requirements(project_dir: Path, build_dir: Path) -> list[str]:
                 f"[yellow]Warning:[/yellow] Failed to read requirements.txt: {e}"
             )
 
-    # Extract dependencies from @remote decorators
-    workers_dir = build_dir / "workers"
-    if workers_dir.exists():
-        remote_deps = extract_remote_dependencies(workers_dir)
-        requirements.extend(remote_deps)
+    # Extract dependencies from @remote decorators in packaged source files
+    remote_deps = extract_remote_dependencies(build_dir)
+    requirements.extend(remote_deps)
 
     # Remove duplicates while preserving order
     seen = set()
@@ -620,19 +618,19 @@ def should_exclude_package(requirement: str, exclusions: list[str]) -> bool:
     return package_name in exclusions
 
 
-def extract_remote_dependencies(workers_dir: Path) -> list[str]:
+def extract_remote_dependencies(source_dir: Path) -> list[str]:
     """
-    Extract dependencies from @remote decorators in worker files.
+    Extract dependencies from @remote decorators in Python source files.
 
     Args:
-        workers_dir: Path to workers directory
+        source_dir: Path to directory containing Python source files
 
     Returns:
         List of dependency strings
     """
     dependencies = []
 
-    for py_file in workers_dir.glob("**/*.py"):
+    for py_file in source_dir.glob("**/*.py"):
         if py_file.name == "__init__.py":
             continue
 
@@ -640,7 +638,9 @@ def extract_remote_dependencies(workers_dir: Path) -> list[str]:
             tree = ast.parse(py_file.read_text(encoding="utf-8"))
 
             for node in ast.walk(tree):
-                if isinstance(node, (ast.ClassDef, ast.FunctionDef)):
+                if isinstance(
+                    node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+                ):
                     for decorator in node.decorator_list:
                         if isinstance(decorator, ast.Call):
                             func_name = None
