@@ -8,6 +8,8 @@ import typer
 
 from runpod_flash.cli.commands.build import (
     _find_runpod_flash,
+    collect_requirements,
+    extract_remote_dependencies,
     extract_package_name,
     run_build,
     should_exclude_package,
@@ -143,6 +145,49 @@ class TestPackageExclusionIntegration:
         # scipy and pandas didn't match
         unmatched = set(exclusions) - matched
         assert unmatched == {"scipy", "pandas"}
+
+
+class TestExtractRemoteDependencies:
+    """Tests for extracting @remote decorator dependencies."""
+
+    def test_extracts_dependencies_from_async_remote_function(self, tmp_path):
+        """Extract dependencies from async @remote function decorators."""
+        workers_dir = tmp_path / "workers"
+        workers_dir.mkdir()
+        worker_file = workers_dir / "worker.py"
+
+        worker_file.write_text(
+            "from runpod_flash import remote, LiveServerless\n"
+            "gpu = LiveServerless()\n"
+            "@remote(gpu, dependencies=['torch', 'transformers'])\n"
+            "async def my_async_func(prompt: str) -> str:\n"
+            "    return prompt\n"
+        )
+
+        dependencies = extract_remote_dependencies(workers_dir)
+
+        assert dependencies == ["torch", "transformers"]
+
+    def test_collect_requirements_scans_full_build_dir(self, tmp_path):
+        """Collect requirements from Python files at build root, not only workers/."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+
+        build_dir = project_dir / ".flash" / ".build"
+        build_dir.mkdir(parents=True)
+
+        api_example = build_dir / "api_example.py"
+        api_example.write_text(
+            "from runpod_flash import remote, LiveServerless\n"
+            "gpu = LiveServerless()\n"
+            "@remote(gpu, dependencies=['transformers'])\n"
+            "async def smoke(prompt: str) -> str:\n"
+            "    return prompt\n"
+        )
+
+        requirements = collect_requirements(project_dir, build_dir)
+
+        assert "transformers" in requirements
 
 
 class TestRunBuildHandlerGeneration:

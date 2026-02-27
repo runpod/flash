@@ -463,3 +463,38 @@ def test_extract_deployment_config_cleans_up_sys_path():
             "bad_config", "bad_config", "LiveServerless"
         )
         assert sys.path == path_before
+
+
+def test_extract_deployment_config_includes_env_without_api_key():
+    """Resource env is extracted and RUNPOD_API_KEY is excluded."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project_dir = Path(tmpdir)
+
+        resource_py = project_dir / "resource.py"
+        resource_py.write_text(
+            "class gpu_config:\n"
+            '    imageName = "test-image"\n'
+            '    env = {"APP_MODE": "prod", "RUNPOD_API_KEY": "secret"}\n'
+        )
+
+        functions = [
+            RemoteFunctionMetadata(
+                function_name="my_func",
+                module_path="resource",
+                resource_config_name="gpu_config",
+                resource_type="LiveServerless",
+                is_async=False,
+                is_class=False,
+                file_path=resource_py,
+                config_variable="gpu_config",
+            )
+        ]
+
+        scanner = MagicMock()
+        builder = ManifestBuilder("test_app", functions, scanner=scanner)
+        config = builder._extract_deployment_config(
+            "gpu_config", "gpu_config", "LiveServerless"
+        )
+
+        assert config["env"]["APP_MODE"] == "prod"
+        assert "RUNPOD_API_KEY" not in config["env"]
