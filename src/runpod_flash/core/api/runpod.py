@@ -839,6 +839,7 @@ class RunpodRestClient:
             self.session = get_authenticated_aiohttp_session(
                 timeout=300.0,  # 5 minute timeout for REST operations
                 api_key_override=self.api_key,
+                use_threaded_resolver=False,
             )
         return self.session
 

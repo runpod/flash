@@ -479,7 +479,10 @@ class FlashApp:
             with tar_path.open("rb") as fh:
                 resp = session.put(url, data=fh)
 
-        resp.raise_for_status()
+            try:
+                resp.raise_for_status()
+            finally:
+                resp.close()
         resp = await self._finalize_upload_build(object_key, manifest)
         return resp
 
