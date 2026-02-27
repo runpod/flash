@@ -240,7 +240,9 @@ def remote(
                     f"config supports only one function. Create a separate resource "
                     f"config for '{func_name_for_check}'."
                 )
-            object.__setattr__(resource_config, "_remote_function_name", func_name_for_check)
+            object.__setattr__(
+                resource_config, "_remote_function_name", func_name_for_check
+            )
 
         # Local execution mode - execute without provisioning remote servers
         if local:
