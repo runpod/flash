@@ -1,14 +1,12 @@
-from runpod_flash import GpuType, LiveServerless, remote
-
-gpu_config = LiveServerless(
-    name="gpu_worker",
-    gpus=[GpuType.ANY],
-)
+# gpu serverless worker -- detects available GPU hardware.
+# run with: flash run
+# test directly: python gpu_worker.py
+from runpod_flash import Endpoint, GpuType
 
 
-@remote(resource_config=gpu_config, dependencies=["torch"])
+@Endpoint(name="gpu_worker", gpu=GpuType.ANY, dependencies=["torch"])
 async def gpu_hello(input_data: dict) -> dict:
-    """GPU worker — detects available GPU hardware."""
+    """GPU worker that returns GPU hardware info."""
     import platform
 
     try:
@@ -25,3 +23,12 @@ async def gpu_hello(input_data: dict) -> dict:
         "gpu": {"available": gpu_available, "name": gpu_name},
         "python_version": platform.python_version(),
     }
+
+
+if __name__ == "__main__":
+    import asyncio
+
+    test_payload = {"message": "Testing GPU worker"}
+    print(f"Testing GPU worker with payload: {test_payload}")
+    result = asyncio.run(gpu_hello(test_payload))
+    print(f"Result: {result}")

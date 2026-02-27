@@ -90,27 +90,56 @@ class ResourceDiscovery:
         return resources
 
     def _find_resource_config_vars(self, file_path: Path) -> Set[str]:
-        """Find variable names used in @remote decorators via AST parsing.
+        """Find variable names used in @remote or @Endpoint decorators via AST parsing.
+
+        Detects:
+        - @remote(resource_config=var) / @remote(var) patterns
+        - ep = Endpoint(...) variables used as LB route decorators (@ep.get, @ep.post, etc)
 
         Args:
             file_path: Path to Python file to parse
 
         Returns:
-            Set of variable names referenced in @remote decorators
+            Set of variable names referenced in decorators
         """
         var_names = set()
 
         try:
             tree = ast.parse(file_path.read_text(encoding="utf-8"))
 
+            # pass 1: find Endpoint variable assignments (ep = Endpoint(...))
+            endpoint_vars = set()
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Assign) and len(node.targets) == 1:
+                    target = node.targets[0]
+                    if isinstance(target, ast.Name) and isinstance(
+                        node.value, ast.Call
+                    ):
+                        func = node.value.func
+                        call_name = None
+                        if isinstance(func, ast.Name):
+                            call_name = func.id
+                        elif isinstance(func, ast.Attribute):
+                            call_name = func.attr
+                        if call_name == "Endpoint":
+                            endpoint_vars.add(target.id)
+
+            # pass 2: find decorator references
             for node in ast.walk(tree):
                 if isinstance(
                     node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
                 ):
                     for decorator in node.decorator_list:
                         if self._is_remote_decorator(decorator):
-                            # Extract resource_config variable name
                             var_name = self._extract_resource_config_var(decorator)
+                            if var_name:
+                                var_names.add(var_name)
+
+                        # @ep.get("/path"), @ep.post("/path"), etc
+                        elif self._is_endpoint_route_decorator(
+                            decorator, endpoint_vars
+                        ):
+                            var_name = self._extract_endpoint_var_from_route(decorator)
                             if var_name:
                                 var_names.add(var_name)
 
@@ -118,6 +147,28 @@ class ResourceDiscovery:
             log.warning(f"Failed to parse {file_path}: {e}")
 
         return var_names
+
+    def _is_endpoint_route_decorator(
+        self, decorator: ast.expr, endpoint_vars: Set[str]
+    ) -> bool:
+        """Check if decorator is @ep.get/post/put/delete/patch for a known Endpoint variable."""
+        if not isinstance(decorator, ast.Call):
+            return False
+        func = decorator.func
+        if not isinstance(func, ast.Attribute):
+            return False
+        if func.attr not in ("get", "post", "put", "delete", "patch"):
+            return False
+        if isinstance(func.value, ast.Name) and func.value.id in endpoint_vars:
+            return True
+        return False
+
+    def _extract_endpoint_var_from_route(self, decorator: ast.Call) -> str:
+        """Extract the Endpoint variable name from @ep.get("/path") decorator."""
+        func = decorator.func
+        if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
+            return func.value.id
+        return ""
 
     def _is_remote_decorator(self, decorator: ast.expr) -> bool:
         """Check if decorator is @remote.
@@ -197,6 +248,9 @@ class ResourceDiscovery:
     def _resolve_resource_variable(self, module, var_name: str) -> DeployableResource:
         """Resolve variable name to DeployableResource instance.
 
+        Handles both legacy resource config objects (LiveServerless, etc) and
+        Endpoint facade objects (unwraps via _build_resource_config()).
+
         Args:
             module: Imported module
             var_name: Variable name to resolve
@@ -210,11 +264,19 @@ class ResourceDiscovery:
             if obj and isinstance(obj, DeployableResource):
                 return obj
 
-            log.warning(
-                f"Resource '{var_name}' failed to resolve to DeployableResource "
-                f"(found type: {type(obj).__name__}). "
-                f"Check that '{var_name}' is defined as a ServerlessResource or other DeployableResource type."
-            )
+            # unwrap Endpoint facade to its internal resource config
+            if obj and hasattr(obj, "_build_resource_config"):
+                resource = obj._build_resource_config()
+                if isinstance(resource, DeployableResource):
+                    return resource
+
+            if obj is not None:
+                log.warning(
+                    f"Resource '{var_name}' failed to resolve to DeployableResource "
+                    f"(found type: {type(obj).__name__}). "
+                    f"Check that '{var_name}' is defined as a ServerlessResource, "
+                    f"Endpoint, or other DeployableResource type."
+                )
 
         except Exception as e:
             log.warning(f"Failed to resolve variable '{var_name}': {e}")
@@ -382,12 +444,12 @@ class ResourceDiscovery:
 
             log.debug(f"Scanning {len(python_files)} Python files in {project_root}")
 
-            # Check each file for @remote decorators
+            # Check each file for @remote or Endpoint decorators
             for file_path in python_files:
                 try:
-                    # Quick check: does file contain "@remote"?
+                    # quick check: does file contain relevant patterns?
                     content = file_path.read_text(encoding="utf-8")
-                    if "@remote" not in content:
+                    if "@remote" not in content and "Endpoint" not in content:
                         continue
 
                     # Find resource config variables via AST

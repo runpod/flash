@@ -1,0 +1,695 @@
+"""unified endpoint class for flash.
+
+replaces the 8-class resource config hierarchy with a single class.
+queue-based vs load-balanced is inferred from usage pattern.
+gpu vs cpu is a parameter, not a class choice.
+live vs deploy is determined by the runtime environment.
+"""
+
+import logging
+import os
+from typing import Any, Dict, List, Optional, Tuple, Union
+
+from .core.resources.cpu import CpuInstanceType
+from .core.resources.gpu import GpuGroup, GpuType
+from .core.resources.network_volume import DataCenter, NetworkVolume
+from .core.resources.serverless import ServerlessScalerType
+from .core.resources.template import PodTemplate
+
+log = logging.getLogger(__name__)
+
+# valid http methods for load-balanced endpoints
+_VALID_HTTP_METHODS = frozenset({"GET", "POST", "PUT", "DELETE", "PATCH"})
+
+# terminal job statuses that won't change
+_TERMINAL_STATUSES = frozenset({"COMPLETED", "FAILED", "CANCELLED", "TIMED_OUT"})
+
+# default polling interval bounds (seconds)
+_POLL_INITIAL_INTERVAL = 0.25
+_POLL_MAX_INTERVAL = 5.0
+_POLL_BACKOFF_FACTOR = 1.5
+
+
+class EndpointJob:
+    """a submitted job on a runpod endpoint.
+
+    returned by Endpoint.run() and Endpoint.runsync(). properties read from
+    an internal _data dict that is updated in place by status()/cancel()/wait().
+
+    usage:
+        job = await ep.run({"prompt": "hello"})
+        job.id       # "job-abc123"
+
+        s = await job.status()  # polls, updates _data, returns status string
+        s                       # "IN_PROGRESS"
+        s = await job.status()
+        s                       # "COMPLETED"
+        job.output              # {"text": "world"}
+
+        # or wait for completion in one call
+        job = await ep.run({"prompt": "hello"})
+        await job.wait()
+        job.output   # {"text": "world"}
+
+        # cancel
+        await job.cancel()
+    """
+
+    def __init__(self, data: dict, endpoint: "Endpoint"):
+        self._data = data
+        self._endpoint = endpoint
+
+    @property
+    def id(self) -> str:
+        """job id assigned by runpod."""
+        return self._data.get("id", "")
+
+    @property
+    def output(self) -> Any:
+        """job output payload. available after status() returns COMPLETED."""
+        return self._data.get("output")
+
+    @property
+    def error(self) -> Optional[str]:
+        """error message. available after status() returns FAILED."""
+        return self._data.get("error")
+
+    @property
+    def done(self) -> bool:
+        """true if the job has reached a terminal status."""
+        return self._data.get("status", "UNKNOWN") in _TERMINAL_STATUSES
+
+    async def status(self) -> str:
+        """poll the endpoint for current job status.
+
+        updates _data in place (so .output, .error, .done reflect the
+        latest state) and returns the status string.
+        """
+        url = await self._endpoint._ensure_endpoint_ready()
+        self._data = await self._endpoint._api_get(f"{url}/status/{self.id}")
+        return self._data.get("status", "UNKNOWN")
+
+    async def cancel(self) -> "EndpointJob":
+        """cancel this job. updates _data in place and returns self."""
+        url = await self._endpoint._ensure_endpoint_ready()
+        data = await self._endpoint._api_post(f"{url}/cancel/{self.id}", None)
+        self._data.update(data)
+        return self
+
+    async def wait(self, timeout: Optional[float] = None) -> "EndpointJob":
+        """poll until the job reaches a terminal status.
+
+        uses exponential backoff between polls. updates _data in place
+        and returns self.
+
+        args:
+            timeout: max seconds to wait. None means wait indefinitely.
+
+        raises:
+            TimeoutError: if timeout is reached before job completes.
+        """
+        import asyncio
+        import time
+
+        deadline = (time.monotonic() + timeout) if timeout is not None else None
+        interval = _POLL_INITIAL_INTERVAL
+
+        while not self.done:
+            if deadline is not None and time.monotonic() >= deadline:
+                raise TimeoutError(
+                    f"job {self.id} did not complete within {timeout}s "
+                    f"(last status: {self._data.get('status', 'UNKNOWN')})"
+                )
+            await asyncio.sleep(interval)
+            await self.status()
+            interval = min(interval * _POLL_BACKOFF_FACTOR, _POLL_MAX_INTERVAL)
+
+        return self
+
+    def __repr__(self) -> str:
+        status = self._data.get("status", "UNKNOWN")
+        return f"EndpointJob(id={self.id!r}, status={status!r})"
+
+
+def _normalize_workers(
+    workers: Union[int, Tuple[int, int], None],
+) -> Tuple[int, int]:
+    """convert workers param to (min, max) tuple.
+
+    accepts:
+      - int: shorthand for (0, n)
+      - (min, max): explicit tuple
+      - None: defaults to (0, 1)
+    """
+    if workers is None:
+        return (0, 1)
+    if isinstance(workers, int):
+        return (0, workers)
+    if isinstance(workers, (tuple, list)) and len(workers) == 2:
+        return (int(workers[0]), int(workers[1]))
+    raise ValueError(
+        f"workers must be an int or (min, max) tuple, got {type(workers).__name__}: {workers}"
+    )
+
+
+def _is_live_provisioning() -> bool:
+    """determine if we should use live (on-demand) resource classes.
+
+    returns True when running in local dev / flash run context. the deploy
+    resource classes (ServerlessEndpoint etc.) require imageName and are
+    only used during flash build/deploy, which explicitly sets
+    FLASH_IS_LIVE_PROVISIONING=false.
+    """
+    val = os.getenv("FLASH_IS_LIVE_PROVISIONING", "").lower()
+    if val == "false":
+        return False
+    if val == "true":
+        return True
+    # no explicit signal -- default to live unless we're in a deployed worker
+    return not (os.getenv("RUNPOD_ENDPOINT_ID") or os.getenv("RUNPOD_POD_ID"))
+
+
+def _is_cpu_config(
+    cpu: Optional[Union[str, CpuInstanceType, List[Union[str, CpuInstanceType]]]],
+) -> bool:
+    return cpu is not None
+
+
+def _normalize_gpu(
+    gpu: Optional[Union[GpuGroup, GpuType, List[Union[GpuGroup, GpuType]]]],
+) -> Optional[List[Union[GpuGroup, GpuType]]]:
+    if gpu is None:
+        return None
+    if isinstance(gpu, (GpuGroup, GpuType)):
+        return [gpu]
+    if isinstance(gpu, list):
+        return gpu
+    raise ValueError(
+        f"gpu must be a GpuGroup, GpuType, or list, got {type(gpu).__name__}"
+    )
+
+
+def _normalize_cpu(
+    cpu: Optional[Union[str, CpuInstanceType, List[Union[str, CpuInstanceType]]]],
+) -> Optional[List[CpuInstanceType]]:
+    if cpu is None:
+        return None
+    if isinstance(cpu, CpuInstanceType):
+        return [cpu]
+    if isinstance(cpu, str):
+        return [CpuInstanceType(cpu)]
+    if isinstance(cpu, list):
+        return [CpuInstanceType(c) if isinstance(c, str) else c for c in cpu]
+    raise ValueError(
+        f"cpu must be a CpuInstanceType, string, or list, got {type(cpu).__name__}"
+    )
+
+
+class Endpoint:
+    """unified configuration and decorator for flash endpoints.
+
+    three usage modes:
+
+    1. your code (decorator mode):
+
+        queue-based (one function = one endpoint = own workers):
+
+            @Endpoint(name="my-worker", gpu=GpuGroup.ADA_24, workers=(0, 3))
+            async def process(data: dict) -> dict:
+                return {"result": data}
+
+        load-balanced (multiple routes, shared workers):
+
+            api = Endpoint(name="my-api", gpu=GpuGroup.ADA_24, workers=(1, 5))
+
+            @api.get("/health")
+            async def health():
+                return {"status": "ok"}
+
+            @api.post("/compute")
+            async def compute(request: dict) -> dict:
+                return {"result": request}
+
+    2. external image (deploy a pre-built image, call it as an API client):
+
+        vllm = Endpoint(name="vllm", image="vllm/vllm-openai:latest", gpu=GpuGroup.ADA_24)
+
+        # LB-style calls
+        result = await vllm.post("/v1/completions", {"prompt": "hello"})
+        models = await vllm.get("/v1/models")
+
+        # QB-style calls
+        result = await vllm.run({"prompt": "hello"})
+        result = await vllm.runsync({"prompt": "hello"})
+        status = await vllm.status(job_id)
+
+    3. existing endpoint (connect to an already-deployed endpoint by id):
+
+        ep = Endpoint(id="abc123")
+
+        # same client methods as image mode, no provisioning
+        result = await ep.runsync({"prompt": "hello"})
+        result = await ep.post("/v1/completions", {"prompt": "hello"})
+
+    behavior is determined by context:
+    - no image, no id: decorator mode (your code)
+    - image= set: deploys the image, then client mode
+    - id= set: pure client, no provisioning
+    - .get()/.post() with data arg = HTTP client call
+    - .get()/.post() with no data arg = route decorator
+    - .run()/.runsync()/.status() = QB client calls
+
+    gpu vs cpu is a parameter:
+    - gpu=GpuGroup.ADA_24 for gpu endpoints (default: GpuGroup.ANY)
+    - cpu=CpuInstanceType.CPU3G_2_8 for cpu endpoints
+    - mutually exclusive
+
+    live vs deploy is determined by the runtime (flash run vs flash deploy).
+    """
+
+    def __init__(
+        self,
+        name: Optional[str] = None,
+        *,
+        id: Optional[str] = None,
+        gpu: Optional[Union[GpuGroup, GpuType, List[Union[GpuGroup, GpuType]]]] = None,
+        cpu: Optional[
+            Union[str, CpuInstanceType, List[Union[str, CpuInstanceType]]]
+        ] = None,
+        workers: Union[int, Tuple[int, int], None] = None,
+        idle_timeout: int = 60,
+        dependencies: Optional[List[str]] = None,
+        system_dependencies: Optional[List[str]] = None,
+        accelerate_downloads: bool = True,
+        volume: Optional[NetworkVolume] = None,
+        datacenter: DataCenter = DataCenter.EU_RO_1,
+        env: Optional[Dict[str, str]] = None,
+        gpu_count: int = 1,
+        execution_timeout_ms: int = 0,
+        flashboot: bool = True,
+        image: Optional[str] = None,
+        scaler_type: ServerlessScalerType = ServerlessScalerType.QUEUE_DELAY,
+        scaler_value: int = 4,
+        template: Optional[PodTemplate] = None,
+    ):
+        if gpu is not None and cpu is not None:
+            raise ValueError(
+                "gpu and cpu are mutually exclusive. specify one or neither."
+            )
+        if id is not None and image is not None:
+            raise ValueError(
+                "id and image are mutually exclusive. id= connects to an "
+                "existing endpoint, image= deploys a new one."
+            )
+        if name is None and id is None:
+            raise ValueError("name or id is required.")
+
+        self.name = name
+        self.id = id
+        self._gpu = _normalize_gpu(gpu)
+        self._cpu = _normalize_cpu(cpu)
+        self._is_cpu = _is_cpu_config(cpu)
+        self._workers_min, self._workers_max = _normalize_workers(workers)
+        self.idle_timeout = idle_timeout
+        self.dependencies = dependencies
+        self.system_dependencies = system_dependencies
+        self.accelerate_downloads = accelerate_downloads
+        self.volume = volume
+        self.datacenter = datacenter
+        self.env = env
+        self.gpu_count = gpu_count
+        self.execution_timeout_ms = execution_timeout_ms
+        self.flashboot = flashboot
+        self.image = image
+        self.scaler_type = scaler_type
+        self.scaler_value = scaler_value
+        self.template = template
+
+        # if no gpu or cpu specified, default to gpu any (unless pure client mode)
+        if not self._is_cpu and self._gpu is None and not self.is_client:
+            self._gpu = [GpuGroup.ANY]
+
+        # lb routes registered via .get()/.post()/etc (decorator mode only)
+        self._routes: List[Dict[str, Any]] = []
+
+        # tracks whether this endpoint was used as a direct decorator (qb mode)
+        self._qb_target: Any = None
+
+        # cached resource config built by _build_resource_config()
+        self._cached_resource_config: Any = None
+
+        # cached endpoint url resolved by _ensure_endpoint_ready()
+        self._endpoint_url: Optional[str] = None
+
+    @property
+    def is_cpu(self) -> bool:
+        return self._is_cpu
+
+    @property
+    def is_client(self) -> bool:
+        """true when this endpoint is a client for an external/existing resource.
+
+        client mode is active when image= or id= is provided. in client mode,
+        .get()/.post()/etc make HTTP calls instead of returning decorators,
+        and .run()/.runsync()/.status() submit/poll QB jobs.
+        """
+        return self.image is not None or self.id is not None
+
+    @property
+    def is_load_balanced(self) -> bool:
+        return len(self._routes) > 0
+
+    @property
+    def workers_min(self) -> int:
+        return self._workers_min
+
+    @property
+    def workers_max(self) -> int:
+        return self._workers_max
+
+    def _build_resource_config(self):
+        """create the appropriate internal resource config object.
+
+        selects the right class based on:
+        - qb vs lb (inferred from usage)
+        - gpu vs cpu (from params)
+        - live vs deploy (from environment)
+
+        returns a cached instance on repeated calls so that the resource
+        manager sees the same object and avoids redundant provisioning.
+        """
+        if self._cached_resource_config is not None:
+            return self._cached_resource_config
+
+        is_lb = self.is_load_balanced
+        is_cpu = self._is_cpu
+        live = _is_live_provisioning()
+
+        # build common kwargs
+        kwargs: Dict[str, Any] = {
+            "name": self.name,
+            "workersMin": self._workers_min,
+            "workersMax": self._workers_max,
+            "idleTimeout": self.idle_timeout,
+            "executionTimeoutMs": self.execution_timeout_ms,
+            "flashboot": self.flashboot,
+            "datacenter": self.datacenter.value
+            if hasattr(self.datacenter, "value")
+            else self.datacenter,
+            "scalerType": self.scaler_type.value
+            if hasattr(self.scaler_type, "value")
+            else self.scaler_type,
+            "scalerValue": self.scaler_value,
+        }
+
+        if self.template is not None:
+            # serialize to dict to avoid pydantic model identity issues
+            # when modules get re-imported across different contexts
+            kwargs["template"] = self.template.model_dump(exclude_none=True)
+
+        if self.volume is not None:
+            # serialize to dict to avoid pydantic model identity issues
+            # when modules get re-imported across different test/import contexts
+            kwargs["networkVolume"] = self.volume.model_dump(exclude_none=True)
+
+        if self.env is not None:
+            kwargs["env"] = self.env
+
+        if is_cpu:
+            # serialize cpu instance types to strings for pydantic compat
+            kwargs["instanceIds"] = [
+                c.value if hasattr(c, "value") else c for c in (self._cpu or [])
+            ]
+        else:
+            # serialize gpu values to strings for pydantic compat
+            kwargs["gpus"] = [
+                g.value if hasattr(g, "value") else g for g in (self._gpu or [])
+            ]
+            kwargs["gpuCount"] = self.gpu_count
+
+        if self.image is not None:
+            kwargs["imageName"] = self.image
+
+        # select the right class
+        if is_lb and is_cpu and live:
+            from .core.resources.live_serverless import CpuLiveLoadBalancer
+
+            config = CpuLiveLoadBalancer(**kwargs)
+        elif is_lb and is_cpu and not live:
+            from .core.resources.load_balancer_sls_resource import (
+                CpuLoadBalancerSlsResource,
+            )
+
+            config = CpuLoadBalancerSlsResource(**kwargs)
+        elif is_lb and not is_cpu and live:
+            from .core.resources.live_serverless import LiveLoadBalancer
+
+            config = LiveLoadBalancer(**kwargs)
+        elif is_lb and not is_cpu and not live:
+            from .core.resources.load_balancer_sls_resource import (
+                LoadBalancerSlsResource,
+            )
+
+            config = LoadBalancerSlsResource(**kwargs)
+        elif not is_lb and is_cpu and live:
+            from .core.resources.live_serverless import CpuLiveServerless
+
+            config = CpuLiveServerless(**kwargs)
+        elif not is_lb and is_cpu and not live:
+            from .core.resources.serverless_cpu import CpuServerlessEndpoint
+
+            config = CpuServerlessEndpoint(**kwargs)
+        elif not is_lb and not is_cpu and live:
+            from .core.resources.live_serverless import LiveServerless
+
+            config = LiveServerless(**kwargs)
+        else:
+            from .core.resources.serverless import ServerlessEndpoint
+
+            config = ServerlessEndpoint(**kwargs)
+
+        self._cached_resource_config = config
+        return config
+
+    # -- direct decorator (qb mode) --
+
+    def __call__(self, func_or_class):
+        """use Endpoint as a direct decorator for queue-based endpoints.
+
+        @Endpoint(name="worker", gpu=GpuGroup.ADA_24)
+        async def process(data: dict) -> dict: ...
+        """
+        if self._routes:
+            raise ValueError(
+                "cannot use Endpoint as a direct decorator after registering "
+                "routes with .get()/.post()/etc. use one pattern or the other."
+            )
+
+        self._qb_target = func_or_class
+        resource_config = self._build_resource_config()
+
+        from .client import remote as remote_decorator
+
+        return remote_decorator(
+            resource_config=resource_config,
+            dependencies=self.dependencies,
+            system_dependencies=self.system_dependencies,
+            accelerate_downloads=self.accelerate_downloads,
+            _internal=True,
+        )(func_or_class)
+
+    # -- route decorators (lb mode) --
+
+    def _route(self, method: str, path: str):
+        """register an http route on this endpoint (lb mode)."""
+        method = method.upper()
+        if method not in _VALID_HTTP_METHODS:
+            raise ValueError(
+                f"method must be one of {_VALID_HTTP_METHODS}, got: {method}"
+            )
+        if not path.startswith("/"):
+            raise ValueError(f"path must start with '/', got: {path}")
+        if self._qb_target is not None:
+            raise ValueError(
+                "cannot add routes after using Endpoint as a direct decorator. "
+                "use one pattern or the other."
+            )
+
+        def decorator(func):
+            self._routes.append(
+                {
+                    "method": method,
+                    "path": path,
+                    "function": func,
+                    "function_name": func.__name__,
+                }
+            )
+
+            resource_config = self._build_resource_config()
+
+            from .client import remote as remote_decorator
+
+            decorated = remote_decorator(
+                resource_config=resource_config,
+                dependencies=self.dependencies,
+                system_dependencies=self.system_dependencies,
+                accelerate_downloads=self.accelerate_downloads,
+                method=method,
+                path=path,
+                _internal=True,
+            )(func)
+
+            return decorated
+
+        return decorator
+
+    def get(self, path: str, data: Any = None, **kwargs):
+        """GET route decorator (decorator mode) or HTTP GET call (client mode)."""
+        if self.is_client:
+            return self._client_request("GET", path, data, **kwargs)
+        return self._route("GET", path)
+
+    def post(self, path: str, data: Any = None, **kwargs):
+        """POST route decorator (decorator mode) or HTTP POST call (client mode)."""
+        if self.is_client:
+            return self._client_request("POST", path, data, **kwargs)
+        return self._route("POST", path)
+
+    def put(self, path: str, data: Any = None, **kwargs):
+        """PUT route decorator (decorator mode) or HTTP PUT call (client mode)."""
+        if self.is_client:
+            return self._client_request("PUT", path, data, **kwargs)
+        return self._route("PUT", path)
+
+    def delete(self, path: str, data: Any = None, **kwargs):
+        """DELETE route decorator (decorator mode) or HTTP DELETE call (client mode)."""
+        if self.is_client:
+            return self._client_request("DELETE", path, data, **kwargs)
+        return self._route("DELETE", path)
+
+    def patch(self, path: str, data: Any = None, **kwargs):
+        """PATCH route decorator (decorator mode) or HTTP PATCH call (client mode)."""
+        if self.is_client:
+            return self._client_request("PATCH", path, data, **kwargs)
+        return self._route("PATCH", path)
+
+    # -- client methods (image= or id= mode) --
+
+    async def _ensure_endpoint_ready(self) -> str:
+        """ensure the endpoint is provisioned and return its base url.
+
+        for id= mode: resolves the endpoint url from the id directly.
+        for image= mode: provisions via ResourceManager, then returns url.
+
+        caches the resolved url for subsequent calls.
+        """
+        if self._endpoint_url is not None:
+            return self._endpoint_url
+
+        if self.id is not None:
+            # pure client mode: build url from endpoint id
+            import runpod
+
+            base = runpod.endpoint_url_base
+            self._endpoint_url = f"{base}/{self.id}"
+            return self._endpoint_url
+
+        # image= mode: provision and deploy, then extract url
+        resource_config = self._build_resource_config()
+        from .core.resources import ResourceManager
+
+        resource_manager = ResourceManager()
+        deployed = await resource_manager.get_or_deploy_resource(resource_config)
+        if hasattr(deployed, "endpoint_url") and deployed.endpoint_url:
+            self._endpoint_url = deployed.endpoint_url
+        elif hasattr(deployed, "id") and deployed.id:
+            import runpod
+
+            base = runpod.endpoint_url_base
+            self._endpoint_url = f"{base}/{deployed.id}"
+        else:
+            raise RuntimeError(
+                f"endpoint '{self.name}' was deployed but has no endpoint url or id"
+            )
+        return self._endpoint_url
+
+    async def run(
+        self, input_data: Any, *, webhook: Optional[str] = None
+    ) -> EndpointJob:
+        """submit a QB job asynchronously.
+
+        returns an EndpointJob that can be polled or awaited:
+
+            job = await ep.run({"prompt": "hello"})
+            await job.wait()
+            print(job.output)
+
+        args:
+            input_data: payload to send as the job input.
+            webhook: optional URL that runpod will POST to when the job completes.
+        """
+        url = await self._ensure_endpoint_ready()
+        payload: Dict[str, Any] = {"input": input_data}
+        if webhook is not None:
+            payload["webhook"] = webhook
+        data = await self._api_post(f"{url}/run", payload)
+        return EndpointJob(data, self)
+
+    async def runsync(self, input_data: Any, timeout: float = 60.0) -> EndpointJob:
+        """submit a QB job and wait for the result.
+
+        job = await ep.runsync({"prompt": "hello"})
+        print(job.output)
+        """
+        url = await self._ensure_endpoint_ready()
+        data = await self._api_post(
+            f"{url}/runsync", {"input": input_data}, timeout=timeout
+        )
+        return EndpointJob(data, self)
+
+    async def cancel(self, job_id: str) -> EndpointJob:
+        """cancel a previously submitted QB job.
+
+        job = await ep.run({"prompt": "hello"})
+        await job.cancel()       # via the job object
+        await ep.cancel(job.id)  # or via the endpoint directly
+        """
+        url = await self._ensure_endpoint_ready()
+        data = await self._api_post(f"{url}/cancel/{job_id}", None)
+        return EndpointJob(data, self)
+
+    async def _client_request(
+        self, method: str, path: str, data: Any = None, **kwargs
+    ) -> Any:
+        """make an HTTP request to a deployed LB endpoint.
+
+        for LB endpoints this sends a request to the endpoint's base url + path.
+        """
+        url = await self._ensure_endpoint_ready()
+        full_url = f"{url}{path}"
+        timeout = kwargs.pop("timeout", 60.0)
+
+        from .core.utils.http import get_authenticated_httpx_client
+
+        async with get_authenticated_httpx_client(timeout=timeout) as client:
+            response = await client.request(method, full_url, json=data)
+            response.raise_for_status()
+            return response.json()
+
+    async def _api_post(self, url: str, payload: Any, timeout: float = 60.0) -> dict:
+        """authenticated POST to the runpod api."""
+        from .core.utils.http import get_authenticated_httpx_client
+
+        async with get_authenticated_httpx_client(timeout=timeout) as client:
+            response = await client.post(url, json=payload)
+            response.raise_for_status()
+            return response.json()
+
+    async def _api_get(self, url: str, timeout: float = 30.0) -> dict:
+        """authenticated GET to the runpod api."""
+        from .core.utils.http import get_authenticated_httpx_client
+
+        async with get_authenticated_httpx_client(timeout=timeout) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            return response.json()

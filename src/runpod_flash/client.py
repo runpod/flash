@@ -103,9 +103,13 @@ def remote(
     local: bool = False,
     method: Optional[str] = None,
     path: Optional[str] = None,
+    _internal: bool = False,
     **extra,
 ):
     """
+    .. deprecated::
+        Use :class:`runpod_flash.Endpoint` instead.
+
     Decorator to enable dynamic resource provisioning and dependency management for serverless functions.
 
     This decorator allows a function to be executed in a remote serverless environment, with support for
@@ -136,6 +140,8 @@ def remote(
         path (str, optional): HTTP path for load-balanced endpoints (LoadBalancerSlsResource).
             Required for LoadBalancerSlsResource. Must start with "/". Example: "/api/process".
             Ignored for queue-based endpoints. Defaults to None.
+        _internal (bool, optional): suppress deprecation warning when called from
+            Endpoint internals. not part of the public API. Defaults to False.
         extra (dict, optional): Additional parameters for the execution of the resource. Defaults to an empty dict.
 
     Returns:
@@ -174,6 +180,15 @@ def remote(
             pass
     ```
     """
+
+    if not _internal:
+        import warnings
+
+        warnings.warn(
+            "runpod_flash.remote is deprecated. Use runpod_flash.Endpoint instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
     def decorator(func_or_class):
         # Validate HTTP routing parameters for LoadBalancerSlsResource

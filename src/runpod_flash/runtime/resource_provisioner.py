@@ -38,6 +38,20 @@ def create_resource_from_manifest(
 
     resource_type = resource_data.get("resource_type", "ServerlessResource")
 
+    # resolve Endpoint to the appropriate underlying resource class.
+    # gpu endpoints have gpuIds in the manifest, cpu endpoints do not.
+    if resource_type == "Endpoint":
+        is_lb = resource_data.get("is_load_balanced", False)
+        is_gpu = bool(resource_data.get("gpuIds"))
+        if is_lb and is_gpu:
+            resource_type = "LiveLoadBalancer"
+        elif is_lb:
+            resource_type = "CpuLiveLoadBalancer"
+        elif is_gpu:
+            resource_type = "LiveServerless"
+        else:
+            resource_type = "CpuLiveServerless"
+
     # Support both Serverless and LoadBalancer resource types
     if resource_type not in [
         "ServerlessResource",
@@ -111,6 +125,10 @@ def create_resource_from_manifest(
         deployment_kwargs["workersMin"] = resource_data["workersMin"]
     if "workersMax" in resource_data:
         deployment_kwargs["workersMax"] = resource_data["workersMax"]
+    if "scalerType" in resource_data:
+        deployment_kwargs["scalerType"] = resource_data["scalerType"]
+    if "scalerValue" in resource_data:
+        deployment_kwargs["scalerValue"] = resource_data["scalerValue"]
 
     # Note: template is extracted but not passed to resource constructor
     # Let resources create their own templates with proper initialization
