@@ -488,8 +488,8 @@ class ServerlessResource(DeployableResource):
             if not self.id:
                 return False
 
-            # During flash run, skip the health check. Newly-created endpoints
-            # can fail health checks due to RunPod propagation delay — the
+            # During flash dev, skip the health check. Newly-created endpoints
+            # can fail health checks due to RunPod propagation delay -- the
             # endpoint exists but the health API hasn't registered it yet.
             # Trusting the cached ID is correct here; actual failures surface
             # on the first real run/runsync call.
@@ -510,7 +510,7 @@ class ServerlessResource(DeployableResource):
         # When templateId is already set, exclude template from the payload.
         # RunPod rejects requests that contain both fields simultaneously.
         # Both can coexist after deploy mutates config (sets templateId while
-        # template remains from initialization) — templateId takes precedence.
+        # template remains from initialization) -- templateId takes precedence.
         if self.templateId:
             exclude_fields.add("template")
         return exclude_fields

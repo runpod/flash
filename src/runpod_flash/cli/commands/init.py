@@ -6,7 +6,6 @@ from typing import Optional
 import typer
 from rich.console import Console
 from rich.panel import Panel
-from rich.table import Table
 
 from ..utils.skeleton import create_project_skeleton, detect_file_conflicts
 
@@ -94,26 +93,15 @@ def init_command(
 
     # next steps
     console.print("\n[bold]Next steps:[/bold]")
-    steps_table = Table(show_header=False, box=None, padding=(0, 1))
-    steps_table.add_column("Step", style="bold cyan")
-    steps_table.add_column("Description")
-
     step_num = 1
     if not is_current_dir:
-        steps_table.add_row(f"{step_num}.", f"cd {actual_project_name}")
+        console.print(f"  {step_num}. cd {actual_project_name}")
         step_num += 1
-
-    steps_table.add_row(f"{step_num}.", "pip install -r requirements.txt")
+    console.print(f"  {step_num}. pip install -r requirements.txt")
     step_num += 1
-    steps_table.add_row(f"{step_num}.", "cp .env.example .env")
+    console.print(f"  {step_num}. Add your RUNPOD_API_KEY to .env (or run flash login)")
     step_num += 1
-    steps_table.add_row(
-        f"{step_num}.", "Add your RUNPOD_API_KEY to .env (or run flash login)"
-    )
-    step_num += 1
-    steps_table.add_row(f"{step_num}.", "flash run")
-
-    console.print(steps_table)
+    console.print(f"  {step_num}. flash dev")
 
     console.print("\n[bold]Get your API key:[/bold]")
     console.print("  https://docs.runpod.io/get-started/api-keys")

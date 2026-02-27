@@ -4,7 +4,7 @@ Manage and delete Runpod serverless endpoints deployed via Flash.
 
 ## Overview
 
-The `flash undeploy` command helps you clean up Serverless endpoints that Flash has created when you ran/deployed a `@remote` function using `flash run` or `flash deploy`. It manages endpoints recorded in `.runpod/resources.pkl` and ensures both the cloud resources and local tracking state stay in sync.
+The `flash undeploy` command helps you clean up Serverless endpoints that Flash has created when you ran/deployed a `@remote` function using `flash dev` or `flash deploy`. It manages endpoints recorded in `.runpod/resources.pkl` and ensures both the cloud resources and local tracking state stay in sync.
 
 ### When To Use This Command
 
@@ -23,7 +23,7 @@ For production deployments, use `flash env delete` to remove the entire environm
 ### How Endpoint Tracking Works
 
 Flash tracks deployed endpoints in `.runpod/resources.pkl`. Endpoints get added to this file when you:
-- Run `flash run --auto-provision` (local development)
+- Run `flash dev --auto-provision` (local development)
 - Run `flash deploy` (production deployment)
 
 ## Synopsis
@@ -253,7 +253,7 @@ flash undeploy list
 ## Related Commands
 
 - `flash init` - Initialize new project
-- `flash run` - Run development server
+- `flash dev` - Run development server
 - `flash build` - Build deployment packages
 - `flash deploy` - Deploy to Runpod
 

@@ -1,4 +1,4 @@
-"""Helpers for the flash run dev server — loaded inside the generated server.py."""
+"""Helpers for the flash dev server."""
 
 import inspect
 import logging

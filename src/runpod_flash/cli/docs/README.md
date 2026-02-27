@@ -26,7 +26,7 @@ echo "RUNPOD_API_KEY=your_api_key_here" > .env
 Start the development server to test your `@remote` functions:
 
 ```bash
-flash run
+flash dev
 ```
 
 When you're ready to deploy your application to Runpod, use:
@@ -127,12 +127,12 @@ flash deploy --preview
 
 ---
 
-### flash run
+### flash dev
 
 Start a Flash development server for testing/debugging/development.
 
 ```bash
-flash run [OPTIONS]
+flash dev [OPTIONS]
 ```
 
 **Options:**
@@ -143,11 +143,11 @@ flash run [OPTIONS]
 
 **Example:**
 ```bash
-flash run
-flash run --port 3000
+flash dev
+flash dev --port 3000
 ```
 
-[Full documentation](./flash-run.md)
+[Full documentation](./flash-dev.md)
 
 ---
 
@@ -330,5 +330,5 @@ curl -X POST http://localhost:8888/cpu_worker/runsync \
 ```bash
 flash --help
 flash init --help
-flash run --help
+flash dev --help
 ```

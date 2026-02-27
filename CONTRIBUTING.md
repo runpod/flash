@@ -35,7 +35,7 @@ Get your API key from: https://docs.runpod.io/get-started/api-keys
 - Integration tests that interact with Runpod API
 
 **When is the API key NOT needed?**
-- Local development with `flash run` (local server only)
+- Local development with `flash dev` (local server only)
 - `flash init` command (project scaffolding)
 - Unit tests (mocked API calls)
 - Code formatting, linting, type checking
