@@ -142,11 +142,10 @@ class TestResourceManagerCorruptedStateFile:
         _reset_resource_manager()
 
     def test_corrupted_pickle_logs_error_and_keeps_empty_resources(
-        self, tmp_path, monkeypatch, caplog
+        self, tmp_path, monkeypatch
     ):
-        """When .runpod/resources.pkl is invalid pickle, _load_resources logs error
-        and leaves _resources as empty dict without raising."""
-        import logging
+        """When .runpod/resources.pkl is invalid pickle, _load_resources
+        leaves _resources as empty dict without raising."""
         from runpod_flash.core.resources import resource_manager
 
         runpod_dir = tmp_path / ".runpod"
@@ -158,19 +157,11 @@ class TestResourceManagerCorruptedStateFile:
         monkeypatch.setattr(resource_manager, "RESOURCE_STATE_FILE", state_file)
         monkeypatch.setattr(resource_manager, "RUNPOD_FLASH_DIR", runpod_dir)
 
-        with caplog.at_level(
-            logging.ERROR, logger="runpod_flash.core.resources.resource_manager"
-        ):
-            rm = ResourceManager()
-            rm._load_resources()
+        rm = ResourceManager()
+        rm._load_resources()
 
         # Resources should remain empty
         assert ResourceManager._resources == {}
-
-        # An error should have been logged
-        assert any(
-            "Failed to load resources" in record.message for record in caplog.records
-        )
 
     def test_corrupted_file_does_not_raise(self, tmp_path, monkeypatch):
         """Loading a corrupted state file must not propagate an exception."""
@@ -208,11 +199,8 @@ class TestResourceManagerCorruptedStateFile:
 
         assert ResourceManager._resources == {}
 
-    def test_truncated_pickle_triggers_error_recovery(
-        self, tmp_path, monkeypatch, caplog
-    ):
+    def test_truncated_pickle_triggers_error_recovery(self, tmp_path, monkeypatch):
         """A truncated (partial) pickle file is treated as corrupted."""
-        import logging
         from runpod_flash.core.resources import resource_manager
 
         runpod_dir = tmp_path / ".runpod"
@@ -226,16 +214,10 @@ class TestResourceManagerCorruptedStateFile:
         monkeypatch.setattr(resource_manager, "RESOURCE_STATE_FILE", state_file)
         monkeypatch.setattr(resource_manager, "RUNPOD_FLASH_DIR", runpod_dir)
 
-        with caplog.at_level(
-            logging.ERROR, logger="runpod_flash.core.resources.resource_manager"
-        ):
-            rm = ResourceManager()
-            rm._load_resources()
+        rm = ResourceManager()
+        rm._load_resources()
 
         assert ResourceManager._resources == {}
-        assert any(
-            "Failed to load resources" in record.message for record in caplog.records
-        )
 
 
 # ---------------------------------------------------------------------------

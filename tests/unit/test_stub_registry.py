@@ -172,6 +172,7 @@ class TestCreateLiveServerlessStub:
             assert callable(stub)
 
 
+@pytest.mark.serial
 class TestServerlessEndpointDispatch:
     """Test dispatch for ServerlessEndpoint resource types."""
 
