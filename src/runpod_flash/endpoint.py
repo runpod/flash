@@ -495,6 +495,7 @@ class Endpoint:
             dependencies=self.dependencies,
             system_dependencies=self.system_dependencies,
             accelerate_downloads=self.accelerate_downloads,
+            _internal=True,
         )(func_or_class)
 
     # -- route decorators (lb mode) --
@@ -535,6 +536,7 @@ class Endpoint:
                 accelerate_downloads=self.accelerate_downloads,
                 method=method,
                 path=path,
+                _internal=True,
             )(func)
 
             return decorated
