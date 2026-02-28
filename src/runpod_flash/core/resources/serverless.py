@@ -516,12 +516,24 @@ class ServerlessResource(DeployableResource):
 
     @staticmethod
     def _build_template_update_payload(
-        template: PodTemplate, template_id: str
+        template: PodTemplate,
+        template_id: str,
+        *,
+        skip_env: bool = False,
     ) -> Dict[str, Any]:
         """Build saveTemplate payload from template model.
 
         Keep this to fields supported by saveTemplate to avoid passing endpoint-only
         fields to the template mutation.
+
+        Args:
+            template: Template model with desired configuration.
+            template_id: ID of the template to update.
+            skip_env: When True, omit ``env`` from the payload so
+                saveTemplate preserves the existing template env vars.
+                This prevents removing platform-injected vars (e.g.
+                PORT, PORT_HEALTH on LB endpoints) when the user's
+                env hasn't actually changed.
         """
         template_data = template.model_dump(exclude_none=True, mode="json")
         allowed_fields = {
@@ -532,6 +544,8 @@ class ServerlessResource(DeployableResource):
             "env",
             "readme",
         }
+        if skip_env:
+            allowed_fields.discard("env")
         payload = {
             key: value for key, value in template_data.items() if key in allowed_fields
         }
@@ -753,8 +767,15 @@ class ServerlessResource(DeployableResource):
 
                 if new_config.template:
                     if resolved_template_id:
+                        # Skip env in the template payload when the user's env
+                        # hasn't changed.  This lets the platform keep vars it
+                        # injected (e.g. PORT, PORT_HEALTH on LB endpoints)
+                        # and avoids a spurious rolling release.
+                        env_unchanged = self.env == new_config.env
                         template_payload = self._build_template_update_payload(
-                            new_config.template, resolved_template_id
+                            new_config.template,
+                            resolved_template_id,
+                            skip_env=env_unchanged,
                         )
                         await client.update_template(template_payload)
                         log.debug(
