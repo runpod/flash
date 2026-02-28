@@ -1,5 +1,5 @@
 from typing import Dict, Optional
-from dotenv import dotenv_values
+from dotenv import dotenv_values, find_dotenv
 
 
 class EnvironmentVars:
@@ -16,7 +16,9 @@ class EnvironmentVars:
             Dict[str, str]: Dictionary containing environment variables from .env file
         """
         # Use dotenv_values instead of load_dotenv to get only variables from .env
-        return dict(dotenv_values())
+        # usecwd=True walks up from CWD (user's project) instead of from the
+        # package source file location, which matters for editable installs.
+        return dict(dotenv_values(find_dotenv(usecwd=True)))
 
     def get_env(self) -> Dict[str, str]:
         """

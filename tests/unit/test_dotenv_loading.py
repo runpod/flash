@@ -32,9 +32,9 @@ class TestDotenvLoading:
         logger_import_line = None
 
         for i, line in enumerate(lines):
-            if "from dotenv import load_dotenv" in line:
+            if "from dotenv import" in line and "load_dotenv" in line:
                 dotenv_import_line = i
-            elif line.strip() == "load_dotenv()":
+            elif "load_dotenv(" in line.strip() and "import" not in line:
                 dotenv_call_line = i
             elif "from .logger import setup_logging" in line:
                 logger_import_line = i
@@ -331,8 +331,8 @@ ANOTHER_VALID=another_value
         content = init_file.read_text()
 
         # Verify dotenv is imported and called
-        assert "from dotenv import load_dotenv" in content
-        assert "load_dotenv()" in content
+        assert "from dotenv import find_dotenv, load_dotenv" in content
+        assert "load_dotenv(find_dotenv(usecwd=True))" in content
 
         # Verify dotenv is imported before any other module imports
         lines = content.split("\n")
@@ -341,7 +341,7 @@ ANOTHER_VALID=another_value
         ]
 
         # First import line should be the dotenv import
-        assert "from dotenv import load_dotenv" in import_lines[0]
+        assert "from dotenv import find_dotenv, load_dotenv" in import_lines[0]
 
     @patch.dict(os.environ, {}, clear=True)
     def test_clean_environment_dotenv_loading(self):
