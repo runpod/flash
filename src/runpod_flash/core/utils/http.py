@@ -1,10 +1,11 @@
 """HTTP utilities for RunPod API communication."""
 
-import os
 from typing import Optional
 
 import httpx
 import requests
+
+from runpod_flash.core.credentials import get_api_key
 
 
 def get_authenticated_httpx_client(
@@ -15,7 +16,7 @@ def get_authenticated_httpx_client(
 
     Automatically includes:
     - User-Agent header identifying flash client and version
-    - Authorization header if RUNPOD_API_KEY is set
+    - Authorization header if an api key is available
 
     This provides a centralized place to manage authentication headers for
     all RunPod HTTP requests, avoiding repetitive manual header addition.
@@ -45,7 +46,7 @@ def get_authenticated_httpx_client(
     headers = {
         "User-Agent": get_user_agent(),
     }
-    api_key = api_key_override or os.environ.get("RUNPOD_API_KEY")
+    api_key = api_key_override or get_api_key()
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
@@ -60,7 +61,7 @@ def get_authenticated_requests_session(
 
     Automatically includes:
     - User-Agent header identifying flash client and version
-    - Authorization header if RUNPOD_API_KEY is set
+    - Authorization header if an api key is available
 
     Provides a centralized place to manage authentication headers for
     synchronous RunPod HTTP requests.
@@ -91,7 +92,7 @@ def get_authenticated_requests_session(
     session = requests.Session()
     session.headers["User-Agent"] = get_user_agent()
 
-    api_key = api_key_override or os.environ.get("RUNPOD_API_KEY")
+    api_key = api_key_override or get_api_key()
     if api_key:
         session.headers["Authorization"] = f"Bearer {api_key}"
 

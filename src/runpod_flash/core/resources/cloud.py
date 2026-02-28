@@ -1,4 +1,5 @@
-import os
 import runpod
 
-runpod.api_key = os.getenv("RUNPOD_API_KEY")
+from runpod_flash.core.credentials import get_api_key
+
+runpod.api_key = get_api_key()

@@ -3,8 +3,7 @@
 Provides validation functions for required environment variables and configuration.
 """
 
-import os
-
+from runpod_flash.core.credentials import get_api_key
 from runpod_flash.core.exceptions import RunpodAPIKeyError
 
 
@@ -17,7 +16,7 @@ def validate_api_key() -> str:
     Raises:
         RunpodAPIKeyError: If RUNPOD_API_KEY is not set or is empty.
     """
-    api_key = os.getenv("RUNPOD_API_KEY")
+    api_key = get_api_key()
 
     if not api_key or not api_key.strip():
         raise RunpodAPIKeyError()

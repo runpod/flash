@@ -209,6 +209,13 @@ class TestServerlessResourceNetworkVolume:
 class TestServerlessResourceValidation:
     """Test field validation and serialization."""
 
+    def test_workers_min_cannot_exceed_workers_max(self):
+        with pytest.raises(
+            ValueError,
+            match=r"workersMin \(5\) cannot be greater than workersMax \(1\)",
+        ):
+            ServerlessResource(name="test", workersMin=5, workersMax=1)
+
     def test_scaler_type_serialization(self):
         """Test ServerlessScalerType enum serialization."""
         serverless = ServerlessResource(
@@ -277,11 +284,12 @@ class TestServerlessResourceValidation:
 
         assert serverless.datacenter == DataCenter.EU_RO_1
 
-    def test_locations_synced_from_datacenter(self):
-        """Test locations field gets synced from datacenter."""
+    def test_locations_synced_from_datacenter(self, monkeypatch):
+        """Test locations field gets synced from datacenter in prod."""
+        monkeypatch.setenv("RUNPOD_ENV", "prod")
         serverless = ServerlessResource(name="test")
 
-        # Should automatically set locations from datacenter
+        # Should automatically set locations from datacenter in prod
         assert serverless.locations == "EU-RO-1"
 
     def test_explicit_locations_not_overridden(self):
@@ -506,9 +514,10 @@ class TestServerlessResourceDeployment:
 
     @pytest.mark.asyncio
     async def test_deploy_success_with_network_volume(
-        self, mock_runpod_client, deployment_response
+        self, mock_runpod_client, deployment_response, monkeypatch
     ):
         """Test successful deployment with network volume integration."""
+        monkeypatch.setenv("RUNPOD_ENV", "prod")
         serverless = ServerlessResource(
             name="test-serverless",
             gpus=[GpuGroup.AMPERE_48],

@@ -13,6 +13,7 @@ from .commands import (
     env,
     apps,
     undeploy,
+    login,
 )
 
 
@@ -38,6 +39,7 @@ app = typer.Typer(
 app.command("init")(init.init_command)
 app.command("run")(run.run_command)
 app.command("build")(build.build_command)
+app.command("login")(login.login_command)
 app.command("deploy")(deploy.deploy_command)
 # app.command("report")(resource.report_command)
 
