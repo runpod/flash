@@ -1,9 +1,11 @@
 __version__ = "1.5.0"  # x-release-please-version
 
 # Load .env vars from file before everything else
-from dotenv import load_dotenv
+# usecwd=True walks up from CWD (user's project) instead of from the
+# package source file location, which matters for editable installs.
+from dotenv import find_dotenv, load_dotenv
 
-load_dotenv()
+load_dotenv(find_dotenv(usecwd=True))
 
 from .logger import setup_logging  # noqa: E402
 

@@ -253,10 +253,10 @@ class LoadBalancerSlsResource(ServerlessResource):
             return self
 
         try:
-            # Mark this endpoint as load-balanced (triggers auto-provisioning on boot)
-            if self.env is None:
-                self.env = {}
-            self.env["FLASH_ENDPOINT_TYPE"] = "lb"
+            # NOTE: FLASH_ENDPOINT_TYPE is NOT injected here. For flash deploy,
+            # the runtime resource_provisioner sets it. For flash run (live
+            # serverless), the worker must NOT see it — otherwise it triggers
+            # artifact unpacking which doesn't exist for live endpoints.
 
             # Call parent deploy (creates endpoint via RunPod API)
             log.debug(f"Deploying LB endpoint: {self.name}")

@@ -241,20 +241,19 @@ class ServerlessResource(DeployableResource):
 
     @property
     def config_hash(self) -> str:
-        """Get config hash excluding env and runtime-assigned fields.
+        """Get config hash excluding runtime-assigned fields.
 
         Prevents false drift from:
-        - Dynamic env vars computed at runtime
         - Runtime-assigned fields (template, templateId, aiKey, userId, etc.)
 
-        Only hashes user-specified configuration, not server-assigned state.
+        Hashes user-specified configuration including env vars.
         """
         import hashlib
         import json
 
         resource_type = self.__class__.__name__
 
-        # Exclude runtime fields, env, and id from hash
+        # Exclude runtime fields and id from hash
         exclude_fields = (
             self.__class__.RUNTIME_FIELDS | self.__class__.EXCLUDED_HASH_FIELDS
         )
@@ -517,12 +516,24 @@ class ServerlessResource(DeployableResource):
 
     @staticmethod
     def _build_template_update_payload(
-        template: PodTemplate, template_id: str
+        template: PodTemplate,
+        template_id: str,
+        *,
+        skip_env: bool = False,
     ) -> Dict[str, Any]:
         """Build saveTemplate payload from template model.
 
         Keep this to fields supported by saveTemplate to avoid passing endpoint-only
         fields to the template mutation.
+
+        Args:
+            template: Template model with desired configuration.
+            template_id: ID of the template to update.
+            skip_env: When True, omit ``env`` from the payload so
+                saveTemplate preserves the existing template env vars.
+                This prevents removing platform-injected vars (e.g.
+                PORT, PORT_HEALTH on LB endpoints) when the user's
+                env hasn't actually changed.
         """
         template_data = template.model_dump(exclude_none=True, mode="json")
         allowed_fields = {
@@ -533,6 +544,8 @@ class ServerlessResource(DeployableResource):
             "env",
             "readme",
         }
+        if skip_env:
+            allowed_fields.discard("env")
         payload = {
             key: value for key, value in template_data.items() if key in allowed_fields
         }
@@ -626,6 +639,21 @@ class ServerlessResource(DeployableResource):
         except Exception:
             return None
 
+    def _inject_template_env(self, key: str, value: str) -> None:
+        """Append a KeyValuePair to self.template.env if the key isn't already present.
+
+        This injects runtime env vars directly into the template without
+        mutating self.env, which would cause false config drift on subsequent
+        deploys.
+        """
+        if self.template is None:
+            return
+        if self.template.env is None:
+            self.template.env = []
+        existing_keys = {kv.key for kv in self.template.env}
+        if key not in existing_keys:
+            self.template.env.append(KeyValuePair(key=key, value=value))
+
     async def _do_deploy(self) -> "DeployableResource":
         """
         Deploys the serverless resource using the provided configuration.
@@ -641,19 +669,17 @@ class ServerlessResource(DeployableResource):
                 log.debug(f"{self} exists")
                 return self
 
-            # Inject API key for queue-based endpoints that make remote calls
+            # Inject API key for queue-based endpoints that make remote calls.
+            # Injected into template.env (not self.env) to avoid false config drift.
             if self.type == ServerlessType.QB:
-                env_dict = self.env or {}
-
-                # Check if this resource makes remote calls (from build manifest)
                 makes_remote_calls = self._check_makes_remote_calls()
 
                 if makes_remote_calls:
-                    # Inject RUNPOD_API_KEY if not already set
+                    env_dict = self.env or {}
                     if "RUNPOD_API_KEY" not in env_dict:
                         api_key = os.getenv("RUNPOD_API_KEY")
                         if api_key:
-                            env_dict["RUNPOD_API_KEY"] = api_key
+                            self._inject_template_env("RUNPOD_API_KEY", api_key)
                             log.debug(
                                 f"{self.name}: Injected RUNPOD_API_KEY for remote calls "
                                 f"(makes_remote_calls=True)"
@@ -664,18 +690,14 @@ class ServerlessResource(DeployableResource):
                                 f"Remote calls to other endpoints will fail."
                             )
 
-                self.env = env_dict
-
-            # Inject module path for load-balanced endpoints
+            # Inject module path for load-balanced endpoints.
+            # Injected into template.env (not self.env) to avoid false config drift.
             elif self.type == ServerlessType.LB:
                 env_dict = self.env or {}
-
                 module_path = self._get_module_path()
                 if module_path and "FLASH_MODULE_PATH" not in env_dict:
-                    env_dict["FLASH_MODULE_PATH"] = module_path
+                    self._inject_template_env("FLASH_MODULE_PATH", module_path)
                     log.debug(f"{self.name}: Injected FLASH_MODULE_PATH={module_path}")
-
-                self.env = env_dict
 
             # Ensure network volume is deployed first
             await self._ensure_network_volume_deployed()
@@ -745,8 +767,15 @@ class ServerlessResource(DeployableResource):
 
                 if new_config.template:
                     if resolved_template_id:
+                        # Skip env in the template payload when the user's env
+                        # hasn't changed.  This lets the platform keep vars it
+                        # injected (e.g. PORT, PORT_HEALTH on LB endpoints)
+                        # and avoids a spurious rolling release.
+                        env_unchanged = self.env == new_config.env
                         template_payload = self._build_template_update_payload(
-                            new_config.template, resolved_template_id
+                            new_config.template,
+                            resolved_template_id,
+                            skip_env=env_unchanged,
                         )
                         await client.update_template(template_payload)
                         log.debug(
