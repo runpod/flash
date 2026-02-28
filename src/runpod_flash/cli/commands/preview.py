@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 console = Console()
 
 # Container archive mount path - expected location where containers unpack the archive
-CONTAINER_ARCHIVE_PATH = "/root/.runpod/artifact.tar.gz"
+CONTAINER_ARCHIVE_PATH = "/root/.flash/artifact.tar.gz"
 
 
 @dataclass

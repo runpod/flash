@@ -68,7 +68,6 @@ def load_ignore_patterns(project_dir: Path) -> pathspec.PathSpec:
     always_ignore = [
         ".build/",
         ".flash/",
-        ".runpod/",
         ".venv/",
         "venv/",
         "*.tar.gz",

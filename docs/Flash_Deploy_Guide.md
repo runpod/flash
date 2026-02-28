@@ -572,7 +572,7 @@ Resources are provisioned by the CLI during `flash deploy`, based on the manifes
 
 **Singleton Pattern**: Global resource registry, one per process
 
-**Persistent Storage**: `.runpod/resources.pkl`
+**Persistent Storage**: `.flash/resources.pkl`
 - Format: `(Dict[str, DeployableResource], Dict[str, str])` (resources, config_hashes)
 - Concurrent access protected by file locking (cross-platform)
 - Pickled with cloudpickle for serialization
@@ -950,7 +950,7 @@ graph LR
 
 Flash Deploy uses a dual-layer state system for reliability and consistency.
 
-### Local State: `.runpod/resources.pkl`
+### Local State: `.flash/resources.pkl`
 
 **Purpose**: Fast resource lookup within endpoint
 
@@ -1159,7 +1159,7 @@ logging.getLogger("runpod_flash.runtime.service_registry").setLevel(logging.DEBU
 
 **Solution**:
 1. ResourceManager auto-refreshes hashes on init
-2. Delete `.runpod/resources.pkl` to force reset
+2. Delete `.flash/resources.pkl` to force reset
 3. Check if resource config changes are intentional (then hash should differ)
 
 ### Issue: Remote function calls fail with endpoint not found
@@ -1219,7 +1219,7 @@ logging.getLogger("runpod_flash.runtime.service_registry").setLevel(logging.DEBU
 When modifying Flash Deploy, ensure:
 
 1. **Manifest schema backward compatibility**: Don't break existing manifest loading
-2. **State file format**: Document any changes to `.runpod/resources.pkl` format
+2. **State file format**: Document any changes to `.flash/resources.pkl` format
 3. **Environment variables**: Document all new env vars in this guide
 4. **Tests**: Add tests for new provisioning logic
 5. **Documentation**: Update this guide for new features
