@@ -253,7 +253,7 @@ class ServerlessResource(DeployableResource):
 
         resource_type = self.__class__.__name__
 
-        # Exclude runtime fields, env, and id from hash
+        # Exclude runtime fields and id from hash
         exclude_fields = (
             self.__class__.RUNTIME_FIELDS | self.__class__.EXCLUDED_HASH_FIELDS
         )
