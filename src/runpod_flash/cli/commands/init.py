@@ -21,8 +21,27 @@ def init_command(
 ):
     """Create new Flash project with Flash Server and GPU workers."""
 
+    # No argument provided — show usage and exit
+    if project_name is None:
+        console.print(
+            Panel(
+                "[bold]Usage:[/bold]\n\n"
+                "  flash init [bold].[/bold]              Initialize in current directory\n"
+                "  flash init [bold]<name>[/bold]         Create new project in <name>/\n\n"
+                "[bold]Options:[/bold]\n"
+                "  --force, -f          Overwrite existing files\n\n"
+                "[bold]Examples:[/bold]\n"
+                "  flash init my-project\n"
+                "  flash init .\n"
+                "  flash init my-project --force",
+                title="flash init",
+                expand=False,
+            )
+        )
+        raise typer.Exit(0)
+
     # Determine target directory and initialization mode
-    if project_name is None or project_name == ".":
+    if project_name == ".":
         # Initialize in current directory
         project_dir = Path.cwd()
         is_current_dir = True

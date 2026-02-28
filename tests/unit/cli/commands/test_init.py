@@ -3,6 +3,8 @@
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
+import typer
+from rich.panel import Panel
 
 from runpod_flash.cli.commands.init import init_command
 
@@ -79,18 +81,37 @@ class TestInitCommandNewDirectory:
         mock_context["create_skeleton"].assert_called_once()
 
 
+class TestInitCommandNoArgs:
+    """Tests for init command when called with no arguments."""
+
+    def test_no_args_shows_help_and_exits(self, mock_context):
+        """flash init with no args should show help and exit."""
+        with pytest.raises(typer.Exit) as exc_info:
+            init_command(None)
+
+        assert exc_info.value.exit_code == 0
+
+    def test_no_args_does_not_create_skeleton(self, mock_context):
+        """flash init with no args should not create project skeleton."""
+        with pytest.raises(typer.Exit):
+            init_command(None)
+
+        mock_context["create_skeleton"].assert_not_called()
+
+    def test_no_args_prints_usage_info(self, mock_context):
+        """flash init with no args should print usage information."""
+        with pytest.raises(typer.Exit):
+            init_command(None)
+
+        # Verify console.print was called with a Panel containing usage info
+        mock_context["console"].print.assert_called_once()
+        panel_arg = mock_context["console"].print.call_args[0][0]
+        assert isinstance(panel_arg, Panel)
+        assert "flash init" in panel_arg.title
+
+
 class TestInitCommandCurrentDirectory:
     """Tests for init command when using current directory."""
-
-    @patch("pathlib.Path.cwd")
-    def test_init_current_directory_with_none(self, mock_cwd, mock_context, tmp_path):
-        """Test initialization in current directory with None argument."""
-        mock_cwd.return_value = tmp_path
-
-        init_command(None)
-
-        # Verify skeleton was created
-        mock_context["create_skeleton"].assert_called_once()
 
     @patch("pathlib.Path.cwd")
     def test_init_current_directory_with_dot(self, mock_cwd, mock_context, tmp_path):
