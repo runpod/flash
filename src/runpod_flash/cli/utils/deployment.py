@@ -3,7 +3,6 @@
 import asyncio
 import json
 import logging
-import os
 from typing import Dict, Any
 from datetime import datetime
 from pathlib import Path
@@ -205,11 +204,12 @@ async def reconcile_and_provision_resources(
         config.get("makes_remote_calls", False)
         for config in local_manifest.get("resources", {}).values()
     )
-    if has_remote_callers and not os.getenv("RUNPOD_API_KEY"):
+    from runpod_flash.core.credentials import get_api_key
+
+    if has_remote_callers and not get_api_key():
         raise ValueError(
-            "RUNPOD_API_KEY environment variable is required when deploying "
-            "resources that make remote calls. Set it in your environment "
-            "before running flash deploy."
+            "RUNPOD_API_KEY is required when deploying resources that make "
+            "remote calls. Set it via 'flash login' or in your environment."
         )
 
     # Load State Manager manifest for comparison

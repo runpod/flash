@@ -9,7 +9,6 @@ import os
 from typing import Any, Dict, Optional, List
 
 import aiohttp
-from aiohttp.resolver import ThreadedResolver
 
 from runpod_flash.core.credentials import get_api_key
 from runpod_flash.core.exceptions import RunpodAPIKeyError
@@ -75,20 +74,11 @@ class RunpodGraphQLClient:
     async def _get_session(self) -> aiohttp.ClientSession:
         """Get or create an aiohttp session."""
         if self.session is None or self.session.closed:
-            from runpod_flash.core.utils.user_agent import get_user_agent
+            from runpod_flash.core.utils.http import get_authenticated_aiohttp_session
 
-            timeout = aiohttp.ClientTimeout(total=300)  # 5 minute timeout
-            connector = aiohttp.TCPConnector(resolver=ThreadedResolver())
-            headers = {
-                "User-Agent": get_user_agent(),
-                "Content-Type": "application/json",
-            }
-            if self.api_key:
-                headers["Authorization"] = f"Bearer {self.api_key}"
-            self.session = aiohttp.ClientSession(
-                timeout=timeout,
-                headers=headers,
-                connector=connector,
+            self.session = get_authenticated_aiohttp_session(
+                timeout=300.0,  # 5 minute timeout for GraphQL operations
+                api_key_override=self.api_key,
             )
         return self.session
 
@@ -844,16 +834,13 @@ class RunpodRestClient:
     async def _get_session(self) -> aiohttp.ClientSession:
         """Get or create an aiohttp session."""
         if self.session is None or self.session.closed:
-            from runpod_flash.core.utils.user_agent import get_user_agent
+            from runpod_flash.core.utils.http import get_authenticated_aiohttp_session
 
-            timeout = aiohttp.ClientTimeout(total=300)  # 5 minute timeout
-            headers = {
-                "User-Agent": get_user_agent(),
-                "Content-Type": "application/json",
-            }
-            if self.api_key:
-                headers["Authorization"] = f"Bearer {self.api_key}"
-            self.session = aiohttp.ClientSession(timeout=timeout, headers=headers)
+            self.session = get_authenticated_aiohttp_session(
+                timeout=300.0,  # 5 minute timeout for REST operations
+                api_key_override=self.api_key,
+                use_threaded_resolver=False,
+            )
         return self.session
 
     async def _execute_rest(

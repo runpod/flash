@@ -11,7 +11,6 @@ from typing import Any, Callable, Dict, List, Optional
 import httpx
 
 from runpod_flash.core.utils.http import get_authenticated_httpx_client
-from runpod_flash.runtime.api_key_context import get_api_key
 from runpod_flash.runtime.serialization import (
     deserialize_arg,
     serialize_args,
@@ -251,10 +250,8 @@ class LoadBalancerSlsStub:
         execute_url = f"{self.server.endpoint_url}/execute"
 
         try:
-            # Get API key from context (if available) for propagation
-            context_api_key = get_api_key()
             async with get_authenticated_httpx_client(
-                timeout=self.timeout, api_key_override=context_api_key
+                timeout=self.timeout,
             ) as client:
                 response = await client.post(execute_url, json=request)
                 response.raise_for_status()
@@ -327,10 +324,8 @@ class LoadBalancerSlsStub:
         log.info(f"{self.server} | {method} {path}")
 
         try:
-            # Get API key from context (if available) for propagation
-            context_api_key = get_api_key()
             async with get_authenticated_httpx_client(
-                timeout=self.timeout, api_key_override=context_api_key
+                timeout=self.timeout,
             ) as client:
                 response = await client.request(method, url, json=body)
                 response.raise_for_status()
