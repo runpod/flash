@@ -1548,13 +1548,14 @@ class TestInjectTemplateEnv:
         # self.env should not be mutated
         assert resource.env == env_before
 
-        # FLASH_MODULE_PATH and FLASH_ENDPOINT_TYPE should be in template env
+        # FLASH_MODULE_PATH should be in template env
         payload = mock_client.save_endpoint.call_args.args[0]
         template_env = payload.get("template", {}).get("env", [])
         module_entries = [e for e in template_env if e["key"] == "FLASH_MODULE_PATH"]
         assert len(module_entries) == 1
         assert module_entries[0]["value"] == "myapp.handler"
 
+        # FLASH_ENDPOINT_TYPE should NOT be injected here — it's set by the
+        # runtime resource_provisioner for flash deploy, not by _do_deploy
         type_entries = [e for e in template_env if e["key"] == "FLASH_ENDPOINT_TYPE"]
-        assert len(type_entries) == 1
-        assert type_entries[0]["value"] == "lb"
+        assert len(type_entries) == 0
