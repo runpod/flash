@@ -14,8 +14,9 @@ console = Console()
 
 
 def init_command(
+    ctx: typer.Context,
     project_name: Optional[str] = typer.Argument(
-        None, help="Project name or '.' for current directory"
+        None, help="Project name, or '.' to initialize in current directory"
     ),
     force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing files"),
 ):
@@ -23,21 +24,7 @@ def init_command(
 
     # No argument provided — show usage and exit
     if project_name is None:
-        console.print(
-            Panel(
-                "[bold]Usage:[/bold]\n\n"
-                "  flash init [bold].[/bold]              Initialize in current directory\n"
-                "  flash init [bold]<name>[/bold]         Create new project in <name>/\n\n"
-                "[bold]Options:[/bold]\n"
-                "  --force, -f          Overwrite existing files\n\n"
-                "[bold]Examples:[/bold]\n"
-                "  flash init my-project\n"
-                "  flash init .\n"
-                "  flash init my-project --force",
-                title="flash init",
-                expand=False,
-            )
-        )
+        console.print(Panel(ctx.get_help(), title="flash init", expand=False))
         raise typer.Exit(0)
 
     # Determine target directory and initialization mode
