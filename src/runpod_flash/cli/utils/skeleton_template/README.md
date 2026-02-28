@@ -43,17 +43,17 @@ Learn more about it from our [Documentation](https://docs.runpod.io/get-started/
 # Queue-based GPU worker
 curl -X POST http://localhost:8888/gpu_worker/runsync \
   -H "Content-Type: application/json" \
-  -d '{"message": "Hello GPU!"}'
+  -d '{"input": {"input_data": {"message": "Hello GPU!"}}}'
 
 # Queue-based CPU worker
 curl -X POST http://localhost:8888/cpu_worker/runsync \
   -H "Content-Type: application/json" \
-  -d '{"message": "Hello CPU!"}'
+  -d '{"input": {"input_data": {"message": "Hello CPU!"}}}'
 
 # Load-balanced HTTP endpoint
 curl -X POST http://localhost:8888/lb_worker/process \
   -H "Content-Type: application/json" \
-  -d '{"input": "test"}'
+  -d '{"input_data": {"message": "Hello from LB!"}}'
 
 # Load-balanced health check
 curl http://localhost:8888/lb_worker/health
