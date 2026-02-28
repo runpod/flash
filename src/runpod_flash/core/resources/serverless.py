@@ -241,13 +241,12 @@ class ServerlessResource(DeployableResource):
 
     @property
     def config_hash(self) -> str:
-        """Get config hash excluding env and runtime-assigned fields.
+        """Get config hash excluding runtime-assigned fields.
 
         Prevents false drift from:
-        - Dynamic env vars computed at runtime
         - Runtime-assigned fields (template, templateId, aiKey, userId, etc.)
 
-        Only hashes user-specified configuration, not server-assigned state.
+        Hashes user-specified configuration including env vars.
         """
         import hashlib
         import json
@@ -626,6 +625,21 @@ class ServerlessResource(DeployableResource):
         except Exception:
             return None
 
+    def _inject_template_env(self, key: str, value: str) -> None:
+        """Append a KeyValuePair to self.template.env if the key isn't already present.
+
+        This injects runtime env vars directly into the template without
+        mutating self.env, which would cause false config drift on subsequent
+        deploys.
+        """
+        if self.template is None:
+            return
+        if self.template.env is None:
+            self.template.env = []
+        existing_keys = {kv.key for kv in self.template.env}
+        if key not in existing_keys:
+            self.template.env.append(KeyValuePair(key=key, value=value))
+
     async def _do_deploy(self) -> "DeployableResource":
         """
         Deploys the serverless resource using the provided configuration.
@@ -641,19 +655,17 @@ class ServerlessResource(DeployableResource):
                 log.debug(f"{self} exists")
                 return self
 
-            # Inject API key for queue-based endpoints that make remote calls
+            # Inject API key for queue-based endpoints that make remote calls.
+            # Injected into template.env (not self.env) to avoid false config drift.
             if self.type == ServerlessType.QB:
-                env_dict = self.env or {}
-
-                # Check if this resource makes remote calls (from build manifest)
                 makes_remote_calls = self._check_makes_remote_calls()
 
                 if makes_remote_calls:
-                    # Inject RUNPOD_API_KEY if not already set
+                    env_dict = self.env or {}
                     if "RUNPOD_API_KEY" not in env_dict:
                         api_key = os.getenv("RUNPOD_API_KEY")
                         if api_key:
-                            env_dict["RUNPOD_API_KEY"] = api_key
+                            self._inject_template_env("RUNPOD_API_KEY", api_key)
                             log.debug(
                                 f"{self.name}: Injected RUNPOD_API_KEY for remote calls "
                                 f"(makes_remote_calls=True)"
@@ -664,18 +676,14 @@ class ServerlessResource(DeployableResource):
                                 f"Remote calls to other endpoints will fail."
                             )
 
-                self.env = env_dict
-
-            # Inject module path for load-balanced endpoints
+            # Inject module path for load-balanced endpoints.
+            # Injected into template.env (not self.env) to avoid false config drift.
             elif self.type == ServerlessType.LB:
                 env_dict = self.env or {}
-
                 module_path = self._get_module_path()
                 if module_path and "FLASH_MODULE_PATH" not in env_dict:
-                    env_dict["FLASH_MODULE_PATH"] = module_path
+                    self._inject_template_env("FLASH_MODULE_PATH", module_path)
                     log.debug(f"{self.name}: Injected FLASH_MODULE_PATH={module_path}")
-
-                self.env = env_dict
 
             # Ensure network volume is deployed first
             await self._ensure_network_volume_deployed()
