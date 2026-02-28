@@ -76,6 +76,7 @@ def load_ignore_patterns(project_dir: Path) -> pathspec.PathSpec:
         ".runpod/",
         "*.tar.gz",
         ".git/",
+        ".gitignore",
         "__pycache__/",
         "*.pyc",
         "*.pyo",
