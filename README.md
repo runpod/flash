@@ -172,7 +172,6 @@ my_project/
 ├── cpu_worker.py              # CPU worker with @remote function
 ├── .env                       # Environment variable template
 ├── .gitignore                 # Git ignore patterns
-├── .flashignore               # Flash deployment ignore patterns
 ├── pyproject.toml             # Python dependencies (uv/pip compatible)
 └── README.md                  # Project documentation
 ```
@@ -543,7 +542,7 @@ For information on load-balanced endpoints (required for HTTP services), see [do
 
 **No @remote functions found:**
 - Ensure your functions are decorated with `@remote(resource_config)`
-- Check that Python files are not excluded by `.gitignore` or `.flashignore`
+- Check that Python files are not excluded by `.gitignore`
 - Verify function decorators have valid syntax
 
 **Build succeeded but deployment failed:**

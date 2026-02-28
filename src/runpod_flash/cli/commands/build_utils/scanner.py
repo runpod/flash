@@ -126,7 +126,7 @@ class RemoteDecoratorScanner:
         """Discover all @remote decorated functions and classes."""
         functions = []
 
-        # Use .gitignore / .flashignore aware file walker with early directory pruning.
+        # Use .gitignore aware file walker with early directory pruning.
         # This avoids descending into .venv, __pycache__, .flash, etc.
         spec = load_ignore_patterns(self.project_dir)
         all_files = get_file_tree(self.project_dir, spec)
