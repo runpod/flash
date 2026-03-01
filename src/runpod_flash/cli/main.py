@@ -14,6 +14,7 @@ from .commands import (
     apps,
     undeploy,
     login,
+    update,
 )
 
 
@@ -41,6 +42,7 @@ app.command("run")(run.run_command)
 app.command("build")(build.build_command)
 app.command("login")(login.login_command)
 app.command("deploy")(deploy.deploy_command)
+app.command("update")(update.update_command)
 # app.command("report")(resource.report_command)
 
 
