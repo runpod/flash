@@ -16,6 +16,7 @@ from .commands import (
     login,
     update,
 )
+from .update_checker import start_background_check
 
 
 def get_version() -> str:
@@ -68,6 +69,9 @@ app.add_typer(apps.apps_app)
 app.command("undeploy")(undeploy.undeploy_command)
 
 
+_UPDATE_CHECK_EXCLUDED = frozenset({"run", "update"})
+
+
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
@@ -88,6 +92,9 @@ def main(
                 expand=False,
             )
         )
+
+    if ctx.invoked_subcommand and ctx.invoked_subcommand not in _UPDATE_CHECK_EXCLUDED:
+        start_background_check()
 
 
 if __name__ == "__main__":
