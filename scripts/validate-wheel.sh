@@ -20,7 +20,6 @@ echo "Checking wheel contents..."
 REQUIRED_TEMPLATE_FILES=(
     "runpod_flash/cli/utils/skeleton_template/.env.example"
     "runpod_flash/cli/utils/skeleton_template/.gitignore"
-    "runpod_flash/cli/utils/skeleton_template/.flashignore"
     "runpod_flash/cli/utils/skeleton_template/cpu_worker.py"
     "runpod_flash/cli/utils/skeleton_template/gpu_worker.py"
     "runpod_flash/cli/utils/skeleton_template/lb_worker.py"
@@ -75,7 +74,7 @@ flash init test_project > /dev/null 2>&1
 # Verify critical files exist
 echo ""
 echo "Verifying created files..."
-REQUIRED_FILES=(".env.example" ".gitignore" ".flashignore" "cpu_worker.py" "gpu_worker.py" "lb_worker.py" "pyproject.toml" "README.md" "requirements.txt")
+REQUIRED_FILES=(".env.example" ".gitignore" "cpu_worker.py" "gpu_worker.py" "lb_worker.py" "pyproject.toml" "README.md" "requirements.txt")
 MISSING_IN_OUTPUT=0
 
 for file in "${REQUIRED_FILES[@]}"; do
