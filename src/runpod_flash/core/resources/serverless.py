@@ -807,6 +807,41 @@ class ServerlessResource(DeployableResource):
         if key not in existing_keys:
             self.template.env.append(KeyValuePair(key=key, value=value))
 
+    def _inject_runtime_template_vars(self) -> None:
+        """Inject runtime env vars into template.env without mutating self.env.
+
+        For QB endpoints making remote calls: injects RUNPOD_API_KEY.
+        For LB endpoints: injects FLASH_MODULE_PATH.
+
+        Called by both _do_deploy (initial) and update (env changes) so
+        runtime vars survive template updates.
+        """
+        env_dict = self.env or {}
+
+        if self.type == ServerlessType.QB:
+            if self._check_makes_remote_calls():
+                if "RUNPOD_API_KEY" not in env_dict:
+                    from runpod_flash.core.credentials import get_api_key
+
+                    api_key = get_api_key()
+                    if api_key:
+                        self._inject_template_env("RUNPOD_API_KEY", api_key)
+                        log.debug(
+                            f"{self.name}: Injected RUNPOD_API_KEY for remote calls "
+                            f"(makes_remote_calls=True)"
+                        )
+                    else:
+                        log.warning(
+                            f"{self.name}: makes_remote_calls=True but RUNPOD_API_KEY not set. "
+                            f"Remote calls to other endpoints will fail."
+                        )
+
+        elif self.type == ServerlessType.LB:
+            module_path = self._get_module_path()
+            if module_path and "FLASH_MODULE_PATH" not in env_dict:
+                self._inject_template_env("FLASH_MODULE_PATH", module_path)
+                log.debug(f"{self.name}: Injected FLASH_MODULE_PATH={module_path}")
+
     async def _do_deploy(self) -> "DeployableResource":
         """
         Deploys the serverless resource using the provided configuration.
@@ -822,37 +857,7 @@ class ServerlessResource(DeployableResource):
                 log.debug(f"{self} exists")
                 return self
 
-            # Inject API key for queue-based endpoints that make remote calls.
-            # Injected into template.env (not self.env) to avoid false config drift.
-            if self.type == ServerlessType.QB:
-                makes_remote_calls = self._check_makes_remote_calls()
-
-                if makes_remote_calls:
-                    env_dict = self.env or {}
-                    if "RUNPOD_API_KEY" not in env_dict:
-                        from runpod_flash.core.credentials import get_api_key
-
-                        api_key = get_api_key()
-                        if api_key:
-                            self._inject_template_env("RUNPOD_API_KEY", api_key)
-                            log.debug(
-                                f"{self.name}: Injected RUNPOD_API_KEY for remote calls "
-                                f"(makes_remote_calls=True)"
-                            )
-                        else:
-                            log.warning(
-                                f"{self.name}: makes_remote_calls=True but RUNPOD_API_KEY not set. "
-                                f"Remote calls to other endpoints will fail."
-                            )
-
-            # Inject module path for load-balanced endpoints.
-            # Injected into template.env (not self.env) to avoid false config drift.
-            elif self.type == ServerlessType.LB:
-                env_dict = self.env or {}
-                module_path = self._get_module_path()
-                if module_path and "FLASH_MODULE_PATH" not in env_dict:
-                    self._inject_template_env("FLASH_MODULE_PATH", module_path)
-                    log.debug(f"{self.name}: Injected FLASH_MODULE_PATH={module_path}")
+            self._inject_runtime_template_vars()
 
             # Ensure network volumes are deployed first
             await self._ensure_network_volume_deployed()
@@ -935,11 +940,25 @@ class ServerlessResource(DeployableResource):
                         # hasn't changed.  This lets the platform keep vars it
                         # injected (e.g. PORT, PORT_HEALTH on LB endpoints)
                         # and avoids a spurious rolling release.
+                        #
+                        # Also check template.env: if env is empty but the
+                        # caller provided explicit template env entries, those
+                        # must not be silently dropped.
                         env_unchanged = self.env == new_config.env
+                        has_explicit_template_env = (
+                            not new_config.env and new_config.template.env is not None
+                        )
+                        skip_env = env_unchanged and not has_explicit_template_env
+
+                        if not skip_env:
+                            # Inject runtime vars (RUNPOD_API_KEY, FLASH_MODULE_PATH)
+                            # so they survive the template env overwrite.
+                            new_config._inject_runtime_template_vars()
+
                         template_payload = self._build_template_update_payload(
                             new_config.template,
                             resolved_template_id,
-                            skip_env=env_unchanged,
+                            skip_env=skip_env,
                         )
                         await client.update_template(template_payload)
                         log.debug(
