@@ -106,6 +106,34 @@ class TestFetchPypiMetadata:
             with pytest.raises(RuntimeError, match="PyPI returned HTTP 503"):
                 _fetch_pypi_metadata()
 
+    def test_runtime_error_on_malformed_json(self):
+        resp = MagicMock()
+        resp.read.return_value = b"not json {{"
+        resp.__enter__ = Mock(return_value=resp)
+        resp.__exit__ = Mock(return_value=False)
+
+        with patch(
+            "runpod_flash.cli.commands.update.urllib.request.urlopen",
+            return_value=resp,
+        ):
+            with pytest.raises(RuntimeError, match="unexpected response"):
+                _fetch_pypi_metadata()
+
+    def test_runtime_error_on_missing_version_key(self):
+        import json as _json
+
+        resp = MagicMock()
+        resp.read.return_value = _json.dumps({"info": {}}).encode()
+        resp.__enter__ = Mock(return_value=resp)
+        resp.__exit__ = Mock(return_value=False)
+
+        with patch(
+            "runpod_flash.cli.commands.update.urllib.request.urlopen",
+            return_value=resp,
+        ):
+            with pytest.raises(RuntimeError, match="missing version info"):
+                _fetch_pypi_metadata()
+
 
 class TestBuildInstallCommand:
     def test_uses_uv_when_available(self):

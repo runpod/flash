@@ -52,8 +52,18 @@ def _fetch_pypi_metadata() -> tuple[str, set[str]]:
         raise ConnectionError(
             "Could not reach PyPI. Check your network connection."
         ) from exc
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise RuntimeError(
+            "PyPI returned an unexpected response. Try again later."
+        ) from exc
 
-    latest = data["info"]["version"]
+    try:
+        latest = data["info"]["version"]
+    except (KeyError, TypeError) as exc:
+        raise RuntimeError(
+            "PyPI response missing version info. Try again later."
+        ) from exc
+
     releases = set(data.get("releases", {}).keys())
     return latest, releases
 
