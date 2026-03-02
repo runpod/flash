@@ -7,14 +7,14 @@
 
 ## Overview
 
-Flash Deploy is a distributed runtime system that enables scalable execution of `@remote` functions across dynamically provisioned Runpod serverless endpoints. It bridges the gap between local development and production cloud deployment through a unified interface.
+Flash Deploy is a distributed runtime system that enables scalable execution of `Endpoint`-decorated functions across dynamically provisioned Runpod serverless endpoints. It bridges the gap between local development and production cloud deployment through a unified interface.
 
 ### System Goals
 
-1. **Transparency**: Developers write local Python, deploy to cloud without code changes
-2. **Scalability**: Functions execute on remote serverless endpoints with resource isolation
-3. **Flexibility**: Support both queue-based and load-balanced execution models
-4. **Reliability**: Automatic resource provisioning, state reconciliation, and drift detection
+1. **Transparency**: developers write local Python, deploy to cloud without code changes
+2. **Scalability**: functions execute on remote serverless endpoints with resource isolation
+3. **Flexibility**: supports both queue-based and load-balanced execution models
+4. **Reliability**: automatic resource provisioning, state reconciliation, and drift detection
 
 ### High-Level Architecture
 
@@ -23,7 +23,7 @@ graph TB
     Developer["Developer Machine"]
 
     subgraph Build["Build Phase"]
-        Scan["Scanner<br/>Find @remote"]
+        Scan["Scanner<br/>Find Endpoint"]
         Manifest["ManifestBuilder<br/>flash_manifest.json"]
     end
 
@@ -31,8 +31,8 @@ graph TB
         S3["S3 Storage<br/>artifact.tar.gz"]
 
         subgraph Endpoints["Peer Endpoints<br/>(one per resource config)"]
-            Handler1["GPU Handler<br/>@remote functions"]
-            Handler2["CPU Handler<br/>@remote functions"]
+            Handler1["GPU Handler<br/>Endpoint functions"]
+            Handler2["CPU Handler<br/>Endpoint functions"]
             StateQuery["Service Registry<br/>Query State Manager"]
         end
     end
@@ -44,7 +44,7 @@ graph TB
     Developer -->|flash deploy --env| S3
     CLI -->|provision all endpoints| Endpoints
     Endpoints -->|query manifest<br/>peer-to-peer| Database
-    Developer -->|call @remote| Endpoints
+    Developer -->|call Endpoint functions| Endpoints
 
     style Endpoints fill:#388e3c,stroke:#1b5e20,stroke-width:3px,color:#fff
     style Build fill:#f57c00,stroke:#e65100,stroke-width:3px,color:#fff
@@ -54,11 +54,11 @@ graph TB
 
 **Endpoints**: All deployed endpoints are peers. The CLI provisions them upfront during `flash deploy`. Each endpoint loads the manifest from its `.flash/` directory and queries State Manager for peer discovery.
 
-**Worker Endpoints**: Endpoints that execute `@remote` functions. One per resource config (e.g., `gpu_config`, `cpu_config`).
+**Worker Endpoints**: Endpoints that execute `Endpoint`-decorated functions. One per resource config (e.g., `gpu_worker`, `cpu_api`).
 
 **Manifest**: JSON document describing all deployed functions, their resource configs, routing rules, and metadata. Built at compile-time, distributed to all endpoints.
 
-**Resource Config**: A Python object that defines CloudResource specifications (GPU type, memory, image, etc.). Becomes a deployable endpoint.
+**Resource Config**: Derived from `Endpoint(...)` parameters (GPU type, workers, scaling, etc.). `Endpoint` internally creates the appropriate resource config class for deployment.
 
 **Service Registry**: Runtime component that maps function names to endpoint URLs and determines local vs remote execution.
 
@@ -226,8 +226,8 @@ This section walks through the entire journey from source code to executing remo
 ```mermaid
 sequenceDiagram
     Developer->>Build: flash build
-    Build->>Build: Scan files for @remote
-    Build->>Build: Find resource configs<br/>(e.g., gpu_config, cpu_config)
+    Build->>Build: Scan files for Endpoint patterns
+    Build->>Build: Find resource configs<br/>(QB decorators + LB route registrations)
     Build->>Build: Scan functions per resource<br/>Build function registry
     Build->>ManifestBuilder: Create manifest entry<br/>per resource config
     ManifestBuilder->>ManifestBuilder: Validate routes<br/>(no conflicts)
@@ -239,7 +239,7 @@ sequenceDiagram
 ```
 
 **Scanner** (`src/runpod_flash/cli/commands/build_utils/scanner.py`):
-- Decorators scanned: `@remote`, `@load_balanced`, `@cluster`
+- Patterns scanned: `@Endpoint(...)` (QB), `ep.get("/path")` / `ep.post("/path")` (LB), and legacy `@remote`
 - Extracts: function name, module path, async status, HTTP routing info
 - Groups functions by resource config
 
@@ -251,13 +251,13 @@ sequenceDiagram
     "generated_at": "2024-01-21T10:00:00Z",
     "project_name": "my_project",
     "resources": {
-      "gpu_config": {
-        "resource_type": "LiveServerless",
+      "gpu_worker": {
+        "resource_type": "Endpoint",
         "functions": [{"name": "process", "module": "main", ...}],
         "is_load_balanced": false
       }
     },
-    "function_registry": {"process": "gpu_config"},
+    "function_registry": {"process": "gpu_worker"},
     "routes": {}
   }
   ```
@@ -300,7 +300,7 @@ sequenceDiagram
 
 ### Phase 3: Endpoint Boot & Service Discovery
 
-Each endpoint boots independently. Endpoints that make cross-endpoint calls (i.e., call `@remote` functions deployed on a different resource config) query State Manager to discover peer endpoint URLs. Endpoints that only execute local functions do not need State Manager access.
+Each endpoint boots independently. Endpoints that make cross-endpoint calls (i.e., call functions deployed on a different resource config) query State Manager to discover peer endpoint URLs. Endpoints that only execute local functions do not need State Manager access.
 
 ```mermaid
 sequenceDiagram
@@ -354,7 +354,7 @@ sequenceDiagram
 
 ### Phase 4: Runtime Function Execution
 
-When client calls `@remote function`:
+When client calls an Endpoint-decorated function:
 
 ```mermaid
 sequenceDiagram
@@ -416,7 +416,7 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
 
 **Load-Balanced** (`src/runpod_flash/runtime/lb_handler.py`):
 - FastAPI app with user-defined HTTP routes
-- `/execute` endpoint for @remote execution (LiveLoadBalancer only)
+- `/execute` endpoint for internal function execution (local dev only)
 - User routes: HTTP methods + paths from manifest
 
 **Key Files:**
@@ -438,7 +438,7 @@ The manifest is the contract between build-time and runtime. It defines all depl
 **Builder**: `ManifestBuilder` in `src/runpod_flash/cli/commands/build_utils/manifest.py`
 
 **Input**:
-- List of discovered `@remote` functions (from scanner)
+- List of discovered Endpoint-decorated functions (from scanner)
 - Each function has:
   - Name, module, async status
   - Resource config name
@@ -452,7 +452,7 @@ The manifest is the contract between build-time and runtime. It defines all depl
   "project_name": "my_app",
   "resources": {
     "gpu_config": {
-      "resource_type": "LiveServerless",
+      "resource_type": "Endpoint",
       "functions": [
         {
           "name": "train",
@@ -648,7 +648,7 @@ await StateManagerClient.update_resource_state(flash_environment_id, resources)
 
 ## Remote Execution
 
-When `@remote function` is called, the client determines whether to execute locally or remotely.
+When an Endpoint-decorated function is called, the client determines whether to execute locally or remotely.
 
 ### Execution Modes
 
@@ -1105,7 +1105,7 @@ logging.getLogger("runpod_flash.runtime.service_registry").setLevel(logging.DEBU
 
 | File | Purpose |
 |------|---------|
-| `src/runpod_flash/cli/commands/build_utils/scanner.py` | Scans for @remote decorators |
+| `src/runpod_flash/cli/commands/build_utils/scanner.py` | Scans for Endpoint patterns and legacy @remote |
 | `src/runpod_flash/cli/commands/build_utils/manifest.py` | Manifest builder and validation |
 
 ### Resource Management

@@ -2,13 +2,13 @@
 
 ## Overview
 
-This document explains what happens after a load-balanced endpoint is deployed on Runpod and is actively running. It covers the deployment architecture, request flows, and execution patterns for both direct HTTP requests and @remote function calls.
+This document explains what happens after a load-balanced endpoint is deployed on Runpod and is actively running. It covers the deployment architecture, request flows, and execution patterns for both direct HTTP requests and Endpoint-decorated function calls.
 
 ## Deployment Architecture
 
 ### Container Image and Startup
 
-When you deploy a `LoadBalancerSlsResource` endpoint with `flash build` and `flash deploy`:
+When you deploy a load-balanced `Endpoint` with `flash build` and `flash deploy`:
 
 ```mermaid
 graph TD
@@ -42,13 +42,13 @@ The runtime loads your application using the manifest and route registry:
 
 ```python
 # Runtime loads from flash_manifest.json
-# and executes your @remote decorated functions via FastAPI
+# and executes your Endpoint-decorated functions via FastAPI
 
 from fastapi import FastAPI
 from runpod_flash.runtime.lb_handler import create_lb_handler
 
 # User functions are discovered and registered at runtime
-# Routes are configured based on @remote decorators with HTTP method and path
+# routes are configured based on Endpoint route registrations (ep.get, ep.post, etc.)
 
 app = create_lb_handler(route_registry)
 
@@ -111,31 +111,33 @@ sequenceDiagram
 **Example Flow:**
 
 ```python
-# User code
-@remote(api, method="POST", path="/api/process")
+# user code
+from runpod_flash import Endpoint, GpuGroup
+
+api = Endpoint(name="my-api", gpu=GpuGroup.ADA_24, workers=(1, 5))
+
+@api.post("/api/process")
 async def process_data(x: int, y: int):
     return {"result": x + y}
 
-# Client request
-POST https://my-endpoint.runpod.ai/api/process
-Content-Type: application/json
-{"x": 5, "y": 3}
+# client request
+# POST https://my-endpoint.runpod.ai/api/process
+# Content-Type: application/json
+# {"x": 5, "y": 3}
 
-# On Runpod:
-# 1. Request arrives at container port 8000
+# on RunPod:
+# 1. request arrives at container port 8000
 # 2. FastAPI receives POST /api/process
 # 3. FastAPI parses JSON body: {"x": 5, "y": 3}
 # 4. FastAPI calls process_data(x=5, y=3)
-# 5. Function executes: returns {"result": 8}
+# 5. function executes: returns {"result": 8}
 # 6. FastAPI serializes response
-# 7. Returns HTTP 200 with body {"result": 8}
-# 8. Runpod wraps in HTTPS response
-# 9. Client receives response
+# 7. returns HTTP 200 with body {"result": 8}
 ```
 
-### @remote Function Call (Framework Endpoint)
+### Endpoint Function Call (Framework Endpoint)
 
-When you call an `@remote` decorated function from your local code:
+When you call an `Endpoint`-decorated function from your local code:
 
 ```mermaid
 sequenceDiagram
@@ -168,38 +170,26 @@ sequenceDiagram
 **Example Flow:**
 
 ```python
-# Local code - after deployment
-api = LoadBalancerSlsResource(name="user-service",
-                            imageName="runpod/runpod-flash-lb:latest")
+from runpod_flash import Endpoint, GpuGroup
 
-# Deploy the endpoint (generates endpoint_url automatically)
-await api.deploy()
-# After deploy, api.endpoint_url is populated by Runpod
-# Example: "https://xxx-yyy-zzz.runpod.io"
+api = Endpoint(name="user-service", gpu=GpuGroup.ADA_24, workers=(1, 5))
 
-@remote(api, method="POST", path="/api/process")
+@api.post("/api/process")
 async def process_data(x: int, y: int):
     return {"result": x + y}
 
-# Call the function locally
+# call the function
 result = await process_data(5, 3)
 
-# What happens:
-# 1. Decorator finds LoadBalancerSlsStub in registry
-# 2. Stub extracts function source code via AST
-# 3. Stub serializes arguments: cloudpickle.dumps([5, 3])
-# 4. Stub POST to https://my-endpoint.runpod.ai/execute
-# 5. Container receives request at /execute endpoint
-# 6. create_lb_handler's execute_remote_function handles it:
-#    a. Parses JSON body
-#    b. Deserializes arguments: [5, 3]
-#    c. Executes: exec(function_code) in isolated namespace
-#    d. Calls func(5, 3)
-#    e. Gets result: {"result": 8}
-#    f. Serializes result via cloudpickle
-#    g. Returns {success: true, result: base64_string}
-# 7. Stub deserializes result
-# 8. Returns {"result": 8} to caller
+# what happens internally:
+# 1. stub extracts function source code via AST
+# 2. stub serializes arguments: cloudpickle.dumps([5, 3])
+# 3. stub POST to endpoint URL
+# 4. container receives request
+# 5. handler deserializes arguments and executes function
+# 6. result serialized and returned
+# 7. stub deserializes result
+# 8. returns {"result": 8} to caller
 ```
 
 ## Deployment Execution Model
@@ -210,19 +200,19 @@ When using `LiveLoadBalancer` for local testing, endpoints expose two types of r
 
 1. **User-Defined Routes** (e.g., `/api/health`, `/api/users`)
    - Called via direct HTTP requests
-   - Called via `@remote` decorator (uses /execute internally)
+   - Called via Endpoint function calls (uses /execute internally)
 
 2. **Framework Endpoints**
-   - `/execute` - Accepts serialized function code for @remote execution
+   - `/execute` - Accepts serialized function code for internal execution
    - `/ping` - Health check endpoint
 
-### Deployed Endpoints (LoadBalancerSlsResource)
+### Deployed Endpoints
 
 When deployed to production, endpoints **only expose user-defined routes** for security:
 
 1. **User-Defined Routes** (e.g., `/api/health`, `/api/users`)
    - Called via direct HTTP requests from clients
-   - Called via `@remote` decorator (stub translates to HTTP requests to user routes)
+   - Called via Endpoint function calls (stub translates to HTTP requests to user routes)
    - `/execute` endpoint NOT exposed (removed for security)
 
 2. **Framework Endpoints**
@@ -249,37 +239,29 @@ DELETE /api/users/{user_id}
 
 **Example:**
 ```python
-@remote(api, method="GET", path="/health")
+@api.get("/health")
 def health_check():
     return {"status": "ok"}
 
-# Client can call:
-GET https://my-endpoint.runpod.ai/health
-# Response: 200 OK {"status": "ok"}
+# client calls:
+# GET https://my-endpoint.runpod.ai/health
+# response: 200 OK {"status": "ok"}
 ```
 
-#### @remote Function Calls (Different Local vs Deployed)
+#### Endpoint Function Calls (Different Local vs Deployed)
 
-**Local (LiveLoadBalancer):**
 ```python
-@remote(api, method="POST", path="/api/process")
+api = Endpoint(name="my-api", gpu=GpuGroup.ADA_24, workers=(1, 5))
+
+@api.post("/api/process")
 async def process_data(x: int, y: int):
     return {"result": x + y}
 
-# Called via @remote:
-result = await process_data(5, 3)  # Uses /execute internally (local only)
-```
-
-**Deployed (LoadBalancerSlsResource):**
-```python
-@remote(api, method="POST", path="/api/process")
-async def process_data(x: int, y: int):
-    return {"result": x + y}
-
-# Called via @remote:
+# local dev (flash run): uses /execute internally
 result = await process_data(5, 3)
-# Stub automatically translates to: POST /api/process {"x": 5, "y": 3}
-# No /execute endpoint involved (security)
+
+# deployed: stub translates to POST /api/process {"x": 5, "y": 3}
+result = await process_data(5, 3)
 ```
 
 **Key Differences:**
@@ -291,35 +273,28 @@ result = await process_data(5, 3)
 
 The stub determines which execution path to use by checking:
 1. Is this a `LiveLoadBalancer`? → Always use `/execute` for local development
-2. Does the function have `method` and `path` metadata from `@remote` decorator? → If yes, use user-defined route
-3. If routing metadata is incomplete or missing → Falls back to `/execute` (will fail on deployed endpoints)
+2. Does the function have `method` and `path` metadata from route registration? If yes, use user-defined route
+3. If routing metadata is incomplete or missing, falls back to `/execute` (will fail on deployed endpoints)
 
-This means if you decorate a function for `LoadBalancerSlsResource` without specifying both `method` and `path`, the stub will attempt to use `/execute`, which doesn't exist in production. Always provide complete routing metadata for deployed endpoints.
+When using `Endpoint` with the LB pattern (`ep.post("/path")`), routing metadata is always provided. The stub determines the correct execution path automatically.
 
-**Important Implementation Detail: Parameter Mapping**
+**Parameter Mapping**
 
 When using user-defined routes (deployed endpoints), the stub inspects the function signature and maps positional and keyword arguments to the HTTP request JSON body:
 
 ```python
-@remote(api, method="POST", path="/api/process")
+@api.post("/api/process")
 async def process_data(x: int, y: int):
     return {"result": x + y}
 
-# Local call:
+# local call:
 result = await process_data(5, 3)
 
-# Gets translated to:
-POST /api/process
-{
-  "x": 5,
-  "y": 3
-}
+# gets translated to:
+# POST /api/process {"x": 5, "y": 3}
 ```
 
-The stub uses Python's `inspect.signature()` to map positional args to parameter names. This requires that:
-- Function parameters are JSON-serializable types (int, str, bool, list, dict, None)
-- Function signature is available (defined at module level, not dynamically created)
-- No complex types (custom classes, Request objects, etc.) are used as parameters
+The stub uses Python's `inspect.signature()` to map positional args to parameter names. Function parameters must be JSON-serializable types (int, str, bool, list, dict, None).
 
 ## Execution Flow Diagram
 
@@ -395,7 +370,7 @@ The `/execute` endpoint accepts and executes arbitrary Python code sent in HTTP 
 
 **Why This Is Secure When Used Correctly:**
 
-- In `LiveLoadBalancer` (local development): Code originates from your own `@remote` decorator
+- In local development: code originates from your own Endpoint-decorated functions
 - You control what function code is serialized and sent
 - Only accessible during local testing, never exposed publicly
 - Same trusted-client model as queue-based serverless endpoints
@@ -404,7 +379,7 @@ The `/execute` endpoint accepts and executes arbitrary Python code sent in HTTP 
 
 ```
 LiveLoadBalancer (local):
-- /execute endpoint: INCLUDED (for @remote function execution)
+- /execute endpoint: INCLUDED (for function execution)
 - User routes: Included
 - Safe because: Only you can run your code locally
 
@@ -477,13 +452,13 @@ graph TD
 **Example Concurrency:**
 
 ```python
-@remote(api, method="POST", path="/api/process")
+@api.post("/api/process")
 async def process_data(x: int):
-    import time
-    await asyncio.sleep(10)  # Simulate work
+    import asyncio
+    await asyncio.sleep(10)  # simulate work
     return {"result": x}
 
-# If 5 requests come in simultaneously:
+# if 5 requests come in simultaneously:
 # - Request 1: await asyncio.sleep(10) → Worker 1
 # - Request 2: await asyncio.sleep(10) → Worker 1 (concurrent)
 # - Request 3: await asyncio.sleep(10) → Worker 1 (concurrent)
@@ -516,7 +491,7 @@ POST https://endpoint.runpod.ai/api/users
 ### Function Errors
 
 ```
-@remote(api, method="POST", path="/api/users")
+@api.post("/api/users")
 async def create_user(name: str):
     if not name:
         raise ValueError("Name required")
@@ -530,16 +505,15 @@ POST https://endpoint.runpod.ai/api/users
 # (depending on where error occurs)
 ```
 
-### @remote Execution Errors
+### Remote Execution Errors
 
 ```python
-# Local code
-@remote(api, method="POST", path="/api/process")
+@api.post("/api/process")
 async def process_data(x: int):
     raise RuntimeError("Processing failed")
 
 result = await process_data(5)
-# Raises RuntimeError: "Remote execution failed: Processing failed"
+# raises RuntimeError: "Remote execution failed: Processing failed"
 ```
 
 ## Performance Characteristics
@@ -555,7 +529,7 @@ Direct HTTP Request:
 - Response: 10-50ms
 Total (no-op function): 30-110ms
 
-@remote Function Call:
+Endpoint Function Call:
 - Function serialization: 1-10ms
 - HTTP request to /execute: 10-50ms
 - Deserialization: 1-10ms
@@ -685,7 +659,7 @@ Outgoing:
 **Two Execution Paths:**
 
 - **User Routes** - Direct HTTP from clients
-- **Framework Routes** - @remote calls from local code via /execute
+- **Framework Routes** - Endpoint function calls from local code via /execute
 
 **Key Characteristics:**
 
@@ -693,10 +667,10 @@ Outgoing:
 - ✅ No queuing overhead
 - ✅ Concurrent request handling
 - ✅ FastAPI routing
-- ✅ Serialized function execution via @remote
+- ✅ Serialized function execution via Endpoint
 
 **Security:**
 
 - Protect `/execute` endpoint with authentication
-- Only allow @remote calls from trusted sources
+- Only allow Endpoint calls from trusted sources
 - Monitor endpoint usage

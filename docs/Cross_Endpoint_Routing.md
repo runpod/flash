@@ -2,18 +2,11 @@
 
 ## Overview
 
-Cross-endpoint routing enables serverless functions to seamlessly call functions deployed on different endpoints. Functions can execute locally or remotely based on service discovery configuration, allowing developers to build distributed applications without manual routing logic.
+Cross-endpoint routing enables `Endpoint`-decorated functions to seamlessly call functions deployed on different endpoints. Functions can execute locally or remotely based on service discovery configuration, allowing developers to build distributed applications without manual routing logic.
 
 ## Problem Statement
 
-Previously, serverless functions were isolated to their deployment endpoint. Building distributed applications required:
-- Manual HTTP calls to other endpoints with serialization boilerplate
-- No unified function invocation pattern across endpoints
-- Difficulty discovering which functions exist on which endpoints
-- Complex error handling for remote failures
-- No automatic argument serialization/deserialization
-
-Cross-endpoint routing solves these problems by providing transparent function routing with manifest-based service discovery.
+Previously, serverless functions were isolated to their deployment endpoint. Building distributed applications required manual HTTP calls, boilerplate serialization, and complex error handling. Cross-endpoint routing solves these problems by providing transparent function routing with manifest-based service discovery.
 
 ## User Guide
 
@@ -74,26 +67,19 @@ export RUNPOD_ENDPOINT_ID=gpu-endpoint-123
 
 #### 3. Define Functions
 
-Define functions normally. The routing system decides execution location:
+Define functions using `Endpoint`. The routing system decides execution location at runtime:
 
 ```python
-from runpod_flash import stub
+from runpod_flash import Endpoint, GpuGroup
 
-@stub.function()
+@Endpoint(name="image-processor", gpu=GpuGroup.ADA_24)
 async def process_image(image_path: str) -> dict:
-    """Process an image - may execute locally or remotely."""
-    # This function might route to 'image-processor' endpoint
-    # based on manifest configuration
+    """process an image -- may execute locally or remotely."""
     return {"processed": True}
 
-@stub.function()
-async def local_only_function(data: str) -> str:
-    """Always executes locally (not in manifest)."""
-    return f"Processed: {data}"
-
-@stub.function()
+@Endpoint(name="report-generator", cpu="cpu3c-1-2")
 async def generate_report(data: list) -> bytes:
-    """May route to 'report-generator' endpoint."""
+    """may route to 'report-generator' endpoint."""
     return b"report data"
 ```
 
@@ -102,11 +88,9 @@ async def generate_report(data: list) -> bytes:
 The routing system handles execution location transparently:
 
 ```python
-# Local execution (not in manifest)
-result = await local_only_function("hello")
-
-# Remote or local execution (based on manifest)
+# remote or local execution (based on manifest)
 result = await process_image("path/to/image.jpg")
+report = await generate_report([1, 2, 3])
 ```
 
 ### Configuration
@@ -194,17 +178,21 @@ Split functionality across endpoints using manifest:
 
 **Functions**:
 ```python
-@stub.function()
+from runpod_flash import Endpoint, GpuGroup
+
+@Endpoint(name="image-processor", gpu=GpuGroup.ADA_24)
 async def resize_image(path: str, size: int) -> str:
     return process_image(path, size)
 
-@stub.function()
+@Endpoint(name="report-generator", cpu="cpu3c-1-2")
 async def generate_metrics(data: list) -> dict:
     return create_metrics(data)
 
-@stub.function()
+orchestrator = Endpoint(name="orchestrator", cpu="cpu3c-1-2")
+
+@orchestrator.post("/workflow")
 async def workflow():
-    # Transparently calls across endpoints
+    # transparently calls across endpoints
     image = await resize_image("input.jpg", 512)
     metrics = await generate_metrics([1, 2, 3])
     return {"image": image, "metrics": metrics}
@@ -234,15 +222,12 @@ Configure some functions for remote execution, others local:
 
 **Functions**:
 ```python
-@stub.function()
-async def heavy_computation(data: bytes) -> bytes:
-    # Routes to GPU cluster (in function_registry)
-    return gpu_process(data)
+from runpod_flash import Endpoint, GpuGroup
 
-@stub.function()
-async def light_computation(value: int) -> int:
-    # Always local - not in function_registry
-    return value * 2
+@Endpoint(name="gpu-cluster", gpu=GpuGroup.AMPERE_80)
+async def heavy_computation(data: bytes) -> bytes:
+    # routes to GPU cluster
+    return gpu_process(data)
 ```
 
 #### Pattern 3: Fallback to Local
@@ -250,18 +235,13 @@ async def light_computation(value: int) -> int:
 Functions gracefully fall back to local execution if routing fails:
 
 ```python
-@stub.function()
-async def critical_service(request: dict) -> dict:
-    # Routes to critical-endpoint if:
-    # - In function_registry
-    # - Manifest available
-    # Otherwise executes locally
-    return handle_critical(request)
+from runpod_flash import Endpoint, GpuGroup
 
-@stub.function()
-async def helper_function(x: int) -> int:
-    # Always local - not in manifest
-    return x + 1
+@Endpoint(name="critical-service", gpu=GpuGroup.ANY)
+async def critical_service(request: dict) -> dict:
+    # routes to critical endpoint if manifest available
+    # otherwise executes locally
+    return handle_critical(request)
 ```
 
 ### Error Handling

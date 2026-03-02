@@ -2,9 +2,11 @@
 
 ## Overview
 
-The `LoadBalancerSlsResource` class enables provisioning and management of Runpod load-balanced serverless endpoints. Unlike queue-based endpoints that process requests sequentially, load-balanced endpoints expose HTTP servers directly to clients, enabling REST APIs, webhooks, and real-time communication patterns.
+Load-balanced serverless endpoints expose HTTP servers directly to clients, enabling REST APIs, webhooks, and real-time communication patterns. Unlike queue-based endpoints that process requests sequentially, load-balanced endpoints route requests directly to available workers.
 
-This resource type is used for specialized endpoints like entry-point endpoints. Cross-endpoint service discovery now uses State Manager GraphQL API (peer-to-peer) rather than HTTP endpoints.
+**User-facing API:** Use `Endpoint` with the LB pattern (`ep = Endpoint(...)` + `@ep.post("/path")`). See [Flash SDK Reference](Flash_SDK_Reference.md).
+
+**Internal implementation:** The `LoadBalancerSlsResource` class handles provisioning and management. `Endpoint` creates these internally based on usage pattern.
 
 ## Design Context
 
@@ -117,27 +119,12 @@ sequenceDiagram
     end
 ```
 
-## Using @remote with LoadBalancer Endpoints
+## Related Documentation
 
 This document focuses on the `LoadBalancerSlsResource` class implementation and architecture.
 
-**Related documentation:**
-- [Using @remote with Load-Balanced Endpoints](Using_Remote_With_LoadBalancer.md) - User guide for writing and testing load-balanced endpoints
-- [LoadBalancer Runtime Architecture](LoadBalancer_Runtime_Architecture.md) - Technical details on what happens when deployed on Runpod, request flows, and execution patterns
-
-**In the user guide, you'll learn:**
-- Quick start with `LiveLoadBalancer` for local development
-- HTTP routing with `method` and `path` parameters
-- Building and deploying load-balanced endpoints
-- Complete working examples
-- Troubleshooting common issues
-
-**In the runtime architecture guide, you'll learn:**
-- Deployment architecture and container setup
-- Request flow for both direct HTTP and @remote calls
-- Dual endpoint model (/execute vs user routes)
-- Security considerations
-- Performance characteristics and monitoring
+- [Load-Balanced Endpoints](Using_Remote_With_LoadBalancer.md) -- user guide for creating and testing LB endpoints with the `Endpoint` class
+- [LoadBalancer Runtime Architecture](LoadBalancer_Runtime_Architecture.md) -- runtime execution details, request flows, and security model
 
 ## Usage
 

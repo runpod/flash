@@ -336,73 +336,61 @@ class GpuLowestPrice(BaseModel):
 ### Basic GPU Endpoint
 
 ```python
-# Single GPU type with worker scaling
-endpoint = ServerlessEndpoint(
-    name="gpu-inference",
-    imageName="my-ml-app:latest",
-    gpus=[GpuGroup.AMPERE_24],  # RTX A5000, L4, RTX 3090
-    workersMax=5,
-    workersMin=0,
-    cudaVersions=[CudaVersion.V12_1]
-)
+from runpod_flash import Endpoint, GpuGroup
+
+# single GPU type with worker scaling
+@Endpoint(name="gpu-inference", gpu=GpuGroup.AMPERE_24, workers=(0, 5))
+async def inference(data: dict) -> dict:
+    return {"result": data}
 ```
 
 ### Auto-Scaling Configuration
 
 ```python
-# Queue-based auto-scaling for variable load
-endpoint = ServerlessEndpoint(
-    name="auto-scaling-inference",
-    imageName="pytorch:latest", 
-    gpus=[GpuGroup.AMPERE_80, GpuGroup.ADA_80_PRO],  # A100 or H100
-    workersMax=10,
-    workersMin=1,
-    scalerType=ServerlessScalerType.QUEUE_DELAY,
-    scalerValue=4,  # Scale up when queue delay > 4 seconds
-    cudaVersions=[CudaVersion.V12_4, CudaVersion.V12_8]
+from runpod_flash import Endpoint, GpuGroup, ServerlessScalerType
+
+# queue-delay scaling: scale up when queue delay > 4 seconds
+@Endpoint(
+    name="auto-scaling",
+    gpu=[GpuGroup.AMPERE_80, GpuGroup.ADA_80_PRO],
+    workers=(1, 10),
+    scaler_type=ServerlessScalerType.QUEUE_DELAY,
+    scaler_value=4,
 )
+async def auto_scaling_inference(data: dict) -> dict:
+    return {"result": data}
 ```
 
 ### High-Throughput Configuration
 
 ```python
-# Maximum flexibility with aggressive scaling
-endpoint = ServerlessEndpoint(
-    name="high-throughput-service",
-    imageName="inference:v1",
-    gpus=[GpuGroup.ANY],  # Expands to all GPU groups
-    workersMax=20,
-    workersMin=3,  # Keep minimum workers warm
-    scalerType=ServerlessScalerType.REQUEST_COUNT,
-    scalerValue=50  # Scale based on request volume
-)
-```
+from runpod_flash import Endpoint, GpuGroup, ServerlessScalerType
 
-### Live Serverless GPU
-
-```python
-# Locked GPU image with optimized runtime and scaling
-live_endpoint = LiveServerless(
-    name="live-gpu-service",
-    gpus=[GpuGroup.ADA_24],
-    workersMax=8,
-    workersMin=1
+# request-count scaling with aggressive worker allocation
+@Endpoint(
+    name="high-throughput",
+    gpu=GpuGroup.ANY,
+    workers=(3, 20),
+    scaler_type=ServerlessScalerType.REQUEST_COUNT,
+    scaler_value=50,
 )
-# imageName automatically locked to FLASH_GPU_IMAGE
+async def high_throughput(data: dict) -> dict:
+    return {"result": data}
 ```
 
 ### High-Memory Workloads with Conservative Scaling
 
 ```python
-# Target high-memory GPUs with controlled scaling
-endpoint = ServerlessEndpoint(
-    name="large-model-inference",
-    imageName="transformers:latest",
-    gpus=[GpuGroup.AMPERE_80, GpuGroup.HOPPER_141],  # 80GB+ memory
-    workersMax=3,  # Limited by expensive GPU availability
-    workersMin=0,  # Cost optimization for intermittent use
-    cudaVersions=[CudaVersion.V12_4]
+from runpod_flash import Endpoint, GpuGroup
+
+# target high-memory GPUs with controlled scaling
+@Endpoint(
+    name="large-model",
+    gpu=[GpuGroup.AMPERE_80, GpuGroup.HOPPER_141],
+    workers=(0, 3),
 )
+async def large_model_inference(data: dict) -> dict:
+    return {"result": data}
 ```
 
 ## Error Handling
