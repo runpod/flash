@@ -29,6 +29,7 @@ GRAPHQL_BACKOFF_BASE_SECONDS = 1.0
 GRAPHQL_BACKOFF_MAX_SECONDS = 15.0
 
 _TRANSIENT_GRAPHQL_ERROR_PATTERNS = (
+    "try again later",
     "internal server error",
     "service unavailable",
     "too many requests",

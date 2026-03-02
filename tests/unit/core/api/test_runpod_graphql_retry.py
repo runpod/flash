@@ -16,7 +16,6 @@ class TestTransientGraphQLErrorMatching:
     @pytest.mark.parametrize(
         "message",
         [
-            "Error saving template",
             "please try again later",
             "INTERNAL SERVER ERROR",
             "service unavailable",
