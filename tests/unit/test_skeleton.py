@@ -65,7 +65,6 @@ class TestIgnorePatterns:
         """Test that template hidden files are not ignored."""
         assert not _should_ignore(Path(".env.example"))
         assert not _should_ignore(Path(".gitignore"))
-        assert not _should_ignore(Path(".flashignore"))
 
     def test_ignore_patterns_constant_exists(self):
         """Test that IGNORE_PATTERNS constant is defined."""
@@ -147,7 +146,6 @@ class TestCreateProjectSkeleton:
         # Check that hidden files exist
         assert (tmp_path / ".env.example").exists()
         assert (tmp_path / ".gitignore").exists()
-        assert (tmp_path / ".flashignore").exists()
 
     def test_create_skeleton_with_project_name_substitution(self, tmp_path):
         """Test that {{project_name}} placeholder is replaced."""
@@ -289,7 +287,6 @@ class TestEndToEndScenarios:
             "requirements.txt",
             ".env.example",
             ".gitignore",
-            ".flashignore",
         ]
         for filename in expected_files:
             assert (tmp_path / filename).exists(), f"{filename} should exist"
@@ -322,7 +319,7 @@ class TestEndToEndScenarios:
         """Test that all hidden template files are copied correctly."""
         create_project_skeleton(tmp_path)
 
-        hidden_files = [".env.example", ".gitignore", ".flashignore"]
+        hidden_files = [".env.example", ".gitignore"]
 
         for hidden_file in hidden_files:
             file_path = tmp_path / hidden_file

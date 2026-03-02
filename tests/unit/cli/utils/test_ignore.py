@@ -1,8 +1,7 @@
-"""Tests for cli/utils/ignore.py - ignore pattern matching utilities."""
+"""Tests for ignore pattern matching utilities."""
 
+import logging
 from pathlib import Path
-from unittest.mock import patch
-
 
 from runpod_flash.cli.utils.ignore import (
     get_file_tree,
@@ -13,209 +12,186 @@ from runpod_flash.cli.utils.ignore import (
 
 
 class TestParseIgnoreFile:
-    """Test parse_ignore_file function."""
+    def test_parse_existing_gitignore(self, tmp_path):
+        """Parse a standard .gitignore file."""
+        gitignore = tmp_path / ".gitignore"
+        gitignore.write_text("*.pyc\n__pycache__/\n.env\n")
 
-    def test_parses_patterns(self, tmp_path):
-        """Parses patterns from an ignore file."""
+        patterns = parse_ignore_file(gitignore)
+
+        assert patterns == ["*.pyc", "__pycache__/", ".env"]
+
+    def test_skip_comments_and_blank_lines(self, tmp_path):
+        """Comments and blank lines are stripped."""
         ignore_file = tmp_path / ".gitignore"
-        ignore_file.write_text("*.pyc\n__pycache__/\n.env\n")
+        ignore_file.write_text("# comment\n\npattern\n  # indented comment\n")
 
         patterns = parse_ignore_file(ignore_file)
-        assert "*.pyc" in patterns
-        assert "__pycache__/" in patterns
-        assert ".env" in patterns
 
-    def test_skips_comments(self, tmp_path):
-        """Skips comment lines starting with #."""
-        ignore_file = tmp_path / ".gitignore"
-        ignore_file.write_text("# This is a comment\n*.pyc\n# Another comment\n.env\n")
-
-        patterns = parse_ignore_file(ignore_file)
-        assert len(patterns) == 2
-        assert "*.pyc" in patterns
-        assert ".env" in patterns
-
-    def test_skips_empty_lines(self, tmp_path):
-        """Skips empty lines."""
-        ignore_file = tmp_path / ".gitignore"
-        ignore_file.write_text("\n*.pyc\n\n\n.env\n\n")
-
-        patterns = parse_ignore_file(ignore_file)
-        assert len(patterns) == 2
+        assert patterns == ["pattern"]
 
     def test_missing_file_returns_empty(self, tmp_path):
-        """Returns empty list for non-existent file."""
-        patterns = parse_ignore_file(tmp_path / "nonexistent")
-        assert patterns == []
+        """Non-existent file returns empty list without error."""
+        missing = tmp_path / "does_not_exist"
 
-    def test_read_error_returns_empty(self, tmp_path):
-        """Returns empty list on read errors."""
-        ignore_file = tmp_path / ".gitignore"
-        ignore_file.write_text("*.pyc")
+        assert parse_ignore_file(missing) == []
 
-        with patch.object(Path, "read_text", side_effect=PermissionError("denied")):
-            patterns = parse_ignore_file(ignore_file)
-        assert patterns == []
+    def test_unreadable_file_returns_empty(self, tmp_path, caplog):
+        """Unreadable file returns empty list and logs warning."""
+        bad_file = tmp_path / "bad"
+        bad_file.mkdir()  # directory, not file -- read_text will fail
 
-    def test_strips_whitespace(self, tmp_path):
-        """Strips leading/trailing whitespace from patterns."""
-        ignore_file = tmp_path / ".gitignore"
-        ignore_file.write_text("  *.pyc  \n  .env  \n")
+        with caplog.at_level(logging.WARNING):
+            result = parse_ignore_file(bad_file)
 
-        patterns = parse_ignore_file(ignore_file)
-        assert "*.pyc" in patterns
-        assert ".env" in patterns
+        assert result == []
+        assert "Failed to read" in caplog.text
 
 
 class TestLoadIgnorePatterns:
-    """Test load_ignore_patterns function."""
-
-    def test_loads_flashignore(self, tmp_path):
-        """Loads patterns from .flashignore."""
-        (tmp_path / ".flashignore").write_text("custom_pattern\n")
+    def test_loads_gitignore_patterns(self, tmp_path):
+        """Patterns from .gitignore are included."""
+        (tmp_path / ".gitignore").write_text("custom_dir/\n")
 
         spec = load_ignore_patterns(tmp_path)
-        assert spec.match_file("custom_pattern")
 
-    def test_loads_gitignore(self, tmp_path):
-        """Loads patterns from .gitignore."""
-        (tmp_path / ".gitignore").write_text("*.log\n")
+        assert spec.match_file("custom_dir/foo.py")
 
+    def test_no_gitignore_still_has_builtins(self, tmp_path):
+        """Built-in patterns work even without .gitignore."""
         spec = load_ignore_patterns(tmp_path)
-        assert spec.match_file("test.log")
 
-    def test_combines_both_files(self, tmp_path):
-        """Combines patterns from both .flashignore and .gitignore."""
-        (tmp_path / ".flashignore").write_text("flash_specific\n")
-        (tmp_path / ".gitignore").write_text("git_specific\n")
+        assert spec.match_file("__pycache__/module.pyc")
+        assert spec.match_file(".venv/lib/python3.12/site.py")
 
+    def test_builtin_excludes_test_files(self, tmp_path):
+        """Built-in patterns exclude test files from builds."""
         spec = load_ignore_patterns(tmp_path)
-        assert spec.match_file("flash_specific")
-        assert spec.match_file("git_specific")
 
-    def test_always_ignore_patterns(self, tmp_path):
-        """Always includes built-in ignore patterns."""
-        spec = load_ignore_patterns(tmp_path)
-        assert spec.match_file("__pycache__/cache.pyc")
-        assert spec.match_file(".git/config")
-        assert spec.match_file(".venv/lib/python3.11")
-        assert spec.match_file("build.tar.gz")
+        assert spec.match_file("test_worker.py")
+        assert spec.match_file("worker_test.py")
+        assert spec.match_file("tests/unit/test_foo.py")
 
-    def test_always_ignores_dotenv_files(self, tmp_path):
-        """Always excludes .env files from deploy artifacts."""
+    def test_builtin_excludes_markdown_but_keeps_readme(self, tmp_path):
+        """*.md excluded, but !README.md negation keeps README."""
         spec = load_ignore_patterns(tmp_path)
+
+        assert spec.match_file("CHANGELOG.md")
+        assert spec.match_file("TESTING.md")
+        assert not spec.match_file("README.md")
+
+    def test_builtin_excludes_env_files(self, tmp_path):
+        """Environment files are excluded."""
+        spec = load_ignore_patterns(tmp_path)
+
         assert spec.match_file(".env")
         assert spec.match_file(".env.local")
-        assert spec.match_file(".env.production")
-        assert spec.match_file("subdir/.env")
 
-    def test_no_ignore_files(self, tmp_path):
-        """Works when no ignore files exist."""
+    def test_builtin_excludes_build_artifacts(self, tmp_path):
+        """Build artifacts and caches are excluded."""
         spec = load_ignore_patterns(tmp_path)
-        # Still has always_ignore patterns
-        assert spec.match_file("test.pyc")
+
+        assert spec.match_file(".flash/server.py")
+        assert spec.match_file("dist/package.tar.gz")
+        assert spec.match_file("build/lib/mod.py")
+        assert spec.match_file("pkg.egg-info/PKG-INFO")
+
+    def test_builtin_excludes_ide_dirs(self, tmp_path):
+        """IDE directories are excluded."""
+        spec = load_ignore_patterns(tmp_path)
+
+        assert spec.match_file(".vscode/settings.json")
+        assert spec.match_file(".idea/workspace.xml")
+
+    def test_worker_files_not_excluded(self, tmp_path):
+        """Normal worker files are included."""
+        spec = load_ignore_patterns(tmp_path)
+
+        assert not spec.match_file("gpu_worker.py")
+        assert not spec.match_file("api.py")
+        assert not spec.match_file("lib/utils.py")
+
+    def test_warns_on_existing_flashignore(self, tmp_path, caplog):
+        """Warn users who still have a .flashignore file."""
+        (tmp_path / ".flashignore").write_text("custom_pattern/\n")
+
+        with caplog.at_level(logging.WARNING):
+            load_ignore_patterns(tmp_path)
+
+        assert ".flashignore" in caplog.text
+        assert "no longer supported" in caplog.text
 
 
 class TestShouldIgnore:
-    """Test should_ignore function."""
-
-    def test_matches_ignore_pattern(self, tmp_path):
-        """Returns True for files matching patterns."""
+    def test_matches_ignored_file(self, tmp_path):
+        """Ignored file returns True."""
         spec = load_ignore_patterns(tmp_path)
-        file_path = tmp_path / "test.pyc"
-        assert should_ignore(file_path, spec, tmp_path) is True
+        ignored = tmp_path / "__pycache__" / "mod.pyc"
 
-    def test_non_matching_file(self, tmp_path):
-        """Returns False for files not matching any pattern."""
-        spec = load_ignore_patterns(tmp_path)
-        file_path = tmp_path / "main.py"
-        assert should_ignore(file_path, spec, tmp_path) is False
+        assert should_ignore(ignored, spec, tmp_path)
 
-    def test_path_not_relative_to_base(self, tmp_path):
-        """Returns False when file_path is not relative to base_dir."""
+    def test_included_file(self, tmp_path):
+        """Normal file returns False."""
         spec = load_ignore_patterns(tmp_path)
-        other_dir = Path("/completely/different/path")
-        assert should_ignore(other_dir / "test.py", spec, tmp_path) is False
+        included = tmp_path / "worker.py"
+
+        assert not should_ignore(included, spec, tmp_path)
+
+    def test_path_outside_base_dir_returns_false(self, tmp_path):
+        """File not relative to base_dir returns False."""
+        spec = load_ignore_patterns(tmp_path)
+        outside = Path("/completely/different/path.py")
+
+        assert not should_ignore(outside, spec, tmp_path)
 
 
 class TestGetFileTree:
-    """Test get_file_tree function."""
-
-    def test_collects_files(self, tmp_path):
-        """Collects non-ignored files."""
-        (tmp_path / "main.py").write_text("code")
+    def test_collects_included_files(self, tmp_path):
+        """Returns files not matching ignore patterns."""
+        (tmp_path / "worker.py").write_text("code")
         (tmp_path / "utils.py").write_text("code")
 
         spec = load_ignore_patterns(tmp_path)
         files = get_file_tree(tmp_path, spec)
-        filenames = [f.name for f in files]
-        assert "main.py" in filenames
-        assert "utils.py" in filenames
 
-    def test_skips_ignored_files(self, tmp_path):
-        """Skips files matching ignore patterns."""
-        (tmp_path / "main.py").write_text("code")
-        (tmp_path / "test.pyc").write_text("compiled")
+        names = {f.name for f in files}
+        assert "worker.py" in names
+        assert "utils.py" in names
+
+    def test_excludes_ignored_files(self, tmp_path):
+        """Ignored files are not returned."""
+        (tmp_path / "worker.py").write_text("code")
+        cache_dir = tmp_path / "__pycache__"
+        cache_dir.mkdir()
+        (cache_dir / "mod.cpython-312.pyc").write_text("bytecode")
 
         spec = load_ignore_patterns(tmp_path)
         files = get_file_tree(tmp_path, spec)
-        filenames = [f.name for f in files]
-        assert "main.py" in filenames
-        assert "test.pyc" not in filenames
 
-    def test_recurses_subdirectories(self, tmp_path):
+        names = {f.name for f in files}
+        assert "worker.py" in names
+        assert "mod.cpython-312.pyc" not in names
+
+    def test_excludes_test_files_from_tree(self, tmp_path):
+        """test_*.py files are pruned from the file tree."""
+        (tmp_path / "worker.py").write_text("code")
+        (tmp_path / "test_worker.py").write_text("test code")
+
+        spec = load_ignore_patterns(tmp_path)
+        files = get_file_tree(tmp_path, spec)
+
+        names = {f.name for f in files}
+        assert "worker.py" in names
+        assert "test_worker.py" not in names
+
+    def test_recurses_into_subdirectories(self, tmp_path):
         """Recursively collects files from subdirectories."""
-        subdir = tmp_path / "subdir"
-        subdir.mkdir()
-        (subdir / "nested.py").write_text("code")
-        (tmp_path / "top.py").write_text("code")
+        sub = tmp_path / "lib"
+        sub.mkdir()
+        (sub / "helper.py").write_text("code")
 
         spec = load_ignore_patterns(tmp_path)
         files = get_file_tree(tmp_path, spec)
-        filenames = [f.name for f in files]
-        assert "top.py" in filenames
-        assert "nested.py" in filenames
 
-    def test_default_base_dir(self, tmp_path):
-        """Uses directory as base_dir when not specified."""
-        (tmp_path / "file.py").write_text("code")
-
-        spec = load_ignore_patterns(tmp_path)
-        files = get_file_tree(tmp_path, spec)
-        assert len(files) >= 1
-
-    def test_permission_error_handled(self, tmp_path):
-        """Handles permission errors gracefully."""
-        (tmp_path / "file.py").write_text("code")
-
-        spec = load_ignore_patterns(tmp_path)
-
-        with patch.object(Path, "iterdir", side_effect=PermissionError("denied")):
-            files = get_file_tree(tmp_path, spec)
-        assert files == []
-
-    def test_excludes_dotenv_from_file_tree(self, tmp_path):
-        """Excludes .env files from deploy artifact file tree."""
-        (tmp_path / "main.py").write_text("code")
-        (tmp_path / ".env").write_text("SECRET=value")
-        (tmp_path / ".env.local").write_text("LOCAL_SECRET=value")
-
-        spec = load_ignore_patterns(tmp_path)
-        files = get_file_tree(tmp_path, spec)
-        filenames = [f.name for f in files]
-        assert "main.py" in filenames
-        assert ".env" not in filenames
-        assert ".env.local" not in filenames
-
-    def test_skips_ignored_directories(self, tmp_path):
-        """Skips entire ignored directories."""
-        pycache = tmp_path / "__pycache__"
-        pycache.mkdir()
-        (pycache / "module.cpython-311.pyc").write_text("compiled")
-        (tmp_path / "main.py").write_text("code")
-
-        spec = load_ignore_patterns(tmp_path)
-        files = get_file_tree(tmp_path, spec)
-        filenames = [f.name for f in files]
-        assert "main.py" in filenames
-        assert "module.cpython-311.pyc" not in filenames
+        names = {f.name for f in files}
+        assert "helper.py" in names
