@@ -32,6 +32,7 @@ def _reset_module_state() -> None:
     """Reset module-level state between tests."""
     update_checker._newer_version = None
     update_checker._check_done = threading.Event()
+    update_checker._started = False
 
 
 @pytest.fixture(autouse=True)
@@ -232,6 +233,32 @@ class TestRunCheck:
         assert update_checker._check_done.is_set()
         assert update_checker._newer_version is None
 
+    @patch("runpod_flash.cli.update_checker._get_current_version", return_value="1.5.0")
+    @patch(
+        "runpod_flash.cli.update_checker._fetch_pypi_metadata",
+        return_value=("1.6.0", {"1.5.0", "1.6.0"}),
+    )
+    @patch("runpod_flash.cli.update_checker._get_cache_path")
+    def test_fetches_when_cache_fresh_but_missing_latest_version(
+        self,
+        mock_cache_path: MagicMock,
+        mock_fetch: MagicMock,
+        mock_version: MagicMock,
+        tmp_path: Path,
+    ):
+        cache_file = tmp_path / "update_check.json"
+        # Fresh cache but missing latest_version key
+        fresh_data = {
+            "last_checked_utc": datetime.now(timezone.utc).isoformat(),
+        }
+        cache_file.write_text(json.dumps(fresh_data))
+        mock_cache_path.return_value = cache_file
+
+        _run_check()
+
+        mock_fetch.assert_called_once()
+        assert update_checker._newer_version == "1.6.0"
+
     @patch(
         "runpod_flash.cli.update_checker._get_current_version", return_value="unknown"
     )
@@ -283,12 +310,14 @@ class TestPrintUpdateNotice:
 
 
 class TestStartBackgroundCheck:
+    @patch("runpod_flash.cli.update_checker._is_interactive", return_value=True)
     @patch("runpod_flash.cli.update_checker.atexit.register")
     @patch("runpod_flash.cli.update_checker.threading.Thread")
     def test_spawns_daemon_thread(
         self,
         mock_thread_cls: MagicMock,
         mock_register: MagicMock,
+        mock_interactive: MagicMock,
         monkeypatch: pytest.MonkeyPatch,
     ):
         monkeypatch.delenv("FLASH_NO_UPDATE_CHECK", raising=False)
@@ -303,12 +332,14 @@ class TestStartBackgroundCheck:
         mock_thread.start.assert_called_once()
         mock_register.assert_called_once_with(_print_update_notice)
 
+    @patch("runpod_flash.cli.update_checker._is_interactive", return_value=True)
     @patch("runpod_flash.cli.update_checker.atexit.register")
     @patch("runpod_flash.cli.update_checker.threading.Thread")
     def test_skips_on_flash_no_update_check(
         self,
         mock_thread_cls: MagicMock,
         mock_register: MagicMock,
+        mock_interactive: MagicMock,
         monkeypatch: pytest.MonkeyPatch,
     ):
         monkeypatch.setenv("FLASH_NO_UPDATE_CHECK", "1")
@@ -319,12 +350,14 @@ class TestStartBackgroundCheck:
         mock_thread_cls.assert_not_called()
         mock_register.assert_not_called()
 
+    @patch("runpod_flash.cli.update_checker._is_interactive", return_value=True)
     @patch("runpod_flash.cli.update_checker.atexit.register")
     @patch("runpod_flash.cli.update_checker.threading.Thread")
     def test_skips_on_ci(
         self,
         mock_thread_cls: MagicMock,
         mock_register: MagicMock,
+        mock_interactive: MagicMock,
         monkeypatch: pytest.MonkeyPatch,
     ):
         monkeypatch.delenv("FLASH_NO_UPDATE_CHECK", raising=False)
@@ -334,3 +367,44 @@ class TestStartBackgroundCheck:
 
         mock_thread_cls.assert_not_called()
         mock_register.assert_not_called()
+
+    @patch("runpod_flash.cli.update_checker._is_interactive", return_value=False)
+    @patch("runpod_flash.cli.update_checker.atexit.register")
+    @patch("runpod_flash.cli.update_checker.threading.Thread")
+    def test_skips_when_not_interactive(
+        self,
+        mock_thread_cls: MagicMock,
+        mock_register: MagicMock,
+        mock_interactive: MagicMock,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        monkeypatch.delenv("FLASH_NO_UPDATE_CHECK", raising=False)
+        monkeypatch.delenv("CI", raising=False)
+
+        start_background_check()
+
+        mock_thread_cls.assert_not_called()
+        mock_register.assert_not_called()
+
+    @patch("runpod_flash.cli.update_checker._is_interactive", return_value=True)
+    @patch("runpod_flash.cli.update_checker.atexit.register")
+    @patch("runpod_flash.cli.update_checker.threading.Thread")
+    def test_idempotent_only_starts_once(
+        self,
+        mock_thread_cls: MagicMock,
+        mock_register: MagicMock,
+        mock_interactive: MagicMock,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        monkeypatch.delenv("FLASH_NO_UPDATE_CHECK", raising=False)
+        monkeypatch.delenv("CI", raising=False)
+
+        mock_thread = MagicMock()
+        mock_thread_cls.return_value = mock_thread
+
+        start_background_check()
+        start_background_check()
+        start_background_check()
+
+        mock_thread_cls.assert_called_once()
+        mock_register.assert_called_once()
