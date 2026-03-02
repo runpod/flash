@@ -43,10 +43,10 @@ class ManifestResource:
     functions: List[ManifestFunction]
     is_load_balanced: bool = False  # Determined by isinstance() at scan time
     is_live_resource: bool = False  # LiveLoadBalancer vs LoadBalancerSlsResource
-    config_variable: Optional[str] = None  # Variable name for test-mothership
-    is_mothership: bool = False  # Special flag for mothership endpoint
-    is_explicit: bool = False  # Flag indicating explicit mothership.py configuration
-    main_file: Optional[str] = None  # Filename of main.py for mothership
+    config_variable: Optional[str] = None  # Variable name for config discovery
+    is_load_balanced_endpoint: bool = False  # Flag for load-balanced endpoint
+    is_explicit: bool = False  # Flag indicating explicit load balancer configuration
+    main_file: Optional[str] = None  # Filename of main entry point
     app_variable: Optional[str] = None  # Variable name of FastAPI app
     imageName: Optional[str] = None  # Docker image name for auto-provisioning
     templateId: Optional[str] = None  # RunPod template ID for auto-provisioning
@@ -114,6 +114,12 @@ class ManifestBuilder:
             # Add module to sys.modules temporarily to allow relative imports
             sys.modules[spec.name] = module
 
+            # Add parent directory to sys.path so sibling imports resolve
+            parent_dir = str(resource_file.parent)
+            added_to_path = parent_dir not in sys.path
+            if added_to_path:
+                sys.path.insert(0, parent_dir)
+
             try:
                 spec.loader.exec_module(module)
 
@@ -176,6 +182,11 @@ class ManifestBuilder:
                 # Clean up module from sys.modules to avoid conflicts
                 if spec.name in sys.modules:
                     del sys.modules[spec.name]
+                if added_to_path:
+                    try:
+                        sys.path.remove(parent_dir)
+                    except ValueError:
+                        pass
 
         except Exception as e:
             # Log warning but don't fail - deployment config is optional
@@ -280,9 +291,6 @@ class ManifestBuilder:
                     "module": f.module_path,
                     "is_async": f.is_async,
                     "is_class": f.is_class,
-                    "is_load_balanced": f.is_load_balanced,
-                    "is_live_resource": f.is_live_resource,
-                    "config_variable": f.config_variable,
                     **(
                         {"http_method": f.http_method, "http_path": f.http_path}
                         if is_load_balanced
@@ -312,6 +320,11 @@ class ManifestBuilder:
                 "makes_remote_calls": makes_remote_calls,
                 **deployment_config,  # Include imageName, templateId, gpuIds, workers config
             }
+
+            if not is_load_balanced:
+                resources_dict[resource_name]["handler_file"] = (
+                    f"handler_{resource_name}.py"
+                )
 
             # Store routes for LB endpoints
             if resource_routes:

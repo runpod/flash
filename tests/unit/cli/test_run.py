@@ -499,17 +499,17 @@ class TestGenerateFlashServer:
         )
         content = _generate_flash_server(tmp_path, [worker]).read_text()
         assert "from worker import process" in content
-        assert "_call_with_body(process, body)" in content
+        assert "_call_with_body(process, body.input)" in content
 
 
 class TestSanitizeFnName:
     """Test _sanitize_fn_name handles leading-digit identifiers."""
 
     def test_normal_name_unchanged(self):
-        assert _sanitize_fn_name("worker_run_sync") == "worker_run_sync"
+        assert _sanitize_fn_name("worker_runsync") == "worker_runsync"
 
     def test_leading_digit_gets_underscore_prefix(self):
-        assert _sanitize_fn_name("01_hello_run_sync") == "_01_hello_run_sync"
+        assert _sanitize_fn_name("01_hello_runsync") == "_01_hello_runsync"
 
     def test_slashes_replaced(self):
         assert _sanitize_fn_name("a/b/c") == "a_b_c"
@@ -619,7 +619,7 @@ class TestGenerateFlashServerNumericDirs:
 
         # Function name must start with '_', not a digit
         assert (
-            "async def _01_hello_gpu_worker_run_sync(body: _01_hello_gpu_worker_gpu_hello_Input):"
+            "async def _01_hello_gpu_worker_runsync(body: _01_hello_gpu_worker_gpu_hello_Request):"
             in content
         )
 

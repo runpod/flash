@@ -1,5 +1,7 @@
 """Generic RunPod serverless handler factory for Flash."""
 
+import asyncio
+import inspect
 import json
 import logging
 import traceback
@@ -202,5 +204,52 @@ def create_handler(function_registry: Dict[str, Callable]) -> Callable:
                 "error": str(e),
                 "traceback": traceback.format_exc(),
             }
+
+    return handler
+
+
+def create_deployed_handler(func: Callable) -> Callable:
+    """Create handler for a single deployed QB function.
+
+    Accepts plain JSON in job["input"], maps to function kwargs directly.
+    No cloudpickle, no FunctionRequest, no function_name dispatch.
+
+    Unlike create_handler() (used by flash run / local dev), this handler:
+    - Serves a single function per endpoint
+    - Expects plain JSON kwargs in job["input"]
+    - Returns plain JSON (RunPod handles response wrapping)
+
+    Args:
+        func: The function this endpoint serves.
+
+    Returns:
+        Handler function compatible with runpod.serverless.start()
+    """
+
+    def handler(job: Dict[str, Any]) -> Any:
+        job_input = job.get("input", {})
+        try:
+            result = func(**job_input)
+            if inspect.iscoroutine(result):
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    loop = None
+                if loop and loop.is_running():
+                    import concurrent.futures
+
+                    with concurrent.futures.ThreadPoolExecutor() as pool:
+                        result = pool.submit(asyncio.run, result).result()
+                else:
+                    result = asyncio.run(result)
+            return result
+        except Exception as e:
+            logger.error(
+                "Deployed handler error for %s: %s",
+                func.__name__,
+                e,
+                exc_info=True,
+            )
+            return {"error": str(e), "traceback": traceback.format_exc()}
 
     return handler

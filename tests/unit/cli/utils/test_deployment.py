@@ -323,15 +323,15 @@ async def test_reconciliation_reprovisions_resources_without_endpoints(tmp_path)
     flash_dir = tmp_path / ".flash"
     flash_dir.mkdir()
 
-    # Local manifest has mothership + worker
+    # Local manifest has load balancer + worker
     local_manifest = {
         "resources": {
-            "mothership": {
-                "is_mothership": True,
+            "lb_endpoint": {
+                "is_load_balanced": True,
                 "resource_type": "CpuLiveLoadBalancer",
             },
             "worker": {
-                "is_mothership": False,
+                "is_load_balanced": False,
                 "resource_type": "LiveServerless",
             },
         }
@@ -341,12 +341,12 @@ async def test_reconciliation_reprovisions_resources_without_endpoints(tmp_path)
     # State Manager has same resources but NO endpoints (failed deployment)
     state_manifest = {
         "resources": {
-            "mothership": {
-                "is_mothership": True,
+            "lb_endpoint": {
+                "is_load_balanced": True,
                 "resource_type": "CpuLiveLoadBalancer",
             },
             "worker": {
-                "is_mothership": False,
+                "is_load_balanced": False,
                 "resource_type": "LiveServerless",
             },
         },
@@ -367,16 +367,16 @@ async def test_reconciliation_reprovisions_resources_without_endpoints(tmp_path)
         # Both resources should be re-provisioned (marked as "update" action)
         mock_manager = MagicMock()
 
-        mock_mothership = MagicMock()
-        mock_mothership.endpoint_url = "https://mothership.api.runpod.ai"
-        mock_mothership.endpoint_id = "abc123mothership"
+        mock_lb_endpoint = MagicMock()
+        mock_lb_endpoint.endpoint_url = "https://lb.api.runpod.ai"
+        mock_lb_endpoint.endpoint_id = "abc123lb"
 
         mock_worker = MagicMock()
         mock_worker.endpoint_url = "https://worker.api.runpod.ai"
         mock_worker.endpoint_id = "xyz789worker"
 
         mock_manager.get_or_deploy_resource = AsyncMock(
-            side_effect=[mock_mothership, mock_worker]
+            side_effect=[mock_lb_endpoint, mock_worker]
         )
         mock_manager_cls.return_value = mock_manager
         mock_create_resource.side_effect = [MagicMock(), MagicMock()]
@@ -386,9 +386,9 @@ async def test_reconciliation_reprovisions_resources_without_endpoints(tmp_path)
         )
 
     # Both resources should have been provisioned (re-provisioned actually)
-    assert "mothership" in result
+    assert "lb_endpoint" in result
     assert "worker" in result
-    assert result["mothership"] == "https://mothership.api.runpod.ai"
+    assert result["lb_endpoint"] == "https://lb.api.runpod.ai"
     assert result["worker"] == "https://worker.api.runpod.ai"
 
     # Verify both resources were provisioned (2 calls to get_or_deploy_resource)
@@ -403,45 +403,8 @@ async def test_reconciliation_reprovisions_resources_without_endpoints(tmp_path)
 
 
 @pytest.mark.asyncio
-async def test_provision_resources_persists_ai_key_to_manifest(mock_flash_app):
-    manifest = {
-        "resources": {
-            "cpu": {"resource_type": "ServerlessResource"},
-        }
-    }
-    mock_flash_app.get_build_manifest.return_value = manifest
-
-    deployed = MagicMock()
-    deployed.endpoint_url = "https://example.com/endpoint"
-    deployed.id = "endpoint-123"
-    deployed.aiKey = "ai-key-123"
-
-    with (
-        patch("runpod_flash.cli.utils.deployment.ResourceManager") as mock_manager_cls,
-        patch(
-            "runpod_flash.cli.utils.deployment.create_resource_from_manifest"
-        ) as mock_create_resource,
-    ):
-        mock_manager = MagicMock()
-        mock_manager.get_or_deploy_resource = AsyncMock(return_value=deployed)
-        mock_manager_cls.return_value = mock_manager
-        mock_create_resource.return_value = MagicMock()
-
-        await provision_resources_for_build(
-            mock_flash_app,
-            "build-123",
-            "dev",
-            show_progress=False,
-        )
-
-    call_args = mock_flash_app.update_build_manifest.call_args
-    updated_manifest = call_args[0][1]
-    assert updated_manifest["resources"]["cpu"]["endpoint_id"] == "endpoint-123"
-    assert updated_manifest["resources"]["cpu"]["aiKey"] == "ai-key-123"
-
-
-@pytest.mark.asyncio
-async def test_reconciliation_copies_ai_key_from_state_manifest(tmp_path):
+async def test_deploy_fails_when_api_key_missing_for_remote_calls(tmp_path):
+    """Raises ValueError when RUNPOD_API_KEY is unset and a resource makes remote calls."""
     import json
 
     flash_dir = tmp_path / ".flash"
@@ -449,28 +412,60 @@ async def test_reconciliation_copies_ai_key_from_state_manifest(tmp_path):
 
     local_manifest = {
         "resources": {
-            "worker": {
+            "gpu_worker": {
                 "resource_type": "LiveServerless",
-                "config": "same",
-                "endpoint_id": "endpoint-123",
-                "aiKey": "ai-key-123",
+                "makes_remote_calls": True,
             },
-        },
-        "resources_endpoints": {},
+        }
     }
     (flash_dir / "flash_manifest.json").write_text(json.dumps(local_manifest))
 
+    app = AsyncMock()
+    app.get_build_manifest = AsyncMock(return_value={})
+
+    with patch.dict("os.environ", {}, clear=True):
+        # Ensure RUNPOD_API_KEY is not set
+        import os
+
+        os.environ.pop("RUNPOD_API_KEY", None)
+
+        with pytest.raises(ValueError) as exc_info:
+            await reconcile_and_provision_resources(
+                app, "build-123", "dev", local_manifest
+            )
+
+        assert "RUNPOD_API_KEY" in str(exc_info.value)
+        assert "remote calls" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_deploy_succeeds_without_api_key_when_no_remote_calls(tmp_path):
+    """No error when RUNPOD_API_KEY is unset but no resource makes remote calls."""
+    import json
+
+    flash_dir = tmp_path / ".flash"
+    flash_dir.mkdir()
+
+    local_manifest = {
+        "resources": {
+            "cpu_service": {
+                "resource_type": "CpuLiveLoadBalancer",
+                "makes_remote_calls": False,
+            },
+        }
+    }
+    (flash_dir / "flash_manifest.json").write_text(json.dumps(local_manifest))
+
+    # State manifest matches local so no provisioning needed
     state_manifest = {
         "resources": {
-            "worker": {
-                "resource_type": "LiveServerless",
-                "config": "same",
-                "endpoint_id": "endpoint-123",
-                "aiKey": "ai-key-123",
+            "cpu_service": {
+                "resource_type": "CpuLiveLoadBalancer",
+                "makes_remote_calls": False,
             },
         },
         "resources_endpoints": {
-            "worker": "https://worker.api.runpod.ai",
+            "cpu_service": "https://cpu.api.runpod.ai",
         },
     }
 
@@ -479,19 +474,14 @@ async def test_reconciliation_copies_ai_key_from_state_manifest(tmp_path):
     app.update_build_manifest = AsyncMock()
 
     with (
+        patch.dict("os.environ", {}, clear=True),
         patch("pathlib.Path.cwd", return_value=tmp_path),
-        patch("runpod_flash.cli.utils.deployment.ResourceManager") as mock_manager_cls,
     ):
-        mock_manager = MagicMock()
-        mock_manager.get_or_deploy_resource = AsyncMock()
-        mock_manager_cls.return_value = mock_manager
+        import os
 
-        await reconcile_and_provision_resources(app, "build-123", "dev", local_manifest)
+        os.environ.pop("RUNPOD_API_KEY", None)
 
-    updated_manifest = app.update_build_manifest.call_args[0][1]
-    assert updated_manifest["resources"]["worker"]["endpoint_id"] == "endpoint-123"
-    assert updated_manifest["resources"]["worker"]["aiKey"] == "ai-key-123"
-    assert (
-        updated_manifest["resources_endpoints"]["worker"]
-        == "https://worker.api.runpod.ai"
-    )
+        # Should not raise -- no remote callers, so API key not required
+        await reconcile_and_provision_resources(
+            app, "build-123", "dev", local_manifest, show_progress=False
+        )

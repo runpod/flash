@@ -334,14 +334,14 @@ ANOTHER_VALID=another_value
         assert "from dotenv import load_dotenv" in content
         assert "load_dotenv()" in content
 
-        # Verify it's at the top before other imports
+        # Verify dotenv is imported before any other module imports
         lines = content.split("\n")
-        non_comment_lines = [
-            line for line in lines if line.strip() and not line.strip().startswith("#")
+        import_lines = [
+            line for line in lines if line.strip().startswith(("import ", "from "))
         ]
 
-        # First non-comment line should be the dotenv import
-        assert "from dotenv import load_dotenv" in non_comment_lines[0]
+        # First import line should be the dotenv import
+        assert "from dotenv import load_dotenv" in import_lines[0]
 
     @patch.dict(os.environ, {}, clear=True)
     def test_clean_environment_dotenv_loading(self):

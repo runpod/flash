@@ -1,5 +1,49 @@
 # Changelog
 
+## [1.4.2](https://github.com/runpod/flash/compare/v1.4.1...v1.4.2) (2026-02-26)
+
+
+### Bug Fixes
+
+* always bundle runpod-flash in flash build + versioning report ([#227](https://github.com/runpod/flash/issues/227)) ([8f883ee](https://github.com/runpod/flash/commit/8f883ee7864a4b075e8ceb91e7753927f3c8abf5))
+
+## [1.4.1](https://github.com/runpod/flash/compare/v1.4.0...v1.4.1) (2026-02-26)
+
+
+### Bug Fixes
+
+* **stubs:** resolve in-function [@remote](https://github.com/remote) imports for cross-endpoint dispatch ([#224](https://github.com/runpod/flash/issues/224)) ([7f168f7](https://github.com/runpod/flash/commit/7f168f711d7bc80bc31cff4c013559b0fa3df141))
+
+## [1.4.0](https://github.com/runpod/flash/compare/v1.3.0...v1.4.0) (2026-02-24)
+
+
+### Features
+
+* fully deployed environment ([#215](https://github.com/runpod/flash/issues/215)) ([8aa4349](https://github.com/runpod/flash/commit/8aa43495e8bba6a565767a82727cc7fbf016f606))
+
+
+### Bug Fixes
+
+* **test:** align LB activity log mock with Python 3.14 compatible pattern ([#218](https://github.com/runpod/flash/issues/218)) ([cba753e](https://github.com/runpod/flash/commit/cba753ed0e3f8a6d8214678bdc40715cc2dfb315))
+* **test:** stabilize flaky async context manager mock pattern ([#216](https://github.com/runpod/flash/issues/216)) ([1bc369c](https://github.com/runpod/flash/commit/1bc369cce4239b8fdfa7847f7d908d87018bdee0))
+
+## [1.3.0](https://github.com/runpod/flash/compare/v1.2.0...v1.3.0) (2026-02-20)
+
+
+### Features
+
+* flash cli polishing treatments ([#209](https://github.com/runpod/flash/issues/209)) ([93bc347](https://github.com/runpod/flash/commit/93bc347489d40b4c2d5b4395c8bb650f42a1fbc2))
+
+
+### Code Refactoring
+
+* simplify flash init skeleton for zero-boilerplate flash run ([#208](https://github.com/runpod/flash/issues/208)) ([22894d4](https://github.com/runpod/flash/commit/22894d48b8835215cfcda6281c7b5f264ad9c47e))
+
+
+### Documentation
+
+* remove coordinator and mothership terminology from all documentation ([#210](https://github.com/runpod/flash/issues/210)) ([4ba5a36](https://github.com/runpod/flash/commit/4ba5a36e1abdd45ed1d862667c720a068679afbc))
+
 ## [1.2.0](https://github.com/runpod/flash/compare/v1.1.1...v1.2.0) (2026-02-17)
 
 

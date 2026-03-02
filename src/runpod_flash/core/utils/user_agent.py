@@ -1,7 +1,6 @@
 """User-Agent header generation for HTTP requests."""
 
 import platform
-from importlib.metadata import version
 
 
 def get_user_agent() -> str:
@@ -12,16 +11,13 @@ def get_user_agent() -> str:
 
     Example:
         >>> get_user_agent()
-        'Runpod Flash/1.1.1 (Python 3.11.12; Darwin 25.2.0; arm64)'
+        'Runpod Flash/1.4.1 (Python 3.11.12; Darwin 25.2.0; arm64)'
     """
-    try:
-        pkg_version = version("runpod-flash")
-    except Exception:
-        pkg_version = "unknown"
+    from runpod_flash import __version__
 
     python_version = platform.python_version()
     os_name = platform.system()
     os_version = platform.release()
     arch = platform.machine()
 
-    return f"Runpod Flash/{pkg_version} (Python {python_version}; {os_name} {os_version}; {arch})"
+    return f"Runpod Flash/{__version__} (Python {python_version}; {os_name} {os_version}; {arch})"

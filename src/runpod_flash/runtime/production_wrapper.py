@@ -1,12 +1,16 @@
 """Production wrapper for cross-endpoint function routing."""
 
+import inspect
 import logging
 from typing import Any, Callable, Dict, Optional
+from urllib.parse import urlparse
+
+import httpx
 
 from runpod_flash.core.resources.serverless import ServerlessResource
+from runpod_flash.core.utils.http import get_authenticated_httpx_client
 
 from .exceptions import RemoteExecutionError
-from .serialization import serialize_args, serialize_kwargs
 from .service_registry import ServiceRegistry
 
 logger = logging.getLogger(__name__)
@@ -56,14 +60,9 @@ class ProductionWrapper:
         """
         function_name = func.__name__
 
-        # Ensure manifest is loaded
-        await self.service_registry._ensure_manifest_loaded()
-
-        # Determine routing
+        # Determine routing via manifest
         try:
-            resource = await self.service_registry.get_resource_for_function(
-                function_name
-            )
+            routing_info = await self.service_registry.get_routing_info(function_name)
         except ValueError as e:
             # Function not in manifest, execute locally
             logger.debug(
@@ -79,7 +78,7 @@ class ProductionWrapper:
             )
 
         # Local execution
-        if resource is None:
+        if routing_info is None:
             logger.debug(f"Executing local function: {function_name}")
             return await original_stub_func(
                 func,
@@ -90,14 +89,24 @@ class ProductionWrapper:
                 **kwargs,
             )
 
-        # Remote execution
+        # Remote execution -- dispatch based on QB vs LB target
         logger.debug(f"Routing function {function_name} to remote endpoint")
-        return await self._execute_remote(
-            resource,
-            function_name,
-            args,
-            kwargs,
-            execution_type="function",
+
+        if routing_info["is_load_balanced"]:
+            return await self._execute_remote_lb(
+                endpoint_url=routing_info["endpoint_url"],
+                http_method=routing_info.get("http_method", "POST"),
+                http_path=routing_info.get("http_path", "/"),
+                args=args,
+                kwargs=kwargs,
+                function_name=function_name,
+            )
+
+        return await self._execute_remote_qb(
+            routing_info=routing_info,
+            func=func,
+            args=args,
+            kwargs=kwargs,
         )
 
     async def wrap_class_method_execution(
@@ -117,57 +126,47 @@ class ProductionWrapper:
         Raises:
             Exception: If execution fails.
         """
-        # Ensure manifest is loaded
-        await self.service_registry._ensure_manifest_loaded()
-
         class_name = getattr(request, "class_name", None)
 
         if not class_name:
-            # No class name, execute locally
             return await original_method_func(request)
 
         # Determine routing
         try:
-            resource = await self.service_registry.get_resource_for_function(class_name)
+            routing_info = await self.service_registry.get_routing_info(class_name)
         except ValueError:
-            # Class not in manifest, execute locally
             logger.debug(f"Class {class_name} not in manifest, executing locally")
             return await original_method_func(request)
 
-        # Local execution
-        if resource is None:
+        if routing_info is None:
             logger.debug(f"Executing local class method: {class_name}")
             return await original_method_func(request)
 
-        # Remote execution
+        # Remote execution -- classes are always QB targets
         logger.debug(f"Routing class {class_name} to remote endpoint")
-
-        # Convert FunctionRequest to dict payload
         payload = self._build_class_payload(request)
-        return await self._execute_remote(
-            resource,
-            class_name,
-            (),
-            payload.get("input", {}),
-            execution_type="class",
+        return await self._execute_remote_qb_raw(
+            routing_info=routing_info,
+            payload=payload["input"],
         )
 
-    async def _execute_remote(
+    async def _execute_remote_qb(
         self,
-        resource: ServerlessResource,
-        function_name: str,
+        routing_info: dict,
+        func: Callable,
         args: tuple,
         kwargs: dict,
-        execution_type: str = "function",
     ) -> Any:
-        """Execute function on remote endpoint.
+        """Execute function on remote QB endpoint with plain JSON.
+
+        Maps positional args to keyword args using the function's signature,
+        then sends as plain JSON kwargs via runsync.
 
         Args:
-            resource: ServerlessResource with endpoint ID set.
-            function_name: Name of function/class to execute.
+            routing_info: Routing metadata from get_routing_info().
+            func: The decorated function (used for signature introspection).
             args: Positional arguments.
             kwargs: Keyword arguments.
-            execution_type: "function" or "class".
 
         Returns:
             Execution result.
@@ -175,30 +174,124 @@ class ProductionWrapper:
         Raises:
             RemoteExecutionError: If remote execution fails.
         """
-        # Serialize arguments
-        serialized_args = serialize_args(args)
-        serialized_kwargs = serialize_kwargs(kwargs)
+        # Map positional args to named kwargs using function signature
+        sig = inspect.signature(func)
+        params = list(sig.parameters.keys())
+        body: dict[str, Any] = {}
+        for i, arg in enumerate(args):
+            if i < len(params):
+                body[params[i]] = arg
+        body.update(kwargs)
 
-        # Build payload matching RunPod format
-        payload = {
-            "input": {
-                "function_name": function_name,
-                "execution_type": execution_type,
-                "args": serialized_args,
-                "kwargs": serialized_kwargs,
-            }
-        }
+        return await self._execute_remote_qb_raw(
+            routing_info=routing_info,
+            payload=body,
+        )
 
-        # Execute via ServerlessResource
-        result = await resource.run_sync(payload)
+    async def _execute_remote_qb_raw(
+        self,
+        routing_info: dict,
+        payload: dict,
+    ) -> Any:
+        """Send a pre-built payload to a remote QB endpoint.
 
-        # Handle response
+        Args:
+            routing_info: Routing metadata from get_routing_info().
+            payload: The dict to send as {"input": payload}.
+
+        Returns:
+            Execution result.
+
+        Raises:
+            RemoteExecutionError: If remote execution fails.
+        """
+        endpoint_url = routing_info.get("endpoint_url")
+        resource_name = routing_info.get("resource_name", "unknown")
+
+        if not endpoint_url:
+            raise RemoteExecutionError(
+                f"No endpoint URL for resource '{resource_name}'"
+            )
+
+        # Extract endpoint ID from URL
+        parsed = urlparse(endpoint_url)
+        path_parts = parsed.path.rstrip("/").split("/")
+        endpoint_id = path_parts[-1] if path_parts else ""
+
+        if not endpoint_id:
+            raise RemoteExecutionError(f"Invalid endpoint URL format: {endpoint_url}")
+
+        resource = ServerlessResource(name=f"remote_{resource_name}")
+        resource.id = endpoint_id
+
+        result = await resource.runsync({"input": payload})
+
         if result.error:
             raise RemoteExecutionError(
-                f"Remote execution of {function_name} failed: {result.error}"
+                f"Remote execution on '{resource_name}' failed: {result.error}"
             )
 
         return result.output
+
+    async def _execute_remote_lb(
+        self,
+        endpoint_url: str,
+        http_method: str,
+        http_path: str,
+        args: tuple,
+        kwargs: dict,
+        function_name: str,
+    ) -> Any:
+        """Execute function on remote LB endpoint via direct HTTP.
+
+        Sends plain JSON body to the endpoint's HTTP route.
+
+        Args:
+            endpoint_url: Base URL of the LB endpoint.
+            http_method: HTTP method (GET, POST, etc.).
+            http_path: Path on the endpoint (e.g., /api/process).
+            args: Positional arguments (sent as "args" key if non-empty).
+            kwargs: Keyword arguments (merged into body).
+            function_name: For error messages.
+
+        Returns:
+            Parsed JSON response.
+
+        Raises:
+            RemoteExecutionError: If HTTP call fails.
+        """
+        if not endpoint_url:
+            raise RemoteExecutionError(
+                f"No endpoint URL for LB function '{function_name}'"
+            )
+
+        url = f"{endpoint_url.rstrip('/')}{http_path}"
+        body: dict[str, Any] = {}
+        if args:
+            body["args"] = list(args)
+        body.update(kwargs)
+
+        try:
+            async with get_authenticated_httpx_client() as client:
+                response = await client.request(
+                    http_method, url, json=body if body else None
+                )
+                response.raise_for_status()
+                return response.json()
+        except httpx.HTTPStatusError as e:
+            response_body = e.response.text[:500] if e.response else "no response body"
+            raise RemoteExecutionError(
+                f"Remote LB call to {function_name} ({http_method} {url}) "
+                f"returned {e.response.status_code}: {response_body}"
+            ) from e
+        except httpx.TimeoutException as e:
+            raise RemoteExecutionError(
+                f"Remote LB call to {function_name} ({http_method} {url}) timed out: {e}"
+            ) from e
+        except Exception as e:
+            raise RemoteExecutionError(
+                f"Remote LB call to {function_name} ({http_method} {url}) failed: {e}"
+            ) from e
 
     def _build_class_payload(self, request: Any) -> Dict[str, Any]:
         """Build payload from FunctionRequest for class execution.

@@ -21,9 +21,8 @@ logger = logging.getLogger(__name__)
 class ServiceRegistry:
     """Service discovery and routing for cross-endpoint function calls.
 
-    Loads manifest to map functions to resource configs, queries mothership
-    manifest for endpoint URLs, and determines if function calls are local
-    or remote.
+    Loads manifest to map functions to resource configs, queries State Manager
+    for endpoint URLs, and determines if function calls are local or remote.
     """
 
     def __init__(
@@ -34,7 +33,7 @@ class ServiceRegistry:
         """Initialize service registry with peer-to-peer State Manager access.
 
         All endpoints query State Manager directly for manifest updates.
-        No Mothership dependency - all endpoints are equal peers.
+        No central dependency - all endpoints are equal peers.
 
         Args:
             manifest_path: Path to flash_manifest.json. Defaults to
@@ -44,7 +43,7 @@ class ServiceRegistry:
         Environment Variables:
             FLASH_RESOURCE_NAME: Resource config name for this endpoint.
                 Identifies which resource config this endpoint represents.
-            RUNPOD_ENDPOINT_ID: Endpoint ID (used for State Manager queries and fallback).
+            FLASH_ENVIRONMENT_ID: Flash environment ID for State Manager manifest queries.
             RUNPOD_API_KEY: API key for State Manager GraphQL access.
 
         Raises:
@@ -164,11 +163,11 @@ class ServiceRegistry:
 
         Peer-to-Peer Architecture:
             Each endpoint queries State Manager independently using its own
-            RUNPOD_ENDPOINT_ID. No mothership dependency - all endpoints
-            are equal peers discovering each other through the manifest.
+            FLASH_ENVIRONMENT_ID. All endpoints are equal peers discovering
+            each other through the manifest.
 
         Query Flow:
-            1. get_flash_environment(RUNPOD_ENDPOINT_ID) → activeBuildId
+            1. get_flash_environment(FLASH_ENVIRONMENT_ID) → activeBuildId
             2. get_flash_build(activeBuildId) → manifest
             3. Extract manifest["resources_endpoints"] mapping
             4. Cache for 300s (DEFAULT_CACHE_TTL)
@@ -199,16 +198,16 @@ class ServiceRegistry:
                     return
 
                 try:
-                    mothership_id = os.getenv("RUNPOD_ENDPOINT_ID")
-                    if not mothership_id:
-                        logger.warning(
-                            "RUNPOD_ENDPOINT_ID not set, cannot query State Manager"
+                    flash_env_id = os.getenv("FLASH_ENVIRONMENT_ID")
+                    if not flash_env_id:
+                        logger.debug(
+                            "FLASH_ENVIRONMENT_ID not set, skipping State Manager query"
                         )
                         return
 
                     # Query State Manager directly for full manifest
                     full_manifest = await self._manifest_client.get_persisted_manifest(
-                        mothership_id
+                        flash_env_id
                     )
 
                     # Extract resources_endpoints mapping
@@ -221,11 +220,17 @@ class ServiceRegistry:
                         f"cache TTL {self.cache_ttl}s"
                     )
                 except ManifestServiceUnavailableError as e:
-                    logger.warning(
-                        f"Failed to load manifest from State Manager: {e}. "
-                        f"Cross-endpoint routing unavailable."
-                    )
-                    self._endpoint_registry = {}
+                    stale_count = len(self._endpoint_registry)
+                    if stale_count > 0:
+                        logger.error(
+                            f"Failed to refresh manifest from State Manager: {e}. "
+                            f"Keeping {stale_count} stale endpoint(s) in cache."
+                        )
+                    else:
+                        logger.error(
+                            f"Failed to load manifest from State Manager: {e}. "
+                            f"Cross-endpoint routing unavailable."
+                        )
 
     async def get_endpoint_for_function(self, function_name: str) -> Optional[str]:
         """Get endpoint URL for a function.
@@ -264,9 +269,10 @@ class ServiceRegistry:
         # Check manifest for remote endpoint URL
         endpoint_url = self._endpoint_registry.get(resource_config_name)
         if not endpoint_url:
-            logger.debug(
-                f"Endpoint URL for '{resource_config_name}' not in manifest. "
-                f"Manifest has: {list(self._endpoint_registry.keys())}"
+            logger.warning(
+                f"Endpoint URL for '{resource_config_name}' not in registry. "
+                f"This may indicate an incomplete deployment or stale State Manager data. "
+                f"Registry has: {list(self._endpoint_registry.keys())}"
             )
 
         return endpoint_url
@@ -316,6 +322,76 @@ class ServiceRegistry:
 
         return resource
 
+    async def get_routing_info(self, function_name: str) -> Optional[dict]:
+        """Get complete routing metadata for a remote function.
+
+        Combines endpoint URL lookup with resource type and per-function route
+        metadata from the manifest. Used by ProductionWrapper to determine
+        QB vs LB dispatch strategy.
+
+        Args:
+            function_name: Name of the function to route.
+
+        Returns:
+            None if function is local. For remote functions returns:
+            {
+                "resource_name": str,
+                "endpoint_url": str,
+                "is_load_balanced": bool,
+                "http_method": Optional[str],  # LB only
+                "http_path": Optional[str],     # LB only
+            }
+
+        Raises:
+            ValueError: If function not in manifest.
+        """
+        await self._ensure_manifest_loaded()
+
+        function_registry = self._manifest.function_registry
+
+        if function_name not in function_registry:
+            raise ValueError(
+                f"Function '{function_name}' not found in manifest. "
+                f"Available functions: {list(function_registry.keys())}"
+            )
+
+        resource_config_name = function_registry[function_name]
+
+        # Local function
+        if resource_config_name == self._current_endpoint:
+            return None
+
+        endpoint_url = self._endpoint_registry.get(resource_config_name)
+        if not endpoint_url:
+            logger.warning(
+                f"Endpoint URL for '{resource_config_name}' not in registry. "
+                f"This may indicate an incomplete deployment or stale State Manager data. "
+                f"Registry has: {list(self._endpoint_registry.keys())}"
+            )
+
+        resource_config = self._manifest.resources.get(resource_config_name)
+        is_load_balanced = (
+            resource_config.is_load_balanced if resource_config else False
+        )
+
+        # Find per-function route metadata (http_method, http_path) for LB targets
+        http_method = None
+        http_path = None
+        if resource_config and is_load_balanced:
+            for func_meta in resource_config.functions:
+                if func_meta.name == function_name:
+                    http_method = func_meta.http_method
+                    http_path = func_meta.http_path
+                    break
+
+        return {
+            "resource_name": resource_config_name,
+            "endpoint_url": endpoint_url,
+            "is_load_balanced": is_load_balanced,
+            "http_method": http_method,
+            "http_path": http_path,
+        }
+
     async def is_local_function(self, function_name: str) -> bool:
         """Check if function executes on current endpoint.
 
@@ -341,7 +417,7 @@ class ServiceRegistry:
         return self._current_endpoint
 
     def refresh_manifest(self) -> None:
-        """Force refresh manifest from mothership on next access."""
+        """Force refresh manifest from State Manager on next access."""
         self._endpoint_registry_loaded_at = 0
 
     def get_manifest(self) -> Manifest:

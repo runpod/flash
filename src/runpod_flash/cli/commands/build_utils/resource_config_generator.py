@@ -132,7 +132,7 @@ def is_local_function(func_name: str) -> bool:
         f.write(config_content)
 
     total_functions = sum(len(funcs) for funcs in resource_functions.values())
-    logger.info(
+    logger.debug(
         f"Generated unified resource config: {len(resource_functions)} resources, "
         f"{total_functions} total function mappings"
     )

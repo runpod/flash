@@ -16,7 +16,10 @@
         {"type": "ci", "section": "Continuous Integration", "hidden": true},
         {"type": "chore", "section": "Miscellaneous", "hidden": true}
       ],
-      "pull-request-title-pattern": "chore: release ${version}"
+      "pull-request-title-pattern": "chore: release ${version}",
+      "extra-files": [
+        "src/runpod_flash/__init__.py"
+      ]
     }
   }
 }

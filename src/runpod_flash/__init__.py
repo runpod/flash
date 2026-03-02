@@ -1,3 +1,5 @@
+__version__ = "1.4.2"  # x-release-please-version
+
 # Load .env vars from file before everything else
 from dotenv import load_dotenv
 
@@ -30,6 +32,7 @@ if TYPE_CHECKING:
         PodTemplate,
         ResourceManager,
         ServerlessEndpoint,
+        ServerlessScalerType,
         ServerlessType,
         FlashApp,
     )
@@ -58,6 +61,7 @@ def __getattr__(name):
         "PodTemplate",
         "ResourceManager",
         "ServerlessEndpoint",
+        "ServerlessScalerType",
         "ServerlessType",
         "FlashApp",
     ):
@@ -78,6 +82,7 @@ def __getattr__(name):
             PodTemplate,
             ResourceManager,
             ServerlessEndpoint,
+            ServerlessScalerType,
             ServerlessType,
             FlashApp,
         )
@@ -99,6 +104,7 @@ def __getattr__(name):
             "PodTemplate": PodTemplate,
             "ResourceManager": ResourceManager,
             "ServerlessEndpoint": ServerlessEndpoint,
+            "ServerlessScalerType": ServerlessScalerType,
             "ServerlessType": ServerlessType,
             "FlashApp": FlashApp,
         }
@@ -124,6 +130,7 @@ __all__ = [
     "PodTemplate",
     "ResourceManager",
     "ServerlessEndpoint",
+    "ServerlessScalerType",
     "ServerlessType",
     "FlashApp",
 ]

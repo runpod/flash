@@ -2,7 +2,7 @@ import os
 import inspect
 import logging
 from functools import wraps
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from .core.resources import LoadBalancerSlsResource, ResourceManager, ServerlessResource
 from .execute_class import create_remote_class
@@ -43,6 +43,56 @@ def _should_execute_locally(func_name: str) -> bool:
             f"Resource configuration import failed for {func_name}: {e}, defaulting to local execution"
         )
         return True
+
+
+_service_registry: Any = None
+
+
+async def _resolve_deployed_endpoint_id(func_name: str) -> Optional[str]:
+    """Look up pre-deployed endpoint ID for a function from the manifest.
+
+    Only active in deployed environments (RUNPOD_ENDPOINT_ID or RUNPOD_POD_ID set).
+    Returns None in local dev or on any failure, allowing fallback to ResourceManager.
+    """
+    global _service_registry
+
+    if not os.getenv("RUNPOD_ENDPOINT_ID") and not os.getenv("RUNPOD_POD_ID"):
+        return None
+
+    try:
+        from .runtime.service_registry import ServiceRegistry
+
+        if _service_registry is None:
+            _service_registry = ServiceRegistry()
+
+        endpoint_url = await _service_registry.get_endpoint_for_function(func_name)
+        if not endpoint_url:
+            return None
+
+        from urllib.parse import urlparse
+
+        path_parts = urlparse(endpoint_url).path.rstrip("/").split("/")
+        endpoint_id = path_parts[-1] if path_parts else ""
+        if not endpoint_id:
+            log.warning(f"Could not extract endpoint ID from URL: {endpoint_url}")
+            return None
+
+        log.debug(f"Resolved {func_name} to deployed endpoint {endpoint_id}")
+        return endpoint_id
+
+    except ImportError:
+        log.debug("ServiceRegistry not available, skipping manifest lookup")
+        return None
+    except ValueError as e:
+        log.debug(f"Function {func_name} not in manifest: {e}")
+        return None
+    except Exception as e:
+        log.error(
+            f"Manifest lookup failed for {func_name}, falling back to "
+            f"ResourceManager (may trigger dynamic provisioning): {e}",
+            exc_info=True,
+        )
+        return None
 
 
 def remote(
@@ -210,10 +260,16 @@ def remote(
             # Handle function decoration
             @wraps(func_or_class)
             async def wrapper(*args, **kwargs):
-                resource_manager = ResourceManager()
-                remote_resource = await resource_manager.get_or_deploy_resource(
-                    resource_config
-                )
+                endpoint_id = await _resolve_deployed_endpoint_id(func_name)
+                if endpoint_id:
+                    remote_resource = resource_config.model_copy(
+                        update={"id": endpoint_id}
+                    )
+                else:
+                    resource_manager = ResourceManager()
+                    remote_resource = await resource_manager.get_or_deploy_resource(
+                        resource_config
+                    )
 
                 stub = stub_resource(remote_resource, **extra)
                 return await stub(

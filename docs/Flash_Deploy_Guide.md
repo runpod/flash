@@ -30,12 +30,7 @@ graph TB
     subgraph Cloud["Runpod Cloud"]
         S3["S3 Storage<br/>artifact.tar.gz"]
 
-        subgraph Mothership["Mothership Endpoint<br/>(FLASH_IS_MOTHERSHIP=true)"]
-            MothershipReconciler["MothershipsProvisioner<br/>Reconcile Children"]
-            MothershipState["State Sync<br/>to State Manager"]
-        end
-
-        subgraph ChildEndpoints["Child Endpoints<br/>(Resource Configs)"]
+        subgraph Endpoints["Peer Endpoints<br/>(one per resource config)"]
             Handler1["GPU Handler<br/>@remote functions"]
             Handler2["CPU Handler<br/>@remote functions"]
             StateQuery["Service Registry<br/>Query State Manager"]
@@ -47,22 +42,19 @@ graph TB
     Developer -->|flash build| Build
     Build -->|archive| S3
     Developer -->|flash deploy --env| S3
-    CLI -->|provision upfront<br/>before activation| ChildEndpoints
-    Mothership -->|reconcile_children<br/>on boot| ChildEndpoints
-    MothershipReconciler -->|update state| Database
-    ChildEndpoints -->|query manifest<br/>peer-to-peer| Database
-    Developer -->|call @remote| ChildEndpoints
+    CLI -->|provision all endpoints| Endpoints
+    Endpoints -->|query manifest<br/>peer-to-peer| Database
+    Developer -->|call @remote| Endpoints
 
-    style Mothership fill:#1976d2,stroke:#0d47a1,stroke-width:3px,color:#fff
-    style ChildEndpoints fill:#388e3c,stroke:#1b5e20,stroke-width:3px,color:#fff
+    style Endpoints fill:#388e3c,stroke:#1b5e20,stroke-width:3px,color:#fff
     style Build fill:#f57c00,stroke:#e65100,stroke-width:3px,color:#fff
 ```
 
 ### Key Concepts
 
-**Mothership**: The orchestration endpoint responsible for deployment, resource provisioning, and manifest distribution. Created via `flash env create <env_name>`.
+**Endpoints**: All deployed endpoints are peers. The CLI provisions them upfront during `flash deploy`. Each endpoint loads the manifest from its `.flash/` directory and queries State Manager for peer discovery.
 
-**Child Endpoints**: Worker endpoints that execute `@remote` functions. One per resource config (e.g., `gpu_config`, `cpu_config`).
+**Worker Endpoints**: Endpoints that execute `@remote` functions. One per resource config (e.g., `gpu_config`, `cpu_config`).
 
 **Manifest**: JSON document describing all deployed functions, their resource configs, routing rules, and metadata. Built at compile-time, distributed to all endpoints.
 
@@ -76,7 +68,7 @@ graph TB
 
 ### flash env create
 
-Create a new deployment environment (mothership).
+Create a new deployment environment.
 
 ```bash
 flash env create <env_name> [--app <app_name>]
@@ -91,7 +83,7 @@ flash env create <env_name> [--app <app_name>]
 **What it does:**
 1. Creates a FlashApp in Runpod (if first environment for the app)
 2. Creates FlashEnvironment with the specified name
-3. Provisions a mothership serverless endpoint
+3. Provisions serverless endpoints
 
 **Example:**
 ```bash
@@ -277,93 +269,37 @@ sequenceDiagram
 **Upload Process** (`src/runpod_flash/cli/commands/deploy.py:197-224`):
 1. Archive uploaded to Runpod's built-in S3 storage
 2. URL generated with temporary access
-3. URL passed to mothership endpoint creation
+3. URL passed to endpoint creation
 
 **Key Files:**
 - `src/runpod_flash/cli/commands/deploy.py` - Deploy CLI commands
 
 ---
 
-### Phase 3: Mothership Boot & Reconciliation
+### Phase 3: Endpoint Boot & Service Discovery
 
-The mothership runs on each boot to perform reconcile_children() - reconciling desired state (manifest) with current state (local resources). Note: All resources are provisioned upfront by the CLI before environment activation.
-
-```mermaid
-sequenceDiagram
-    Runpod->>Mothership: Boot endpoint
-    Mothership->>Mothership: Initialize runtime
-    Mothership->>ManifestFetcher: Load manifest from .flash/
-    ManifestFetcher->>ManifestFetcher: Read flash_manifest.json
-    Mothership->>MothershipsProvisioner: Execute reconcile_children()
-    MothershipsProvisioner->>StateManager: Fetch persisted state
-    StateManager->>GraphQL: Query persisted manifest
-    GraphQL->>StateManager: Return persisted manifest
-    MothershipsProvisioner->>MothershipsProvisioner: Compute diff:<br/>new, changed, removed
-    MothershipsProvisioner->>StateManager: Update state after<br/>reconciliation
-    StateManager->>GraphQL: Mutation:<br/>updateFlashBuildManifest
-    MothershipsProvisioner->>Mothership: Reconciliation complete
-```
-
-**Key Components:**
-
-**MothershipsProvisioner** (`src/runpod_flash/runtime/mothership_provisioner.py`):
-- `is_mothership()`: Check if endpoint is mothership (FLASH_IS_MOTHERSHIP=true)
-- `reconcile_children()`: Compute diff between desired and current state
-- Verifies child endpoints are deployed and healthy
-- Updates State Manager with reconciliation results
-
-**ResourceManager** (`src/runpod_flash/core/resources/resource_manager.py`):
-- Singleton pattern (global resource registry)
-- Stores state in `.runpod/resources.pkl` with file locking
-- Tracks config hashes for drift detection (hash comparison)
-- Provisioned upfront by CLI before environment activation
-- Auto-migrates legacy resources
-
-**StateManagerClient** (`src/runpod_flash/runtime/state_manager_client.py`):
-- GraphQL client for persisting manifest state
-- Read-modify-write pattern for updates (3 GQL roundtrips)
-- Thread-safe with asyncio.Lock for concurrent updates
-- Retries with exponential backoff (3 attempts)
-
-**Reconciliation Logic**:
-1. **Fetch persisted manifest**: Query State Manager for previous reconciliation state
-2. **Compare with current manifest**: Detect new, changed, and removed resources
-3. **Verify new resources**: Check that new endpoints are deployed and healthy
-4. **Verify changed resources**: Check if hash differs, verify endpoint health
-5. **Verify removed resources**: Check that deleted endpoints are decommissioned
-6. **Persist new state**: Update State Manager with current reconciliation results
-
-**Key Files:**
-- `src/runpod_flash/runtime/mothership_provisioner.py` - Reconciliation logic
-- `src/runpod_flash/core/resources/resource_manager.py` - Resource provisioning
-- `src/runpod_flash/runtime/state_manager_client.py` - State persistence
-
----
-
-### Phase 4: Child Endpoint Initialization
-
-Each child endpoint boots independently and prepares for function execution.
+Each endpoint boots independently. Endpoints that make cross-endpoint calls (i.e., call `@remote` functions deployed on a different resource config) query State Manager to discover peer endpoint URLs. Endpoints that only execute local functions do not need State Manager access.
 
 ```mermaid
 sequenceDiagram
-    Runpod->>Child: Boot with handler_gpu_config.py
-    Child->>Child: Initialize runtime
-    Child->>ManifestFetcher: Load manifest from .flash/
+    Runpod->>Endpoint: Boot with handler
+    Endpoint->>Endpoint: Initialize runtime
+    Endpoint->>ManifestFetcher: Load manifest from .flash/
     ManifestFetcher->>ManifestFetcher: Check cache<br/>(TTL: 300s)
     alt Cache expired
-        ManifestFetcher->>StateManager: Query GraphQL API<br/>State Manager
+        ManifestFetcher->>StateManager: Query GraphQL API
         StateManager->>ManifestFetcher: Return manifest
     else Cache valid
         ManifestFetcher->>ManifestFetcher: Return cached
     end
-    ManifestFetcher->>Child: Manifest loaded
-    Child->>ServiceRegistry: Load manifest
+    ManifestFetcher->>Endpoint: Manifest loaded
+    Endpoint->>ServiceRegistry: Load manifest
     ServiceRegistry->>ServiceRegistry: Build function_registry
     ServiceRegistry->>ServiceRegistry: Build resource_mapping
-    Child->>StateManager: Query State Manager<br/>peer-to-peer discovery
-    StateManager->>Child: Return peer endpoints
-    Child->>ServiceRegistry: Cache endpoint URLs
-    Child->>Ready: Ready to execute functions
+    Endpoint->>StateManager: Query State Manager<br/>peer-to-peer discovery
+    StateManager->>Endpoint: Return peer endpoints
+    Endpoint->>ServiceRegistry: Cache endpoint URLs
+    Endpoint->>Ready: Ready to execute functions
 ```
 
 **ManifestFetcher** (`src/runpod_flash/runtime/manifest_fetcher.py`):
@@ -394,7 +330,7 @@ sequenceDiagram
 
 ---
 
-### Phase 5: Runtime Function Execution
+### Phase 4: Runtime Function Execution
 
 When client calls `@remote function`:
 
@@ -530,7 +466,7 @@ The manifest is the contract between build-time and runtime. It defines all depl
 
 ### Runtime: Distribution & Caching
 
-**Mothership Side** - `ManifestFetcher`:
+**Endpoint Side** - `ManifestFetcher`:
 
 1. **Check cache**: Is manifest cached and TTL valid?
    - Cache TTL: 300 seconds (configurable)
@@ -547,7 +483,7 @@ The manifest is the contract between build-time and runtime. It defines all depl
 
 **Code Reference**: `src/runpod_flash/runtime/manifest_fetcher.py:47-118`
 
-**Child Endpoint Side** - `ServiceRegistry`:
+**Worker Endpoint Side** - `ServiceRegistry`:
 
 1. **Load manifest**: From local file
    - Searches multiple locations (cwd, module dir, etc)
@@ -558,7 +494,7 @@ The manifest is the contract between build-time and runtime. It defines all depl
 
 3. **Query State Manager**: Get endpoint URLs via GraphQL
    - Queries Runpod State Manager GraphQL API directly
-   - Returns: Resource endpoints for all deployed child endpoints
+   - Returns: Resource endpoints for all deployed worker endpoints
    - Retries with exponential backoff
 
 4. **Cache endpoints**: Store for routing decisions
@@ -608,7 +544,7 @@ Write: Mutation updateFlashBuildManifest
 
 ## Resource Provisioning
 
-Resources are dynamically provisioned by the mothership during boot, based on the manifest.
+Resources are provisioned by the CLI during `flash deploy`, based on the manifest.
 
 ### ResourceManager: Local State
 
@@ -646,14 +582,14 @@ Resources are dynamically provisioned by the mothership during boot, based on th
 
 ### Deployment Orchestration
 
-**MothershipsProvisioner** reconciles manifest with local state:
+The reconciler reconciles the manifest with the endpoint's local state:
 
 ```python
 # 1. Load manifest from flash_manifest.json
 manifest = load_manifest()
 
 # 2. Fetch persisted state from State Manager
-persisted = await StateManagerClient.get_persisted_manifest(mothership_id)
+persisted = await StateManagerClient.get_persisted_manifest(flash_environment_id)
 
 # 3. Compute diff
 diff = compute_manifest_diff(manifest, persisted)
@@ -674,7 +610,7 @@ for resource_config in diff.removed:
     delete_resource(resource_config)
 
 # 7. Persist new state
-await StateManagerClient.update_resource_state(mothership_id, resources)
+await StateManagerClient.update_resource_state(flash_environment_id, resources)
 ```
 
 **Parallel Deployment**:
@@ -685,8 +621,6 @@ await StateManagerClient.update_resource_state(mothership_id, resources)
 - Stored hash (from previous boot) vs current hash (computed from config)
 - If hashes differ: Resource has been modified, trigger update
 - Prevents unnecessary updates when resource unchanged
-
-**Code Reference**: `src/runpod_flash/runtime/mothership_provisioner.py:1-150`
 
 ---
 
@@ -870,21 +804,15 @@ graph TB
         Archive["Archive Builder<br/>(tar.gz)"]
     end
 
-    subgraph Upload["Upload"]
+    subgraph Deploy["Deploy (CLI)"]
         S3["S3 Storage"]
+        Provisioner["ResourceManager<br/>(provision endpoints)"]
+        StateMgr["StateManagerClient<br/>(persist state)"]
     end
 
-    subgraph MothershipBoot["Mothership Boot"]
-        Fetcher["ManifestFetcher<br/>(cache + GQL)"]
-        MProvisioner["MothershipsProvisioner<br/>(reconciliation)"]
-        ResMgr["ResourceManager<br/>(state)"]
-        StateMgr["StateManagerClient<br/>(persistence)"]
-    end
-
-    subgraph ChildBoot["Child Endpoint Boot"]
-        ChildFetcher["ManifestFetcher<br/>(local file)"]
+    subgraph EndpointBoot["Endpoint Boot"]
+        Fetcher["ManifestFetcher<br/>(local file + GQL)"]
         Registry["ServiceRegistry<br/>(function mapping)"]
-        ManifestC["ManifestClient<br/>(query mothership)"]
     end
 
     subgraph Runtime["Runtime Execution"]
@@ -896,20 +824,16 @@ graph TB
     Scanner --> ManifestB
     ManifestB --> Archive
     Archive --> S3
-    S3 --> Fetcher
-    Fetcher --> MProvisioner
-    MProvisioner --> ResMgr
-    ResMgr --> StateMgr
-    StateMgr -->|update| S3
-    ChildFetcher --> Registry
-    ManifestC -->|query| Fetcher
-    Registry --> ManifestC
+    S3 --> Provisioner
+    Provisioner --> StateMgr
+    Fetcher --> Registry
+    Registry -->|query State Manager<br/>peer-to-peer| StateMgr
     Handler --> Serial
     Serial --> Exec
 
     style Build fill:#f57c00,stroke:#e65100,stroke-width:3px,color:#fff
-    style MothershipBoot fill:#1976d2,stroke:#0d47a1,stroke-width:3px,color:#fff
-    style ChildBoot fill:#388e3c,stroke:#1b5e20,stroke-width:3px,color:#fff
+    style Deploy fill:#1976d2,stroke:#0d47a1,stroke-width:3px,color:#fff
+    style EndpointBoot fill:#388e3c,stroke:#1b5e20,stroke-width:3px,color:#fff
     style Runtime fill:#7b1fa2,stroke:#4a148c,stroke-width:3px,color:#fff
 ```
 
@@ -921,14 +845,12 @@ graph TB
 graph LR
     A["Build Time<br/>ManifestBuilder"] -->|Generate| B["flash_manifest.json<br/>(embedded in archive)"]
     B -->|Upload| C["S3<br/>(artifact.tar.gz)"]
-    C -->|Provision upfront<br/>before activation| D["Child Endpoints<br/>(deployed)"]
+    C -->|CLI provisions<br/>endpoints| D["Endpoints<br/>(deployed)"]
     D -->|Extract from<br/>.flash/ directory| E["LocalManifest<br/>(from archive)"]
-    Mothership -->|Load from<br/>.flash/| E
     E -->|Build registry| F["ServiceRegistry<br/>(function mapping)"]
     F -->|Query State Manager<br/>peer-to-peer| G["StateManager<br/>(GraphQL API)"]
     G -->|Return endpoints| F
     F -->|Route calls| H["Handler<br/>(execute)"]
-    Mothership -->|reconcile_children<br/>on boot| D
 
     style A fill:#f57c00,stroke:#e65100,stroke-width:2px,color:#fff
     style B fill:#ff6f00,stroke:#e65100,stroke-width:2px,color:#fff
@@ -938,7 +860,6 @@ graph LR
     style F fill:#388e3c,stroke:#1b5e20,stroke-width:2px,color:#fff
     style G fill:#0d47a1,stroke:#051c66,stroke-width:2px,color:#fff
     style H fill:#388e3c,stroke:#1b5e20,stroke-width:2px,color:#fff
-    style Mothership fill:#1976d2,stroke:#0d47a1,stroke-width:2px,color:#fff
 ```
 
 ---
@@ -947,7 +868,7 @@ graph LR
 
 ```mermaid
 graph LR
-    A["Mothership Boots"] -->|Load manifest| B["Desired State"]
+    A["CLI: flash deploy"] -->|Load manifest| B["Desired State"]
     B -->|Fetch persisted| C["Current State"]
     C -->|Compute diff| D{"Reconciliation"}
     D -->|new| E["Create Resource"]
@@ -959,7 +880,7 @@ graph LR
     D -->|removed| J["Delete Resource"]
     J -->|Decommission| K["Deleted"]
     K -->|Remove state| G
-    G -->|On next boot| C
+    G -->|On next deploy| C
 
     style A fill:#1976d2,stroke:#0d47a1,stroke-width:2px,color:#fff
     style B fill:#1976d2,stroke:#0d47a1,stroke-width:2px,color:#fff
@@ -974,39 +895,26 @@ graph LR
 
 ## Environment Variables Reference
 
-### Mothership Configuration
+### All Endpoints
 
-**FLASH_IS_MOTHERSHIP** (Required on mothership)
-- Value: `"true"`
-- Enables mothership auto-provisioning logic
-- Triggers manifest reconciliation on boot
-
-**RUNPOD_ENDPOINT_ID** (Required on mothership)
-- Runpod serverless endpoint ID
-- Used to construct mothership URL: `https://{RUNPOD_ENDPOINT_ID}.api.runpod.ai`
-- Set automatically by Runpod platform
-
-**RUNPOD_API_KEY** (Required for State Manager)
+**RUNPOD_API_KEY** (Required)
 - Runpod API authentication token
 - Used by StateManagerClient for GraphQL queries
-- Enables manifest persistence
+- Enables peer-to-peer service discovery and manifest persistence
 
-### Child Endpoint Configuration
-
-**FLASH_RESOURCE_NAME** (Required on child endpoints)
+**FLASH_RESOURCE_NAME** (Required)
 - Resource config name (e.g., "gpu_config", "cpu_config")
 - Identifies which resource config this endpoint represents
 - Used by ServiceRegistry for local vs remote detection
 
-**RUNPOD_API_KEY** (Required for peer-to-peer discovery)
-- API key for State Manager GraphQL access
-- Enables endpoints to query manifest peer-to-peer
-- Used by all endpoints for service discovery
+**RUNPOD_ENDPOINT_ID** (Set by Runpod)
+- Runpod serverless endpoint ID
+- Used to construct endpoint URL: `https://{RUNPOD_ENDPOINT_ID}.api.runpod.ai`
+- Set automatically by Runpod platform
 
 **FLASH_MANIFEST_PATH** (Optional)
 - Override default manifest file location
 - If not set, searches: cwd, module dir, parent dirs
-- Useful for testing or non-standard layouts
 
 ### Runtime Configuration
 
@@ -1048,7 +956,7 @@ Flash Deploy uses a dual-layer state system for reliability and consistency.
 
 ### Remote State: Runpod State Manager (GraphQL API)
 
-**Purpose**: Persist deployment state across mothership boots
+**Purpose**: Persist deployment state across endpoint boots
 
 **Data Model**:
 ```graphql
@@ -1092,7 +1000,7 @@ async with state_manager_lock:
 ```
 
 **Reconciliation**:
-On mothership boot:
+On deploy:
 1. Load local manifest from .flash/ (desired state)
 2. Fetch persisted manifest from State Manager (previous reconciliation state)
 3. Compare → detect new, changed, removed resources
@@ -1117,9 +1025,9 @@ flash build --preview
 1. Builds your project (creates archive, manifest)
 2. Creates a Docker network for inter-container communication
 3. Starts one Docker container per resource config:
-   - Mothership container (orchestrator)
+   - Application container
    - All worker containers (GPU, CPU, etc.)
-4. Exposes mothership on `localhost:8000`
+4. Exposes application on `localhost:8000`
 5. All containers communicate via Docker DNS
 6. Auto-cleanup on exit (Ctrl+C)
 
@@ -1131,25 +1039,6 @@ flash build --preview
 - Verify container networking
 
 **Code Reference**: `src/runpod_flash/cli/commands/preview.py`
-
-### Local Docker Testing
-
-For testing complete deployment flow locally:
-
-```bash
-# Build project
-flash build
-
-# Start local mothership simulator
-docker run -it \
-  -e FLASH_IS_MOTHERSHIP=true \
-  -e RUNPOD_API_KEY=$RUNPOD_API_KEY \
-  -v $(pwd)/.flash:/workspace/.flash \
-  runpod-flash:latest
-
-# Run provisioner
-python -m runpod_flash.runtime.mothership_provisioner
-```
 
 ### Debugging Tips
 
@@ -1189,7 +1078,6 @@ logging.getLogger("runpod_flash.runtime.service_registry").setLevel(logging.DEBU
 |------|---------|
 | `src/runpod_flash/cli/commands/deploy.py` | Deploy environment management commands |
 | `src/runpod_flash/cli/commands/build.py` | Build packaging and archive creation |
-| `src/runpod_flash/cli/commands/test_mothership.py` | Local mothership testing |
 
 ### Build System
 
@@ -1212,7 +1100,6 @@ logging.getLogger("runpod_flash.runtime.service_registry").setLevel(logging.DEBU
 |------|---------|
 | `src/runpod_flash/runtime/manifest_fetcher.py` | Manifest loading from local .flash/ directory |
 | `src/runpod_flash/runtime/state_manager_client.py` | GraphQL client for peer-to-peer service discovery |
-| `src/runpod_flash/runtime/mothership_provisioner.py` | Auto-provisioning logic |
 
 ### Runtime: Execution
 
@@ -1235,7 +1122,7 @@ logging.getLogger("runpod_flash.runtime.service_registry").setLevel(logging.DEBU
 
 ## Common Issues & Solutions
 
-### Issue: Manifest not found on child endpoint
+### Issue: Manifest not found on worker endpoint
 
 **Cause**: flash_manifest.json not included in archive or not found at runtime
 
@@ -1255,13 +1142,13 @@ logging.getLogger("runpod_flash.runtime.service_registry").setLevel(logging.DEBU
 
 ### Issue: Remote function calls fail with endpoint not found
 
-**Cause**: ServiceRegistry unable to query mothership or manifest outdated
+**Cause**: ServiceRegistry unable to query State Manager or manifest outdated
 
 **Solution**:
 1. Verify `RUNPOD_API_KEY` environment variable is set
 2. Check State Manager GraphQL API is accessible
 3. Verify manifest includes the resource config: `grep resource_name flash_manifest.json`
-4. Check that child endpoints are deployed and healthy
+4. Check that worker endpoints are deployed and healthy
 
 ### Issue: Manifest cache staleness
 

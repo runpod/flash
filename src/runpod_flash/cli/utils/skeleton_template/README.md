@@ -41,12 +41,12 @@ Learn more about it from our [Documentation](https://docs.runpod.io/get-started/
 
 ```bash
 # Queue-based GPU worker
-curl -X POST http://localhost:8888/gpu_worker/run_sync \
+curl -X POST http://localhost:8888/gpu_worker/runsync \
   -H "Content-Type: application/json" \
   -d '{"message": "Hello GPU!"}'
 
 # Queue-based CPU worker
-curl -X POST http://localhost:8888/cpu_worker/run_sync \
+curl -X POST http://localhost:8888/cpu_worker/runsync \
   -H "Content-Type: application/json" \
   -d '{"message": "Hello CPU!"}'
 
@@ -75,7 +75,7 @@ curl http://localhost:8888/lb_worker/health
 
 ### Queue-Based (QB) Workers
 
-QB workers process jobs from a queue. Each call to `/run_sync` sends a job and waits
+QB workers process jobs from a queue. Each call to `/runsync` sends a job and waits
 for the result. Use QB for compute-heavy tasks that may take seconds to minutes.
 
 **gpu_worker.py** — GPU serverless function:

@@ -14,7 +14,8 @@ class FunctionRequest(BaseModel):
     """Request model for remote function or class execution.
 
     Supports both function-based execution and class instantiation with method calls.
-    All serialized data (args, kwargs, etc.) are base64-encoded cloudpickle strings.
+    Args/kwargs can be base64-encoded cloudpickle strings (default) or plain JSON
+    values (when serialization_format='json').
     """
 
     # MADE OPTIONAL - can be None for class-only execution
@@ -26,13 +27,13 @@ class FunctionRequest(BaseModel):
         default=None,
         description="Source code of the function to execute",
     )
-    args: List[str] = Field(
+    args: List[Any] = Field(
         default_factory=list,
-        description="List of base64-encoded cloudpickle-serialized arguments",
+        description="List of serialized arguments (base64 cloudpickle strings or plain JSON values)",
     )
-    kwargs: Dict[str, str] = Field(
+    kwargs: Dict[str, Any] = Field(
         default_factory=dict,
-        description="Dictionary of base64-encoded cloudpickle-serialized keyword arguments",
+        description="Dict of serialized keyword arguments (base64 cloudpickle strings or plain JSON values)",
     )
     dependencies: Optional[List[str]] = Field(
         default=None,
@@ -55,13 +56,13 @@ class FunctionRequest(BaseModel):
         default=None,
         description="Source code of the class to instantiate (for class execution)",
     )
-    constructor_args: List[str] = Field(
+    constructor_args: List[Any] = Field(
         default_factory=list,
-        description="List of base64-encoded cloudpickle-serialized constructor arguments",
+        description="List of serialized constructor arguments (base64 cloudpickle strings or plain JSON values)",
     )
-    constructor_kwargs: Dict[str, str] = Field(
+    constructor_kwargs: Dict[str, Any] = Field(
         default_factory=dict,
-        description="Dictionary of base64-encoded cloudpickle-serialized constructor keyword arguments",
+        description="Dict of serialized constructor keyword arguments (base64 cloudpickle strings or plain JSON values)",
     )
     method_name: str = Field(
         default="__call__",
@@ -80,6 +81,12 @@ class FunctionRequest(BaseModel):
     accelerate_downloads: bool = Field(
         default=True,
         description="Enable download acceleration for dependencies and models",
+    )
+
+    # Serialization format control
+    serialization_format: str = Field(
+        default="cloudpickle",
+        description="Serialization format: 'json' for plain JSON values, 'cloudpickle' for base64-encoded cloudpickle",
     )
 
     @model_validator(mode="after")
@@ -110,7 +117,8 @@ class FunctionResponse(BaseModel):
     """Response model for remote function or class execution results.
 
     Contains execution results, error information, and metadata about class instances
-    when applicable. The result field contains base64-encoded cloudpickle data.
+    when applicable. Result is in `result` field (cloudpickle) or `json_result` field
+    (JSON), depending on serialization_format.
     """
 
     success: bool = Field(
@@ -119,6 +127,10 @@ class FunctionResponse(BaseModel):
     result: Optional[str] = Field(
         default=None,
         description="Base64-encoded cloudpickle-serialized result of the function",
+    )
+    json_result: Optional[Any] = Field(
+        default=None,
+        description="Plain JSON result (used when serialization_format='json')",
     )
     error: Optional[str] = Field(
         default=None,

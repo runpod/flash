@@ -62,6 +62,9 @@ class WorkerInfo:
     function_params: dict[str, list[str]] = field(
         default_factory=dict
     )  # fn_name -> param_names
+    function_docstrings: dict[str, str] = field(
+        default_factory=dict
+    )  # fn_or_method_name -> first line of docstring
 
 
 def _scan_project_workers(project_root: Path) -> List[WorkerInfo]:
@@ -99,6 +102,18 @@ def _scan_project_workers(project_root: Path) -> List[WorkerInfo]:
         lb_funcs = [f for f in funcs if f.is_load_balanced and f.is_lb_route_handler]
 
         if qb_funcs or qb_classes:
+            docstrings: dict[str, str] = {}
+            for f in qb_funcs:
+                if f.docstring:
+                    docstrings[f.function_name] = f.docstring
+            for c in qb_classes:
+                # Class-level docstring as fallback for methods without their own
+                for method in c.class_methods:
+                    method_doc = c.class_method_docstrings.get(method)
+                    if method_doc:
+                        docstrings[method] = method_doc
+                    elif c.docstring:
+                        docstrings[method] = c.docstring
             workers.append(
                 WorkerInfo(
                     file_path=file_path,
@@ -116,6 +131,7 @@ def _scan_project_workers(project_root: Path) -> List[WorkerInfo]:
                         for c in qb_classes
                     ],
                     function_params={f.function_name: f.param_names for f in qb_funcs},
+                    function_docstrings=docstrings,
                 )
             )
 
@@ -126,9 +142,15 @@ def _scan_project_workers(project_root: Path) -> List[WorkerInfo]:
                     "path": f.http_path,
                     "fn_name": f.function_name,
                     "config_variable": f.config_variable,
+                    "docstring": f.docstring,
+                    "local": f.local,
                 }
                 for f in lb_funcs
             ]
+            lb_docstrings: dict[str, str] = {}
+            for f in lb_funcs:
+                if f.docstring:
+                    lb_docstrings[f.function_name] = f.docstring
             workers.append(
                 WorkerInfo(
                     file_path=file_path,
@@ -138,6 +160,7 @@ def _scan_project_workers(project_root: Path) -> List[WorkerInfo]:
                     worker_type="LB",
                     functions=[f.function_name for f in lb_funcs],
                     lb_routes=lb_routes,
+                    function_docstrings=lb_docstrings,
                 )
             )
 
@@ -209,6 +232,16 @@ def _make_import_line(module_path: str, name: str) -> str:
             return f'{name} = _flash_import("{module_path}", "{name}", "{subdir}")'
         return f'{name} = _flash_import("{module_path}", "{name}")'
     return f"from {module_path} import {name}"
+
+
+def _escape_summary(text: str) -> str:
+    """Escape a string for safe embedding in a generated Python string literal."""
+    return (
+        text.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+    )
 
 
 _PATH_PARAM_RE = re.compile(r"\{(\w+)\}")
@@ -300,7 +333,10 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
 
     lines += [
         "from runpod_flash.cli.commands._run_server_helpers import make_input_model as _make_input_model",
+        "from runpod_flash.cli.commands._run_server_helpers import make_wrapped_model as _make_wrapped_model",
         "from runpod_flash.cli.commands._run_server_helpers import call_with_body as _call_with_body",
+        "from runpod_flash.cli.commands._run_server_helpers import has_file_params as _has_file_params",
+        "from runpod_flash.cli.commands._run_server_helpers import register_file_upload_lb_route as _register_file_upload_lb_route",
     ]
 
     if has_lb_workers:
@@ -367,9 +403,13 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
             for fn in worker.functions:
                 params = worker.function_params.get(fn)
                 if params is None or len(params) > 0:
-                    model_var = f"_{worker.resource_name}_{fn}_Input"
+                    input_var = f"_{worker.resource_name}_{fn}_Input"
+                    request_var = f"_{worker.resource_name}_{fn}_Request"
                     model_lines.append(
-                        f'{model_var} = _make_input_model("{model_var}", {fn}) or dict'
+                        f'{input_var} = _make_input_model("{input_var}", {fn}) or dict'
+                    )
+                    model_lines.append(
+                        f'{request_var} = _make_wrapped_model("{request_var}", {input_var})'
                     )
             for cls_info in worker.class_remotes:
                 cls_name = cls_info["name"]
@@ -378,21 +418,30 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
                 for method in cls_info["methods"]:
                     params = method_params.get(method)
                     if params is None or len(params) > 0:
-                        model_var = f"_{worker.resource_name}_{cls_name}_{method}_Input"
+                        input_var = f"_{worker.resource_name}_{cls_name}_{method}_Input"
+                        request_var = (
+                            f"_{worker.resource_name}_{cls_name}_{method}_Request"
+                        )
                         # Use _class_type to get the original unwrapped method
                         # (RemoteClassWrapper.__getattr__ returns proxies with (*args, **kwargs))
                         class_ref = f"getattr({instance_var}, '_class_type', type({instance_var}))"
                         model_lines.append(
-                            f'{model_var} = _make_input_model("{model_var}", {class_ref}.{method}) or dict'
+                            f'{input_var} = _make_input_model("{input_var}", {class_ref}.{method}) or dict'
+                        )
+                        model_lines.append(
+                            f'{request_var} = _make_wrapped_model("{request_var}", {input_var})'
                         )
         elif worker.worker_type == "LB":
             for route in worker.lb_routes:
                 method = route["method"].lower()
                 if method in ("post", "put", "patch", "delete"):
                     fn_name = route["fn_name"]
+                    # Skip Pydantic model for file-upload routes (handled by
+                    # register_file_upload_lb_route at runtime)
                     model_var = f"_{worker.resource_name}_{fn_name}_Input"
+                    model_lines.append(f"if not _has_file_params({fn_name}):")
                     model_lines.append(
-                        f'{model_var} = _make_input_model("{model_var}", {fn_name}) or dict'
+                        f'    {model_var} = _make_input_model("{model_var}", {fn_name}) or dict'
                     )
     if model_lines:
         lines.extend(model_lines)
@@ -418,21 +467,23 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
             for fn in worker.functions:
                 if use_multi:
                     handler_name = _sanitize_fn_name(
-                        f"{worker.resource_name}_{fn}_run_sync"
+                        f"{worker.resource_name}_{fn}_runsync"
                     )
-                    sync_path = f"{worker.url_prefix}/{fn}/run_sync"
+                    sync_path = f"{worker.url_prefix}/{fn}/runsync"
                 else:
-                    handler_name = _sanitize_fn_name(f"{worker.resource_name}_run_sync")
-                    sync_path = f"{worker.url_prefix}/run_sync"
+                    handler_name = _sanitize_fn_name(f"{worker.resource_name}_runsync")
+                    sync_path = f"{worker.url_prefix}/runsync"
                 params = worker.function_params.get(fn)
                 call_expr, needs_body = _build_call_expr(fn, params)
                 if needs_body:
-                    model_var = f"_{worker.resource_name}_{fn}_Input"
-                    handler_sig = f"async def {handler_name}(body: {model_var}):"
+                    request_var = f"_{worker.resource_name}_{fn}_Request"
+                    handler_sig = f"async def {handler_name}(body: {request_var}):"
+                    call_expr = call_expr.replace("body)", "body.input)")
                 else:
                     handler_sig = f"async def {handler_name}():"
+                summary = _escape_summary(worker.function_docstrings.get(fn, fn))
                 lines += [
-                    f'@app.post("{sync_path}", tags=["{tag}"])',
+                    f'@app.post("{sync_path}", tags=["{tag}"], summary="{summary}")',
                     handler_sig,
                     f"    result = {call_expr}",
                     '    return {"id": str(uuid.uuid4()), "status": "COMPLETED", "output": result}',
@@ -449,25 +500,31 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
                 for method in methods:
                     if use_multi:
                         handler_name = _sanitize_fn_name(
-                            f"{worker.resource_name}_{cls_name}_{method}_run_sync"
+                            f"{worker.resource_name}_{cls_name}_{method}_runsync"
                         )
-                        sync_path = f"{worker.url_prefix}/{method}/run_sync"
+                        sync_path = f"{worker.url_prefix}/{method}/runsync"
                     else:
                         handler_name = _sanitize_fn_name(
-                            f"{worker.resource_name}_{cls_name}_run_sync"
+                            f"{worker.resource_name}_{cls_name}_runsync"
                         )
-                        sync_path = f"{worker.url_prefix}/run_sync"
+                        sync_path = f"{worker.url_prefix}/runsync"
                     params = method_params.get(method)
                     call_expr, needs_body = _build_call_expr(
                         f"{instance_var}.{method}", params
                     )
                     if needs_body:
-                        model_var = f"_{worker.resource_name}_{cls_name}_{method}_Input"
-                        handler_sig = f"async def {handler_name}(body: {model_var}):"
+                        request_var = (
+                            f"_{worker.resource_name}_{cls_name}_{method}_Request"
+                        )
+                        handler_sig = f"async def {handler_name}(body: {request_var}):"
+                        call_expr = call_expr.replace("body)", "body.input)")
                     else:
                         handler_sig = f"async def {handler_name}():"
+                    summary = _escape_summary(
+                        worker.function_docstrings.get(method, method)
+                    )
                     lines += [
-                        f'@app.post("{sync_path}", tags=["{tag}"])',
+                        f'@app.post("{sync_path}", tags=["{tag}"], summary="{summary}")',
                         handler_sig,
                         f"    result = {call_expr}",
                         '    return {"id": str(uuid.uuid4()), "status": "COMPLETED", "output": result}',
@@ -486,43 +543,97 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
                 )
                 path_params = _extract_path_params(full_path)
                 has_body = method in ("post", "put", "patch", "delete")
-                if has_body:
-                    model_var = f"_{worker.resource_name}_{fn_name}_Input"
-                    # POST/PUT/PATCH/DELETE: typed body + optional path params
-                    if path_params:
-                        param_sig = ", ".join(f"{p}: str" for p in path_params)
-                        param_dict = ", ".join(f'"{p}": {p}' for p in path_params)
+                summary = _escape_summary(route.get("docstring") or fn_name)
+                is_local = route.get("local", False)
+                if is_local:
+                    # local=True: execute function directly, no remote dispatch
+                    if has_body:
                         lines += [
-                            f'@app.{method}("{full_path}", tags=["{tag}"])',
-                            f"async def {handler_name}(body: {model_var}, {param_sig}):",
-                            f"    return await _lb_execute({config_var}, {fn_name}, {{**_to_dict(body), {param_dict}}})",
-                            "",
+                            f"if _has_file_params({fn_name}):",
+                            f'    _register_file_upload_lb_route(app, "{method}", "{full_path}", {config_var}, {fn_name}, "{tag}", "{summary}", local=True)',
+                            "else:",
                         ]
+                        model_var = f"_{worker.resource_name}_{fn_name}_Input"
+                        if path_params:
+                            param_sig = ", ".join(f"{p}: str" for p in path_params)
+                            param_dict = ", ".join(f'"{p}": {p}' for p in path_params)
+                            lines += [
+                                f'    @app.{method}("{full_path}", tags=["{tag}"], summary="{summary}")',
+                                f"    async def {handler_name}(body: {model_var}, {param_sig}):",
+                                f"        return await _call_with_body({fn_name}, {{**_to_dict(body), {param_dict}}})",
+                                "",
+                            ]
+                        else:
+                            lines += [
+                                f'    @app.{method}("{full_path}", tags=["{tag}"], summary="{summary}")',
+                                f"    async def {handler_name}(body: {model_var}):",
+                                f"        return await _call_with_body({fn_name}, _to_dict(body))",
+                                "",
+                            ]
                     else:
-                        lines += [
-                            f'@app.{method}("{full_path}", tags=["{tag}"])',
-                            f"async def {handler_name}(body: {model_var}):",
-                            f"    return await _lb_execute({config_var}, {fn_name}, _to_dict(body))",
-                            "",
-                        ]
+                        # GET/etc: path params + query params, local execution
+                        if path_params:
+                            param_sig = ", ".join(f"{p}: str" for p in path_params)
+                            param_dict = ", ".join(f'"{p}": {p}' for p in path_params)
+                            lines += [
+                                f'@app.{method}("{full_path}", tags=["{tag}"], summary="{summary}")',
+                                f"async def {handler_name}({param_sig}, request: Request):",
+                                f"    return await _call_with_body({fn_name}, {{**dict(request.query_params), {param_dict}}})",
+                                "",
+                            ]
+                        else:
+                            lines += [
+                                f'@app.{method}("{full_path}", tags=["{tag}"], summary="{summary}")',
+                                f"async def {handler_name}(request: Request):",
+                                f"    return await _call_with_body({fn_name}, dict(request.query_params))",
+                                "",
+                            ]
                 else:
-                    # GET/etc: path params + query params (unchanged)
-                    if path_params:
-                        param_sig = ", ".join(f"{p}: str" for p in path_params)
-                        param_dict = ", ".join(f'"{p}": {p}' for p in path_params)
+                    # Remote dispatch via lb_execute
+                    if has_body:
+                        # File-upload routes use runtime registration instead of
+                        # inline codegen (avoids complex File()/Form() string templates)
                         lines += [
-                            f'@app.{method}("{full_path}", tags=["{tag}"])',
-                            f"async def {handler_name}({param_sig}, request: Request):",
-                            f"    return await _lb_execute({config_var}, {fn_name}, {{**dict(request.query_params), {param_dict}}})",
-                            "",
+                            f"if _has_file_params({fn_name}):",
+                            f'    _register_file_upload_lb_route(app, "{method}", "{full_path}", {config_var}, {fn_name}, "{tag}", "{summary}")',
+                            "else:",
                         ]
+                        model_var = f"_{worker.resource_name}_{fn_name}_Input"
+                        # POST/PUT/PATCH/DELETE: typed body + optional path params
+                        if path_params:
+                            param_sig = ", ".join(f"{p}: str" for p in path_params)
+                            param_dict = ", ".join(f'"{p}": {p}' for p in path_params)
+                            lines += [
+                                f'    @app.{method}("{full_path}", tags=["{tag}"], summary="{summary}")',
+                                f"    async def {handler_name}(body: {model_var}, {param_sig}):",
+                                f"        return await _lb_execute({config_var}, {fn_name}, {{**_to_dict(body), {param_dict}}})",
+                                "",
+                            ]
+                        else:
+                            lines += [
+                                f'    @app.{method}("{full_path}", tags=["{tag}"], summary="{summary}")',
+                                f"    async def {handler_name}(body: {model_var}):",
+                                f"        return await _lb_execute({config_var}, {fn_name}, _to_dict(body))",
+                                "",
+                            ]
                     else:
-                        lines += [
-                            f'@app.{method}("{full_path}", tags=["{tag}"])',
-                            f"async def {handler_name}(request: Request):",
-                            f"    return await _lb_execute({config_var}, {fn_name}, dict(request.query_params))",
-                            "",
-                        ]
+                        # GET/etc: path params + query params (unchanged)
+                        if path_params:
+                            param_sig = ", ".join(f"{p}: str" for p in path_params)
+                            param_dict = ", ".join(f'"{p}": {p}' for p in path_params)
+                            lines += [
+                                f'@app.{method}("{full_path}", tags=["{tag}"], summary="{summary}")',
+                                f"async def {handler_name}({param_sig}, request: Request):",
+                                f"    return await _lb_execute({config_var}, {fn_name}, {{**dict(request.query_params), {param_dict}}})",
+                                "",
+                            ]
+                        else:
+                            lines += [
+                                f'@app.{method}("{full_path}", tags=["{tag}"], summary="{summary}")',
+                                f"async def {handler_name}(request: Request):",
+                                f"    return await _lb_execute({config_var}, {fn_name}, dict(request.query_params))",
+                                "",
+                            ]
 
     # Health endpoints
     lines += [
@@ -544,13 +655,18 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
 
 def _print_startup_table(workers: List[WorkerInfo], host: str, port: int) -> None:
     """Print the startup table showing local paths, resource names, and types."""
-    console.print(f"\n[bold green]Flash Dev Server[/bold green]  http://{host}:{port}")
+    console.print(f"\n[bold green]Flash Dev Server[/bold green]  localhost:{port}")
     console.print()
 
     table = Table(show_header=True, header_style="bold")
     table.add_column("Local path", style="cyan")
-    table.add_column("Resource", style="white")
+    table.add_column("Description", style="white")
     table.add_column("Type", style="yellow")
+
+    def _truncate(text: str, max_len: int = 60) -> str:
+        if len(text) <= max_len:
+            return text
+        return text[: max_len - 3] + "..."
 
     for worker in workers:
         if worker.worker_type == "QB":
@@ -559,42 +675,46 @@ def _print_startup_table(workers: List[WorkerInfo], host: str, port: int) -> Non
             use_multi = total_callables > 1
 
             for fn in worker.functions:
+                desc = _truncate(worker.function_docstrings.get(fn, fn))
                 if use_multi:
                     table.add_row(
-                        f"POST  {worker.url_prefix}/{fn}/run_sync",
-                        worker.resource_name,
+                        f"POST  {worker.url_prefix}/{fn}/runsync",
+                        desc,
                         "QB",
                     )
                 else:
                     table.add_row(
-                        f"POST  {worker.url_prefix}/run_sync",
-                        worker.resource_name,
+                        f"POST  {worker.url_prefix}/runsync",
+                        desc,
                         "QB",
                     )
 
             for cls_info in worker.class_remotes:
                 methods = cls_info["methods"]
                 for method in methods:
+                    desc = _truncate(worker.function_docstrings.get(method, method))
                     if use_multi:
                         table.add_row(
-                            f"POST  {worker.url_prefix}/{method}/run_sync",
-                            worker.resource_name,
+                            f"POST  {worker.url_prefix}/{method}/runsync",
+                            desc,
                             "QB",
                         )
                     else:
                         table.add_row(
-                            f"POST  {worker.url_prefix}/run_sync",
-                            worker.resource_name,
+                            f"POST  {worker.url_prefix}/runsync",
+                            desc,
                             "QB",
                         )
         elif worker.worker_type == "LB":
             for route in worker.lb_routes:
                 sub_path = route["path"].lstrip("/")
                 full_path = f"{worker.url_prefix}/{sub_path}"
+                desc = _truncate(route.get("docstring") or route["fn_name"])
+                route_type = "LB (local)" if route.get("local") else "LB"
                 table.add_row(
                     f"{route['method']}  {full_path}",
-                    worker.resource_name,
-                    "LB",
+                    desc,
+                    route_type,
                 )
 
     console.print(table)

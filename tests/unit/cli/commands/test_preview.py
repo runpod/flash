@@ -26,36 +26,36 @@ class TestContainerInfo:
             id="abc123",
             name="gpu_config",
             port=8001,
-            is_mothership=False,
+            is_load_balanced=False,
             url="http://localhost:8001",
         )
 
         assert info.id == "abc123"
         assert info.name == "gpu_config"
         assert info.port == 8001
-        assert info.is_mothership is False
+        assert info.is_load_balanced is False
         assert info.url == "http://localhost:8001"
 
-    def test_mothership_container_info(self):
-        """Test creating mothership container info."""
+    def test_load_balanced_container_info(self):
+        """Test creating load-balanced container info."""
         info = ContainerInfo(
             id="def456",
-            name="mothership",
+            name="load_balancer",
             port=8000,
-            is_mothership=True,
+            is_load_balanced=True,
             url="http://localhost:8000",
         )
 
-        assert info.is_mothership is True
+        assert info.is_load_balanced is True
         assert info.port == 8000
 
 
 class TestAssignContainerPort:
     """Tests for _assign_container_port function."""
 
-    def test_mothership_gets_port_8000(self):
-        """Test that mothership always gets port 8000."""
-        assert _assign_container_port("mothership", True) == 8000
+    def test_load_balancer_gets_port_8000(self):
+        """Test that load balancer always gets port 8000."""
+        assert _assign_container_port("load_balancer", True) == 8000
 
     def test_gpu_config_gets_port_8001(self):
         """Test that gpu_config gets port 8001."""
@@ -113,21 +113,21 @@ class TestParseResourcesFromManifest:
     """Tests for _parse_resources_from_manifest function."""
 
     def test_parse_empty_manifest(self):
-        """Test parsing manifest with no resources creates default mothership."""
+        """Test parsing manifest with no resources creates default load balancer."""
         manifest = {"resources": {}}
         resources = _parse_resources_from_manifest(manifest)
 
-        # Should create default mothership when none specified
-        assert "mothership" in resources
-        assert resources["mothership"]["is_mothership"] is True
+        # Should create default load balancer when none specified
+        assert "load_balancer" in resources
+        assert resources["load_balancer"]["is_load_balanced"] is True
 
-    def test_parse_manifest_with_gpu_config_creates_default_mothership(self):
-        """Test parsing manifest with GPU resource but no mothership."""
+    def test_parse_manifest_with_gpu_config_creates_default_load_balancer(self):
+        """Test parsing manifest with GPU resource but no load balancer."""
         manifest = {
             "resources": {
                 "gpu_config": {
                     "imageName": "custom-gpu:latest",
-                    "is_mothership": False,
+                    "is_load_balanced": False,
                     "functions": [{"name": "gpu_fn", "module": "workers.gpu.endpoint"}],
                 }
             }
@@ -135,27 +135,27 @@ class TestParseResourcesFromManifest:
 
         resources = _parse_resources_from_manifest(manifest)
 
-        # Should include default mothership since none specified
-        assert "mothership" in resources
-        assert resources["mothership"]["is_mothership"] is True
+        # Should include default load balancer since none specified
+        assert "load_balancer" in resources
+        assert resources["load_balancer"]["is_load_balanced"] is True
 
         # Should include gpu_config
         assert "gpu_config" in resources
         assert resources["gpu_config"]["imageName"] == "custom-gpu:latest"
-        assert resources["gpu_config"]["is_mothership"] is False
+        assert resources["gpu_config"]["is_load_balanced"] is False
 
-    def test_parse_manifest_with_explicit_mothership(self):
-        """Test parsing manifest with explicit mothership resource."""
+    def test_parse_manifest_with_explicit_load_balancer(self):
+        """Test parsing manifest with explicit load balancer resource."""
         manifest = {
             "resources": {
-                "my_custom_mothership": {
+                "my_custom_lb": {
                     "imageName": "custom-lb:latest",
-                    "is_mothership": True,
+                    "is_load_balanced": True,
                     "functions": [],
                 },
                 "gpu_config": {
                     "imageName": "gpu:latest",
-                    "is_mothership": False,
+                    "is_load_balanced": False,
                     "functions": [],
                 },
             }
@@ -163,16 +163,16 @@ class TestParseResourcesFromManifest:
 
         resources = _parse_resources_from_manifest(manifest)
 
-        # Should NOT create default mothership
-        assert "mothership" not in resources
+        # Should NOT create default load balancer
+        assert "load_balancer" not in resources
 
-        # Should use explicit mothership from manifest
-        assert "my_custom_mothership" in resources
-        assert resources["my_custom_mothership"]["is_mothership"] is True
+        # Should use explicit load balancer from manifest
+        assert "my_custom_lb" in resources
+        assert resources["my_custom_lb"]["is_load_balanced"] is True
 
         # Should include worker
         assert "gpu_config" in resources
-        assert resources["gpu_config"]["is_mothership"] is False
+        assert resources["gpu_config"]["is_load_balanced"] is False
 
     def test_parse_manifest_with_multiple_resources(self):
         """Test parsing manifest with multiple resources."""
@@ -180,12 +180,12 @@ class TestParseResourcesFromManifest:
             "resources": {
                 "gpu_config": {
                     "imageName": "gpu:latest",
-                    "is_mothership": False,
+                    "is_load_balanced": False,
                     "functions": [],
                 },
                 "cpu_config": {
                     "imageName": "cpu:latest",
-                    "is_mothership": False,
+                    "is_load_balanced": False,
                     "functions": [],
                 },
             }
@@ -193,34 +193,15 @@ class TestParseResourcesFromManifest:
 
         resources = _parse_resources_from_manifest(manifest)
 
-        assert len(resources) == 3  # mothership (default) + gpu + cpu
-        assert "mothership" in resources
+        assert len(resources) == 3  # load_balancer (default) + gpu + cpu
+        assert "load_balancer" in resources
         assert "gpu_config" in resources
         assert "cpu_config" in resources
-
-    def test_parse_manifest_with_named_mothership(self):
-        """Test manifest with resource literally named 'mothership'."""
-        manifest = {
-            "resources": {
-                "mothership": {
-                    "imageName": "custom-mothership:latest",
-                    "is_mothership": True,
-                    "functions": [],
-                }
-            }
-        }
-
-        resources = _parse_resources_from_manifest(manifest)
-
-        # Should use the mothership from manifest
-        assert "mothership" in resources
-        assert resources["mothership"]["imageName"] == "custom-mothership:latest"
-        assert resources["mothership"]["is_mothership"] is True
 
     def test_parse_manifest_missing_image_name(self):
         """Test parsing resource without imageName uses default."""
         manifest = {
-            "resources": {"gpu_config": {"is_mothership": False, "functions": []}}
+            "resources": {"gpu_config": {"is_load_balanced": False, "functions": []}}
         }
 
         resources = _parse_resources_from_manifest(manifest)
@@ -229,8 +210,8 @@ class TestParseResourcesFromManifest:
         # Should have a default imageName
         assert "imageName" in resources["gpu_config"]
 
-    def test_parse_manifest_missing_is_mothership_defaults_false(self):
-        """Test parsing resource without is_mothership defaults to False."""
+    def test_parse_manifest_missing_is_load_balanced_defaults_false(self):
+        """Test parsing resource without is_load_balanced defaults to False."""
         manifest = {
             "resources": {"gpu_config": {"imageName": "gpu:latest", "functions": []}}
         }
@@ -238,30 +219,30 @@ class TestParseResourcesFromManifest:
         resources = _parse_resources_from_manifest(manifest)
 
         assert "gpu_config" in resources
-        assert resources["gpu_config"]["is_mothership"] is False
-        # Should create default mothership since none explicitly marked
-        assert "mothership" in resources
-        assert resources["mothership"]["is_mothership"] is True
+        assert resources["gpu_config"]["is_load_balanced"] is False
+        # Should create default load balancer since none explicitly marked
+        assert "load_balancer" in resources
+        assert resources["load_balancer"]["is_load_balanced"] is True
 
 
 class TestDisplayPreviewInfo:
     """Tests for _display_preview_info function."""
 
-    def test_display_with_mothership_and_workers(self):
+    def test_display_with_load_balancer_and_workers(self):
         """Test display with multiple containers."""
         containers = [
             ContainerInfo(
                 id="abc123",
-                name="mothership",
+                name="load_balancer",
                 port=8000,
-                is_mothership=True,
+                is_load_balanced=True,
                 url="http://localhost:8000",
             ),
             ContainerInfo(
                 id="def456",
                 name="gpu_config",
                 port=8001,
-                is_mothership=False,
+                is_load_balanced=False,
                 url="http://localhost:8001",
             ),
         ]
@@ -269,21 +250,21 @@ class TestDisplayPreviewInfo:
         # Should not raise an exception
         _display_preview_info(containers)
 
-    def test_display_sorts_mothership_first(self):
-        """Test that display sorts mothership first."""
+    def test_display_sorts_load_balancer_first(self):
+        """Test that display sorts load balancer first."""
         containers = [
             ContainerInfo(
                 id="def456",
                 name="gpu_config",
                 port=8001,
-                is_mothership=False,
+                is_load_balanced=False,
                 url="http://localhost:8001",
             ),
             ContainerInfo(
                 id="abc123",
-                name="mothership",
+                name="load_balancer",
                 port=8000,
-                is_mothership=True,
+                is_load_balanced=True,
                 url="http://localhost:8000",
             ),
         ]
@@ -291,14 +272,14 @@ class TestDisplayPreviewInfo:
         # Should not raise an exception
         _display_preview_info(containers)
 
-    def test_display_with_single_mothership(self):
-        """Test display with only mothership."""
+    def test_display_with_single_load_balancer(self):
+        """Test display with only load balancer."""
         containers = [
             ContainerInfo(
                 id="abc123",
-                name="mothership",
+                name="load_balancer",
                 port=8000,
-                is_mothership=True,
+                is_load_balanced=True,
                 url="http://localhost:8000",
             )
         ]

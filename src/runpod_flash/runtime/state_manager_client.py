@@ -16,8 +16,8 @@ class StateManagerClient:
     """GraphQL client for State Manager manifest persistence.
 
     The State Manager persists manifest state via RunPod GraphQL API,
-    providing reconciliation capabilities for the mothership to track
-    deployed resources across boots.
+    providing reconciliation capabilities for the load-balanced endpoint
+    to track deployed resources across boots.
 
     Thread Safety:
         Uses asyncio.Lock to serialize read-modify-write operations,
@@ -51,12 +51,12 @@ class StateManagerClient:
         self._manifest_lock = asyncio.Lock()
 
     async def get_persisted_manifest(
-        self, mothership_id: str
+        self, flash_environment_id: str
     ) -> Optional[Dict[str, Any]]:
         """Fetch persisted manifest from State Manager.
 
         Args:
-            mothership_id: ID of the mothership endpoint.
+            flash_environment_id: Flash environment ID for the endpoint.
 
         Returns:
             Manifest dict.
@@ -70,10 +70,10 @@ class StateManagerClient:
             try:
                 async with RunpodGraphQLClient() as client:
                     _, manifest = await self._fetch_build_and_manifest(
-                        client, mothership_id
+                        client, flash_environment_id
                     )
 
-                logger.debug(f"Persisted manifest loaded for {mothership_id}")
+                logger.debug(f"Persisted manifest loaded for {flash_environment_id}")
                 return manifest
 
             except (
@@ -99,7 +99,7 @@ class StateManagerClient:
 
     async def update_resource_state(
         self,
-        mothership_id: str,
+        flash_environment_id: str,
         resource_name: str,
         resource_data: Dict[str, Any],
     ) -> None:
@@ -109,7 +109,7 @@ class StateManagerClient:
         are deployed concurrently.
 
         Args:
-            mothership_id: ID of the mothership endpoint.
+            flash_environment_id: Flash environment ID for the endpoint.
             resource_name: Name of the resource.
             resource_data: Resource metadata (config_hash, endpoint_url, status, etc).
 
@@ -123,7 +123,7 @@ class StateManagerClient:
                 async with self._manifest_lock:
                     async with RunpodGraphQLClient() as client:
                         build_id, manifest = await self._fetch_build_and_manifest(
-                            client, mothership_id
+                            client, flash_environment_id
                         )
                         resources = manifest.setdefault("resources", {})
                         existing = resources.get(resource_name)
@@ -133,7 +133,7 @@ class StateManagerClient:
                         await client.update_build_manifest(build_id, manifest)
 
                 logger.debug(
-                    f"Updated resource state in State Manager: {mothership_id}/{resource_name}"
+                    f"Updated resource state in State Manager: {flash_environment_id}/{resource_name}"
                 )
                 return
 
@@ -159,7 +159,7 @@ class StateManagerClient:
         )
 
     async def remove_resource_state(
-        self, mothership_id: str, resource_name: str
+        self, flash_environment_id: str, resource_name: str
     ) -> None:
         """Remove resource entry from State Manager.
 
@@ -167,7 +167,7 @@ class StateManagerClient:
         are deployed concurrently.
 
         Args:
-            mothership_id: ID of the mothership endpoint.
+            flash_environment_id: Flash environment ID for the endpoint.
             resource_name: Name of the resource.
 
         Raises:
@@ -180,14 +180,14 @@ class StateManagerClient:
                 async with self._manifest_lock:
                     async with RunpodGraphQLClient() as client:
                         build_id, manifest = await self._fetch_build_and_manifest(
-                            client, mothership_id
+                            client, flash_environment_id
                         )
                         resources = manifest.setdefault("resources", {})
                         resources.pop(resource_name, None)
                         await client.update_build_manifest(build_id, manifest)
 
                 logger.debug(
-                    f"Removed resource state from State Manager: {mothership_id}/{resource_name}"
+                    f"Removed resource state from State Manager: {flash_environment_id}/{resource_name}"
                 )
                 return
 
@@ -213,13 +213,13 @@ class StateManagerClient:
         )
 
     async def _fetch_build_and_manifest(
-        self, client: RunpodGraphQLClient, mothership_id: str
+        self, client: RunpodGraphQLClient, flash_environment_id: str
     ) -> tuple[str, Dict[str, Any]]:
         """Fetch active build ID and manifest for an environment.
 
         Args:
             client: Authenticated GraphQL client.
-            mothership_id: Flash environment ID.
+            flash_environment_id: Flash environment ID.
 
         Returns:
             Tuple of (build_id, manifest_dict).
@@ -228,12 +228,12 @@ class StateManagerClient:
             ManifestServiceUnavailableError: If environment, build, or manifest not found.
         """
         environment = await client.get_flash_environment(
-            {"flashEnvironmentId": mothership_id}
+            {"flashEnvironmentId": flash_environment_id}
         )
         build_id = environment.get("activeBuildId")
         if not build_id:
             raise ManifestServiceUnavailableError(
-                f"Active build not found for environment {mothership_id}. "
+                f"Active build not found for environment {flash_environment_id}. "
                 f"Environment may not be fully initialized or has no deployed build."
             )
 

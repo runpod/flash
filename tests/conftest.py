@@ -110,7 +110,7 @@ def mock_runpod_client():
         return_value={"id": "test-endpoint-id", "status": "running"}
     )
     client.delete_endpoint = AsyncMock(return_value={"success": True})
-    client.run_sync = AsyncMock(
+    client.runsync = AsyncMock(
         return_value={"status": "COMPLETED", "output": {"result": "success"}}
     )
 
