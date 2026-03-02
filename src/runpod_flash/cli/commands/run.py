@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 console = Console()
 
 # Resource state file written by ResourceManager in the uvicorn subprocess.
-_RESOURCE_STATE_FILE = Path(".runpod") / "resources.pkl"
+_RESOURCE_STATE_FILE = Path(".flash") / "resources.pkl"
 
 
 @dataclass

@@ -15,7 +15,7 @@ from .base import DeployableResource
 log = logging.getLogger(__name__)
 
 # Directory and file to persist state of resources
-RUNPOD_FLASH_DIR = Path(".runpod")
+RUNPOD_FLASH_DIR = Path(".flash")
 RESOURCE_STATE_FILE = RUNPOD_FLASH_DIR / "resources.pkl"
 
 
