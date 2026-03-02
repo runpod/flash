@@ -1,6 +1,7 @@
 """CLI command for updating runpod-flash to latest or a specific version."""
 
 import json
+import shutil
 import subprocess
 import sys
 import urllib.error
@@ -14,7 +15,7 @@ from rich.console import Console
 console = Console()
 
 PYPI_URL = "https://pypi.org/pypi/runpod-flash/json"
-PIP_TIMEOUT_SECONDS = 120
+INSTALL_TIMEOUT_SECONDS = 120
 
 
 def _get_current_version() -> str:
@@ -57,22 +58,39 @@ def _fetch_pypi_metadata() -> tuple[str, set[str]]:
     return latest, releases
 
 
-def _run_pip_install(version: str) -> subprocess.CompletedProcess[str]:
-    """Run pip install for the given version of runpod-flash.
+def _build_install_command(version: str) -> list[str]:
+    """Build the install command, preferring uv over pip.
+
+    Returns the command as a list of strings suitable for subprocess.run.
+    Uses ``uv pip install`` when uv is on PATH, otherwise falls back to
+    ``python -m pip install``.
+    """
+    package_spec = f"runpod-flash=={version}"
+    if shutil.which("uv"):
+        return ["uv", "pip", "install", package_spec, "--quiet"]
+    return [sys.executable, "-m", "pip", "install", package_spec, "--quiet"]
+
+
+def _run_install(version: str) -> subprocess.CompletedProcess[str]:
+    """Install the given version of runpod-flash.
 
     Raises:
-        subprocess.TimeoutExpired: pip took longer than PIP_TIMEOUT_SECONDS.
-        RuntimeError: pip exited with non-zero code.
+        subprocess.TimeoutExpired: Install took longer than INSTALL_TIMEOUT_SECONDS.
+        RuntimeError: Installer exited with non-zero code.
     """
+    cmd = _build_install_command(version)
     result = subprocess.run(
-        [sys.executable, "-m", "pip", "install", f"runpod-flash=={version}", "--quiet"],
+        cmd,
         capture_output=True,
         text=True,
-        timeout=PIP_TIMEOUT_SECONDS,
+        timeout=INSTALL_TIMEOUT_SECONDS,
     )
     if result.returncode != 0:
+        installer = "uv" if cmd[0] == "uv" else "pip"
         stderr = result.stderr.strip()
-        raise RuntimeError(f"pip install failed (exit {result.returncode}): {stderr}")
+        raise RuntimeError(
+            f"{installer} install failed (exit {result.returncode}): {stderr}"
+        )
     return result
 
 
@@ -119,12 +137,12 @@ def update_command(
 
     # Install
     console.print(f"Installing runpod-flash [bold]{target}[/bold]...")
-    with console.status("Running pip install..."):
+    with console.status("Installing..."):
         try:
-            _run_pip_install(target)
+            _run_install(target)
         except subprocess.TimeoutExpired:
             console.print(
-                f"[red]error:[/red] pip install timed out after {PIP_TIMEOUT_SECONDS}s"
+                f"[red]error:[/red] install timed out after {INSTALL_TIMEOUT_SECONDS}s"
             )
             raise typer.Exit(code=1)
         except RuntimeError as exc:
