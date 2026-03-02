@@ -104,29 +104,20 @@ class TestWatchfilesFallback:
             for k, v in stashed.items():
                 sys.modules[k] = v
 
-    def test_watchfiles_stub_raises_with_kwargs(self, monkeypatch):
-        """CLI-RUN-018: The watchfiles stub also raises when called with keyword args."""
+    def test_watchfiles_module_has_watch_attribute(self):
+        """CLI-RUN-018: The run module exposes _watchfiles_watch (stub or real)."""
+        import runpod_flash.cli.commands.run as run_mod
 
-        # Directly construct the fallback stub as defined in run.py lines 23-27.
-        def _watchfiles_watch_stub(*_a, **_kw):
-            raise ModuleNotFoundError(
-                "watchfiles is required for flash run --reload. "
-                "Install it with: pip install watchfiles"
-            )
+        assert hasattr(run_mod, "_watchfiles_watch")
+        assert callable(run_mod._watchfiles_watch)
 
-        with pytest.raises(ModuleNotFoundError, match="pip install watchfiles"):
-            _watchfiles_watch_stub(watch_filter=None, stop_event=None)
+    def test_watchfiles_default_filter_exists_in_run_module(self):
+        """CLI-RUN-018: The run module exposes _WatchfilesDefaultFilter (stub or real)."""
+        import runpod_flash.cli.commands.run as run_mod
 
-    def test_watchfiles_default_filter_stub_is_instantiable(self):
-        """CLI-RUN-018: The fallback _WatchfilesDefaultFilter stub is instantiable."""
-
-        # Construct the stub class as defined in run.py lines 29-31.
-        class _WatchfilesDefaultFilter:
-            def __init__(self, **_kw):
-                pass
-
-        # Should not raise.
-        obj = _WatchfilesDefaultFilter(ignore_paths=["/tmp"])
+        assert hasattr(run_mod, "_WatchfilesDefaultFilter")
+        # Should be instantiable
+        obj = run_mod._WatchfilesDefaultFilter(ignore_paths=["/tmp"])
         assert obj is not None
 
 

@@ -273,27 +273,36 @@ class TestSecretsNotLeakedInErrors:
         assert "sk-secret-api-key-12345" not in s
         assert "supersecretdb" not in s
 
-    def test_repr_leaks_env_pydantic_default(self):
-        """Document that Pydantic's default __repr__ DOES include env dict.
+    @pytest.mark.xfail(
+        reason="Known limitation: Pydantic default __repr__ includes env dict. "
+        "Error handlers and loggers must use str() or SensitiveDataFilter, "
+        "never repr() on resource objects. Will pass when repr is overridden.",
+        strict=False,
+    )
+    def test_repr_does_not_leak_env_secrets(self):
+        """Pydantic __repr__ should not include secret values from env dict.
 
-        This is a known limitation. Error handlers and loggers must use str()
-        or the SensitiveDataFilter, never repr() on resource objects.
+        Currently Pydantic's default repr includes all fields. This test
+        documents the known risk and will start passing once we override
+        __repr__ to redact sensitive fields.
         """
         resource = self._make_resource_with_secrets()
         r = repr(resource)
-        # Pydantic's default repr includes all fields
-        assert "sk-secret-api-key-12345" in r
-        # This test documents the risk — code should use str(), not repr()
+        assert "sk-secret-api-key-12345" not in r
+        assert "supersecretdb" not in r
 
     def test_deployment_error_uses_str_not_repr(self):
-        """ResourceManager error messages use resource name, not full repr."""
+        """ResourceManager error messages use str(resource) and resource.name, not repr()."""
         resource = self._make_resource_with_secrets()
 
-        # Simulate the _deploy_with_error_context error path
-        error_msg = f"Cannot deploy resource '{resource.name}': Missing API key"
-        assert "sk-secret-api-key-12345" not in error_msg
-        assert "supersecretdb" not in error_msg
-        assert "secret-test" in error_msg
+        # Verify str() doesn't leak secrets
+        s = str(resource)
+        assert "sk-secret-api-key-12345" not in s
+        assert "supersecretdb" not in s
+
+        # Verify resource.name doesn't leak secrets (used in error messages)
+        assert "sk-secret-api-key-12345" not in resource.name
+        assert "supersecretdb" not in resource.name
 
     def test_sensitive_filter_redacts_env_secrets_in_logs(self):
         """SensitiveDataFilter redacts known sensitive keys from log messages."""

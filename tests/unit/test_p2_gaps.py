@@ -36,9 +36,10 @@ class TestAccelerateDownloads:
         async def my_func(x):
             return x
 
-        # accelerate_downloads is not stored in __remote_config__ (routing_config)
-        # but IS passed to the stub at call time. Verify the decorator accepted it.
+        # Verify the decorator accepted accelerate_downloads and stored config
         assert hasattr(my_func, "__remote_config__")
+        assert my_func.__remote_config__ is not None
+        assert "resource_config" in my_func.__remote_config__
 
     @patch.dict(os.environ, {}, clear=True)
     def test_accelerate_downloads_default_true(self):
@@ -54,6 +55,7 @@ class TestAccelerateDownloads:
             return x
 
         assert hasattr(my_func, "__remote_config__")
+        assert my_func.__remote_config__["resource_config"] is resource
 
 
 # ---------------------------------------------------------------------------
@@ -76,6 +78,7 @@ class TestExtraKwargsForwarded:
             return x
 
         assert hasattr(my_func, "__remote_config__")
+        assert callable(my_func)
 
 
 # ---------------------------------------------------------------------------
@@ -303,8 +306,10 @@ class TestScannerDocstring:
     """AST scanner extracts function docstrings."""
 
     def test_scanner_extracts_docstring(self, tmp_path):
-        """SCAN-010: ResourceDiscovery extracts first line of docstring."""
-        from runpod_flash.core.discovery import ResourceDiscovery
+        """SCAN-010: RemoteDecoratorScanner extracts first line of docstring."""
+        from runpod_flash.cli.commands.build_utils.scanner import (
+            RemoteDecoratorScanner,
+        )
 
         worker_file = tmp_path / "worker.py"
         worker_file.write_text(
@@ -316,14 +321,13 @@ class TestScannerDocstring:
             "    return x * 2\n"
         )
 
-        discovery = ResourceDiscovery(tmp_path)
-        workers = discovery.discover()
+        scanner = RemoteDecoratorScanner(tmp_path)
+        functions = scanner.discover_remote_functions()
 
-        if workers:
-            # Check if docstrings are captured
-            for w in workers:
-                if hasattr(w, "function_docstrings") and w.function_docstrings:
-                    assert "This is the docstring" in str(w.function_docstrings)
+        # Scanner should find at least one function
+        assert len(functions) >= 1, "Scanner should discover the @remote function"
+        names = [f.function_name for f in functions]
+        assert "my_function" in names
 
 
 # ---------------------------------------------------------------------------
@@ -383,9 +387,10 @@ class TestRunpodDefaultLocations:
         from runpod_flash.core.resources import LiveServerless
 
         resource = LiveServerless(name="loc-test")
-        # locations should be None or whatever the resource default is
-        # (not overridden by env var)
-        assert resource.locations is None or isinstance(resource.locations, str)
+        # Without the env var, locations uses the default datacenter from the model
+        assert isinstance(resource.locations, str)
+        # Verify it's the model default, not an env var override
+        assert resource.locations == resource.datacenter.value
 
 
 # ---------------------------------------------------------------------------

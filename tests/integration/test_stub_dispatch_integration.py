@@ -4,7 +4,6 @@ Exercises: resource → stub_resource() → stub.prepare_request → mock execut
 stub.handle_response, verifying the full client-side path.
 """
 
-import asyncio
 import base64
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -16,19 +15,11 @@ from runpod_flash.protos.remote_execution import FunctionResponse
 from runpod_flash.stubs.registry import stub_resource
 
 
-def _run(coro):
-    """Run a coroutine synchronously."""
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
-
-
 class TestLiveServerlessStubDispatch:
     """LiveServerless → LiveServerlessStub → prepare → execute → handle."""
 
-    def test_live_serverless_stub_prepare_and_handle(self):
+    @pytest.mark.asyncio
+    async def test_live_serverless_stub_prepare_and_handle(self):
         """Full prepare_request → mock ExecuteFunction → handle_response."""
         resource = LiveServerless(
             name="test-gpu",
@@ -58,11 +49,12 @@ class TestLiveServerlessStubDispatch:
             new_callable=AsyncMock,
             return_value=mock_response,
         ):
-            result = _run(stub_fn(multiply, [], None, True, 6, 7))
+            result = await stub_fn(multiply, [], None, True, 6, 7)
 
         assert result == expected_result
 
-    def test_live_serverless_stub_error_response(self):
+    @pytest.mark.asyncio
+    async def test_live_serverless_stub_error_response(self):
         """Error response from server is raised as exception."""
         resource = LiveServerless(
             name="test-gpu-err",
@@ -89,13 +81,14 @@ class TestLiveServerlessStubDispatch:
             ),
             pytest.raises(Exception, match="Remote execution failed"),
         ):
-            _run(stub_fn(failing_func, [], None, True))
+            await stub_fn(failing_func, [], None, True)
 
 
 class TestServerlessEndpointStubDispatch:
     """ServerlessEndpoint → ServerlessEndpointStub → prepare → execute → handle."""
 
-    def test_serverless_endpoint_stub_roundtrip(self):
+    @pytest.mark.asyncio
+    async def test_serverless_endpoint_stub_roundtrip(self):
         """Prepare payload → mock execute → handle response."""
         resource = ServerlessEndpoint(
             name="test-deployed",
@@ -125,8 +118,8 @@ class TestServerlessEndpointStubDispatch:
             new_callable=AsyncMock,
             return_value=mock_job,
         ):
-            result = _run(
-                stub_fn(build_payload, None, None, True, [1, 2, 3], multiplier=5)
+            result = await stub_fn(
+                build_payload, None, None, True, [1, 2, 3], multiplier=5
             )
 
         assert result == expected_output
@@ -135,7 +128,8 @@ class TestServerlessEndpointStubDispatch:
 class TestProductionWrapperInjection:
     """With RUNPOD_ENDPOINT_ID set, ProductionWrapper wraps the stub."""
 
-    def test_production_wrapper_injection(self, monkeypatch):
+    @pytest.mark.asyncio
+    async def test_production_wrapper_injection(self, monkeypatch):
         """Setting RUNPOD_ENDPOINT_ID causes ProductionWrapper to wrap the stub."""
         monkeypatch.setenv("RUNPOD_ENDPOINT_ID", "ep-prod-123")
 
@@ -164,7 +158,7 @@ class TestProductionWrapperInjection:
             def dummy_func():
                 pass
 
-            result = _run(stub_fn(dummy_func, [], None, True))
+            result = await stub_fn(dummy_func, [], None, True)
 
         assert result == "wrapped_result"
         mock_wrapper.wrap_function_execution.assert_awaited_once()

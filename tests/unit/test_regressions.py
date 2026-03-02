@@ -27,7 +27,8 @@ class TestREG001TopLevelImports:
         """ServerlessType is importable from runpod_flash top-level."""
         from runpod_flash import ServerlessType
 
-        assert ServerlessType is not None
+        assert hasattr(ServerlessType, "QB")
+        assert hasattr(ServerlessType, "LB")
 
     def test_all_public_symbols_importable(self):
         """All symbols in __all__ are actually importable."""
@@ -175,7 +176,7 @@ class TestREG005SSLCertFile:
 
         # Should not raise even with SSL_CERT_FILE set
         resource = LiveServerless(name="ssl-test")
-        assert resource.name is not None
+        assert resource.name == "ssl-test-fb"
 
 
 # ---------------------------------------------------------------------------
@@ -226,9 +227,10 @@ class TestREG007LargePayload:
 class TestREG008NonInteractiveEnvDelete:
     """Commands should not crash when stdin is not a TTY."""
 
-    def test_undeploy_resource_force_remove_no_tty(self):
+    @pytest.mark.asyncio
+    async def test_undeploy_resource_force_remove_no_tty(self):
         """force_remove=True skips interactive confirmation."""
-        import asyncio
+        from unittest.mock import AsyncMock
 
         from runpod_flash.core.resources import LiveServerless
         from runpod_flash.core.resources.resource_manager import ResourceManager
@@ -236,12 +238,10 @@ class TestREG008NonInteractiveEnvDelete:
         manager = ResourceManager()
         resource = LiveServerless(name="no-tty-test")
 
-        loop = asyncio.new_event_loop()
-        try:
-            uid = loop.run_until_complete(manager.register_resource(resource))
+        uid = await manager.register_resource(resource)
 
+        # Mock _do_undeploy to avoid real API calls
+        with patch.object(resource, "_do_undeploy", new_callable=AsyncMock, return_value=True):
             # force_remove should work without any TTY/stdin interaction
-            loop.run_until_complete(manager.undeploy_resource(uid, force_remove=True))
-            assert uid not in manager.list_all_resources()
-        finally:
-            loop.close()
+            await manager.undeploy_resource(uid, force_remove=True)
+        assert uid not in manager.list_all_resources()

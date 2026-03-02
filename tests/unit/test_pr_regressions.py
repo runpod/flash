@@ -43,86 +43,55 @@ class TestSensitiveDataFilterEdgeCases:
 
         return _make
 
-    # --- API key patterns ---
+    # --- String pattern redaction (API keys, bearer tokens, passwords) ---
 
-    def test_redacts_api_key_with_equals(self, filt, make_record):
-        record = make_record("api_key=sk-abc123longvaluehere1234567890abcd")
+    @pytest.mark.parametrize(
+        "msg,should_not_contain",
+        [
+            ("api_key=sk-abc123longvaluehere1234567890abcd", "sk-abc123"),
+            ("apiKey: mysecretkeyvalue12345678", "mysecretkey"),
+            ('runpod_api_key="ABCDEF1234567890"', "ABCDEF"),
+            ("api_key='my-secret-value-123'", "my-secret-value"),
+            (
+                "Authorization: Bearer eyJhbGciOiJSUzI1NiJ9.longtoken",
+                "eyJhbGci",
+            ),
+            ("BEARER tokenabc123xyz", "tokenabc"),
+            (f"Using key: sk-{'a' * 40}", "sk-" + "a" * 40),
+            (f"Config: key_{'X' * 40}", "key_" + "X" * 40),
+            ("password=hunter2", "hunter2"),
+            ('password="super secret"', "super secret"),
+            ("secret: mysecretvalue123", "mysecretvalue"),
+            ("passwd=abc123", "abc123"),
+        ],
+        ids=[
+            "api_key_equals",
+            "apiKey_colon",
+            "runpod_api_key_quoted",
+            "api_key_single_quoted",
+            "bearer_token",
+            "bearer_case_insensitive",
+            "sk_prefixed_key",
+            "key_underscore_prefix",
+            "password_equals",
+            "password_double_quoted",
+            "secret_field",
+            "passwd_field",
+        ],
+    )
+    def test_redacts_sensitive_pattern(
+        self, filt, make_record, msg, should_not_contain
+    ):
+        """SensitiveDataFilter redacts sensitive patterns from log messages."""
+        record = make_record(msg)
         filt.filter(record)
-        assert "sk-abc123" not in record.msg
-        assert "REDACTED" in record.msg
-
-    def test_redacts_api_key_with_colon(self, filt, make_record):
-        record = make_record("apiKey: mysecretkeyvalue12345678")
-        filt.filter(record)
-        assert "mysecretkey" not in record.msg
-        assert "REDACTED" in record.msg
-
-    def test_redacts_runpod_api_key(self, filt, make_record):
-        record = make_record('runpod_api_key="ABCDEF1234567890"')
-        filt.filter(record)
-        assert "ABCDEF" not in record.msg
-        assert "REDACTED" in record.msg
-
-    def test_redacts_quoted_api_key(self, filt, make_record):
-        record = make_record("api_key='my-secret-value-123'")
-        filt.filter(record)
-        assert "my-secret-value" not in record.msg
-
-    # --- Bearer tokens ---
-
-    def test_redacts_bearer_token(self, filt, make_record):
-        record = make_record("Authorization: Bearer eyJhbGciOiJSUzI1NiJ9.longtoken")
-        filt.filter(record)
-        assert "eyJhbGci" not in record.msg
-        assert "REDACTED" in record.msg
-
-    def test_redacts_bearer_case_insensitive(self, filt, make_record):
-        record = make_record("BEARER tokenabc123xyz")
-        filt.filter(record)
-        assert "tokenabc" not in record.msg
-
-    # --- Prefixed keys (sk-, key_, api_) ---
-
-    def test_redacts_sk_prefixed_key(self, filt, make_record):
-        key = "sk-" + "a" * 40
-        record = make_record(f"Using key: {key}")
-        filt.filter(record)
-        assert key not in record.msg
-        assert "REDACTED" in record.msg
-
-    def test_redacts_key_underscore_prefix(self, filt, make_record):
-        key = "key_" + "X" * 40
-        record = make_record(f"Config: {key}")
-        filt.filter(record)
-        assert key not in record.msg
+        assert should_not_contain not in record.msg
 
     def test_short_sk_prefix_not_redacted(self, filt, make_record):
         """sk- prefix with short value (<28 chars) should NOT be redacted."""
         record = make_record("sk-short")
         filt.filter(record)
         assert "sk-short" in record.msg
-
-    # --- Password/secret patterns ---
-
-    def test_redacts_password_equals(self, filt, make_record):
-        record = make_record("password=hunter2")
-        filt.filter(record)
-        assert "hunter2" not in record.msg
-
-    def test_redacts_password_quoted(self, filt, make_record):
-        record = make_record('password="super secret"')
-        filt.filter(record)
-        assert "super secret" not in record.msg
-
-    def test_redacts_secret_field(self, filt, make_record):
-        record = make_record("secret: mysecretvalue123")
-        filt.filter(record)
-        assert "mysecretvalue" not in record.msg
-
-    def test_redacts_passwd_field(self, filt, make_record):
-        record = make_record("passwd=abc123")
-        filt.filter(record)
-        assert "abc123" not in record.msg
 
     # --- Dictionary redaction ---
 

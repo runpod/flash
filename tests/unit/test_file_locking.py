@@ -49,32 +49,19 @@ class TestPlatformDetection:
         ]
         assert sum(locking_mechanisms) >= 1  # At least fallback should work
 
-    @patch("runpod_flash.core.utils.file_lock.platform.system")
+    @patch("runpod_flash.core.utils.file_lock.platform.system", return_value="Windows")
     def test_platform_detection_windows(self, mock_system):
-        """Test Windows platform detection."""
-        mock_system.return_value = "Windows"
-
-        # Re-import to trigger platform detection
-        from importlib import reload
-        import runpod_flash.core.utils.file_lock as file_lock_module
-
-        reload(file_lock_module)
-
-        info = file_lock_module.get_platform_info()
+        """Test Windows platform detection via get_platform_info()."""
+        # Don't use reload() — it pollutes module-level state (_IS_WINDOWS,
+        # _UNIX_LOCKING_AVAILABLE, etc.) for all subsequent tests.
+        # get_platform_info() calls platform.system() at runtime, so patching suffices.
+        info = get_platform_info()
         assert info["platform"] == "Windows"
 
-    @patch("runpod_flash.core.utils.file_lock.platform.system")
+    @patch("runpod_flash.core.utils.file_lock.platform.system", return_value="Linux")
     def test_platform_detection_linux(self, mock_system):
-        """Test Linux platform detection."""
-        mock_system.return_value = "Linux"
-
-        # Re-import to trigger platform detection
-        from importlib import reload
-        import runpod_flash.core.utils.file_lock as file_lock_module
-
-        reload(file_lock_module)
-
-        info = file_lock_module.get_platform_info()
+        """Test Linux platform detection via get_platform_info()."""
+        info = get_platform_info()
         assert info["platform"] == "Linux"
 
 
@@ -89,12 +76,20 @@ class TestFileLocking:
         self.test_file.write_bytes(b"test data")
 
     def teardown_method(self):
-        """Clean up temporary files."""
+        """Clean up temporary files and wait for any background threads."""
+        # Give daemon threads time to release locks
+        time.sleep(0.2)
         if self.temp_dir.exists():
             for file in self.temp_dir.iterdir():
                 if file.is_file():
-                    file.unlink()
-            self.temp_dir.rmdir()
+                    try:
+                        file.unlink()
+                    except OSError:
+                        pass
+            try:
+                self.temp_dir.rmdir()
+            except OSError:
+                pass
 
     def test_exclusive_lock_basic(self):
         """Test basic exclusive locking functionality."""
@@ -148,49 +143,51 @@ class TestFileLocking:
 
     def test_exclusive_lock_blocks_others(self):
         """Test that exclusive locks block other access."""
+        # Use a dedicated temp file to avoid interference with other tests
+        lock_test_file = self.temp_dir / "exclusive_test.dat"
+        lock_test_file.write_bytes(b"exclusive test")
+
         results = []
         errors = []
-        lock_acquired_times = []
+        holder_acquired = threading.Event()
 
         def exclusive_lock_holder(file_path, hold_time):
             try:
                 with open(file_path, "rb") as f:
-                    lock_acquired_times.append(time.time())
-                    with file_lock(f, exclusive=True, timeout=5.0):
+                    with file_lock(f, exclusive=True, timeout=10.0):
+                        holder_acquired.set()
                         time.sleep(hold_time)
                         results.append("holder_success")
             except Exception as e:
                 errors.append(f"holder: {e}")
 
         def exclusive_lock_waiter(file_path):
-            time.sleep(0.1)  # Ensure holder gets lock first
+            holder_acquired.wait(timeout=5.0)
+            time.sleep(0.1)
             try:
                 with open(file_path, "rb") as f:
-                    lock_acquired_times.append(time.time())
-                    with file_lock(f, exclusive=True, timeout=0.5):  # Short timeout
+                    with file_lock(f, exclusive=True, timeout=1.0):
                         results.append("waiter_success")
             except FileLockTimeout:
                 errors.append("waiter: timeout as expected")
             except Exception as e:
                 errors.append(f"waiter: {e}")
 
-        # Start holder thread (holds lock for 2 seconds, longer than waiter timeout)
         holder_thread = threading.Thread(
-            target=exclusive_lock_holder, args=(self.test_file, 2.0)
+            target=exclusive_lock_holder, args=(lock_test_file, 2.0),
+            daemon=True,
         )
-
-        # Start waiter thread (should timeout)
         waiter_thread = threading.Thread(
-            target=exclusive_lock_waiter, args=(self.test_file,)
+            target=exclusive_lock_waiter, args=(lock_test_file,),
+            daemon=True,
         )
 
         holder_thread.start()
         waiter_thread.start()
 
-        holder_thread.join(timeout=5)
-        waiter_thread.join(timeout=5)
+        waiter_thread.join(timeout=10)
+        holder_thread.join(timeout=10)
 
-        # Holder should succeed, waiter should timeout
         assert "holder_success" in results
         assert any("timeout as expected" in str(error) for error in errors)
 
@@ -198,25 +195,26 @@ class TestFileLocking:
         """Test file lock timeout functionality."""
         lock_file = self.temp_dir / "timeout_test.dat"
         lock_file.write_bytes(b"timeout test")
+        holder_acquired = threading.Event()
 
-        def hold_lock_indefinitely():
+        def hold_lock_for_duration():
             with open(lock_file, "rb") as f:
                 with file_lock(f, exclusive=True, timeout=10.0):
-                    time.sleep(2.0)  # Hold longer than waiter timeout
+                    holder_acquired.set()
+                    time.sleep(3.0)
 
-        # Start thread that holds lock
-        holder_thread = threading.Thread(target=hold_lock_indefinitely)
+        holder_thread = threading.Thread(target=hold_lock_for_duration, daemon=True)
         holder_thread.start()
 
-        time.sleep(0.1)  # Ensure holder gets lock first
+        holder_acquired.wait(timeout=5.0)
+        time.sleep(0.1)
 
-        # Try to acquire lock with short timeout
         with pytest.raises(FileLockTimeout):
             with open(lock_file, "rb") as f:
-                with file_lock(f, exclusive=True, timeout=0.5):
-                    pass  # Should timeout before reaching here
+                with file_lock(f, exclusive=True, timeout=1.0):
+                    pass
 
-        holder_thread.join(timeout=5)
+        holder_thread.join(timeout=10)
 
     def test_file_lock_with_write_operations(self):
         """Test file locking with write operations."""
@@ -309,7 +307,7 @@ class TestPlatformSpecificLocking:
             with open(lock_test_file, "rb") as f:
                 # Should timeout when trying to acquire existing lock
                 with pytest.raises(FileLockError, match="Fallback lock timeout"):
-                    _acquire_fallback_lock(f, exclusive=True, timeout=0.2)
+                    _acquire_fallback_lock(f, exclusive=True, timeout=0.5)
         finally:
             # Clean up lock file
             if lock_file.exists():

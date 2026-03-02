@@ -38,6 +38,7 @@ def _make_mock_client(**status_return):
 # ── _login flow gaps ─────────────────────────────────────────────────────
 
 
+@pytest.mark.serial
 class TestLoginOpenBrowser:
     """Test the open_browser=True path."""
 
@@ -53,10 +54,10 @@ class TestLoginOpenBrowser:
                 return_value=mock_client,
             ),
             patch("runpod_flash.cli.commands.login.typer.launch") as mock_launch,
+            patch("runpod_flash.cli.commands.login.asyncio.sleep", new_callable=AsyncMock),
             patch.dict(
                 os.environ,
                 {"RUNPOD_CREDENTIALS_FILE": str(creds)},
-                clear=True,
             ),
             patch("runpod_flash.cli.commands.login.console"),
         ):
@@ -67,6 +68,7 @@ class TestLoginOpenBrowser:
         assert "req-123" in url
 
 
+@pytest.mark.serial
 class TestLoginConsumedStatus:
     """Test CONSUMED status handling."""
 
@@ -81,10 +83,10 @@ class TestLoginConsumedStatus:
                 "runpod_flash.cli.commands.login.RunpodGraphQLClient",
                 return_value=mock_client,
             ),
+            patch("runpod_flash.cli.commands.login.asyncio.sleep", new_callable=AsyncMock),
             patch.dict(
                 os.environ,
                 {"RUNPOD_CREDENTIALS_FILE": str(creds)},
-                clear=True,
             ),
             patch("runpod_flash.cli.commands.login.console"),
         ):
@@ -103,6 +105,7 @@ class TestLoginConsumedStatus:
                 "runpod_flash.cli.commands.login.RunpodGraphQLClient",
                 return_value=mock_client,
             ),
+            patch("runpod_flash.cli.commands.login.asyncio.sleep", new_callable=AsyncMock),
             patch("runpod_flash.cli.commands.login.console"),
         ):
             with pytest.raises(RuntimeError, match="login failed: consumed"):
@@ -146,6 +149,7 @@ class TestLoginExpiresAtDeadline:
                 await _login(open_browser=False, timeout_seconds=600)
 
 
+@pytest.mark.serial
 class TestLoginTimeout:
     """Test timeout branch."""
 

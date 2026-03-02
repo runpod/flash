@@ -32,12 +32,19 @@ class TestFallbackHandler:
         """Fallback returns error dict for unknown resource types."""
         result = stub_resource("not a resource type")
         assert callable(result)
+        # Actually call the returned callable and verify it returns an error
+        error = await result()
+        assert isinstance(error, dict)
+        assert "error" in error
 
     @pytest.mark.asyncio
     async def test_fallback_accepts_any_args(self):
         """Fallback handler accepts arbitrary args/kwargs."""
         result = stub_resource(42, extra_kwarg="test")
         assert callable(result)
+        error = await result("arg1", key="val")
+        assert isinstance(error, dict)
+        assert "error" in error
 
 
 class TestLiveServerlessDispatch:
@@ -74,7 +81,6 @@ class TestCreateLiveServerlessStub:
         """Function execution calls prepare_request, ExecuteFunction, handle_response."""
         resource = LiveServerless(name="test")
 
-        MagicMock()
         with patch("runpod_flash.stubs.registry.LiveServerlessStub") as MockLSS:
             mock_instance = MockLSS.return_value
             mock_instance.prepare_request = AsyncMock(return_value="request")

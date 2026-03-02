@@ -4,26 +4,29 @@ Exercises FlashApp and ResourceManager with mocked API calls,
 letting real business logic (manifest, config drift, tracking) run.
 """
 
-import asyncio
 from unittest.mock import AsyncMock, patch
 
+import pytest
 
 from runpod_flash.core.resources import LiveServerless
 from runpod_flash.core.resources.resource_manager import ResourceManager
 
 
-def _run(coro):
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
+@pytest.fixture(autouse=True)
+def _reset_resource_manager():
+    """Reset ResourceManager singleton state between tests."""
+    ResourceManager._resources = {}
+    ResourceManager._deployment_locks = {}
+    yield
+    ResourceManager._resources = {}
+    ResourceManager._deployment_locks = {}
 
 
 class TestResourceManagerLifecycle:
     """ResourceManager tracks, deploys, and undeploys resources."""
 
-    def test_register_and_list_resources(self):
+    @pytest.mark.asyncio
+    async def test_register_and_list_resources(self):
         """Resources can be registered and listed."""
         manager = ResourceManager()
         resource = LiveServerless(
@@ -34,13 +37,14 @@ class TestResourceManagerLifecycle:
             workersMax=1,
         )
 
-        uid = _run(manager.register_resource(resource))
+        uid = await manager.register_resource(resource)
         all_resources = manager.list_all_resources()
         assert uid in all_resources
         # LiveServerless appends -fb (flashboot) to the name
         assert "lifecycle-gpu" in all_resources[uid].name
 
-    def test_undeploy_removes_resource(self):
+    @pytest.mark.asyncio
+    async def test_undeploy_removes_resource(self):
         """Undeploy with force_remove=True removes from tracking."""
         manager = ResourceManager()
         resource = LiveServerless(
@@ -51,16 +55,17 @@ class TestResourceManagerLifecycle:
             workersMax=1,
         )
 
-        uid = _run(manager.register_resource(resource))
+        uid = await manager.register_resource(resource)
         assert uid in manager.list_all_resources()
 
         # Force-remove removes from tracking even without a real endpoint ID
-        _run(manager.undeploy_resource(uid, force_remove=True))
+        await manager.undeploy_resource(uid, force_remove=True)
 
         # Resource should be removed from tracking regardless of undeploy success
         assert uid not in manager.list_all_resources()
 
-    def test_deploy_idempotent_no_drift(self):
+    @pytest.mark.asyncio
+    async def test_deploy_idempotent_no_drift(self):
         """Deploying the same config twice doesn't create duplicate resources."""
         manager = ResourceManager()
 
@@ -86,7 +91,7 @@ class TestResourceManagerLifecycle:
 
         with patch.object(LiveServerless, "_do_deploy", mock_do_deploy):
             # First deploy
-            _run(manager.get_or_deploy_resource(config))
+            await manager.get_or_deploy_resource(config)
 
             resource_key = config.get_resource_key()
             assert resource_key in manager.list_all_resources()
@@ -99,7 +104,7 @@ class TestResourceManagerLifecycle:
                 workersMin=0,
                 workersMax=2,
             )
-            _run(manager.get_or_deploy_resource(config2))
+            await manager.get_or_deploy_resource(config2)
 
         # Should still be exactly one resource
         matching = [k for k in manager.list_all_resources() if "idempotent-gpu" in k]
@@ -109,7 +114,8 @@ class TestResourceManagerLifecycle:
 class TestResourceManagerDriftDetection:
     """Config changes are detected and trigger updates."""
 
-    def test_config_drift_triggers_update(self):
+    @pytest.mark.asyncio
+    async def test_config_drift_triggers_update(self):
         """Changing config values triggers an update on the existing resource."""
         manager = ResourceManager()
 
@@ -143,7 +149,7 @@ class TestResourceManagerDriftDetection:
             patch.object(LiveServerless, "_do_deploy", mock_do_deploy),
             patch.object(LiveServerless, "is_deployed", mock_is_deployed),
         ):
-            _run(manager.get_or_deploy_resource(config_v1))
+            await manager.get_or_deploy_resource(config_v1)
             assert deploy_count == 1
 
             # Change workersMax (causes config drift)
@@ -172,5 +178,5 @@ class TestResourceManagerDriftDetection:
                 )
                 mock_update.return_value = updated
 
-                _run(manager.get_or_deploy_resource(config_v2))
+                await manager.get_or_deploy_resource(config_v2)
                 mock_update.assert_awaited_once()
