@@ -1693,3 +1693,181 @@ class TestBuildTemplateUpdatePayload:
         assert mock_client.update_template.called
         template_payload = mock_client.update_template.call_args.args[0]
         assert "env" in template_payload
+
+    @pytest.mark.asyncio
+    async def test_update_injects_runtime_vars_when_env_changed(self):
+        """update() injects RUNPOD_API_KEY into template.env when env changed.
+
+        Without this, runtime-injected vars (set during _do_deploy) would be
+        lost when update() overwrites the template env.
+        """
+        old_resource = ServerlessEndpoint(
+            name="update-inject-test",
+            imageName="test:latest",
+            env={"LOG_LEVEL": "INFO"},
+            flashboot=False,
+        )
+        old_resource.id = "ep-inject"
+        old_resource.templateId = "tpl-inject"
+
+        new_resource = ServerlessEndpoint(
+            name="update-inject-test",
+            imageName="test:latest",
+            env={"LOG_LEVEL": "DEBUG"},
+            flashboot=False,
+        )
+
+        mock_client = AsyncMock()
+        mock_client.save_endpoint = AsyncMock(
+            return_value={
+                "id": "ep-inject",
+                "name": "update-inject-test",
+                "templateId": "tpl-inject",
+                "gpuIds": "AMPERE_48",
+                "allowedCudaVersions": "",
+            }
+        )
+        mock_client.update_template = AsyncMock(return_value={})
+
+        with patch(
+            "runpod_flash.core.resources.serverless.RunpodGraphQLClient"
+        ) as mock_client_class:
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+            mock_client_class.return_value.__aexit__.return_value = None
+
+            with patch.object(
+                ServerlessResource,
+                "_ensure_network_volume_deployed",
+                new=AsyncMock(),
+            ):
+                with patch.object(
+                    ServerlessResource,
+                    "_check_makes_remote_calls",
+                    return_value=True,
+                ):
+                    with patch.dict(os.environ, {"RUNPOD_API_KEY": "inject-key"}):
+                        await old_resource.update(new_resource)
+
+        template_payload = mock_client.update_template.call_args.args[0]
+        env_entries = template_payload.get("env", [])
+        api_key_entries = [e for e in env_entries if e["key"] == "RUNPOD_API_KEY"]
+        assert len(api_key_entries) == 1
+        assert api_key_entries[0]["value"] == "inject-key"
+
+    @pytest.mark.asyncio
+    async def test_update_skips_runtime_injection_when_env_unchanged(self):
+        """update() does not inject runtime vars when env is unchanged.
+
+        When skip_env=True, the template env payload is omitted entirely,
+        so runtime vars already on the platform are preserved as-is.
+        """
+        env = {"LOG_LEVEL": "INFO"}
+        old_resource = ServerlessEndpoint(
+            name="update-no-inject",
+            imageName="test:latest",
+            env=env,
+            flashboot=False,
+        )
+        old_resource.id = "ep-no-inject"
+        old_resource.templateId = "tpl-no-inject"
+
+        new_resource = ServerlessEndpoint(
+            name="update-no-inject",
+            imageName="test:latest",
+            env=env,
+            flashboot=False,
+        )
+
+        mock_client = AsyncMock()
+        mock_client.save_endpoint = AsyncMock(
+            return_value={
+                "id": "ep-no-inject",
+                "name": "update-no-inject",
+                "templateId": "tpl-no-inject",
+                "gpuIds": "AMPERE_48",
+                "allowedCudaVersions": "",
+            }
+        )
+        mock_client.update_template = AsyncMock(return_value={})
+
+        with patch(
+            "runpod_flash.core.resources.serverless.RunpodGraphQLClient"
+        ) as mock_client_class:
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+            mock_client_class.return_value.__aexit__.return_value = None
+
+            with patch.object(
+                ServerlessResource,
+                "_ensure_network_volume_deployed",
+                new=AsyncMock(),
+            ):
+                with patch.object(
+                    ServerlessResource,
+                    "_check_makes_remote_calls",
+                    return_value=True,
+                ):
+                    with patch.dict(os.environ, {"RUNPOD_API_KEY": "inject-key"}):
+                        await old_resource.update(new_resource)
+
+        # env should be omitted from template payload (skip_env=True)
+        template_payload = mock_client.update_template.call_args.args[0]
+        assert "env" not in template_payload
+
+    @pytest.mark.asyncio
+    async def test_update_includes_env_for_explicit_template_env(self):
+        """update() sends env when caller provides explicit template.env with empty env.
+
+        Even if self.env == new_config.env (both empty), explicit template.env
+        entries must not be silently dropped.
+        """
+        old_resource = ServerlessEndpoint(
+            name="update-tpl-env",
+            imageName="test:latest",
+            env={},
+            flashboot=False,
+        )
+        old_resource.id = "ep-tpl-env"
+        old_resource.templateId = "tpl-tpl-env"
+
+        new_resource = ServerlessEndpoint(
+            name="update-tpl-env",
+            imageName="test:latest",
+            env={},
+            flashboot=False,
+            template=PodTemplate(
+                name="explicit-tpl",
+                imageName="test:latest",
+                env=[KeyValuePair(key="EXPLICIT_VAR", value="explicit_val")],
+            ),
+        )
+
+        mock_client = AsyncMock()
+        mock_client.save_endpoint = AsyncMock(
+            return_value={
+                "id": "ep-tpl-env",
+                "name": "update-tpl-env",
+                "templateId": "tpl-tpl-env",
+                "gpuIds": "AMPERE_48",
+                "allowedCudaVersions": "",
+            }
+        )
+        mock_client.update_template = AsyncMock(return_value={})
+
+        with patch(
+            "runpod_flash.core.resources.serverless.RunpodGraphQLClient"
+        ) as mock_client_class:
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+            mock_client_class.return_value.__aexit__.return_value = None
+
+            with patch.object(
+                ServerlessResource,
+                "_ensure_network_volume_deployed",
+                new=AsyncMock(),
+            ):
+                await old_resource.update(new_resource)
+
+        template_payload = mock_client.update_template.call_args.args[0]
+        assert "env" in template_payload
+        env_entries = template_payload["env"]
+        explicit = [e for e in env_entries if e["key"] == "EXPLICIT_VAR"]
+        assert len(explicit) == 1
