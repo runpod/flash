@@ -174,11 +174,13 @@ class TestFileLocking:
                 errors.append(f"waiter: {e}")
 
         holder_thread = threading.Thread(
-            target=exclusive_lock_holder, args=(lock_test_file, 2.0),
+            target=exclusive_lock_holder,
+            args=(lock_test_file, 2.0),
             daemon=True,
         )
         waiter_thread = threading.Thread(
-            target=exclusive_lock_waiter, args=(lock_test_file,),
+            target=exclusive_lock_waiter,
+            args=(lock_test_file,),
             daemon=True,
         )
 

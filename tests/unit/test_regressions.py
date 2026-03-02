@@ -241,7 +241,9 @@ class TestREG008NonInteractiveEnvDelete:
         uid = await manager.register_resource(resource)
 
         # Mock _do_undeploy to avoid real API calls
-        with patch.object(resource, "_do_undeploy", new_callable=AsyncMock, return_value=True):
+        with patch.object(
+            resource, "_do_undeploy", new_callable=AsyncMock, return_value=True
+        ):
             # force_remove should work without any TTY/stdin interaction
             await manager.undeploy_resource(uid, force_remove=True)
         assert uid not in manager.list_all_resources()

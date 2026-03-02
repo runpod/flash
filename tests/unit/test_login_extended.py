@@ -54,7 +54,9 @@ class TestLoginOpenBrowser:
                 return_value=mock_client,
             ),
             patch("runpod_flash.cli.commands.login.typer.launch") as mock_launch,
-            patch("runpod_flash.cli.commands.login.asyncio.sleep", new_callable=AsyncMock),
+            patch(
+                "runpod_flash.cli.commands.login.asyncio.sleep", new_callable=AsyncMock
+            ),
             patch.dict(
                 os.environ,
                 {"RUNPOD_CREDENTIALS_FILE": str(creds)},
@@ -83,7 +85,9 @@ class TestLoginConsumedStatus:
                 "runpod_flash.cli.commands.login.RunpodGraphQLClient",
                 return_value=mock_client,
             ),
-            patch("runpod_flash.cli.commands.login.asyncio.sleep", new_callable=AsyncMock),
+            patch(
+                "runpod_flash.cli.commands.login.asyncio.sleep", new_callable=AsyncMock
+            ),
             patch.dict(
                 os.environ,
                 {"RUNPOD_CREDENTIALS_FILE": str(creds)},
@@ -105,7 +109,9 @@ class TestLoginConsumedStatus:
                 "runpod_flash.cli.commands.login.RunpodGraphQLClient",
                 return_value=mock_client,
             ),
-            patch("runpod_flash.cli.commands.login.asyncio.sleep", new_callable=AsyncMock),
+            patch(
+                "runpod_flash.cli.commands.login.asyncio.sleep", new_callable=AsyncMock
+            ),
             patch("runpod_flash.cli.commands.login.console"),
         ):
             with pytest.raises(RuntimeError, match="login failed: consumed"):
