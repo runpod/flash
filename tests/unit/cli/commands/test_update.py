@@ -1,16 +1,18 @@
 """Tests for flash update command."""
 
 import subprocess
+import sys
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 import typer
 
 from runpod_flash.cli.commands.update import (
+    _build_install_command,
     _fetch_pypi_metadata,
     _get_current_version,
     _parse_version,
-    _run_pip_install,
+    _run_install,
     update_command,
 )
 
@@ -105,29 +107,88 @@ class TestFetchPypiMetadata:
                 _fetch_pypi_metadata()
 
 
-class TestRunPipInstall:
+class TestBuildInstallCommand:
+    def test_uses_uv_when_available(self):
+        with patch(
+            "runpod_flash.cli.commands.update.shutil.which", return_value="/usr/bin/uv"
+        ):
+            cmd = _build_install_command("1.5.0")
+        assert cmd == ["uv", "pip", "install", "runpod-flash==1.5.0", "--quiet"]
+
+    def test_falls_back_to_pip(self):
+        with patch("runpod_flash.cli.commands.update.shutil.which", return_value=None):
+            cmd = _build_install_command("1.5.0")
+        assert cmd[0:3] == [sys.executable, "-m", "pip"]
+        assert "runpod-flash==1.5.0" in cmd
+
+
+class TestRunInstall:
     def test_success(self):
         result = MagicMock(returncode=0, stderr="", stdout="")
-        with patch(
-            "runpod_flash.cli.commands.update.subprocess.run", return_value=result
+        with (
+            patch(
+                "runpod_flash.cli.commands.update.subprocess.run", return_value=result
+            ),
+            patch(
+                "runpod_flash.cli.commands.update._build_install_command",
+                return_value=["uv", "pip", "install", "runpod-flash==1.5.0", "--quiet"],
+            ),
         ):
-            assert _run_pip_install("1.5.0") is result
+            assert _run_install("1.5.0") is result
 
-    def test_failure_raises_runtime_error(self):
+    def test_failure_raises_runtime_error_uv(self):
         result = MagicMock(returncode=1, stderr="No matching distribution")
-        with patch(
-            "runpod_flash.cli.commands.update.subprocess.run", return_value=result
+        with (
+            patch(
+                "runpod_flash.cli.commands.update.subprocess.run", return_value=result
+            ),
+            patch(
+                "runpod_flash.cli.commands.update._build_install_command",
+                return_value=[
+                    "uv",
+                    "pip",
+                    "install",
+                    "runpod-flash==99.99.99",
+                    "--quiet",
+                ],
+            ),
+        ):
+            with pytest.raises(RuntimeError, match="uv install failed"):
+                _run_install("99.99.99")
+
+    def test_failure_raises_runtime_error_pip(self):
+        result = MagicMock(returncode=1, stderr="No matching distribution")
+        with (
+            patch(
+                "runpod_flash.cli.commands.update.subprocess.run", return_value=result
+            ),
+            patch(
+                "runpod_flash.cli.commands.update._build_install_command",
+                return_value=[
+                    sys.executable,
+                    "-m",
+                    "pip",
+                    "install",
+                    "runpod-flash==99.99.99",
+                ],
+            ),
         ):
             with pytest.raises(RuntimeError, match="pip install failed"):
-                _run_pip_install("99.99.99")
+                _run_install("99.99.99")
 
     def test_timeout_propagates(self):
-        with patch(
-            "runpod_flash.cli.commands.update.subprocess.run",
-            side_effect=subprocess.TimeoutExpired(cmd="pip", timeout=120),
+        with (
+            patch(
+                "runpod_flash.cli.commands.update.subprocess.run",
+                side_effect=subprocess.TimeoutExpired(cmd="uv", timeout=120),
+            ),
+            patch(
+                "runpod_flash.cli.commands.update._build_install_command",
+                return_value=["uv", "pip", "install", "runpod-flash==1.5.0", "--quiet"],
+            ),
         ):
             with pytest.raises(subprocess.TimeoutExpired):
-                _run_pip_install("1.5.0")
+                _run_install("1.5.0")
 
 
 # ---------------------------------------------------------------------------
@@ -146,7 +207,7 @@ def mock_update_env():
         "console": mock_console,
         "get_version": MagicMock(return_value="1.3.0"),
         "fetch_pypi": MagicMock(return_value=("1.5.0", {"1.3.0", "1.4.0", "1.5.0"})),
-        "pip_install": MagicMock(return_value=MagicMock(returncode=0)),
+        "run_install": MagicMock(return_value=MagicMock(returncode=0)),
     }
 
     patches = [
@@ -158,9 +219,7 @@ def mock_update_env():
         patch(
             "runpod_flash.cli.commands.update._fetch_pypi_metadata", mocks["fetch_pypi"]
         ),
-        patch(
-            "runpod_flash.cli.commands.update._run_pip_install", mocks["pip_install"]
-        ),
+        patch("runpod_flash.cli.commands.update._run_install", mocks["run_install"]),
     ]
 
     for p in patches:
@@ -176,7 +235,7 @@ class TestUpdateCommandHappyPath:
     def test_update_to_latest(self, mock_update_env):
         update_command(version=None)
 
-        mock_update_env["pip_install"].assert_called_once_with("1.5.0")
+        mock_update_env["run_install"].assert_called_once_with("1.5.0")
         # Verify success message printed
         calls = [str(c) for c in mock_update_env["console"].print.call_args_list]
         assert any("1.3.0 -> 1.5.0" in c for c in calls)
@@ -184,7 +243,7 @@ class TestUpdateCommandHappyPath:
     def test_update_to_specific_version(self, mock_update_env):
         update_command(version="1.4.0")
 
-        mock_update_env["pip_install"].assert_called_once_with("1.4.0")
+        mock_update_env["run_install"].assert_called_once_with("1.4.0")
 
     def test_downgrade_prints_warning(self, mock_update_env):
         mock_update_env["get_version"].return_value = "1.5.0"
@@ -195,7 +254,7 @@ class TestUpdateCommandHappyPath:
 
         update_command(version="1.3.0")
 
-        mock_update_env["pip_install"].assert_called_once_with("1.3.0")
+        mock_update_env["run_install"].assert_called_once_with("1.3.0")
         calls = [str(c) for c in mock_update_env["console"].print.call_args_list]
         assert any("downgrade" in c for c in calls)
 
@@ -208,7 +267,7 @@ class TestUpdateCommandAlreadyOnTarget:
             update_command(version=None)
 
         assert exc_info.value.exit_code == 0
-        mock_update_env["pip_install"].assert_not_called()
+        mock_update_env["run_install"].assert_not_called()
 
     def test_already_on_specific_version(self, mock_update_env):
         mock_update_env["get_version"].return_value = "1.4.0"
@@ -225,7 +284,7 @@ class TestUpdateCommandErrors:
             update_command(version="99.0.0")
 
         assert exc_info.value.exit_code == 1
-        mock_update_env["pip_install"].assert_not_called()
+        mock_update_env["run_install"].assert_not_called()
         calls = [str(c) for c in mock_update_env["console"].print.call_args_list]
         assert any("not found on PyPI" in c for c in calls)
 
@@ -247,9 +306,9 @@ class TestUpdateCommandErrors:
 
         assert exc_info.value.exit_code == 1
 
-    def test_pip_failure(self, mock_update_env):
-        mock_update_env["pip_install"].side_effect = RuntimeError(
-            "pip install failed (exit 1): No matching distribution"
+    def test_install_failure(self, mock_update_env):
+        mock_update_env["run_install"].side_effect = RuntimeError(
+            "uv install failed (exit 1): No matching distribution"
         )
 
         with pytest.raises(typer.Exit) as exc_info:
@@ -257,11 +316,11 @@ class TestUpdateCommandErrors:
 
         assert exc_info.value.exit_code == 1
         calls = [str(c) for c in mock_update_env["console"].print.call_args_list]
-        assert any("pip install failed" in c for c in calls)
+        assert any("install failed" in c for c in calls)
 
-    def test_pip_timeout(self, mock_update_env):
-        mock_update_env["pip_install"].side_effect = subprocess.TimeoutExpired(
-            cmd="pip", timeout=120
+    def test_install_timeout(self, mock_update_env):
+        mock_update_env["run_install"].side_effect = subprocess.TimeoutExpired(
+            cmd="uv", timeout=120
         )
 
         with pytest.raises(typer.Exit) as exc_info:
