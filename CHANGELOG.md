@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.5.0](https://github.com/runpod/flash/compare/v1.4.2...v1.5.0) (2026-02-27)
+
+
+### Features
+
+* flash login command ([#160](https://github.com/runpod/flash/issues/160)) ([4480308](https://github.com/runpod/flash/commit/44803089f5e11fec3eee14b787a7d5c2eaad1410))
+
+
+### Bug Fixes
+
+* add validator for workersmax and workersmin on sls endpoints ([#231](https://github.com/runpod/flash/issues/231)) ([c24a21b](https://github.com/runpod/flash/commit/c24a21ba485cfda8ae9dba56c8f245d73505720c))
+* dep parsing for remote decorated functions ([#230](https://github.com/runpod/flash/issues/230)) ([f7486cb](https://github.com/runpod/flash/commit/f7486cb7c42ecad2fe743cef39634dd8dda15f50))
+* persist env vars to manifest and deployed endpoints ([#226](https://github.com/runpod/flash/issues/226)) ([4e583c7](https://github.com/runpod/flash/commit/4e583c74e644f2a17a22d19f547f60f179ce1f55))
+
 ## [1.4.2](https://github.com/runpod/flash/compare/v1.4.1...v1.4.2) (2026-02-26)
 
 

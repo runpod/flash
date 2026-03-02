@@ -31,7 +31,7 @@ FLASH_CPU_LB_IMAGE = os.environ.get(
 )
 
 # Worker configuration defaults
-DEFAULT_WORKERS_MIN = 1
+DEFAULT_WORKERS_MIN = 0
 DEFAULT_WORKERS_MAX = 1
 
 # Flash app artifact upload constants

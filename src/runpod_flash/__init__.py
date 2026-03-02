@@ -1,4 +1,4 @@
-__version__ = "1.4.2"  # x-release-please-version
+__version__ = "1.5.0"  # x-release-please-version
 
 # Load .env vars from file before everything else
 from dotenv import load_dotenv
@@ -35,6 +35,10 @@ if TYPE_CHECKING:
         ServerlessScalerType,
         ServerlessType,
         FlashApp,
+    )
+    from .core.resources.constants import (
+        DEFAULT_WORKERS_MAX,
+        DEFAULT_WORKERS_MIN,
     )
 
 
@@ -109,6 +113,17 @@ def __getattr__(name):
             "FlashApp": FlashApp,
         }
         return attrs[name]
+    elif name in ("DEFAULT_WORKERS_MIN", "DEFAULT_WORKERS_MAX"):
+        from .core.resources.constants import (
+            DEFAULT_WORKERS_MAX,
+            DEFAULT_WORKERS_MIN,
+        )
+
+        attrs = {
+            "DEFAULT_WORKERS_MIN": DEFAULT_WORKERS_MIN,
+            "DEFAULT_WORKERS_MAX": DEFAULT_WORKERS_MAX,
+        }
+        return attrs[name]
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -133,4 +148,6 @@ __all__ = [
     "ServerlessScalerType",
     "ServerlessType",
     "FlashApp",
+    "DEFAULT_WORKERS_MIN",
+    "DEFAULT_WORKERS_MAX",
 ]

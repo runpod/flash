@@ -288,3 +288,40 @@ class TestCreateResourceFromManifest:
             resource = create_resource_from_manifest(resource_name, resource_data)
 
             assert "RUNPOD_API_KEY" not in resource.env
+
+    def test_create_resource_preserves_manifest_env_vars(self):
+        """Manifest-provided env vars are preserved during resource creation."""
+        resource_name = "worker1"
+        resource_data = {
+            "resource_type": "ServerlessResource",
+            "imageName": "runpod/flash:latest",
+            "env": {"APP_MODE": "prod", "LOG_LEVEL": "debug"},
+        }
+
+        with patch.dict(os.environ, {"RUNPOD_ENDPOINT_ID": "endpoint-123"}):
+            resource = create_resource_from_manifest(resource_name, resource_data)
+
+            assert resource.env["APP_MODE"] == "prod"
+            assert resource.env["LOG_LEVEL"] == "debug"
+            assert resource.env["FLASH_RESOURCE_NAME"] == resource_name
+
+    def test_create_resource_does_not_override_manifest_api_key(self):
+        """Manifest RUNPOD_API_KEY takes precedence over host environment key."""
+        resource_name = "caller_worker"
+        resource_data = {
+            "resource_type": "ServerlessResource",
+            "imageName": "runpod/flash:latest",
+            "makes_remote_calls": True,
+            "env": {"RUNPOD_API_KEY": "manifest-key"},
+        }
+
+        with patch.dict(
+            os.environ,
+            {
+                "RUNPOD_ENDPOINT_ID": "endpoint-123",
+                "RUNPOD_API_KEY": "host-key",
+            },
+        ):
+            resource = create_resource_from_manifest(resource_name, resource_data)
+
+            assert resource.env["RUNPOD_API_KEY"] == "manifest-key"
