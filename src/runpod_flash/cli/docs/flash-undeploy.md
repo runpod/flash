@@ -4,7 +4,7 @@ Manage and delete Runpod serverless endpoints deployed via Flash.
 
 ## Overview
 
-The `flash undeploy` command helps you clean up Serverless endpoints that Flash has created when you deployed `Endpoint` functions using `flash run` or `flash deploy`. It manages endpoints recorded in `.runpod/resources.pkl` and ensures both the cloud resources and local tracking state stay in sync.
+The `flash undeploy` command helps you clean up Serverless endpoints that Flash has created when you ran/deployed a `@remote` function using `flash run` or `flash deploy`. It manages endpoints recorded in `.flash/resources.pkl` and ensures both the cloud resources and local tracking state stay in sync.
 
 ### When To Use This Command
 
@@ -22,7 +22,7 @@ For production deployments, use `flash env delete` to remove the entire environm
 
 ### How Endpoint Tracking Works
 
-Flash tracks deployed endpoints in `.runpod/resources.pkl`. Endpoints get added to this file when you:
+Flash tracks deployed endpoints in `.flash/resources.pkl`. Endpoints get added to this file when you:
 - Run `flash run --auto-provision` (local development)
 - Run `flash deploy` (production deployment)
 
@@ -191,7 +191,7 @@ The Status column performs a health check API call for each endpoint. This:
 
 ## Tracking File
 
-Endpoints are tracked in `.runpod/resources.pkl`.
+Endpoints are tracked in `.flash/resources.pkl`.
 
 **Important:**
 - This file is in `.gitignore` (never commit)
@@ -199,26 +199,26 @@ Endpoints are tracked in `.runpod/resources.pkl`.
 - Use `flash undeploy --cleanup-stale` to maintain accuracy
 - `make clean` no longer deletes this file (use flash undeploy instead)
 
-## Integration with Endpoint
+## Integration with @remote
 
-When you use the `Endpoint` class:
+When you use the `@remote` decorator:
 
 ```python
-from runpod_flash import Endpoint, GpuGroup
+from runpod_flash import remote, LiveServerless
 
-@Endpoint(name="my-worker", gpu=GpuGroup.ANY)
+@remote(resource_config=LiveServerless(name="my-api"))
 def my_function(data):
     return {"result": data}
 ```
 
 Flash automatically:
 1. Deploys endpoint to Runpod
-2. Tracks in `.runpod/resources.pkl`
+2. Tracks in `.flash/resources.pkl`
 3. Reuses endpoint on subsequent calls
 
 To clean up:
 ```bash
-flash undeploy my-worker
+flash undeploy my-api
 ```
 
 ## Troubleshooting
