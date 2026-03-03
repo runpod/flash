@@ -572,6 +572,111 @@ class TestResolveInFunctionImports:
 
 
 # ---------------------------------------------------------------------------
+# Tests: resolve_in_function_imports — sys.path management
+# ---------------------------------------------------------------------------
+
+
+class TestResolveInFunctionImportsSysPath:
+    """Tests for the sys.path insertion/cleanup when func_globals has __file__."""
+
+    SOURCE_WITH_IMPORT = textwrap.dedent("""\
+    async def classify(text: str) -> dict:
+        from sibling_module import gpu_inference
+        return await gpu_inference(text)
+    """)
+
+    def test_adds_source_dir_to_sys_path_during_import(self):
+        """When __file__ is present, source dir should be in sys.path during import."""
+        captured_path: list[list[str]] = []
+
+        def capture_sys_path(name):
+            import sys
+
+            captured_path.append(list(sys.path))
+            raise ModuleNotFoundError(name)
+
+        func_globals: dict = {"__file__": "/opt/app/workers/handler.py"}
+
+        with patch(
+            "runpod_flash.stubs.dependency_resolver.importlib.import_module",
+            side_effect=capture_sys_path,
+        ):
+            resolve_in_function_imports(self.SOURCE_WITH_IMPORT, func_globals)
+
+        assert len(captured_path) == 1
+        assert "/opt/app/workers" in captured_path[0]
+
+    def test_cleans_up_sys_path_after_completion(self):
+        """Source dir must be removed from sys.path after the function returns."""
+        import sys
+
+        source_dir = "/opt/app/workers"
+        func_globals: dict = {"__file__": f"{source_dir}/handler.py"}
+
+        assert source_dir not in sys.path  # precondition
+
+        with patch(
+            "runpod_flash.stubs.dependency_resolver.importlib.import_module",
+            side_effect=ModuleNotFoundError("no module"),
+        ):
+            resolve_in_function_imports(self.SOURCE_WITH_IMPORT, func_globals)
+
+        assert source_dir not in sys.path
+
+    def test_cleans_up_sys_path_on_exception(self):
+        """Source dir must be removed even if an unexpected error occurs."""
+        import sys
+
+        source_dir = "/opt/app/workers"
+        func_globals: dict = {"__file__": f"{source_dir}/handler.py"}
+
+        with patch(
+            "runpod_flash.stubs.dependency_resolver.importlib.import_module",
+            side_effect=RuntimeError("unexpected"),
+        ):
+            # RuntimeError is caught by the inner except Exception block,
+            # so the function should complete normally.
+            resolve_in_function_imports(self.SOURCE_WITH_IMPORT, func_globals)
+
+        assert source_dir not in sys.path
+
+    def test_no_sys_path_change_when_file_absent(self):
+        """Without __file__ in func_globals, sys.path should not be modified."""
+        import sys
+
+        original_path = list(sys.path)
+
+        with patch(
+            "runpod_flash.stubs.dependency_resolver.importlib.import_module",
+            side_effect=ModuleNotFoundError("no module"),
+        ):
+            resolve_in_function_imports(self.SOURCE_WITH_IMPORT, {})
+
+        assert sys.path == original_path
+
+    def test_no_duplicate_when_source_dir_already_in_path(self):
+        """If source dir is already in sys.path, it should not be inserted again."""
+        import sys
+
+        source_dir = "/opt/app/workers"
+        func_globals: dict = {"__file__": f"{source_dir}/handler.py"}
+
+        sys.path.insert(0, source_dir)
+        count_before = sys.path.count(source_dir)
+
+        try:
+            with patch(
+                "runpod_flash.stubs.dependency_resolver.importlib.import_module",
+                side_effect=ModuleNotFoundError("no module"),
+            ):
+                resolve_in_function_imports(self.SOURCE_WITH_IMPORT, func_globals)
+
+            assert sys.path.count(source_dir) == count_before
+        finally:
+            sys.path.remove(source_dir)
+
+
+# ---------------------------------------------------------------------------
 # Tests: strip_remote_imports
 # ---------------------------------------------------------------------------
 
