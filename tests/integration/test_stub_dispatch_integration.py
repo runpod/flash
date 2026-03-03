@@ -25,8 +25,8 @@ class TestLiveServerlessStubDispatch:
             name="test-gpu",
             gpu_count=1,
             gpu_ids="AMPERE_48",
-            workers_min=0,
-            workers_max=1,
+            workersMin=0,
+            workersMax=1,
         )
 
         stub_fn = stub_resource(resource)
@@ -60,8 +60,8 @@ class TestLiveServerlessStubDispatch:
             name="test-gpu-err",
             gpu_count=1,
             gpu_ids="AMPERE_48",
-            workers_min=0,
-            workers_max=1,
+            workersMin=0,
+            workersMax=1,
         )
 
         stub_fn = stub_resource(resource)
@@ -92,7 +92,7 @@ class TestServerlessEndpointStubDispatch:
         """Prepare payload → mock execute → handle response."""
         resource = ServerlessEndpoint(
             name="test-deployed",
-            endpoint_id="ep-test-123",
+            id="ep-test-123",
             imageName="runpod/test:latest",
         )
 
@@ -137,8 +137,8 @@ class TestProductionWrapperInjection:
             name="test-prod",
             gpu_count=1,
             gpu_ids="AMPERE_48",
-            workers_min=0,
-            workers_max=1,
+            workersMin=0,
+            workersMax=1,
         )
 
         with patch(

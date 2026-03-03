@@ -136,7 +136,7 @@ class TestREG004ClassInitNotCalledDuringFlashRun:
             def __init__(self):
                 nonlocal import_attempted
                 import_attempted = True
-                import torch  # noqa: F401 — would fail without torch installed
+                import _nonexistent_gpu_module  # noqa: F401 — guaranteed to fail
 
             def infer(self, data):
                 return data
@@ -145,7 +145,8 @@ class TestREG004ClassInitNotCalledDuringFlashRun:
         Wrapper = create_remote_class(ModelWorker, mock_resource, [], [], True, {})
         _ = Wrapper()
 
-        # If original __init__ ran, the torch import would have failed
+        # import_attempted stays False because RemoteClassWrapper.__init__
+        # never calls the original ModelWorker.__init__
         assert import_attempted is False
 
     def test_wrapper_stores_class_type_reference(self):

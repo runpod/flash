@@ -226,7 +226,6 @@ class TestWorkerBoundsValidation:
 
     def test_workers_min_exceeds_max_raises(self):
         """SCALE-006: workersMin > workersMax raises ValueError."""
-        import pytest
         from runpod_flash.core.resources import LiveServerless
 
         with pytest.raises(
@@ -252,7 +251,6 @@ class TestWorkerBoundsValidation:
 
     def test_cpu_workers_min_exceeds_max_raises(self):
         """SCALE-006: Validation applies to CPU resources too."""
-        import pytest
         from runpod_flash.core.resources import CpuLiveServerless
 
         with pytest.raises(

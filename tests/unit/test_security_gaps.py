@@ -32,32 +32,30 @@ class TestCloudpickleDeserializationSafety:
     These tests document the attack surface and verify the trust boundaries.
     """
 
-    def test_crafted_pickle_executes_code(self, tmp_path):
-        """Demonstrate that cloudpickle.loads CAN execute arbitrary code.
+    def test_crafted_pickle_can_execute_code(self):
+        """Document that cloudpickle.loads CAN execute arbitrary code.
 
-        This documents the known attack surface. If an attacker could inject
-        a crafted payload into an API response, code execution would occur.
+        This verifies the attack surface exists without actually executing an
+        exploit. The security model relies on only deserializing from
+        authenticated RunPod endpoints over TLS, not on pickle being safe.
         """
-        # Create a pickle payload that writes a marker file
-        marker = tmp_path / "pwned.txt"
 
         class Exploit:
             def __reduce__(self):
-                return (
-                    eval,
-                    (
-                        f"__import__('pathlib').Path('{marker}').write_text('exploited')",
-                    ),
-                )
+                return (eval, ("1+1",))
 
-        malicious_b64 = base64.b64encode(pickle.dumps(Exploit())).decode()
+        payload = pickle.dumps(Exploit())
 
-        from runpod_flash.runtime.serialization import deserialize_arg
+        # Verify the __reduce__ protocol is present — this is what makes
+        # pickle deserialization dangerous. The actual code execution path
+        # is: pickle.loads -> __reduce__ -> callable(*args).
+        reduce_result = Exploit().__reduce__()
+        assert callable(reduce_result[0]), "Pickle __reduce__ returns a callable"
+        assert reduce_result[0].__name__ == "eval", "Callable is eval — arbitrary code"
 
-        # Deserialization executes the payload — this is the known risk
-        deserialize_arg(malicious_b64)
-        assert marker.exists(), "Pickle payload executed code during deserialization"
-        assert marker.read_text() == "exploited"
+        # Verify pickle.loads invokes __reduce__ (harmless expression)
+        result = pickle.loads(payload)
+        assert result == 2, "pickle.loads executed the __reduce__ callable"
 
     def test_deserialization_only_from_api_response(self):
         """Verify that stub deserialization only processes data from
