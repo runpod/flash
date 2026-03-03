@@ -9,6 +9,8 @@ import ast
 import importlib
 import inspect
 import logging
+import os
+import sys
 from dataclasses import dataclass
 from typing import Any
 
@@ -86,28 +88,42 @@ def resolve_in_function_imports(
     tree = ast.parse(source)
     discovered: dict[str, Any] = {}
 
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.ImportFrom) or node.module is None:
-            continue
+    # Temporarily add the calling function's module directory to sys.path
+    # so sibling modules (e.g., `from cpu_worker import ...`) can be imported.
+    source_file = func_globals.get("__file__")
+    added_path: str | None = None
+    if source_file:
+        source_dir = os.path.dirname(os.path.abspath(source_file))
+        if source_dir not in sys.path:
+            sys.path.insert(0, source_dir)
+            added_path = source_dir
 
-        try:
-            mod = importlib.import_module(node.module)
-        except Exception:
-            log.debug("Skipping unimportable module %s", node.module)
-            continue
-
-        for alias in node.names:
-            name = alias.asname or alias.name
-            if name in func_globals or name in discovered:
+    try:
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom) or node.module is None:
                 continue
-            obj = getattr(mod, alias.name, None)
-            if obj is not None and hasattr(obj, "__remote_config__"):
-                discovered[name] = obj
-                log.debug(
-                    "Discovered in-function @remote import: %s from %s",
-                    name,
-                    node.module,
-                )
+
+            try:
+                mod = importlib.import_module(node.module)
+            except Exception:
+                log.debug("Skipping unimportable module %s", node.module)
+                continue
+
+            for alias in node.names:
+                name = alias.asname or alias.name
+                if name in func_globals or name in discovered:
+                    continue
+                obj = getattr(mod, alias.name, None)
+                if obj is not None and hasattr(obj, "__remote_config__"):
+                    discovered[name] = obj
+                    log.debug(
+                        "Discovered in-function @remote import: %s from %s",
+                        name,
+                        node.module,
+                    )
+    finally:
+        if added_path and added_path in sys.path:
+            sys.path.remove(added_path)
 
     if not discovered:
         return func_globals
