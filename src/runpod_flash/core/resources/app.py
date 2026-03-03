@@ -1,5 +1,4 @@
 from pathlib import Path
-import requests
 import asyncio
 import json
 from typing import Dict, Optional, Union, Tuple, TYPE_CHECKING, Any, List
@@ -335,20 +334,19 @@ class FlashApp:
             ValueError: If environment has no active artifact
             requests.HTTPError: If download fails
         """
-        from runpod_flash.core.utils.user_agent import get_user_agent
+        from runpod_flash.core.utils.http import get_authenticated_requests_session
 
         await self._hydrate()
         result = await self._get_active_artifact(environment_id)
         url = result["downloadUrl"]
 
-        headers = {"User-Agent": get_user_agent()}
-
         with open(dest_file, "wb") as stream:
-            with requests.get(url, stream=True, headers=headers) as resp:
-                resp.raise_for_status()
-                for chunk in resp.iter_content():
-                    if chunk:
-                        stream.write(chunk)
+            with get_authenticated_requests_session() as session:
+                with session.get(url, stream=True) as resp:
+                    resp.raise_for_status()
+                    for chunk in resp.iter_content():
+                        if chunk:
+                            stream.write(chunk)
 
     async def _finalize_upload_build(
         self, object_key: str, manifest: Dict[str, Any]
@@ -465,7 +463,7 @@ class FlashApp:
         except json.JSONDecodeError as e:
             raise ValueError(f"Invalid manifest JSON at {manifest_path}: {e}") from e
 
-        from runpod_flash.core.utils.user_agent import get_user_agent
+        from runpod_flash.core.utils.http import get_authenticated_requests_session
 
         await self._hydrate()
         tarball_size = tar_path.stat().st_size
@@ -474,15 +472,17 @@ class FlashApp:
         url = result["uploadUrl"]
         object_key = result["objectKey"]
 
-        headers = {
-            "User-Agent": get_user_agent(),
-            "Content-Type": TARBALL_CONTENT_TYPE,
-        }
+        with get_authenticated_requests_session() as session:
+            # Override Content-Type for tarball upload
+            session.headers["Content-Type"] = TARBALL_CONTENT_TYPE
 
-        with tar_path.open("rb") as fh:
-            resp = requests.put(url, data=fh, headers=headers)
+            with tar_path.open("rb") as fh:
+                resp = session.put(url, data=fh)
 
-        resp.raise_for_status()
+            try:
+                resp.raise_for_status()
+            finally:
+                resp.close()
         resp = await self._finalize_upload_build(object_key, manifest)
         return resp
 
