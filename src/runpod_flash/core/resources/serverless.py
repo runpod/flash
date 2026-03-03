@@ -19,7 +19,7 @@ from ..api.runpod import RunpodGraphQLClient
 from ..utils.backoff import get_backoff_delay
 from .base import DeployableResource
 from .cloud import runpod
-from .constants import CONSOLE_URL
+from .constants import CONSOLE_URL, DEFAULT_WORKERS_MAX, DEFAULT_WORKERS_MIN
 from .environment import EnvironmentVars
 from .cpu import CpuInstanceType
 from .gpu import GpuGroup, GpuType
@@ -166,8 +166,8 @@ class ServerlessResource(DeployableResource):
     scalerValue: Optional[int] = 4
     templateId: Optional[str] = None
     type: Optional[ServerlessType] = ServerlessType.QB
-    workersMax: Optional[int] = 1
-    workersMin: Optional[int] = 0
+    workersMax: Optional[int] = DEFAULT_WORKERS_MAX
+    workersMin: Optional[int] = DEFAULT_WORKERS_MIN
     workersPFBTarget: Optional[int] = 0
 
     # === Runtime Fields ===
@@ -651,7 +651,9 @@ class ServerlessResource(DeployableResource):
                 if makes_remote_calls:
                     # Inject RUNPOD_API_KEY if not already set
                     if "RUNPOD_API_KEY" not in env_dict:
-                        api_key = os.getenv("RUNPOD_API_KEY")
+                        from runpod_flash.core.credentials import get_api_key
+
+                        api_key = get_api_key()
                         if api_key:
                             env_dict["RUNPOD_API_KEY"] = api_key
                             log.debug(
