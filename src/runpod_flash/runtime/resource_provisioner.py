@@ -69,8 +69,10 @@ def create_resource_from_manifest(
 
     # Inject credentials for endpoints that make remote calls
     if resource_data.get("makes_remote_calls", False):
-        api_key = os.getenv("RUNPOD_API_KEY")
+        from runpod_flash.core.credentials import get_api_key
+
         if "RUNPOD_API_KEY" not in env:
+            api_key = get_api_key()
             if api_key:
                 env["RUNPOD_API_KEY"] = api_key
             else:
