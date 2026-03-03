@@ -5,7 +5,6 @@ Covers: SEC-005 (cloudpickle deserialization safety),
         SEC-008 (secrets in env dict not leaked in error messages).
 """
 
-import asyncio
 import base64
 import logging
 import os
@@ -149,87 +148,10 @@ class TestCloudpickleDeserializationSafety:
 
 
 # ---------------------------------------------------------------------------
-# SEC-006: API key per-request isolation (context variable, no global state)
+# SEC-006: API key isolation (no global mutable state)
 # ---------------------------------------------------------------------------
 class TestApiKeyIsolation:
-    """SEC-006: API key uses context variables for per-request isolation.
-
-    The existing test_api_key_context.py tests basic get/set/clear.
-    These tests verify the security properties: isolation guarantees,
-    no global mutable state, and proper cleanup.
-    """
-
-    def test_uses_context_var_not_global(self):
-        """API key storage uses contextvars.ContextVar, not a module global."""
-        import contextvars
-
-        from runpod_flash.runtime import api_key_context
-
-        assert hasattr(api_key_context, "_api_key_context")
-        assert isinstance(api_key_context._api_key_context, contextvars.ContextVar)
-
-    def test_default_is_none(self):
-        """Default context value is None (no API key set)."""
-        from runpod_flash.runtime.api_key_context import _api_key_context
-
-        # In a fresh context, default should be None
-        # Cleanup any test pollution
-        token = _api_key_context.set(None)
-        assert _api_key_context.get() is None
-        _api_key_context.reset(token)
-
-    @pytest.mark.asyncio
-    async def test_concurrent_requests_isolated(self):
-        """Concurrent async tasks each see only their own API key.
-
-        Simulates multiple incoming requests with different API keys
-        being processed simultaneously.
-        """
-        from runpod_flash.runtime.api_key_context import (
-            clear_api_key,
-            get_api_key,
-            set_api_key,
-        )
-
-        results = {}
-        errors = []
-
-        async def simulate_request(request_id: str, api_key: str):
-            token = set_api_key(api_key)
-            try:
-                # Simulate some async work (I/O, network calls)
-                await asyncio.sleep(0.01)
-                observed_key = get_api_key()
-                if observed_key != api_key:
-                    errors.append(
-                        f"Request {request_id}: expected {api_key}, got {observed_key}"
-                    )
-                results[request_id] = observed_key
-            finally:
-                clear_api_key(token)
-
-        # Run 20 concurrent "requests" with unique keys
-        tasks = [simulate_request(f"req-{i}", f"key-{i}") for i in range(20)]
-        await asyncio.gather(*tasks)
-
-        assert not errors, f"Context isolation failures: {errors}"
-        assert len(results) == 20
-        for i in range(20):
-            assert results[f"req-{i}"] == f"key-{i}"
-
-    def test_api_key_not_leaked_after_clear(self):
-        """API key is fully cleared from context after cleanup."""
-        from runpod_flash.runtime.api_key_context import (
-            clear_api_key,
-            get_api_key,
-            set_api_key,
-        )
-
-        token = set_api_key("sensitive-key-12345")
-        assert get_api_key() == "sensitive-key-12345"
-
-        clear_api_key(token)
-        assert get_api_key() is None
+    """SEC-006: API key uses instance attributes, not global mutable state."""
 
     def test_graphql_client_does_not_use_mutable_global(self):
         """RunpodGraphQLClient stores API key as instance attribute, not global."""

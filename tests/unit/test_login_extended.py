@@ -313,15 +313,17 @@ class TestGraphQLSessionWithoutApiKey:
         """Session created without Authorization header when api_key is None."""
         from runpod_flash.core.api.runpod import RunpodGraphQLClient
 
-        client = RunpodGraphQLClient(require_api_key=False)
-        assert client.api_key is None
+        # Ensure no API key is discoverable from env or credentials file
+        with patch.dict(os.environ, {}, clear=True):
+            client = RunpodGraphQLClient(require_api_key=False)
+            assert client.api_key is None
 
-        session = await client._get_session()
-        try:
-            # Default headers should NOT have Authorization
-            assert "Authorization" not in session.headers
-        finally:
-            await session.close()
+            session = await client._get_session()
+            try:
+                # Default headers should NOT have Authorization
+                assert "Authorization" not in session.headers
+            finally:
+                await session.close()
 
     @pytest.mark.asyncio
     async def test_session_includes_auth_header_when_key_set(self):

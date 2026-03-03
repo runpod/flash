@@ -7,7 +7,6 @@ using FastAPI TestClient (no real server needed).
 import pytest
 from fastapi.testclient import TestClient
 
-from runpod_flash.runtime.api_key_context import get_api_key
 from runpod_flash.runtime.lb_handler import create_lb_handler
 from runpod_flash.runtime.serialization import (
     deserialize_arg,
@@ -106,42 +105,6 @@ class TestExecuteEndpoint:
         body = response.json()
         assert body["success"] is False
         assert "Missing" in body["error"]
-
-
-class TestApiKeyMiddleware:
-    """Bearer token is extracted and available in api_key_context."""
-
-    def test_api_key_middleware_sets_context(self):
-        """Authorization header is propagated to api_key_context."""
-        captured_keys = []
-
-        def capture_key():
-            captured_keys.append(get_api_key())
-            return {"status": "ok"}
-
-        app = create_lb_handler(
-            route_registry={("GET", "/check"): capture_key},
-        )
-        client = TestClient(app)
-
-        response = client.get(
-            "/check", headers={"Authorization": "Bearer test-key-123"}
-        )
-        assert response.status_code == 200
-        assert captured_keys == ["test-key-123"]
-
-    def test_api_key_cleared_after_request(self):
-        """API key context is cleared after request completes."""
-
-        def noop():
-            return {"ok": True}
-
-        app = create_lb_handler(route_registry={("GET", "/noop"): noop})
-        client = TestClient(app)
-
-        client.get("/noop", headers={"Authorization": "Bearer temp-key"})
-        # After request, context should be cleared
-        assert get_api_key() is None
 
 
 class TestCustomRoutes:

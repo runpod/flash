@@ -341,12 +341,15 @@ class TestSSLCertFileEnvVar:
 
         client = RunpodGraphQLClient(api_key="test-key")
 
-        with patch("aiohttp.TCPConnector") as mock_connector_cls:
+        # Patch where the names are looked up (http.py's local imports),
+        # not aiohttp itself, since http.py imports them at module level.
+        with patch("runpod_flash.core.utils.http.TCPConnector") as mock_connector_cls:
             mock_connector_instance = MagicMock()
             mock_connector_cls.return_value = mock_connector_instance
 
-            # patch ClientSession to avoid actually opening connections
-            with patch("aiohttp.ClientSession") as mock_session_cls:
+            with patch(
+                "runpod_flash.core.utils.http.ClientSession"
+            ) as mock_session_cls:
                 mock_session_instance = MagicMock()
                 mock_session_instance.closed = False
                 mock_session_cls.return_value = mock_session_instance

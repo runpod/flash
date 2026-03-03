@@ -6,7 +6,6 @@ Covers: REM-FN-009, REM-FN-010, REM-VAL-005, VOL-005/006/007,
         STUB-LS-007, FILE-005, REM-CLS-013.
 """
 
-import asyncio
 import logging
 import os
 import tempfile
@@ -144,85 +143,6 @@ class TestNetworkVolumeValidation:
 
         vol = NetworkVolume(name="test-vol")
         assert vol.size == 100
-
-
-# ---------------------------------------------------------------------------
-# RT-LB-008: API key context variable isolation
-# ---------------------------------------------------------------------------
-class TestApiKeyContext:
-    """API key context variable for per-request isolation."""
-
-    def test_set_and_get_api_key(self):
-        """RT-LB-008: set_api_key / get_api_key round-trip."""
-        from runpod_flash.runtime.api_key_context import (
-            clear_api_key,
-            get_api_key,
-            set_api_key,
-        )
-
-        # Initially None
-        assert get_api_key() is None
-
-        token = set_api_key("test-key-123")
-        assert get_api_key() == "test-key-123"
-
-        # Clear using token
-        clear_api_key(token)
-        assert get_api_key() is None
-
-    def test_clear_api_key_without_token(self):
-        """clear_api_key(None) sets context to None."""
-        from runpod_flash.runtime.api_key_context import (
-            clear_api_key,
-            get_api_key,
-            set_api_key,
-        )
-
-        set_api_key("key-to-clear")
-        assert get_api_key() == "key-to-clear"
-
-        clear_api_key()  # No token
-        assert get_api_key() is None
-
-    def test_api_key_isolation_across_contexts(self):
-        """API key is isolated per async context."""
-        from runpod_flash.runtime.api_key_context import (
-            clear_api_key,
-            get_api_key,
-            set_api_key,
-        )
-
-        import contextvars
-
-        results = {}
-
-        async def task_a():
-            set_api_key("key-a")
-            await asyncio.sleep(0)  # yield control
-            results["a"] = get_api_key()
-            clear_api_key()
-
-        async def task_b():
-            set_api_key("key-b")
-            await asyncio.sleep(0)
-            results["b"] = get_api_key()
-            clear_api_key()
-
-        async def main():
-            # Run tasks with copied context for isolation
-            ctx_a = contextvars.copy_context()
-            contextvars.copy_context()
-            await asyncio.gather(
-                asyncio.ensure_future(ctx_a.run(asyncio.coroutine(lambda: task_a())()))
-                if hasattr(asyncio, "coroutine")
-                else asyncio.gather(task_a(), task_b())
-            )
-
-        # Simpler test: just verify set/get/clear cycle works
-        set_api_key("isolated-key")
-        assert get_api_key() == "isolated-key"
-        clear_api_key()
-        assert get_api_key() is None
 
 
 # ---------------------------------------------------------------------------
