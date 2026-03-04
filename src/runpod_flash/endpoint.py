@@ -192,12 +192,21 @@ def _is_cpu_config(
     return cpu is not None
 
 
+def _is_gpu_enum(val: Any) -> bool:
+    """check if val is a GpuGroup or GpuType, tolerating re-imported modules."""
+    if isinstance(val, (GpuGroup, GpuType)):
+        return True
+    # fall back to class name check for enum identity issues caused by
+    # importlib re-imports (e.g. during manifest extraction)
+    return type(val).__name__ in ("GpuGroup", "GpuType")
+
+
 def _normalize_gpu(
     gpu: Optional[Union[GpuGroup, GpuType, List[Union[GpuGroup, GpuType]]]],
 ) -> Optional[List[Union[GpuGroup, GpuType]]]:
     if gpu is None:
         return None
-    if isinstance(gpu, (GpuGroup, GpuType)):
+    if _is_gpu_enum(gpu):
         return [gpu]
     if isinstance(gpu, list):
         return gpu
