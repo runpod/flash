@@ -1295,6 +1295,92 @@ async def pipeline(audio):
         assert set(pipeline.called_remote_functions) == {"transcribe", "translate"}
 
 
+def test_calls_remote_functions_from_class_method():
+    """Cross-call from a class method is detected when the endpoint wraps a class."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project_dir = Path(tmpdir)
+
+        helpers = project_dir / "helpers.py"
+        helpers.write_text(
+            """
+from runpod_flash import CpuLiveServerless, remote
+
+cpu = CpuLiveServerless(name="tokenizer")
+
+@remote(cpu)
+async def tokenize(text):
+    return {"tokens": text.split()}
+"""
+        )
+
+        model = project_dir / "model.py"
+        model.write_text(
+            """
+from runpod_flash import LiveServerless, remote
+
+gpu = LiveServerless(name="model")
+
+@remote(gpu)
+class MyModel:
+    def __init__(self):
+        self.ready = True
+
+    async def predict(self, text):
+        from helpers import tokenize
+        tokens = tokenize(text)
+        return {"tokens": tokens}
+"""
+        )
+
+        scanner = RemoteDecoratorScanner(project_dir)
+        functions = scanner.discover_remote_functions()
+
+        my_model = next(f for f in functions if f.function_name == "MyModel")
+        assert my_model.calls_remote_functions is True
+        assert "tokenize" in my_model.called_remote_functions
+
+
+def test_calls_remote_functions_endpoint_class_method():
+    """Cross-call from an @Endpoint class method is detected."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project_dir = Path(tmpdir)
+
+        helpers = project_dir / "helpers.py"
+        helpers.write_text(
+            """
+from runpod_flash import Endpoint, CpuInstanceType
+
+@Endpoint(name="normalizer", cpu=CpuInstanceType.CPU3C_1_2)
+async def normalize(text):
+    return {"normalized": text.lower()}
+"""
+        )
+
+        model = project_dir / "model.py"
+        model.write_text(
+            """
+from runpod_flash import Endpoint, GpuGroup
+
+@Endpoint(name="nlp_model", gpu=GpuGroup.ADA_24)
+class NLPModel:
+    def __init__(self):
+        self.ready = True
+
+    async def predict(self, text):
+        from helpers import normalize
+        result = normalize(text)
+        return {"prediction": result}
+"""
+        )
+
+        scanner = RemoteDecoratorScanner(project_dir)
+        functions = scanner.discover_remote_functions()
+
+        nlp_model = next(f for f in functions if f.function_name == "NLPModel")
+        assert nlp_model.calls_remote_functions is True
+        assert "normalize" in nlp_model.called_remote_functions
+
+
 def test_local_flag_extracted_from_lb_route():
     """Test that local=True on an LB @remote is captured in metadata."""
     with tempfile.TemporaryDirectory() as tmpdir:

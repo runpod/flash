@@ -172,11 +172,14 @@ class RemoteDecoratorScanner:
                 content = py_file.read_text(encoding="utf-8")
                 tree = ast.parse(content)
 
-                # Build a map of function name -> function node for this file (single pass)
+                # Build a map of function/class name -> AST node for this file.
+                # class nodes are included so that cross-endpoint calls inside
+                # class methods are detected when the endpoint wraps a class.
                 func_node_map: Dict[str, ast.AST] = {}
                 for node in ast.walk(tree):
-                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                        # Store first occurrence if multiple functions share same name
+                    if isinstance(
+                        node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+                    ):
                         func_node_map.setdefault(node.name, node)
 
                 # Find each @remote function and analyze its calls
