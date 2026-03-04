@@ -136,7 +136,7 @@ class TestFileLocking:
         # OSError, file_lock should eventually raise FileLockTimeout
         with open(lock_test_file, "rb") as f:
             start = time.monotonic()
-            with pytest.raises(FileLockTimeout, match="Could not acquire"):
+            with pytest.raises(fl_module.FileLockTimeout, match="Could not acquire"):
                 # Temporarily replace the acquire function
                 original = fl_module._acquire_unix_lock
                 fl_module._acquire_unix_lock = always_fail
@@ -213,7 +213,7 @@ class TestFileLocking:
         fl_module._UNIX_LOCKING_AVAILABLE = True
         fl_module._acquire_unix_lock = always_fail
         try:
-            with pytest.raises(FileLockTimeout):
+            with pytest.raises(fl_module.FileLockTimeout):
                 with open(lock_file, "rb") as f:
                     with fl_module.file_lock(
                         f, exclusive=True, timeout=0.2, retry_interval=0.05
