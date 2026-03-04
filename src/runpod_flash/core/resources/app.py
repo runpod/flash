@@ -569,7 +569,12 @@ class FlashApp:
     @classmethod
     async def from_name(cls, app_name: str) -> "FlashApp":
         async with RunpodGraphQLClient() as client:
-            result = await client.get_flash_app_by_name(app_name)
+            try:
+                result = await client.get_flash_app_by_name(app_name)
+            except Exception as exc:
+                if "app not found" in str(exc).lower():
+                    raise FlashAppNotFoundError(app_name) from exc
+                raise
         return cls(app_name, id=result["id"], eager_hydrate=False)
 
     @classmethod
@@ -580,15 +585,12 @@ class FlashApp:
 
     @classmethod
     async def get_or_create(cls, app_name: str) -> "FlashApp":
-        async with RunpodGraphQLClient() as client:
-            try:
-                result = await client.get_flash_app_by_name(app_name)
-                return cls(app_name, id=result["id"], eager_hydrate=False)
-            except Exception as exc:
-                if "app not found" not in str(exc).lower():
-                    raise
+        try:
+            return await cls.from_name(app_name)
+        except FlashAppNotFoundError:
+            async with RunpodGraphQLClient() as client:
                 result = await client.create_flash_app({"name": app_name})
-                return cls(app_name, id=result["id"], eager_hydrate=False)
+            return cls(app_name, id=result["id"], eager_hydrate=False)
 
     @classmethod
     async def create_environment_and_app(
