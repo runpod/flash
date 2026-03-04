@@ -524,6 +524,13 @@ class Endpoint:
         @Endpoint(name="worker", gpu=GpuGroup.ADA_24)
         async def process(data: dict) -> dict: ...
         """
+        if self.is_client:
+            mode = "id" if self.id is not None else "image"
+            raise ValueError(
+                f"cannot use Endpoint({mode}=...) as a decorator. "
+                f"{mode}= endpoints are clients for external/pre-built "
+                f"services. use Endpoint(name=...) for your own code."
+            )
         if self._routes:
             raise ValueError(
                 "cannot use Endpoint as a direct decorator after registering "

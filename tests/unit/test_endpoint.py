@@ -717,6 +717,28 @@ class TestClientMode:
         ep = Endpoint(id="abc123")
         assert ep._endpoint_url is None
 
+    def test_id_as_decorator_raises(self):
+        with pytest.raises(ValueError, match="cannot use Endpoint\\(id="):
+
+            @Endpoint(id="abc123")
+            async def fn(data: dict) -> dict:
+                return data
+
+    def test_image_as_decorator_raises(self):
+        with pytest.raises(ValueError, match="cannot use Endpoint\\(image="):
+
+            @Endpoint(name="x", image="vllm:latest", gpu=GpuType.ANY)
+            async def fn(data: dict) -> dict:
+                return data
+
+    def test_image_as_class_decorator_raises(self):
+        with pytest.raises(ValueError, match="cannot use Endpoint\\(image="):
+
+            @Endpoint(name="x", image="img:latest", gpu=GpuType.ANY)
+            class Svc:
+                async def run(self, data: dict) -> dict:
+                    return data
+
 
 # -- resource config caching --
 
