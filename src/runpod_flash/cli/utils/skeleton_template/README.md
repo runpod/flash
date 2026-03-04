@@ -141,7 +141,7 @@ Create a new `.py` file with a `@remote` function. `flash run` auto-discovers al
 # my_worker.py
 from runpod_flash import LiveServerless, GpuType, remote
 
-config = LiveServerless(name="my_worker", gpus=[GpuType.GEFORCE_RTX_4090])
+config = LiveServerless(name="my_worker", gpus=[GpuType.NVIDIA_GEFORCE_RTX_4090])
 
 @remote(resource_config=config, dependencies=["transformers"])
 async def predict(input_data: dict) -> dict:
@@ -154,17 +154,18 @@ Then run `flash run` — the new worker appears automatically.
 
 ## GPU Types
 
-| Config                            | Hardware          | VRAM   |
-| --------------------------------- | ----------------- | ------ |
-| `GpuType.ANY`                     | Any available GPU | varies |
-| `GpuType.GEFORCE_RTX_4090`        | RTX 4090          | 24 GB  |
-| `GpuType.GEFORCE_RTX_5090`        | RTX 5090          | 32 GB  |
-| `GpuType.RTX_6000_ADA_GENERATION` | RTX 6000 Ada      | 48 GB  |
-| `GpuType.L4`                      | L4                | 24 GB  |
-| `GpuType.A100_80GB_PCIe`          | A100 PCIe         | 80 GB  |
-| `GpuType.A100_SXM4_80GB`          | A100 SXM4         | 80 GB  |
-| `GpuType.H100_80GB_HBM3`          | H100              | 80 GB  |
-| `GpuType.H200`                    | H200              | 141 GB |
+| Config                                    | Hardware          | VRAM   |
+| ----------------------------------------- | ----------------- | ------ |
+| `GpuType.ANY`                             | Any available GPU | varies |
+| `GpuType.NVIDIA_GEFORCE_RTX_4090`         | RTX 4090          | 24 GB  |
+| `GpuType.NVIDIA_GEFORCE_RTX_5090`         | RTX 5090          | 32 GB  |
+| `GpuType.NVIDIA_RTX_6000_ADA_GENERATION`  | RTX 6000 Ada      | 48 GB  |
+| `GpuType.NVIDIA_L4`                       | L4                | 24 GB  |
+| `GpuType.NVIDIA_A100_80GB_PCIe`           | A100 PCIe         | 80 GB  |
+| `GpuType.NVIDIA_A100_SXM4_80GB`           | A100 SXM4         | 80 GB  |
+| `GpuType.NVIDIA_H100_80GB_HBM3`           | H100              | 80 GB  |
+| `GpuType.NVIDIA_H200`                     | H200              | 141 GB |
+| `GpuType.NVIDIA_B200`                     | B200              | 180 GB |
 
 ## CPU Types
 
