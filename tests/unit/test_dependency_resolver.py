@@ -426,7 +426,7 @@ class TestResolveInFunctionImports:
         assert "plain_helper" not in result
 
     def test_skips_unimportable_modules(self):
-        """Modules that fail to import should be silently skipped."""
+        """Modules not found (ImportError/ModuleNotFoundError) are skipped."""
         source = textwrap.dedent("""\
         async def classify(text: str) -> dict:
             from nonexistent_module import something
@@ -573,7 +573,7 @@ class TestResolveInFunctionImports:
 
 
 # ---------------------------------------------------------------------------
-# Tests: resolve_in_function_imports — sys.path management
+# Tests: resolve_in_function_imports — file-based sibling loading
 # ---------------------------------------------------------------------------
 
 
@@ -770,6 +770,46 @@ async def classify(text: str) -> dict:
         result = resolve_in_function_imports(source, {"__file__": str(handler)})
         assert "func" in result
         assert hasattr(result["func"], "__remote_config__")
+
+    def test_sibling_takes_priority_over_installed_package(self, tmp_path):
+        """Sibling .py loaded even when importlib.import_module would succeed."""
+        self._write_sibling(
+            tmp_path,
+            "json.py",  # shadows stdlib json
+            """\
+            class _s:
+                __remote_config__ = {"resource_config": "from_sibling"}
+            loads = _s()
+            """,
+        )
+        handler = tmp_path / "handler.py"
+        handler.write_text("")
+
+        source = textwrap.dedent("""\
+        async def run(x):
+            from json import loads
+            return loads
+        """)
+
+        result = resolve_in_function_imports(source, {"__file__": str(handler)})
+        assert "loads" in result
+        assert result["loads"].__remote_config__["resource_config"] == "from_sibling"
+
+    def test_sibling_import_error_does_not_fallthrough(self, tmp_path):
+        """Sibling file exists but has ImportError -> returns None, no fallthrough."""
+        (tmp_path / "broken_dep.py").write_text("import nonexistent_package_xyz_123\n")
+        handler = tmp_path / "handler.py"
+        handler.write_text("")
+
+        source = textwrap.dedent("""\
+        async def run(x):
+            from broken_dep import something
+            return something
+        """)
+
+        # Should not fall through to importlib.import_module
+        result = resolve_in_function_imports(source, {"__file__": str(handler)})
+        assert "something" not in result
 
 
 # ---------------------------------------------------------------------------

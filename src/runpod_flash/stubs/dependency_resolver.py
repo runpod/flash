@@ -75,8 +75,9 @@ def resolve_in_function_imports(
 
     Sibling modules (files next to the calling function's source file) are loaded
     via ``importlib.util.spec_from_file_location`` without registering in
-    ``sys.modules``, preventing cross-project cache pollution.  Modules that are
-    not siblings fall back to ``importlib.import_module``.
+    ``sys.modules``, preventing cross-project cache pollution.  Non-sibling
+    modules (installed packages) fall back to ``importlib.import_module``,
+    which uses the standard ``sys.modules`` cache.
 
     This is safe because it runs on the developer's local machine where the
     imported modules are available — the worker never executes this function.
@@ -132,17 +133,25 @@ def _import_module(module_name: str, source_dir: str | None) -> Any:
     When *source_dir* is provided and a corresponding ``.py`` file exists,
     the module is loaded via ``spec_from_file_location`` **without** registering
     in ``sys.modules``.  This avoids cross-project cache pollution and
-    thread-safety issues with ``sys.path`` mutation.
+    eliminates process-global ``sys.path`` mutation.
 
-    Falls back to ``importlib.import_module`` for installed packages or when
-    no sibling file is found.
+    If a sibling file exists but fails to load, the function returns ``None``
+    rather than falling through to ``importlib.import_module`` — the developer
+    intended to use the sibling file, so loading a different module with the
+    same name from an installed package would be incorrect.
+
+    Falls back to ``importlib.import_module`` only when no sibling file is
+    found (or no *source_dir* is provided).  Only ``.py`` files are resolved
+    as siblings, not package directories.
 
     Args:
         module_name: Dotted module name (e.g. ``"cpu_worker"`` or ``"workers.cpu"``).
         source_dir: Directory of the calling function's source file, or ``None``.
 
     Returns:
-        The imported module, or ``None`` if the import fails.
+        The imported module, or ``None`` if the import fails with
+        ``ImportError`` or ``ModuleNotFoundError``.  Other exceptions
+        (e.g. ``SyntaxError`` in the loaded module) propagate to the caller.
     """
     # Try sibling file-based import first
     if source_dir:
@@ -155,14 +164,21 @@ def _import_module(module_name: str, source_dir: str | None) -> Any:
                     mod = importlib.util.module_from_spec(spec)
                     spec.loader.exec_module(mod)
                     return mod
-                log.debug(
-                    "spec_from_file_location returned unusable spec for %s",
+                log.warning(
+                    "spec_from_file_location returned unusable spec (spec=%s) for %s",
+                    spec,
                     candidate,
                 )
-            except (ImportError, ModuleNotFoundError):
-                log.debug(
-                    "Failed to load sibling module %s from %s", module_name, candidate
+            except (ImportError, ModuleNotFoundError) as exc:
+                log.warning(
+                    "Sibling module %s exists at %s but failed to load: %s",
+                    module_name,
+                    candidate,
+                    exc,
                 )
+            # Sibling file exists but failed — do not fall through to
+            # importlib.import_module, which could load a different module.
+            return None
 
     # Fallback to standard import for installed packages
     try:
