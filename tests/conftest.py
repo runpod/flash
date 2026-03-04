@@ -313,6 +313,7 @@ def reset_singletons():
     # Patch cloudpickle to handle threading.Lock objects that may be left over
     # from previous tests. This prevents "cannot pickle '_thread.lock'" errors
     # when test pollution causes old lock instances to be in the object graph.
+    _original_reducer_override = None
     try:
         import cloudpickle
         import copyreg
@@ -324,13 +325,13 @@ def reset_singletons():
         # Register the reducer for threading.Lock in copyreg so cloudpickle uses it
         copyreg.pickle(threading.Lock, _lock_reducer)
 
-        # Also patch cloudpickle.CloudPickler to use the reducer
-        original_reducer_override = cloudpickle.CloudPickler.reducer_override
+        # Save the real original (only if it hasn't already been patched)
+        _original_reducer_override = cloudpickle.CloudPickler.reducer_override
 
         def patched_reducer_override(self, obj):
             if isinstance(obj, type(threading.Lock())):
                 return _lock_reducer(obj)
-            return original_reducer_override(self, obj)
+            return _original_reducer_override(self, obj)
 
         cloudpickle.CloudPickler.reducer_override = patched_reducer_override
     except Exception:
@@ -376,6 +377,13 @@ def reset_singletons():
     gc.collect()
 
     yield
+
+    # Restore cloudpickle reducer_override to prevent recursive stacking
+    if _original_reducer_override is not None:
+        try:
+            cloudpickle.CloudPickler.reducer_override = _original_reducer_override
+        except Exception:
+            pass
 
     # Cleanup after test
     try:

@@ -10,6 +10,7 @@ These tests verify end-to-end functionality of remote class execution including:
 
 import asyncio
 import base64
+import os
 from unittest.mock import AsyncMock, patch
 
 import cloudpickle
@@ -19,6 +20,7 @@ from runpod_flash.core.resources import ServerlessResource
 from runpod_flash.execute_class import create_remote_class
 
 
+@patch.dict(os.environ, {"RUNPOD_ENDPOINT_ID": "", "RUNPOD_POD_ID": ""})
 class TestRemoteClassDecoratorIntegration:
     """Test remote class decorator integration."""
 
