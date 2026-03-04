@@ -16,7 +16,12 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .commands.update import _fetch_pypi_metadata, _get_current_version, _parse_version
+from .commands.update import (
+    _compare_versions,
+    _fetch_pypi_metadata,
+    _get_current_version,
+    _parse_version,
+)
 
 CACHE_FILENAME = "update_check.json"
 CHECK_INTERVAL_HOURS = 24
@@ -106,7 +111,7 @@ def _run_check() -> None:
         current_tuple = _parse_version(current)
         latest_tuple = _parse_version(latest)
 
-        if latest_tuple > current_tuple:
+        if _compare_versions(latest_tuple, current_tuple) > 0:
             with _result_lock:
                 _newer_version = latest
     except Exception:  # noqa: BLE001
@@ -129,7 +134,7 @@ def _print_update_notice() -> None:
 
     if version:
         print(
-            f"\nA new version of runpod-flash is available: {version}"
+            f"\nA new version of runpod-flash is available: {version}\n"
             "  Run 'flash update' to upgrade.",
             file=sys.stderr,
         )
@@ -155,21 +160,22 @@ def start_background_check() -> None:
 
     Skips if FLASH_NO_UPDATE_CHECK or CI environment variables are set, or when
     neither stdout nor stderr is attached to a TTY. Idempotent — only starts
-    once per process.
+    once per process. The guard flag is set only after passing all skip checks,
+    so a skipped first call does not prevent future calls from starting.
     """
     global _started  # noqa: PLW0603
     with _start_lock:
         if _started:
             return
+
+        if os.getenv("FLASH_NO_UPDATE_CHECK"):
+            return
+        if os.getenv("CI"):
+            return
+        if not _is_interactive():
+            return
+
         _started = True
-
-    if os.getenv("FLASH_NO_UPDATE_CHECK"):
-        return
-    if os.getenv("CI"):
-        return
-    if not _is_interactive():
-        return
-
-    thread = threading.Thread(target=_run_check, daemon=True)
-    thread.start()
-    atexit.register(_print_update_notice)
+        thread = threading.Thread(target=_run_check, daemon=True)
+        thread.start()
+        atexit.register(_print_update_notice)

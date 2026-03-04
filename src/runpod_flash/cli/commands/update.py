@@ -27,8 +27,28 @@ def _get_current_version() -> str:
 
 
 def _parse_version(version: str) -> tuple[int, ...]:
-    """Parse a version string like '1.5.0' into a comparable tuple (1, 5, 0)."""
+    """Parse a version string like '1.5.0' into a comparable tuple (1, 5, 0).
+
+    Tuples are NOT padded here -- callers comparing two parsed versions should
+    use ``_compare_versions()`` to handle differing component counts.
+    """
     return tuple(int(part) for part in version.split("."))
+
+
+def _compare_versions(a: tuple[int, ...], b: tuple[int, ...]) -> int:
+    """Compare two parsed version tuples, padding shorter one with zeros.
+
+    Returns negative if a < b, zero if equal, positive if a > b.
+    Handles differing component counts: (2, 0) and (2, 0, 0) are equal.
+    """
+    max_len = max(len(a), len(b))
+    a_padded = a + (0,) * (max_len - len(a))
+    b_padded = b + (0,) * (max_len - len(b))
+    if a_padded < b_padded:
+        return -1
+    if a_padded > b_padded:
+        return 1
+    return 0
 
 
 def _fetch_pypi_metadata() -> tuple[str, set[str]]:
@@ -138,7 +158,7 @@ def update_command(
     # Downgrade warning
     if current != "unknown":
         try:
-            if _parse_version(target) < _parse_version(current):
+            if _compare_versions(_parse_version(target), _parse_version(current)) < 0:
                 console.print(
                     f"[yellow]note:[/yellow] {target} is older than {current} (downgrade)"
                 )
