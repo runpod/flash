@@ -21,6 +21,9 @@ log = logging.getLogger(__name__)
 # valid http methods for load-balanced endpoints
 _VALID_HTTP_METHODS = frozenset({"GET", "POST", "PUT", "DELETE", "PATCH"})
 
+# paths used by the framework runtime; user routes must not collide
+_RESERVED_PATHS = frozenset({"/execute", "/ping"})
+
 # terminal job statuses that won't change
 _TERMINAL_STATUSES = frozenset({"COMPLETED", "FAILED", "CANCELLED", "TIMED_OUT"})
 
@@ -121,6 +124,11 @@ class EndpointJob:
                     f"(last status: {self._data.get('status', 'UNKNOWN')})"
                 )
             await asyncio.sleep(interval)
+            if deadline is not None and time.monotonic() >= deadline:
+                raise TimeoutError(
+                    f"job {self.id} did not complete within {timeout}s "
+                    f"(last status: {self._data.get('status', 'UNKNOWN')})"
+                )
             await self.status()
             interval = min(interval * _POLL_BACKOFF_FACTOR, _POLL_MAX_INTERVAL)
 
@@ -144,12 +152,21 @@ def _normalize_workers(
     if workers is None:
         return (0, 1)
     if isinstance(workers, int):
-        return (0, workers)
-    if isinstance(workers, (tuple, list)) and len(workers) == 2:
-        return (int(workers[0]), int(workers[1]))
-    raise ValueError(
-        f"workers must be an int or (min, max) tuple, got {type(workers).__name__}: {workers}"
-    )
+        min_w, max_w = 0, workers
+    elif isinstance(workers, (tuple, list)) and len(workers) == 2:
+        min_w, max_w = int(workers[0]), int(workers[1])
+    else:
+        raise ValueError(
+            f"workers must be an int or (min, max) tuple, got {type(workers).__name__}: {workers}"
+        )
+
+    if min_w < 0 or max_w < 0:
+        raise ValueError(f"workers cannot be negative: ({min_w}, {max_w})")
+    if min_w > max_w:
+        raise ValueError(
+            f"workers min ({min_w}) cannot exceed max ({max_w})"
+        )
+    return (min_w, max_w)
 
 
 def _is_live_provisioning() -> bool:
@@ -509,6 +526,11 @@ class Endpoint:
             )
         if not path.startswith("/"):
             raise ValueError(f"path must start with '/', got: {path}")
+        if path in _RESERVED_PATHS:
+            raise ValueError(
+                f"path '{path}' is reserved by the framework. "
+                f"reserved paths: {', '.join(sorted(_RESERVED_PATHS))}"
+            )
         if self._qb_target is not None:
             raise ValueError(
                 "cannot add routes after using Endpoint as a direct decorator. "
@@ -516,6 +538,12 @@ class Endpoint:
             )
 
         def decorator(func):
+            for existing in self._routes:
+                if existing["method"] == method and existing["path"] == path:
+                    raise ValueError(
+                        f"duplicate route: {method} {path} "
+                        f"(already registered to '{existing['function_name']}')"
+                    )
             self._routes.append(
                 {
                     "method": method,
@@ -543,34 +571,48 @@ class Endpoint:
 
         return decorator
 
+    def _check_decorator_mode_args(self, method: str, data: Any, kwargs: dict):
+        """raise if data or kwargs are passed in decorator mode."""
+        if data is not None or kwargs:
+            raise TypeError(
+                f"data and keyword arguments are only valid in client mode "
+                f"(Endpoint with id= or image=). in decorator mode, use "
+                f"@api.{method.lower()}('/path') with no extra arguments."
+            )
+
     def get(self, path: str, data: Any = None, **kwargs):
         """GET route decorator (decorator mode) or HTTP GET call (client mode)."""
         if self.is_client:
             return self._client_request("GET", path, data, **kwargs)
+        self._check_decorator_mode_args("GET", data, kwargs)
         return self._route("GET", path)
 
     def post(self, path: str, data: Any = None, **kwargs):
         """POST route decorator (decorator mode) or HTTP POST call (client mode)."""
         if self.is_client:
             return self._client_request("POST", path, data, **kwargs)
+        self._check_decorator_mode_args("POST", data, kwargs)
         return self._route("POST", path)
 
     def put(self, path: str, data: Any = None, **kwargs):
         """PUT route decorator (decorator mode) or HTTP PUT call (client mode)."""
         if self.is_client:
             return self._client_request("PUT", path, data, **kwargs)
+        self._check_decorator_mode_args("PUT", data, kwargs)
         return self._route("PUT", path)
 
     def delete(self, path: str, data: Any = None, **kwargs):
         """DELETE route decorator (decorator mode) or HTTP DELETE call (client mode)."""
         if self.is_client:
             return self._client_request("DELETE", path, data, **kwargs)
+        self._check_decorator_mode_args("DELETE", data, kwargs)
         return self._route("DELETE", path)
 
     def patch(self, path: str, data: Any = None, **kwargs):
         """PATCH route decorator (decorator mode) or HTTP PATCH call (client mode)."""
         if self.is_client:
             return self._client_request("PATCH", path, data, **kwargs)
+        self._check_decorator_mode_args("PATCH", data, kwargs)
         return self._route("PATCH", path)
 
     # -- client methods (image= or id= mode) --

@@ -449,7 +449,7 @@ class ResourceDiscovery:
                 try:
                     # quick check: does file contain relevant patterns?
                     content = file_path.read_text(encoding="utf-8")
-                    if "@remote" not in content and "Endpoint" not in content:
+                    if "@remote" not in content and "Endpoint(" not in content:
                         continue
 
                     # Find resource config variables via AST

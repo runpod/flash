@@ -717,3 +717,201 @@ class TestPublicImport:
         import runpod_flash
 
         assert "Endpoint" in runpod_flash.__all__
+
+
+# -- _normalize_workers validation --
+
+
+class TestNormalizeWorkersValidation:
+    def test_negative_int_raises(self):
+        with pytest.raises(ValueError, match="cannot be negative"):
+            _normalize_workers(-5)
+
+    def test_negative_min_raises(self):
+        with pytest.raises(ValueError, match="cannot be negative"):
+            _normalize_workers((-1, 3))
+
+    def test_negative_max_raises(self):
+        with pytest.raises(ValueError, match="cannot be negative"):
+            _normalize_workers((0, -2))
+
+    def test_min_exceeds_max_raises(self):
+        with pytest.raises(ValueError, match="cannot exceed max"):
+            _normalize_workers((10, 2))
+
+    def test_equal_min_max_ok(self):
+        assert _normalize_workers((3, 3)) == (3, 3)
+
+    def test_zero_zero_ok(self):
+        assert _normalize_workers((0, 0)) == (0, 0)
+
+
+# -- route validation --
+
+
+class TestRouteValidation:
+    @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "true"})
+    def test_duplicate_route_raises(self):
+        ep = Endpoint(name="test-dup")
+
+        @ep.post("/predict")
+        async def predict_v1(data: dict) -> dict:
+            return data
+
+        with pytest.raises(ValueError, match="duplicate route.*POST /predict"):
+
+            @ep.post("/predict")
+            async def predict_v2(data: dict) -> dict:
+                return data
+
+    @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "true"})
+    def test_same_path_different_methods_ok(self):
+        ep = Endpoint(name="test-methods")
+
+        @ep.get("/resource")
+        async def get_resource():
+            return {}
+
+        @ep.post("/resource")
+        async def create_resource(data: dict) -> dict:
+            return data
+
+        assert len(ep._routes) == 2
+
+    def test_reserved_path_execute_raises(self):
+        ep = Endpoint(name="test-reserved")
+        with pytest.raises(ValueError, match="reserved by the framework"):
+            ep._route("POST", "/execute")
+
+    def test_reserved_path_ping_raises(self):
+        ep = Endpoint(name="test-reserved")
+        with pytest.raises(ValueError, match="reserved by the framework"):
+            ep._route("GET", "/ping")
+
+
+# -- decorator mode arg validation --
+
+
+class TestDecoratorModeArgValidation:
+    def test_get_with_data_raises(self):
+        ep = Endpoint(name="test")
+        with pytest.raises(TypeError, match="only valid in client mode"):
+            ep.get("/health", data={"key": "val"})
+
+    def test_post_with_data_raises(self):
+        ep = Endpoint(name="test")
+        with pytest.raises(TypeError, match="only valid in client mode"):
+            ep.post("/compute", data={"input": 1})
+
+    def test_put_with_kwargs_raises(self):
+        ep = Endpoint(name="test")
+        with pytest.raises(TypeError, match="only valid in client mode"):
+            ep.put("/update", headers={"X-Custom": "val"})
+
+    def test_delete_with_data_raises(self):
+        ep = Endpoint(name="test")
+        with pytest.raises(TypeError, match="only valid in client mode"):
+            ep.delete("/remove", data={"id": 1})
+
+    def test_patch_with_data_raises(self):
+        ep = Endpoint(name="test")
+        with pytest.raises(TypeError, match="only valid in client mode"):
+            ep.patch("/modify", data={"field": "new"})
+
+    @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "true"})
+    def test_get_without_data_ok(self):
+        ep = Endpoint(name="test")
+        decorator = ep.get("/health")
+        assert callable(decorator)
+
+    def test_client_mode_post_with_data_ok(self):
+        ep = Endpoint(id="ep-123")
+        # client mode should accept data without error
+        result = ep.post("/predict", data={"prompt": "hello"})
+        # returns a coroutine in client mode
+        import asyncio
+
+        assert asyncio.iscoroutine(result)
+        result.close()
+
+
+# -- _normalize_gpu / _normalize_cpu error paths --
+
+
+class TestNormalizeGpuCpu:
+    def test_normalize_gpu_invalid_type_raises(self):
+        with pytest.raises(ValueError, match="gpu must be"):
+            from runpod_flash.endpoint import _normalize_gpu
+
+            _normalize_gpu("string")
+
+    def test_normalize_cpu_invalid_type_raises(self):
+        with pytest.raises(ValueError, match="cpu must be"):
+            from runpod_flash.endpoint import _normalize_cpu
+
+            _normalize_cpu(12345)
+
+    def test_normalize_gpu_none(self):
+        from runpod_flash.endpoint import _normalize_gpu
+
+        assert _normalize_gpu(None) is None
+
+    def test_normalize_cpu_none(self):
+        from runpod_flash.endpoint import _normalize_cpu
+
+        assert _normalize_cpu(None) is None
+
+    def test_normalize_cpu_string(self):
+        from runpod_flash.endpoint import _normalize_cpu
+
+        result = _normalize_cpu("cpu3c-1-2")
+        assert result == [CpuInstanceType("cpu3c-1-2")]
+
+    def test_normalize_gpu_single_to_list(self):
+        from runpod_flash.endpoint import _normalize_gpu
+
+        result = _normalize_gpu(GpuType.ANY)
+        assert result == [GpuType.ANY]
+
+
+# -- _is_live_provisioning --
+
+
+class TestIsLiveProvisioning:
+    @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "true"}, clear=False)
+    def test_explicit_true(self):
+        from runpod_flash.endpoint import _is_live_provisioning
+
+        assert _is_live_provisioning() is True
+
+    @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "false"}, clear=False)
+    def test_explicit_false(self):
+        from runpod_flash.endpoint import _is_live_provisioning
+
+        assert _is_live_provisioning() is False
+
+    @patch.dict(os.environ, {}, clear=True)
+    def test_defaults_to_live_when_no_env(self):
+        from runpod_flash.endpoint import _is_live_provisioning
+
+        assert _is_live_provisioning() is True
+
+    @patch.dict(
+        os.environ,
+        {"RUNPOD_ENDPOINT_ID": "ep-123"},
+        clear=True,
+    )
+    def test_defaults_to_deploy_when_endpoint_id_set(self):
+        from runpod_flash.endpoint import _is_live_provisioning
+
+        assert _is_live_provisioning() is False
+
+    @patch.dict(
+        os.environ,
+        {"RUNPOD_POD_ID": "pod-456"},
+        clear=True,
+    )
+    def test_defaults_to_deploy_when_pod_id_set(self):
+        from runpod_flash.endpoint import _is_live_provisioning
+
+        assert _is_live_provisioning() is False
