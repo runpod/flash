@@ -284,7 +284,14 @@ class TestCreateResourceFromManifest:
             "makes_remote_calls": True,
         }
 
-        with patch.dict(os.environ, {"RUNPOD_ENDPOINT_ID": "endpoint-123"}, clear=True):
+        with patch.dict(
+            os.environ,
+            {
+                "RUNPOD_ENDPOINT_ID": "endpoint-123",
+                "RUNPOD_CREDENTIALS_FILE": "/dev/null/nonexistent",
+            },
+            clear=True,
+        ):
             resource = create_resource_from_manifest(resource_name, resource_data)
 
             assert "RUNPOD_API_KEY" not in resource.env

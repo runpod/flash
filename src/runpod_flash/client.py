@@ -5,6 +5,7 @@ from functools import wraps
 from typing import Any, List, Optional
 
 from .core.resources import LoadBalancerSlsResource, ResourceManager, ServerlessResource
+from .core.resources.serverless import ServerlessType
 from .execute_class import create_remote_class
 from .stubs import stub_resource
 
@@ -180,8 +181,13 @@ def remote(
     """
 
     def decorator(func_or_class):
-        # Validate HTTP routing parameters for LoadBalancerSlsResource
-        is_lb_resource = isinstance(resource_config, LoadBalancerSlsResource)
+        # Validate HTTP routing parameters for LoadBalancerSlsResource.
+        # check both isinstance and the type field to guard against class
+        # identity mismatches caused by module reloading in test environments.
+        is_lb_resource = (
+            isinstance(resource_config, LoadBalancerSlsResource)
+            or getattr(resource_config, "type", None) == ServerlessType.LB
+        )
 
         if is_lb_resource:
             if not method or not path:

@@ -314,7 +314,11 @@ class TestGraphQLSessionWithoutApiKey:
         from runpod_flash.core.api.runpod import RunpodGraphQLClient
 
         # Ensure no API key is discoverable from env or credentials file
-        with patch.dict(os.environ, {}, clear=True):
+        with patch.dict(
+            os.environ,
+            {"RUNPOD_CREDENTIALS_FILE": "/dev/null/nonexistent"},
+            clear=True,
+        ):
             client = RunpodGraphQLClient(require_api_key=False)
             assert client.api_key is None
 
