@@ -117,12 +117,15 @@ class TestFileLocking:
         assert len(results) == 3
         assert all(data == b"test data" for data in results)
 
-    def test_exclusive_lock_timeout_on_contention(self):
+    def test_exclusive_lock_timeout_on_contention(self, monkeypatch):
         """Test the retry/timeout logic of file_lock directly.
 
         Instead of using real OS locks with threads (which can deadlock under
         xdist), we test the retry loop by importing and calling file_lock's
         internal logic with a mock that always fails.
+
+        Uses monkeypatch instead of try/finally so attrs are restored even
+        if the 30s test timeout kills the test mid-sleep.
         """
         import runpod_flash.core.utils.file_lock as fl_module
 
@@ -132,32 +135,21 @@ class TestFileLocking:
         def always_fail(fh, exc):
             raise OSError("Resource temporarily unavailable")
 
-        # Directly test the retry/timeout logic: if acquire always raises
-        # OSError, file_lock should eventually raise FileLockTimeout
+        monkeypatch.setattr(fl_module, "_acquire_unix_lock", always_fail)
+        monkeypatch.setattr(fl_module, "_IS_UNIX", True)
+        monkeypatch.setattr(fl_module, "_UNIX_LOCKING_AVAILABLE", True)
+
         with open(lock_test_file, "rb") as f:
             start = time.monotonic()
             with pytest.raises(fl_module.FileLockTimeout, match="Could not acquire"):
-                # Temporarily replace the acquire function
-                original = fl_module._acquire_unix_lock
-                fl_module._acquire_unix_lock = always_fail
-                # Also ensure we take the unix path
-                orig_is_unix = fl_module._IS_UNIX
-                orig_avail = fl_module._UNIX_LOCKING_AVAILABLE
-                fl_module._IS_UNIX = True
-                fl_module._UNIX_LOCKING_AVAILABLE = True
-                try:
-                    with fl_module.file_lock(
-                        f, exclusive=True, timeout=0.3, retry_interval=0.05
-                    ):
-                        pass
-                finally:
-                    fl_module._acquire_unix_lock = original
-                    fl_module._IS_UNIX = orig_is_unix
-                    fl_module._UNIX_LOCKING_AVAILABLE = orig_avail
+                with fl_module.file_lock(
+                    f, exclusive=True, timeout=0.3, retry_interval=0.05
+                ):
+                    pass
             elapsed = time.monotonic() - start
             assert elapsed >= 0.2  # Should have retried for ~0.3s
 
-    def test_retry_then_succeed(self):
+    def test_retry_then_succeed(self, monkeypatch):
         """Test that file_lock retries and succeeds after transient failures."""
         import runpod_flash.core.utils.file_lock as fl_module
 
@@ -165,8 +157,6 @@ class TestFileLocking:
         lock_file.write_bytes(b"retry test")
 
         call_count = 0
-        original_acquire = fl_module._acquire_unix_lock
-        original_release = fl_module._release_unix_lock
 
         def fail_then_succeed(fh, exc):
             nonlocal call_count
@@ -175,28 +165,21 @@ class TestFileLocking:
                 raise OSError("Resource temporarily unavailable")
             # 4th call: succeed (do nothing)
 
-        orig_is_unix = fl_module._IS_UNIX
-        orig_avail = fl_module._UNIX_LOCKING_AVAILABLE
-        fl_module._IS_UNIX = True
-        fl_module._UNIX_LOCKING_AVAILABLE = True
-        fl_module._acquire_unix_lock = fail_then_succeed
-        fl_module._release_unix_lock = lambda fh: None
-        try:
-            with open(lock_file, "rb") as f:
-                with fl_module.file_lock(
-                    f, exclusive=True, timeout=5.0, retry_interval=0.05
-                ):
-                    data = f.read()
-                    assert data == b"retry test"
-        finally:
-            fl_module._acquire_unix_lock = original_acquire
-            fl_module._release_unix_lock = original_release
-            fl_module._IS_UNIX = orig_is_unix
-            fl_module._UNIX_LOCKING_AVAILABLE = orig_avail
+        monkeypatch.setattr(fl_module, "_IS_UNIX", True)
+        monkeypatch.setattr(fl_module, "_UNIX_LOCKING_AVAILABLE", True)
+        monkeypatch.setattr(fl_module, "_acquire_unix_lock", fail_then_succeed)
+        monkeypatch.setattr(fl_module, "_release_unix_lock", lambda fh: None)
+
+        with open(lock_file, "rb") as f:
+            with fl_module.file_lock(
+                f, exclusive=True, timeout=5.0, retry_interval=0.05
+            ):
+                data = f.read()
+                assert data == b"retry test"
 
         assert call_count == 4  # 3 failures + 1 success
 
-    def test_timeout_expires_before_lock_acquired(self):
+    def test_timeout_expires_before_lock_acquired(self, monkeypatch):
         """Test that FileLockTimeout is raised when timeout expires."""
         import runpod_flash.core.utils.file_lock as fl_module
 
@@ -206,23 +189,16 @@ class TestFileLocking:
         def always_fail(fh, exc):
             raise OSError("Resource temporarily unavailable")
 
-        original_acquire = fl_module._acquire_unix_lock
-        orig_is_unix = fl_module._IS_UNIX
-        orig_avail = fl_module._UNIX_LOCKING_AVAILABLE
-        fl_module._IS_UNIX = True
-        fl_module._UNIX_LOCKING_AVAILABLE = True
-        fl_module._acquire_unix_lock = always_fail
-        try:
-            with pytest.raises(fl_module.FileLockTimeout):
-                with open(lock_file, "rb") as f:
-                    with fl_module.file_lock(
-                        f, exclusive=True, timeout=0.2, retry_interval=0.05
-                    ):
-                        pass
-        finally:
-            fl_module._acquire_unix_lock = original_acquire
-            fl_module._IS_UNIX = orig_is_unix
-            fl_module._UNIX_LOCKING_AVAILABLE = orig_avail
+        monkeypatch.setattr(fl_module, "_IS_UNIX", True)
+        monkeypatch.setattr(fl_module, "_UNIX_LOCKING_AVAILABLE", True)
+        monkeypatch.setattr(fl_module, "_acquire_unix_lock", always_fail)
+
+        with pytest.raises(fl_module.FileLockTimeout):
+            with open(lock_file, "rb") as f:
+                with fl_module.file_lock(
+                    f, exclusive=True, timeout=0.2, retry_interval=0.05
+                ):
+                    pass
 
     def test_file_lock_with_write_operations(self):
         """Test file locking with write operations."""
