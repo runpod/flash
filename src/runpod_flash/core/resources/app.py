@@ -463,8 +463,6 @@ class FlashApp:
         except json.JSONDecodeError as e:
             raise ValueError(f"Invalid manifest JSON at {manifest_path}: {e}") from e
 
-        from runpod_flash.core.utils.http import get_authenticated_requests_session
-
         await self._hydrate()
         tarball_size = tar_path.stat().st_size
 

@@ -268,6 +268,152 @@ class TestFlashAppUploadBuild:
             with pytest.raises(ValueError, match="Invalid manifest JSON"):
                 await app.upload_build(tar_path)
 
+    @pytest.mark.asyncio
+    async def test_upload_does_not_send_authorization_header(self, tmp_path):
+        """Presigned URL upload must not include Authorization header.
+
+        R2/S3 presigned URLs carry auth in query params; an Authorization
+        header causes the provider to reject the request.
+        """
+        tar_path = tmp_path / "build.tar.gz"
+        with gzip.open(tar_path, "wb") as f:
+            f.write(b"tarball content")
+
+        manifest_dir = tmp_path / ".flash"
+        manifest_dir.mkdir()
+        (manifest_dir / "flash_manifest.json").write_text('{"version": "1.0"}')
+
+        app = FlashApp("my-app", id="app-1")
+        app._hydrated = True
+
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.close = MagicMock()
+
+        with (
+            patch("runpod_flash.core.resources.app.Path.cwd", return_value=tmp_path),
+            patch.object(
+                app,
+                "_get_tarball_upload_url",
+                new_callable=AsyncMock,
+                return_value={
+                    "uploadUrl": "https://r2.example.com/presigned?token=abc",
+                    "objectKey": "builds/obj-123",
+                },
+            ),
+            patch(
+                "requests.put",
+                return_value=mock_resp,
+            ) as mock_put,
+            patch.object(
+                app,
+                "_finalize_upload_build",
+                new_callable=AsyncMock,
+                return_value={"status": "ok"},
+            ),
+        ):
+            await app.upload_build(tar_path)
+
+            mock_put.assert_called_once()
+            _, kwargs = mock_put.call_args
+            headers = kwargs["headers"]
+            assert "Authorization" not in headers
+
+    @pytest.mark.asyncio
+    async def test_upload_sends_correct_headers(self, tmp_path):
+        """Upload must include User-Agent and Content-Type headers."""
+        tar_path = tmp_path / "build.tar.gz"
+        with gzip.open(tar_path, "wb") as f:
+            f.write(b"tarball content")
+
+        manifest_dir = tmp_path / ".flash"
+        manifest_dir.mkdir()
+        (manifest_dir / "flash_manifest.json").write_text('{"version": "1.0"}')
+
+        app = FlashApp("my-app", id="app-1")
+        app._hydrated = True
+
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.close = MagicMock()
+
+        with (
+            patch("runpod_flash.core.resources.app.Path.cwd", return_value=tmp_path),
+            patch.object(
+                app,
+                "_get_tarball_upload_url",
+                new_callable=AsyncMock,
+                return_value={
+                    "uploadUrl": "https://r2.example.com/presigned",
+                    "objectKey": "builds/obj-456",
+                },
+            ),
+            patch(
+                "requests.put",
+                return_value=mock_resp,
+            ) as mock_put,
+            patch.object(
+                app,
+                "_finalize_upload_build",
+                new_callable=AsyncMock,
+                return_value={"status": "ok"},
+            ),
+        ):
+            await app.upload_build(tar_path)
+
+            _, kwargs = mock_put.call_args
+            headers = kwargs["headers"]
+            assert headers["Content-Type"] == "application/gzip"
+            assert "User-Agent" in headers
+
+    @pytest.mark.asyncio
+    async def test_upload_puts_to_presigned_url(self, tmp_path):
+        """Upload must PUT tarball data to the presigned URL."""
+        tar_path = tmp_path / "build.tar.gz"
+        with gzip.open(tar_path, "wb") as f:
+            f.write(b"tarball content")
+
+        manifest_dir = tmp_path / ".flash"
+        manifest_dir.mkdir()
+        (manifest_dir / "flash_manifest.json").write_text('{"version": "1.0"}')
+
+        app = FlashApp("my-app", id="app-1")
+        app._hydrated = True
+
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.close = MagicMock()
+
+        presigned_url = "https://r2.example.com/bucket/key?X-Amz-Signature=abc"
+
+        with (
+            patch("runpod_flash.core.resources.app.Path.cwd", return_value=tmp_path),
+            patch.object(
+                app,
+                "_get_tarball_upload_url",
+                new_callable=AsyncMock,
+                return_value={
+                    "uploadUrl": presigned_url,
+                    "objectKey": "builds/obj-789",
+                },
+            ),
+            patch(
+                "requests.put",
+                return_value=mock_resp,
+            ) as mock_put,
+            patch.object(
+                app,
+                "_finalize_upload_build",
+                new_callable=AsyncMock,
+                return_value={"status": "ok"},
+            ),
+        ):
+            await app.upload_build(tar_path)
+
+            args, kwargs = mock_put.call_args
+            assert args[0] == presigned_url
+            assert kwargs["data"] is not None
+
 
 class TestFlashAppEnvironment:
     """Test environment-related methods."""
