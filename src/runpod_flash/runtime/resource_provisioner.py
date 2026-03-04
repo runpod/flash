@@ -114,6 +114,15 @@ def create_resource_from_manifest(
     if "workersMax" in resource_data:
         deployment_kwargs["workersMax"] = resource_data["workersMax"]
 
+    # Reconstruct NetworkVolume from manifest data if present
+    if "networkVolume" in resource_data:
+        from runpod_flash.core.resources.network_volume import NetworkVolume
+
+        nv_data = resource_data["networkVolume"]
+        deployment_kwargs["networkVolume"] = NetworkVolume(**nv_data)
+    elif "networkVolumeId" in resource_data:
+        deployment_kwargs["networkVolumeId"] = resource_data["networkVolumeId"]
+
     # Note: template is extracted but not passed to resource constructor
     # Let resources create their own templates with proper initialization
     # Templates are created by resource's _create_new_template() method
