@@ -472,17 +472,24 @@ class FlashApp:
         url = result["uploadUrl"]
         object_key = result["objectKey"]
 
-        with get_authenticated_requests_session() as session:
-            # Override Content-Type for tarball upload
-            session.headers["Content-Type"] = TARBALL_CONTENT_TYPE
+        # presigned URLs already carry auth in query params, so an
+        # Authorization header causes R2/S3 to reject the request.
+        import requests as _requests
 
-            with tar_path.open("rb") as fh:
-                resp = session.put(url, data=fh)
+        from runpod_flash.core.utils.user_agent import get_user_agent
 
-            try:
-                resp.raise_for_status()
-            finally:
-                resp.close()
+        upload_headers = {
+            "User-Agent": get_user_agent(),
+            "Content-Type": TARBALL_CONTENT_TYPE,
+        }
+
+        with tar_path.open("rb") as fh:
+            resp = _requests.put(url, data=fh, headers=upload_headers)
+
+        try:
+            resp.raise_for_status()
+        finally:
+            resp.close()
         resp = await self._finalize_upload_build(object_key, manifest)
         return resp
 
