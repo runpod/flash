@@ -112,9 +112,16 @@ class TestWriteCache:
         _write_cache(cache_file, "1.0.0")
         assert cache_file.exists()
 
-    def test_silent_on_oserror(self):
+    def test_silent_on_oserror(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
         """Writing to an unwritable path does not raise."""
-        _write_cache(Path("/proc/nonexistent/cache.json"), "1.0.0")
+
+        def _raise_oserror(*args, **kwargs):
+            raise OSError("simulated write failure")
+
+        monkeypatch.setattr(Path, "write_text", _raise_oserror)
+
+        cache_file = tmp_path / "cache.json"
+        _write_cache(cache_file, "1.0.0")
 
 
 # ---------------------------------------------------------------------------
@@ -284,6 +291,8 @@ class TestPrintUpdateNotice:
         captured = capsys.readouterr()
         assert "2.0.0" in captured.err
         assert "flash update" in captured.err
+        # Version and instruction should be on separate lines
+        assert "\n" in captured.err.strip()
 
     def test_silent_when_no_update(self, capsys: pytest.CaptureFixture[str]):
         update_checker._newer_version = None

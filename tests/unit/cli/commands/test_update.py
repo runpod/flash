@@ -9,6 +9,7 @@ import typer
 
 from runpod_flash.cli.commands.update import (
     _build_install_command,
+    _compare_versions,
     _fetch_pypi_metadata,
     _get_current_version,
     _parse_version,
@@ -55,6 +56,33 @@ class TestParseVersion:
     def test_invalid_raises(self):
         with pytest.raises(ValueError):
             _parse_version("not.a.version")
+
+
+class TestCompareVersions:
+    def test_equal_same_length(self):
+        assert _compare_versions((1, 5, 0), (1, 5, 0)) == 0
+
+    def test_equal_different_length(self):
+        """Core edge case: (2, 0) and (2, 0, 0) are semantically equal."""
+        assert _compare_versions((2, 0), (2, 0, 0)) == 0
+
+    def test_less_than(self):
+        assert _compare_versions((1, 4, 0), (1, 5, 0)) < 0
+
+    def test_greater_than(self):
+        assert _compare_versions((2, 0, 0), (1, 9, 9)) > 0
+
+    def test_shorter_tuple_less(self):
+        assert _compare_versions((1, 9), (1, 9, 1)) < 0
+
+    def test_shorter_tuple_greater(self):
+        assert _compare_versions((2, 1), (2, 0, 0)) > 0
+
+    def test_empty_tuples(self):
+        assert _compare_versions((), ()) == 0
+
+    def test_one_empty(self):
+        assert _compare_versions((), (1,)) < 0
 
 
 class TestFetchPypiMetadata:
