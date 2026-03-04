@@ -423,6 +423,13 @@ class Endpoint:
         is_cpu = self._is_cpu
         live = _is_live_provisioning()
 
+        # in a deployed worker, the resource config is only used as a
+        # passthrough to remote() which resolves the function locally or
+        # via the manifest. use the Live* classes which accept bare
+        # name+gpu config without requiring imageName/template.
+        if not live and (os.getenv("RUNPOD_ENDPOINT_ID") or os.getenv("RUNPOD_POD_ID")):
+            live = True
+
         # build common kwargs
         kwargs: Dict[str, Any] = {
             "name": self.name,
@@ -638,23 +645,38 @@ class Endpoint:
 
     # -- client methods (image= or id= mode) --
 
-    async def _ensure_endpoint_ready(self) -> str:
+    def _resolve_qb_url(self, endpoint_id: str) -> str:
+        """build a QB-style url: {base}/v2/{id}"""
+        import runpod
+
+        return f"{runpod.endpoint_url_base}/{endpoint_id}"
+
+    def _resolve_lb_url(self, endpoint_id: str) -> str:
+        """build an LB-style url: https://{id}.{domain}"""
+        from .core.resources.constants import ENDPOINT_DOMAIN
+
+        return f"https://{endpoint_id}.{ENDPOINT_DOMAIN}"
+
+    async def _ensure_endpoint_ready(self, *, lb: bool = False) -> str:
         """ensure the endpoint is provisioned and return its base url.
 
         for id= mode: resolves the endpoint url from the id directly.
         for image= mode: provisions via ResourceManager, then returns url.
 
-        caches the resolved url for subsequent calls.
+        args:
+            lb: if True, return the LB-style subdomain url
+                (https://{id}.api.runpod.ai) instead of the QB-style
+                path url (https://api.runpod.ai/v2/{id}).
         """
-        if self._endpoint_url is not None:
-            return self._endpoint_url
-
+        # for id= mode, always resolve fresh based on lb flag since
+        # the same endpoint object might be used for both QB and LB calls
         if self.id is not None:
-            # pure client mode: build url from endpoint id
-            import runpod
+            if lb:
+                return self._resolve_lb_url(self.id)
+            return self._resolve_qb_url(self.id)
 
-            base = runpod.endpoint_url_base
-            self._endpoint_url = f"{base}/{self.id}"
+        # for image= mode, use cached result
+        if self._endpoint_url is not None:
             return self._endpoint_url
 
         # image= mode: provision and deploy, then extract url
@@ -663,13 +685,15 @@ class Endpoint:
 
         resource_manager = ResourceManager()
         deployed = await resource_manager.get_or_deploy_resource(resource_config)
+        deployed_id = getattr(deployed, "id", None)
+
         if hasattr(deployed, "endpoint_url") and deployed.endpoint_url:
             self._endpoint_url = deployed.endpoint_url
-        elif hasattr(deployed, "id") and deployed.id:
-            import runpod
-
-            base = runpod.endpoint_url_base
-            self._endpoint_url = f"{base}/{deployed.id}"
+        elif deployed_id:
+            if lb:
+                self._endpoint_url = self._resolve_lb_url(deployed_id)
+            else:
+                self._endpoint_url = self._resolve_qb_url(deployed_id)
         else:
             raise RuntimeError(
                 f"endpoint '{self.name}' was deployed but has no endpoint url or id"
@@ -726,9 +750,9 @@ class Endpoint:
     ) -> Any:
         """make an HTTP request to a deployed LB endpoint.
 
-        for LB endpoints this sends a request to the endpoint's base url + path.
+        uses the LB-style subdomain url (https://{id}.api.runpod.ai).
         """
-        url = await self._ensure_endpoint_ready()
+        url = await self._ensure_endpoint_ready(lb=True)
         full_url = f"{url}{path}"
         timeout = kwargs.pop("timeout", 60.0)
 

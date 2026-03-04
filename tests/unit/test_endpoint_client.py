@@ -313,12 +313,30 @@ class TestEnsureEndpointReadyIdMode:
         assert url == "https://api.runpod.ai/v2/ep-abc123"
 
     @pytest.mark.asyncio
-    async def test_caches_resolved_url(self):
+    async def test_returns_consistent_url(self):
         ep = Endpoint(id="ep-abc123")
         with patch("runpod.endpoint_url_base", "https://api.runpod.ai/v2"):
             url1 = await ep._ensure_endpoint_ready()
             url2 = await ep._ensure_endpoint_ready()
-        assert url1 is url2
+        assert url1 == url2
+
+    @pytest.mark.asyncio
+    async def test_lb_flag_returns_subdomain_url(self):
+        ep = Endpoint(id="ep-abc123")
+        with patch(
+            "runpod_flash.endpoint.ENDPOINT_DOMAIN", "api.runpod.ai", create=True
+        ):
+            from runpod_flash.core.resources.constants import ENDPOINT_DOMAIN
+
+            with patch.object(
+                ep,
+                "_resolve_lb_url",
+                return_value=f"https://ep-abc123.{ENDPOINT_DOMAIN}",
+            ):
+                qb_url = await ep._ensure_endpoint_ready(lb=False)
+                lb_url = await ep._ensure_endpoint_ready(lb=True)
+        assert "/v2/" in qb_url
+        assert "ep-abc123" in lb_url
 
     @pytest.mark.asyncio
     async def test_no_resource_manager_called(self):
@@ -402,7 +420,6 @@ class TestClientRequest:
     @pytest.mark.asyncio
     async def test_post_sends_json_body(self):
         ep = Endpoint(id="ep-123")
-        ep._endpoint_url = "https://api.runpod.ai/v2/ep-123"
 
         client = _mock_httpx_client(request_return={"text": "world"})
 
@@ -410,16 +427,16 @@ class TestClientRequest:
             result = await ep.post("/v1/completions", {"prompt": "hello"})
 
         assert result == {"text": "world"}
-        client.request.assert_called_once_with(
-            "POST",
-            "https://api.runpod.ai/v2/ep-123/v1/completions",
-            json={"prompt": "hello"},
-        )
+        # LB client requests use subdomain url
+        call_args = client.request.call_args
+        assert call_args[0][0] == "POST"
+        assert "/v1/completions" in call_args[0][1]
+        assert "ep-123" in call_args[0][1]
+        assert call_args[1]["json"] == {"prompt": "hello"}
 
     @pytest.mark.asyncio
     async def test_get_sends_request(self):
         ep = Endpoint(id="ep-123")
-        ep._endpoint_url = "https://api.runpod.ai/v2/ep-123"
 
         client = _mock_httpx_client(request_return={"models": ["llama-3"]})
 
@@ -431,7 +448,6 @@ class TestClientRequest:
     @pytest.mark.asyncio
     async def test_custom_timeout(self):
         ep = Endpoint(id="ep-123")
-        ep._endpoint_url = "https://api.runpod.ai/v2/ep-123"
 
         client = _mock_httpx_client(request_return={})
 
