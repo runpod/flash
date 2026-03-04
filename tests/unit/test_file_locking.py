@@ -108,6 +108,8 @@ class TestFileLocking:
         under xdist).
         """
         with (
+            patch("runpod_flash.core.utils.file_lock._IS_UNIX", True),
+            patch("runpod_flash.core.utils.file_lock._UNIX_LOCKING_AVAILABLE", True),
             patch(
                 "runpod_flash.core.utils.file_lock._acquire_unix_lock"
             ) as mock_acquire,
@@ -138,6 +140,8 @@ class TestFileLocking:
         lock_test_file.write_bytes(b"exclusive test")
 
         with (
+            patch("runpod_flash.core.utils.file_lock._IS_UNIX", True),
+            patch("runpod_flash.core.utils.file_lock._UNIX_LOCKING_AVAILABLE", True),
             patch(
                 "runpod_flash.core.utils.file_lock._acquire_unix_lock",
                 side_effect=OSError("Resource temporarily unavailable"),
@@ -168,6 +172,8 @@ class TestFileLocking:
             # 4th call succeeds
 
         with (
+            patch("runpod_flash.core.utils.file_lock._IS_UNIX", True),
+            patch("runpod_flash.core.utils.file_lock._UNIX_LOCKING_AVAILABLE", True),
             patch(
                 "runpod_flash.core.utils.file_lock._acquire_unix_lock",
                 side_effect=fail_then_succeed,
@@ -187,6 +193,8 @@ class TestFileLocking:
         lock_file.write_bytes(b"timeout expire test")
 
         with (
+            patch("runpod_flash.core.utils.file_lock._IS_UNIX", True),
+            patch("runpod_flash.core.utils.file_lock._UNIX_LOCKING_AVAILABLE", True),
             patch(
                 "runpod_flash.core.utils.file_lock._acquire_unix_lock",
                 side_effect=OSError("Resource temporarily unavailable"),
