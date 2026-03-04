@@ -163,9 +163,7 @@ def _normalize_workers(
     if min_w < 0 or max_w < 0:
         raise ValueError(f"workers cannot be negative: ({min_w}, {max_w})")
     if min_w > max_w:
-        raise ValueError(
-            f"workers min ({min_w}) cannot exceed max ({max_w})"
-        )
+        raise ValueError(f"workers min ({min_w}) cannot exceed max ({max_w})")
     return (min_w, max_w)
 
 
