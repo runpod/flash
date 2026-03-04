@@ -175,6 +175,29 @@ class ManifestBuilder:
                         if env_dict:
                             config["env"] = env_dict
 
+                    # Extract networkVolume configuration if present
+                    if (
+                        hasattr(resource_config, "networkVolume")
+                        and resource_config.networkVolume
+                    ):
+                        nv = resource_config.networkVolume
+                        nv_config = {"name": nv.name}
+                        if nv.size is not None:
+                            nv_config["size"] = nv.size
+                        if hasattr(nv, "dataCenterId") and nv.dataCenterId is not None:
+                            nv_config["dataCenterId"] = (
+                                nv.dataCenterId.value
+                                if hasattr(nv.dataCenterId, "value")
+                                else nv.dataCenterId
+                            )
+                        config["networkVolume"] = nv_config
+
+                    elif (
+                        hasattr(resource_config, "networkVolumeId")
+                        and resource_config.networkVolumeId
+                    ):
+                        config["networkVolumeId"] = resource_config.networkVolumeId
+
                     # Extract template configuration if present
                     if (
                         hasattr(resource_config, "template")

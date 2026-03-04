@@ -329,7 +329,13 @@ class TestCreateResourceFromManifest:
             "makes_remote_calls": True,
         }
 
-        with patch.dict(os.environ, {"RUNPOD_ENDPOINT_ID": "endpoint-123"}, clear=True):
+        with (
+            patch.dict(os.environ, {"RUNPOD_ENDPOINT_ID": "endpoint-123"}, clear=True),
+            patch(
+                "runpod_flash.core.credentials.get_api_key",
+                return_value=None,
+            ),
+        ):
             resource = create_resource_from_manifest(resource_name, resource_data)
 
             assert "RUNPOD_API_KEY" not in resource.env
@@ -370,3 +376,63 @@ class TestCreateResourceFromManifest:
             resource = create_resource_from_manifest(resource_name, resource_data)
 
             assert resource.env["RUNPOD_API_KEY"] == "manifest-key"
+
+    def test_create_resource_reconstructs_network_volume(self):
+        """NetworkVolume is reconstructed from manifest networkVolume data."""
+        from runpod_flash.core.resources.network_volume import NetworkVolume
+
+        resource_name = "gpu_worker"
+        resource_data = {
+            "resource_type": "LiveServerless",
+            "imageName": "runpod/flash:latest",
+            "networkVolume": {
+                "name": "my-volume",
+                "size": 200,
+                "dataCenterId": "EU-RO-1",
+            },
+        }
+
+        with patch.dict(os.environ, {"RUNPOD_ENDPOINT_ID": "endpoint-123"}):
+            resource = create_resource_from_manifest(resource_name, resource_data)
+
+            assert resource.networkVolume is not None
+            assert isinstance(resource.networkVolume, NetworkVolume)
+            assert resource.networkVolume.name == "my-volume"
+            assert resource.networkVolume.size == 200
+            assert resource.networkVolume.dataCenterId.value == "EU-RO-1"
+
+    def test_create_resource_passes_network_volume_id(self):
+        """networkVolumeId is passed when no full networkVolume object."""
+        resource_name = "gpu_worker"
+        resource_data = {
+            "resource_type": "LiveServerless",
+            "imageName": "runpod/flash:latest",
+            "networkVolumeId": "vol_abc123",
+        }
+
+        with patch.dict(os.environ, {"RUNPOD_ENDPOINT_ID": "endpoint-123"}):
+            resource = create_resource_from_manifest(resource_name, resource_data)
+
+            assert resource.networkVolumeId == "vol_abc123"
+            assert resource.networkVolume is None
+
+    def test_create_resource_network_volume_takes_precedence_over_id(self):
+        """networkVolume object takes precedence when both are present."""
+        from runpod_flash.core.resources.network_volume import NetworkVolume
+
+        resource_name = "gpu_worker"
+        resource_data = {
+            "resource_type": "LiveServerless",
+            "imageName": "runpod/flash:latest",
+            "networkVolume": {
+                "name": "my-volume",
+            },
+            "networkVolumeId": "vol_should_be_ignored",
+        }
+
+        with patch.dict(os.environ, {"RUNPOD_ENDPOINT_ID": "endpoint-123"}):
+            resource = create_resource_from_manifest(resource_name, resource_data)
+
+            assert resource.networkVolume is not None
+            assert isinstance(resource.networkVolume, NetworkVolume)
+            assert resource.networkVolume.name == "my-volume"

@@ -423,12 +423,10 @@ async def test_deploy_fails_when_api_key_missing_for_remote_calls(tmp_path):
     app = AsyncMock()
     app.get_build_manifest = AsyncMock(return_value={})
 
-    with patch.dict("os.environ", {}, clear=True):
-        # Ensure RUNPOD_API_KEY is not set
-        import os
-
-        os.environ.pop("RUNPOD_API_KEY", None)
-
+    with (
+        patch.dict("os.environ", {}, clear=True),
+        patch("runpod_flash.core.credentials.get_api_key", return_value=None),
+    ):
         with pytest.raises(ValueError) as exc_info:
             await reconcile_and_provision_resources(
                 app, "build-123", "dev", local_manifest

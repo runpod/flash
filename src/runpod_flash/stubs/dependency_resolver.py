@@ -7,8 +7,10 @@ dispatch stubs so funcB resolves correctly inside the worker's exec() namespace.
 
 import ast
 import importlib
+import importlib.util
 import inspect
 import logging
+import os
 from dataclasses import dataclass
 from typing import Any
 
@@ -71,6 +73,12 @@ def resolve_in_function_imports(
     import each module, and checks every imported name for ``__remote_config__``.
     Names that are already present in *func_globals* are not overwritten.
 
+    Sibling modules (files next to the calling function's source file) are loaded
+    via ``importlib.util.spec_from_file_location`` without registering in
+    ``sys.modules``, preventing cross-project cache pollution.  Non-sibling
+    modules (installed packages) fall back to ``importlib.import_module``,
+    which uses the standard ``sys.modules`` cache.
+
     This is safe because it runs on the developer's local machine where the
     imported modules are available — the worker never executes this function.
 
@@ -86,14 +94,17 @@ def resolve_in_function_imports(
     tree = ast.parse(source)
     discovered: dict[str, Any] = {}
 
+    source_file = func_globals.get("__file__")
+    source_dir: str | None = None
+    if source_file:
+        source_dir = os.path.dirname(os.path.abspath(source_file))
+
     for node in ast.walk(tree):
         if not isinstance(node, ast.ImportFrom) or node.module is None:
             continue
 
-        try:
-            mod = importlib.import_module(node.module)
-        except Exception:
-            log.debug("Skipping unimportable module %s", node.module)
+        mod = _import_module(node.module, source_dir)
+        if mod is None:
             continue
 
         for alias in node.names:
@@ -114,6 +125,67 @@ def resolve_in_function_imports(
 
     augmented = {**func_globals, **discovered}
     return augmented
+
+
+def _import_module(module_name: str, source_dir: str | None) -> Any:
+    """Import a module, preferring file-based loading for sibling modules.
+
+    When *source_dir* is provided and a corresponding ``.py`` file exists,
+    the module is loaded via ``spec_from_file_location`` **without** registering
+    in ``sys.modules``.  This avoids cross-project cache pollution and
+    eliminates process-global ``sys.path`` mutation.
+
+    If a sibling file exists but fails to load, the function returns ``None``
+    rather than falling through to ``importlib.import_module`` — the developer
+    intended to use the sibling file, so loading a different module with the
+    same name from an installed package would be incorrect.
+
+    Falls back to ``importlib.import_module`` only when no sibling file is
+    found (or no *source_dir* is provided).  Only ``.py`` files are resolved
+    as siblings, not package directories.
+
+    Args:
+        module_name: Dotted module name (e.g. ``"cpu_worker"`` or ``"workers.cpu"``).
+        source_dir: Directory of the calling function's source file, or ``None``.
+
+    Returns:
+        The imported module, or ``None`` if the import fails with
+        ``ImportError`` or ``ModuleNotFoundError``.  Other exceptions
+        (e.g. ``SyntaxError`` in the loaded module) propagate to the caller.
+    """
+    # Try sibling file-based import first
+    if source_dir:
+        rel_path = module_name.replace(".", os.sep) + ".py"
+        candidate = os.path.join(source_dir, rel_path)
+        if os.path.isfile(candidate):
+            try:
+                spec = importlib.util.spec_from_file_location(module_name, candidate)
+                if spec and spec.loader:
+                    mod = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(mod)
+                    return mod
+                log.warning(
+                    "spec_from_file_location returned unusable spec (spec=%s) for %s",
+                    spec,
+                    candidate,
+                )
+            except (ImportError, ModuleNotFoundError) as exc:
+                log.warning(
+                    "Sibling module %s exists at %s but failed to load: %s",
+                    module_name,
+                    candidate,
+                    exc,
+                )
+            # Sibling file exists but failed — do not fall through to
+            # importlib.import_module, which could load a different module.
+            return None
+
+    # Fallback to standard import for installed packages
+    try:
+        return importlib.import_module(module_name)
+    except (ImportError, ModuleNotFoundError):
+        log.debug("Skipping unimportable module %s", module_name)
+        return None
 
 
 def strip_remote_imports(source: str, remote_names: set[str]) -> str:
