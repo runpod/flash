@@ -9,7 +9,7 @@ from rich.console import Console
 from ..utils.app import discover_flash_project
 from ..utils.formatting import STATE_STYLE, format_datetime, state_dot
 
-from runpod_flash.core.resources.app import FlashApp
+from runpod_flash.core.resources.app import FlashApp, FlashAppNotFoundError
 
 console = Console()
 
@@ -91,7 +91,12 @@ def list_command(
 
 
 async def _list_environments(app_name: str):
-    app = await FlashApp.from_name(app_name)
+    try:
+        app = await FlashApp.from_name(app_name)
+    except FlashAppNotFoundError:
+        console.print(f"\nNo app named [bold]{app_name}[/bold] found.")
+        console.print("  Run [bold]flash deploy[/bold] to create one.\n")
+        return
     envs = await app.list_environments()
 
     if not envs:
