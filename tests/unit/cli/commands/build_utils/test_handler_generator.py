@@ -528,3 +528,184 @@ def test_validate_handler_rejects_syntax_errors():
 
         with pytest.raises(ValueError, match="Handler has syntax errors"):
             generator._validate_handler_imports(handler_path)
+
+
+# --- Tests for deployed class-based handler (is_class=True) ---
+
+
+def _make_class_manifest(
+    *, is_live_resource=False, class_methods=None, extra_resource_fields=None
+):
+    """Helper to create a manifest with a class-based @remote entry."""
+    func_entry = {
+        "name": "MyModel",
+        "module": "workers.model",
+        "is_async": False,
+        "is_class": True,
+    }
+    if class_methods is not None:
+        func_entry["class_methods"] = class_methods
+    resource = {
+        "resource_type": "Serverless",
+        "is_live_resource": is_live_resource,
+        "functions": [func_entry],
+    }
+    if extra_resource_fields:
+        resource.update(extra_resource_fields)
+    return {
+        "version": "1.0",
+        "generated_at": "2026-01-02T10:00:00Z",
+        "project_name": "test_app",
+        "resources": {"my_model_config": resource},
+    }
+
+
+def test_deployed_class_handler_creates_module_level_instance():
+    """Deployed class handler instantiates the class at module level."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        build_dir = Path(tmpdir)
+        manifest = _make_class_manifest()
+
+        generator = HandlerGenerator(manifest, build_dir)
+        handler_paths = generator.generate_handlers()
+        content = handler_paths[0].read_text()
+
+        assert "_instance = MyModel()" in content
+
+
+def test_deployed_class_handler_dispatches_to_method():
+    """Deployed class handler reads method_name from job input and dispatches."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        build_dir = Path(tmpdir)
+        manifest = _make_class_manifest()
+
+        generator = HandlerGenerator(manifest, build_dir)
+        handler_paths = generator.generate_handlers()
+        content = handler_paths[0].read_text()
+
+        # Handler should get method_name from input and call it on the instance
+        assert "method_name" in content
+        assert "getattr(_instance, method_name)" in content
+
+
+def test_deployed_class_handler_does_not_call_class_directly():
+    """Deployed class handler must NOT do MyModel(**job_input) — that's the bug."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        build_dir = Path(tmpdir)
+        manifest = _make_class_manifest()
+
+        generator = HandlerGenerator(manifest, build_dir)
+        handler_paths = generator.generate_handlers()
+        content = handler_paths[0].read_text()
+
+        # The broken pattern: calling the class as a function with job input
+        assert "MyModel(**job_input)" not in content
+
+
+def test_deployed_class_handler_excludes_method_name_from_kwargs():
+    """method_name must be stripped from kwargs before passing to the method."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        build_dir = Path(tmpdir)
+        manifest = _make_class_manifest()
+
+        generator = HandlerGenerator(manifest, build_dir)
+        handler_paths = generator.generate_handlers()
+        content = handler_paths[0].read_text()
+
+        # Should filter out method_name from the kwargs passed to the method
+        assert 'k != "method_name"' in content
+
+
+def test_deployed_class_handler_handles_async_methods():
+    """Deployed class handler handles coroutines from async methods."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        build_dir = Path(tmpdir)
+        manifest = _make_class_manifest()
+
+        generator = HandlerGenerator(manifest, build_dir)
+        handler_paths = generator.generate_handlers()
+        content = handler_paths[0].read_text()
+
+        assert "inspect.iscoroutine(result)" in content
+        assert "asyncio.run(result)" in content
+
+
+def test_deployed_class_handler_has_valid_syntax():
+    """Generated class handler must be valid Python (passes ast.parse)."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        build_dir = Path(tmpdir)
+        manifest = _make_class_manifest()
+
+        generator = HandlerGenerator(manifest, build_dir)
+        handler_paths = generator.generate_handlers()
+
+        # Should not raise — _validate_handler_imports uses ast.parse
+        assert handler_paths[0].exists()
+        import ast
+
+        ast.parse(handler_paths[0].read_text())
+
+
+def test_deployed_class_handler_has_runpod_start():
+    """Deployed class handler includes runpod.serverless.start."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        build_dir = Path(tmpdir)
+        manifest = _make_class_manifest()
+
+        generator = HandlerGenerator(manifest, build_dir)
+        handler_paths = generator.generate_handlers()
+        content = handler_paths[0].read_text()
+
+        assert 'runpod.serverless.start({"handler": handler})' in content
+
+
+def test_deployed_class_handler_imports_class():
+    """Deployed class handler imports the class via importlib."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        build_dir = Path(tmpdir)
+        manifest = _make_class_manifest()
+
+        generator = HandlerGenerator(manifest, build_dir)
+        handler_paths = generator.generate_handlers()
+        content = handler_paths[0].read_text()
+
+        assert "MyModel = importlib.import_module('workers.model').MyModel" in content
+
+
+def test_deployed_class_handler_single_method_defaults_to_that_method():
+    """Single public method class defaults method_name to that method (no method_name needed)."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        build_dir = Path(tmpdir)
+        manifest = _make_class_manifest(class_methods=["predict"])
+
+        generator = HandlerGenerator(manifest, build_dir)
+        handler_paths = generator.generate_handlers()
+        content = handler_paths[0].read_text()
+
+        assert 'method_name = job_input.get("method_name", "predict")' in content
+
+
+def test_deployed_class_handler_multi_method_defaults_to_call():
+    """Multi-method class defaults method_name to __call__ (requires explicit method_name)."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        build_dir = Path(tmpdir)
+        manifest = _make_class_manifest(class_methods=["predict", "embed"])
+
+        generator = HandlerGenerator(manifest, build_dir)
+        handler_paths = generator.generate_handlers()
+        content = handler_paths[0].read_text()
+
+        assert 'method_name = job_input.get("method_name", "__call__")' in content
+
+
+def test_deployed_class_handler_no_class_methods_defaults_to_call():
+    """Class with no class_methods metadata defaults to __call__."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        build_dir = Path(tmpdir)
+        manifest = _make_class_manifest()  # No class_methods
+
+        generator = HandlerGenerator(manifest, build_dir)
+        handler_paths = generator.generate_handlers()
+        content = handler_paths[0].read_text()
+
+        assert 'method_name = job_input.get("method_name", "__call__")' in content
