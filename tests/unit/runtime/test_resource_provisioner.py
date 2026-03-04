@@ -284,7 +284,13 @@ class TestCreateResourceFromManifest:
             "makes_remote_calls": True,
         }
 
-        with patch.dict(os.environ, {"RUNPOD_ENDPOINT_ID": "endpoint-123"}, clear=True):
+        with (
+            patch.dict(os.environ, {"RUNPOD_ENDPOINT_ID": "endpoint-123"}, clear=True),
+            patch(
+                "runpod_flash.core.credentials.get_api_key",
+                return_value=None,
+            ),
+        ):
             resource = create_resource_from_manifest(resource_name, resource_data)
 
             assert "RUNPOD_API_KEY" not in resource.env
