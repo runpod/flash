@@ -1,5 +1,6 @@
 """Tests for stubs/registry.py - singledispatch stub factory."""
 
+import importlib
 import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -15,6 +16,11 @@ from runpod_flash.core.resources import (
     ServerlessEndpoint,
 )
 from runpod_flash.stubs.registry import _create_live_serverless_stub, stub_resource
+
+
+def _fresh_registry():
+    """Get the current registry module from sys.modules to survive reloads."""
+    return importlib.import_module("runpod_flash.stubs.registry")
 
 
 @pytest.fixture(autouse=True)
@@ -79,15 +85,16 @@ class TestCreateLiveServerlessStub:
     @pytest.mark.asyncio
     async def test_function_execution_calls_stub(self):
         """Function execution calls prepare_request, ExecuteFunction, handle_response."""
+        reg = _fresh_registry()
         resource = LiveServerless(name="test")
 
-        with patch("runpod_flash.stubs.registry.LiveServerlessStub") as MockLSS:
+        with patch.object(reg, "LiveServerlessStub") as MockLSS:
             mock_instance = MockLSS.return_value
             mock_instance.prepare_request = AsyncMock(return_value="request")
             mock_instance.ExecuteFunction = AsyncMock(return_value="response")
             mock_instance.handle_response.return_value = {"result": 42}
 
-            stub = _create_live_serverless_stub(resource)
+            stub = reg._create_live_serverless_stub(resource)
 
             def my_func(x):
                 return x + 1
@@ -100,16 +107,17 @@ class TestCreateLiveServerlessStub:
     @pytest.mark.asyncio
     async def test_class_method_execution(self):
         """execute_class_method calls ExecuteFunction and handle_response."""
+        reg = _fresh_registry()
         resource = LiveServerless(name="test")
 
-        with patch("runpod_flash.stubs.registry.LiveServerlessStub") as MockLSS:
+        with patch.object(reg, "LiveServerlessStub") as MockLSS:
             mock_instance = MockLSS.return_value
             mock_instance.ExecuteFunction = AsyncMock(return_value="response")
             mock_instance.handle_response.return_value = {
                 "result": "class_method_result"
             }
 
-            stub = _create_live_serverless_stub(resource)
+            stub = reg._create_live_serverless_stub(resource)
 
             request = MagicMock()
             result = await stub.execute_class_method(request)
@@ -119,15 +127,16 @@ class TestCreateLiveServerlessStub:
     @pytest.mark.asyncio
     async def test_args_none_converted_to_empty(self):
         """When args is (None,), it should be converted to []."""
+        reg = _fresh_registry()
         resource = LiveServerless(name="test")
 
-        with patch("runpod_flash.stubs.registry.LiveServerlessStub") as MockLSS:
+        with patch.object(reg, "LiveServerlessStub") as MockLSS:
             mock_instance = MockLSS.return_value
             mock_instance.prepare_request = AsyncMock(return_value="request")
             mock_instance.ExecuteFunction = AsyncMock(return_value="response")
             mock_instance.handle_response.return_value = "ok"
 
-            stub = _create_live_serverless_stub(resource)
+            stub = reg._create_live_serverless_stub(resource)
 
             def my_func():
                 pass
@@ -203,11 +212,14 @@ class TestServerlessEndpointDispatch:
     @pytest.mark.asyncio
     async def test_serverless_warns_about_dependencies(self):
         """ServerlessEndpoint warns when dependencies are provided."""
-        resource = ServerlessEndpoint(
+        reg = _fresh_registry()
+        # Get ServerlessEndpoint from the fresh module chain so singledispatch matches
+        res_mod = importlib.import_module("runpod_flash.core.resources.serverless")
+        resource = res_mod.ServerlessEndpoint(
             name="test-sls", id="ep-123", templateId="tmpl-123"
         )
 
-        with patch("runpod_flash.stubs.registry.ServerlessEndpointStub") as MockSES:
+        with patch.object(reg, "ServerlessEndpointStub") as MockSES:
             mock_instance = MockSES.return_value
             mock_instance.prepare_payload.return_value = {"data": "payload"}
             mock_instance.execute = AsyncMock(
@@ -215,9 +227,9 @@ class TestServerlessEndpointDispatch:
             )
             mock_instance.handle_response.return_value = "result"
 
-            stub = stub_resource(resource)
+            stub = reg.stub_resource(resource)
 
-            with patch("runpod_flash.stubs.registry.log") as mock_log:
+            with patch.object(reg, "log") as mock_log:
                 await stub(lambda: None, ["numpy"], None, True)
                 mock_log.warning.assert_called_once()
                 assert "not supported" in mock_log.warning.call_args[0][0].lower()
