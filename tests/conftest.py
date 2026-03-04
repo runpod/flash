@@ -348,6 +348,14 @@ def reset_singletons():
         # Caches may not exist in all configurations
         pass
 
+    # clear the queue-based resource ownership registry
+    try:
+        from runpod_flash.client import _queue_resource_owners
+
+        _queue_resource_owners.clear()
+    except (ImportError, AttributeError):
+        pass
+
     # Reset SingletonMixin instances to clear any accumulated state
     # This prevents old singleton instances from leaking into object graphs during pickling
     SingletonMixin._instances = {}
@@ -376,6 +384,13 @@ def reset_singletons():
 
         _SERIALIZED_FUNCTION_CACHE.clear()
         _SERIALIZED_CLASS_CACHE.clear()
+    except (ImportError, AttributeError):
+        pass
+
+    try:
+        from runpod_flash.client import _queue_resource_owners
+
+        _queue_resource_owners.clear()
     except (ImportError, AttributeError):
         pass
 

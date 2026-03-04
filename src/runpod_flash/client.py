@@ -10,6 +10,10 @@ from .stubs import stub_resource
 
 log = logging.getLogger(__name__)
 
+# tracks which queue-based resource config has been claimed by a @remote
+# function. keyed by id(resource_config) to avoid mutating pydantic models.
+_queue_resource_owners: dict[int, str] = {}
+
 
 def _should_execute_locally(func_name: str) -> bool:
     """Determine if a @remote function should execute locally or create a stub.
@@ -223,39 +227,32 @@ def remote(
             func_or_class.__is_lb_route_handler__ = True
             return func_or_class
 
-        # queue-based endpoints support one function per resource config.
-        # a second @remote on the same config object would silently shadow the
-        # first function in the generated handler, so reject it early.
-        if not is_lb_resource:
-            func_name_for_check = (
-                func_or_class.__name__
-                if hasattr(func_or_class, "__name__")
-                else str(func_or_class)
-            )
-            existing_owner = getattr(resource_config, "_remote_function_name", None)
-            if existing_owner is not None:
-                raise ValueError(
-                    f"Queue-based resource '{resource_config.name}' is already used by "
-                    f"@remote function '{existing_owner}'. Each queue-based resource "
-                    f"config supports only one function. Create a separate resource "
-                    f"config for '{func_name_for_check}'."
-                )
-            object.__setattr__(
-                resource_config, "_remote_function_name", func_name_for_check
-            )
-
         # Local execution mode - execute without provisioning remote servers
         if local:
             func_or_class.__remote_config__ = routing_config
             return func_or_class
 
+        # guard: queue-based endpoints support one function per resource config.
+        # a second @remote on the same config object would silently shadow the
+        # first function in the generated handler, so reject it early.
+        # this check must stay below the LB route handler early-return and the
+        # local=True early-return, since neither path uses queue dispatch.
+        if not is_lb_resource:
+            func_name = func_or_class.__name__
+            config_id = id(resource_config)
+            existing_owner = _queue_resource_owners.get(config_id)
+            if existing_owner is not None:
+                raise ValueError(
+                    f"Queue-based resource '{resource_config.name}' is already "
+                    f"used by @remote function '{existing_owner}'. Each "
+                    f"queue-based resource config supports only one function. "
+                    f"Create a separate resource config for '{func_name}'."
+                )
+            _queue_resource_owners[config_id] = func_name
+
         # Determine if we should execute locally or create a stub
         # Uses build-time generated configuration in deployed environments
-        func_name = (
-            func_or_class.__name__
-            if not inspect.isclass(func_or_class)
-            else func_or_class.__name__
-        )
+        func_name = func_or_class.__name__
         should_execute_local = _should_execute_locally(func_name)
 
         if should_execute_local:
