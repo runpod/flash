@@ -159,7 +159,7 @@ Only installs direct dependencies specified in `@remote` decorators. Useful when
 flash deploy --exclude torch,torchvision,torchaudio
 ```
 
-Skips specified packages during dependency installation. Critical for staying under Runpod's 500MB deployment limit. See [flash build](./flash-build.md#managing-deployment-size) for base image package reference.
+Skips specified packages during dependency installation. Critical for staying under Runpod's 1.5GB deployment limit. See [flash build](./flash-build.md#managing-deployment-size) for base image package reference.
 
 ## Preview Mode
 
@@ -374,7 +374,7 @@ If the build phase fails, see [flash build troubleshooting](./flash-build.md#tro
 
 ### Deployment Size Limit
 
-**Problem**: Deployment exceeds Runpod's 500MB limit
+**Problem**: Deployment exceeds Runpod's 1.5GB limit
 
 **Solution**: Use `--exclude` to skip packages already in your base image:
 

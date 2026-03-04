@@ -92,7 +92,7 @@ class TestValidateTarballFile:
             result = real_stat(self, *args, **kwargs)
             # Return a mock with huge size but real st_mode for is_file()
             mock_result = MagicMock(wraps=result)
-            mock_result.st_size = 600 * 1024 * 1024  # 600MB
+            mock_result.st_size = 1600 * 1024 * 1024  # 1600MB
             mock_result.st_mode = result.st_mode
             return mock_result
 

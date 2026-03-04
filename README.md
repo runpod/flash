@@ -560,7 +560,7 @@ For information on load-balanced endpoints (required for HTTP services), see [do
 
 #### Managing Bundle Size
 
-Runpod serverless has a **500MB deployment limit**. Exceeding this limit will cause deployment failures.
+Runpod serverless has a **1.5GB deployment limit**. Exceeding this limit will cause deployment failures.
 
 Use `--exclude` to skip packages already in your worker-flash Docker image:
 
