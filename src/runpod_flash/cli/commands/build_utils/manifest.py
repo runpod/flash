@@ -172,7 +172,7 @@ class ManifestBuilder:
                             )
                         config["networkVolume"] = nv_config
 
-                    if (
+                    elif (
                         hasattr(resource_config, "networkVolumeId")
                         and resource_config.networkVolumeId
                     ):

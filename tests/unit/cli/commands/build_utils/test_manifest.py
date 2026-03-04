@@ -583,7 +583,7 @@ def test_extract_deployment_config_includes_network_volume_id():
 
 
 def test_extract_deployment_config_network_volume_minimal():
-    """networkVolume with only name (no size/dataCenterId) extracts name only."""
+    """networkVolume with only name populates Pydantic defaults for size and dataCenterId."""
     with tempfile.TemporaryDirectory() as tmpdir:
         project_dir = Path(tmpdir)
 
