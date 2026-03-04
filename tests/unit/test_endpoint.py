@@ -346,6 +346,33 @@ class TestBuildResourceConfig:
         assert config.scalerValue == 10
 
     @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "true"})
+    def test_lb_defaults_to_request_count_scaler(self):
+        ep = Endpoint(name="test-lb")
+
+        @ep.get("/health")
+        async def health():
+            return {"ok": True}
+
+        config = ep._build_resource_config()
+        assert config.scalerType.value == "REQUEST_COUNT"
+
+    @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "true"})
+    def test_lb_explicit_scaler_type_honored(self):
+        ep = Endpoint(
+            name="test-lb",
+            scaler_type=ServerlessScalerType.REQUEST_COUNT,
+            scaler_value=2,
+        )
+
+        @ep.get("/health")
+        async def health():
+            return {"ok": True}
+
+        config = ep._build_resource_config()
+        assert config.scalerType.value == "REQUEST_COUNT"
+        assert config.scalerValue == 2
+
+    @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "true"})
     def test_config_passes_template(self):
         tpl = PodTemplate(
             imageName="custom:latest",

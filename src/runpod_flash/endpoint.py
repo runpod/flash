@@ -305,7 +305,7 @@ class Endpoint:
         execution_timeout_ms: int = 0,
         flashboot: bool = True,
         image: Optional[str] = None,
-        scaler_type: ServerlessScalerType = ServerlessScalerType.QUEUE_DELAY,
+        scaler_type: Optional[ServerlessScalerType] = None,
         scaler_value: int = 4,
         template: Optional[PodTemplate] = None,
     ):
@@ -338,7 +338,7 @@ class Endpoint:
         self.execution_timeout_ms = execution_timeout_ms
         self.flashboot = flashboot
         self.image = image
-        self.scaler_type = scaler_type
+        self._explicit_scaler_type = scaler_type
         self.scaler_value = scaler_value
         self.template = template
 
@@ -383,6 +383,20 @@ class Endpoint:
     @property
     def workers_max(self) -> int:
         return self._workers_max
+
+    @property
+    def scaler_type(self) -> ServerlessScalerType:
+        """resolve the scaler type.
+
+        if the user explicitly set scaler_type, use that. otherwise,
+        default to REQUEST_COUNT for load-balanced endpoints (required by
+        LoadBalancerSlsResource) and QUEUE_DELAY for queue-based endpoints.
+        """
+        if self._explicit_scaler_type is not None:
+            return self._explicit_scaler_type
+        if self.is_load_balanced:
+            return ServerlessScalerType.REQUEST_COUNT
+        return ServerlessScalerType.QUEUE_DELAY
 
     def _build_resource_config(self):
         """create the appropriate internal resource config object.
