@@ -318,6 +318,11 @@ class ManifestBuilder:
                     "is_async": f.is_async,
                     "is_class": f.is_class,
                     **(
+                        {"class_methods": f.class_methods}
+                        if f.is_class and f.class_methods
+                        else {}
+                    ),
+                    **(
                         {"http_method": f.http_method, "http_path": f.http_path}
                         if is_load_balanced
                         else {}
