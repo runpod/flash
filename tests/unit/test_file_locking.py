@@ -146,7 +146,9 @@ class TestFileLocking:
                 fl_module._IS_UNIX = True
                 fl_module._UNIX_LOCKING_AVAILABLE = True
                 try:
-                    with file_lock(f, exclusive=True, timeout=0.3, retry_interval=0.05):
+                    with fl_module.file_lock(
+                        f, exclusive=True, timeout=0.3, retry_interval=0.05
+                    ):
                         pass
                 finally:
                     fl_module._acquire_unix_lock = original
@@ -181,7 +183,9 @@ class TestFileLocking:
         fl_module._release_unix_lock = lambda fh: None
         try:
             with open(lock_file, "rb") as f:
-                with file_lock(f, exclusive=True, timeout=5.0, retry_interval=0.05):
+                with fl_module.file_lock(
+                    f, exclusive=True, timeout=5.0, retry_interval=0.05
+                ):
                     data = f.read()
                     assert data == b"retry test"
         finally:
@@ -211,7 +215,9 @@ class TestFileLocking:
         try:
             with pytest.raises(FileLockTimeout):
                 with open(lock_file, "rb") as f:
-                    with file_lock(f, exclusive=True, timeout=0.2, retry_interval=0.05):
+                    with fl_module.file_lock(
+                        f, exclusive=True, timeout=0.2, retry_interval=0.05
+                    ):
                         pass
         finally:
             fl_module._acquire_unix_lock = original_acquire

@@ -17,10 +17,12 @@ from unittest.mock import AsyncMock, patch
 import pytest
 import typer
 
-from runpod_flash.cli.commands.login import (
-    _login,
-    login_command,
-)
+import importlib
+
+
+def _fresh_login_module():
+    """Get the current login module from sys.modules to survive reloads."""
+    return importlib.import_module("runpod_flash.cli.commands.login")
 
 
 def _make_mock_client(**status_return):
@@ -63,7 +65,7 @@ class TestLoginOpenBrowser:
             ),
             patch("runpod_flash.cli.commands.login.console"),
         ):
-            await _login(open_browser=True, timeout_seconds=5)
+            await _fresh_login_module()._login(open_browser=True, timeout_seconds=5)
 
         mock_launch.assert_called_once()
         url = mock_launch.call_args[0][0]
@@ -94,7 +96,7 @@ class TestLoginConsumedStatus:
             ),
             patch("runpod_flash.cli.commands.login.console"),
         ):
-            await _login(open_browser=False, timeout_seconds=5)
+            await _fresh_login_module()._login(open_browser=False, timeout_seconds=5)
 
         assert creds.exists()
         assert "consumed-key" in creds.read_text()
@@ -115,7 +117,9 @@ class TestLoginConsumedStatus:
             patch("runpod_flash.cli.commands.login.console"),
         ):
             with pytest.raises(RuntimeError, match="login failed: consumed"):
-                await _login(open_browser=False, timeout_seconds=5)
+                await _fresh_login_module()._login(
+                    open_browser=False, timeout_seconds=5
+                )
 
 
 class TestLoginExpiresAtDeadline:
@@ -152,7 +156,9 @@ class TestLoginExpiresAtDeadline:
             ),
         ):
             with pytest.raises(RuntimeError, match="login timed out"):
-                await _login(open_browser=False, timeout_seconds=600)
+                await _fresh_login_module()._login(
+                    open_browser=False, timeout_seconds=600
+                )
 
 
 @pytest.mark.serial
@@ -189,7 +195,9 @@ class TestLoginTimeout:
             ),
         ):
             with pytest.raises(RuntimeError, match="login timed out"):
-                await _login(open_browser=False, timeout_seconds=600)
+                await _fresh_login_module()._login(
+                    open_browser=False, timeout_seconds=600
+                )
 
 
 # ── login_command CLI wrapper ────────────────────────────────────────────
@@ -205,7 +213,7 @@ class TestLoginCommand:
             side_effect=RuntimeError("auth failed"),
         ):
             with pytest.raises(typer.Exit) as exc_info:
-                login_command(no_open=True, timeout=5.0)
+                _fresh_login_module().login_command(no_open=True, timeout=5.0)
 
             assert exc_info.value.exit_code == 1
 
@@ -213,7 +221,7 @@ class TestLoginCommand:
         """login_command succeeds when _login completes normally."""
         with patch("runpod_flash.cli.commands.login.asyncio.run"):
             # Should not raise
-            login_command(no_open=True, timeout=5.0)
+            _fresh_login_module().login_command(no_open=True, timeout=5.0)
 
 
 # ── GraphQL auth methods ────────────────────────────────────────────────
