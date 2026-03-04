@@ -325,6 +325,11 @@ class ManifestBuilder:
                         if is_load_balanced
                         else {}
                     ),
+                    **(
+                        {"class_methods": f.class_methods}
+                        if f.is_class and f.class_methods
+                        else {}
+                    ),
                 }
                 for f in functions
             ]

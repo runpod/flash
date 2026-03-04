@@ -619,3 +619,72 @@ def test_extract_deployment_config_network_volume_minimal():
         # Default size and dataCenterId should still be present
         assert config["networkVolume"]["size"] == 100
         assert config["networkVolume"]["dataCenterId"] == "EU-RO-1"
+
+
+# --- Tests for class_methods in manifest ---
+
+
+def test_manifest_includes_class_methods_for_class_entries():
+    """Manifest function entries include class_methods when is_class=True and methods exist."""
+    functions = [
+        RemoteFunctionMetadata(
+            function_name="MyModel",
+            module_path="workers.model",
+            resource_config_name="model_config",
+            resource_type="LiveServerless",
+            is_async=False,
+            is_class=True,
+            file_path=Path("workers/model.py"),
+            class_methods=["predict", "embed"],
+        )
+    ]
+
+    builder = ManifestBuilder("test_app", functions)
+    manifest = builder.build()
+
+    func_entry = manifest["resources"]["model_config"]["functions"][0]
+    assert func_entry["is_class"] is True
+    assert func_entry["class_methods"] == ["predict", "embed"]
+
+
+def test_manifest_excludes_class_methods_for_non_class_entries():
+    """Manifest function entries do not include class_methods for regular functions."""
+    functions = [
+        RemoteFunctionMetadata(
+            function_name="gpu_task",
+            module_path="workers.gpu",
+            resource_config_name="gpu_config",
+            resource_type="LiveServerless",
+            is_async=True,
+            is_class=False,
+            file_path=Path("workers/gpu.py"),
+        )
+    ]
+
+    builder = ManifestBuilder("test_app", functions)
+    manifest = builder.build()
+
+    func_entry = manifest["resources"]["gpu_config"]["functions"][0]
+    assert "class_methods" not in func_entry
+
+
+def test_manifest_excludes_class_methods_when_empty():
+    """Manifest function entries do not include class_methods when list is empty."""
+    functions = [
+        RemoteFunctionMetadata(
+            function_name="MyModel",
+            module_path="workers.model",
+            resource_config_name="model_config",
+            resource_type="LiveServerless",
+            is_async=False,
+            is_class=True,
+            file_path=Path("workers/model.py"),
+            class_methods=[],
+        )
+    ]
+
+    builder = ManifestBuilder("test_app", functions)
+    manifest = builder.build()
+
+    func_entry = manifest["resources"]["model_config"]["functions"][0]
+    assert "class_methods" not in func_entry
