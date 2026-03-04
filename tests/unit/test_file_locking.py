@@ -129,6 +129,9 @@ class TestFileLocking:
         lock_test_file = self.temp_dir / "exclusive_test.dat"
         lock_test_file.write_bytes(b"exclusive test")
 
+        def always_fail(fh, exc):
+            raise OSError("Resource temporarily unavailable")
+
         # Directly test the retry/timeout logic: if acquire always raises
         # OSError, file_lock should eventually raise FileLockTimeout
         with open(lock_test_file, "rb") as f:
@@ -136,9 +139,7 @@ class TestFileLocking:
             with pytest.raises(FileLockTimeout, match="Could not acquire"):
                 # Temporarily replace the acquire function
                 original = fl_module._acquire_unix_lock
-                fl_module._acquire_unix_lock = lambda fh, exc: (_ for _ in ()).throw(
-                    OSError("Resource temporarily unavailable")
-                )
+                fl_module._acquire_unix_lock = always_fail
                 # Also ensure we take the unix path
                 orig_is_unix = fl_module._IS_UNIX
                 orig_avail = fl_module._UNIX_LOCKING_AVAILABLE
@@ -198,14 +199,15 @@ class TestFileLocking:
         lock_file = self.temp_dir / "timeout_expire.dat"
         lock_file.write_bytes(b"timeout expire test")
 
+        def always_fail(fh, exc):
+            raise OSError("Resource temporarily unavailable")
+
         original_acquire = fl_module._acquire_unix_lock
         orig_is_unix = fl_module._IS_UNIX
         orig_avail = fl_module._UNIX_LOCKING_AVAILABLE
         fl_module._IS_UNIX = True
         fl_module._UNIX_LOCKING_AVAILABLE = True
-        fl_module._acquire_unix_lock = lambda fh, exc: (_ for _ in ()).throw(
-            OSError("Resource temporarily unavailable")
-        )
+        fl_module._acquire_unix_lock = always_fail
         try:
             with pytest.raises(FileLockTimeout):
                 with open(lock_file, "rb") as f:
