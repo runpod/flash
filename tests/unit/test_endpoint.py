@@ -690,22 +690,21 @@ class TestClientMode:
         ep = Endpoint(name="test")
         assert ep.is_client is False
 
-    def test_image_post_returns_coroutine(self):
+    def test_image_post_returns_awaitable(self):
+        from runpod_flash.endpoint import _ClientCoroutine
+
         ep = Endpoint(name="test", image="vllm:latest")
         result = ep.post("/v1/completions", {"prompt": "hello"})
-        # should be a coroutine (awaitable), not a decorator
-        import asyncio
+        assert isinstance(result, _ClientCoroutine)
+        result._coro.close()
 
-        assert asyncio.iscoroutine(result)
-        result.close()
+    def test_image_get_returns_awaitable(self):
+        from runpod_flash.endpoint import _ClientCoroutine
 
-    def test_image_get_returns_coroutine(self):
         ep = Endpoint(name="test", image="vllm:latest")
         result = ep.get("/v1/models")
-        import asyncio
-
-        assert asyncio.iscoroutine(result)
-        result.close()
+        assert isinstance(result, _ClientCoroutine)
+        result._coro.close()
 
     def test_decorator_mode_post_returns_callable(self):
         ep = Endpoint(name="test")
@@ -716,6 +715,22 @@ class TestClientMode:
     def test_endpoint_url_initially_none(self):
         ep = Endpoint(id="abc123")
         assert ep._endpoint_url is None
+
+    def test_id_route_decorator_raises(self):
+        ep = Endpoint(id="abc123")
+        with pytest.raises(TypeError, match="client, not a route decorator"):
+
+            @ep.get("/test")
+            async def handler():
+                pass
+
+    def test_image_route_decorator_raises(self):
+        ep = Endpoint(name="x", image="vllm:latest", gpu=GpuType.ANY)
+        with pytest.raises(TypeError, match="client, not a route decorator"):
+
+            @ep.post("/v1/completions")
+            async def handler(data):
+                pass
 
     def test_id_as_decorator_raises(self):
         with pytest.raises(ValueError, match="cannot use Endpoint\\(id="):
@@ -874,14 +889,13 @@ class TestDecoratorModeArgValidation:
         assert callable(decorator)
 
     def test_client_mode_post_with_data_ok(self):
+        from runpod_flash.endpoint import _ClientCoroutine
+
         ep = Endpoint(id="ep-123")
         # client mode should accept data without error
         result = ep.post("/predict", data={"prompt": "hello"})
-        # returns a coroutine in client mode
-        import asyncio
-
-        assert asyncio.iscoroutine(result)
-        result.close()
+        assert isinstance(result, _ClientCoroutine)
+        result._coro.close()
 
 
 # -- _normalize_gpu / _normalize_cpu error paths --

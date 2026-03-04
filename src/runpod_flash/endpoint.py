@@ -33,6 +33,34 @@ _POLL_MAX_INTERVAL = 5.0
 _POLL_BACKOFF_FACTOR = 1.5
 
 
+class _ClientCoroutine:
+    """wraps a coroutine from a client-mode HTTP call.
+
+    awaitable for normal async usage, but raises a clear error if
+    someone tries to use it as a decorator (e.g. @ep.get("/path")).
+    """
+
+    __slots__ = ("_coro", "_method", "_path", "_mode")
+
+    def __init__(self, coro, method: str, path: str, mode: str):
+        self._coro = coro
+        self._method = method
+        self._path = path
+        self._mode = mode
+
+    def __await__(self):
+        return self._coro.__await__()
+
+    def __call__(self, *args, **kwargs):
+        self._coro.close()
+        raise TypeError(
+            f"Endpoint({self._mode}=...) is a client, not a route decorator. "
+            f'@ep.{self._method.lower()}("{self._path}") cannot register handlers '
+            f"on a client endpoint. to register routes, use "
+            f"Endpoint(name=...) without {self._mode}=."
+        )
+
+
 class EndpointJob:
     """a submitted job on a runpod endpoint.
 
@@ -615,38 +643,44 @@ class Endpoint:
                 f"@api.{method.lower()}('/path') with no extra arguments."
             )
 
+    def _wrap_client_call(self, method: str, path: str, data: Any, kwargs: dict):
+        """wrap a client HTTP call in _ClientCoroutine for clear decorator errors."""
+        mode = "id" if self.id is not None else "image"
+        coro = self._client_request(method, path, data, **kwargs)
+        return _ClientCoroutine(coro, method, path, mode)
+
     def get(self, path: str, data: Any = None, **kwargs):
         """GET route decorator (decorator mode) or HTTP GET call (client mode)."""
         if self.is_client:
-            return self._client_request("GET", path, data, **kwargs)
+            return self._wrap_client_call("GET", path, data, kwargs)
         self._check_decorator_mode_args("GET", data, kwargs)
         return self._route("GET", path)
 
     def post(self, path: str, data: Any = None, **kwargs):
         """POST route decorator (decorator mode) or HTTP POST call (client mode)."""
         if self.is_client:
-            return self._client_request("POST", path, data, **kwargs)
+            return self._wrap_client_call("POST", path, data, kwargs)
         self._check_decorator_mode_args("POST", data, kwargs)
         return self._route("POST", path)
 
     def put(self, path: str, data: Any = None, **kwargs):
         """PUT route decorator (decorator mode) or HTTP PUT call (client mode)."""
         if self.is_client:
-            return self._client_request("PUT", path, data, **kwargs)
+            return self._wrap_client_call("PUT", path, data, kwargs)
         self._check_decorator_mode_args("PUT", data, kwargs)
         return self._route("PUT", path)
 
     def delete(self, path: str, data: Any = None, **kwargs):
         """DELETE route decorator (decorator mode) or HTTP DELETE call (client mode)."""
         if self.is_client:
-            return self._client_request("DELETE", path, data, **kwargs)
+            return self._wrap_client_call("DELETE", path, data, kwargs)
         self._check_decorator_mode_args("DELETE", data, kwargs)
         return self._route("DELETE", path)
 
     def patch(self, path: str, data: Any = None, **kwargs):
         """PATCH route decorator (decorator mode) or HTTP PATCH call (client mode)."""
         if self.is_client:
-            return self._client_request("PATCH", path, data, **kwargs)
+            return self._wrap_client_call("PATCH", path, data, kwargs)
         self._check_decorator_mode_args("PATCH", data, kwargs)
         return self._route("PATCH", path)
 
