@@ -49,7 +49,10 @@ class TestExecuteGraphQLRetry:
                 "_execute_graphql_once",
                 new=AsyncMock(
                     side_effect=[
-                        Exception("GraphQL errors: internal server error"),
+                        runpod_api._GraphQLErrorResponse(
+                            "GraphQL errors: internal server error",
+                            [{"message": "internal server error"}],
+                        ),
                         {"saveEndpoint": {"id": "endpoint-id"}},
                     ]
                 ),
@@ -156,7 +159,36 @@ class TestExecuteGraphQLRetry:
                 client,
                 "_execute_graphql_once",
                 new=AsyncMock(
-                    side_effect=Exception("GraphQL errors: validation failed")
+                    side_effect=runpod_api._GraphQLErrorResponse(
+                        "GraphQL errors: validation failed",
+                        [{"message": "validation failed"}],
+                    )
+                ),
+            ) as execute_once,
+            patch(
+                "runpod_flash.core.api.runpod.asyncio.sleep", new=AsyncMock()
+            ) as sleep,
+        ):
+            with pytest.raises(
+                runpod_api._GraphQLErrorResponse, match="validation failed"
+            ):
+                await client._execute_graphql("query { ping }")
+
+        assert execute_once.await_count == 1
+        sleep.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_does_not_retry_for_untyped_exception_with_transient_pattern(self):
+        client = RunpodGraphQLClient(api_key="test-api-key")
+
+        with (
+            patch.object(
+                client,
+                "_execute_graphql_once",
+                new=AsyncMock(
+                    side_effect=Exception(
+                        "validation failed with internal server error details"
+                    )
                 ),
             ) as execute_once,
             patch(
@@ -165,6 +197,35 @@ class TestExecuteGraphQLRetry:
         ):
             with pytest.raises(Exception, match="validation failed"):
                 await client._execute_graphql("query { ping }")
+
+        assert execute_once.await_count == 1
+        sleep.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_does_not_retry_mutation_by_default(self):
+        client = RunpodGraphQLClient(api_key="test-api-key")
+
+        with (
+            patch.object(
+                client,
+                "_execute_graphql_once",
+                new=AsyncMock(
+                    side_effect=runpod_api._GraphQLErrorResponse(
+                        "GraphQL errors: try again later",
+                        [{"message": "try again later"}],
+                    )
+                ),
+            ) as execute_once,
+            patch(
+                "runpod_flash.core.api.runpod.asyncio.sleep", new=AsyncMock()
+            ) as sleep,
+        ):
+            with pytest.raises(
+                runpod_api._GraphQLErrorResponse, match="try again later"
+            ):
+                await client._execute_graphql(
+                    "mutation { saveEndpoint(input: {}) { id } }"
+                )
 
         assert execute_once.await_count == 1
         sleep.assert_not_awaited()

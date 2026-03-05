@@ -47,11 +47,21 @@ class _GraphQLNetworkError(Exception):
     pass
 
 
+class _GraphQLErrorResponse(Exception):
+    def __init__(self, message: str, errors: List[Dict[str, Any]]):
+        super().__init__(message)
+        self.errors = errors
+
+
 def _is_transient_graphql_error_message(message: str) -> bool:
     lower_message = message.lower()
     return any(
         pattern in lower_message for pattern in _TRANSIENT_GRAPHQL_ERROR_PATTERNS
     )
+
+
+def _is_graphql_mutation_operation(query: str) -> bool:
+    return query.lstrip().lower().startswith("mutation")
 
 
 def _is_retryable_graphql_exception(error: Exception) -> bool:
@@ -61,7 +71,10 @@ def _is_retryable_graphql_exception(error: Exception) -> bool:
     if isinstance(error, _GraphQLHTTPStatusError):
         return 500 <= error.status_code < 600
 
-    return _is_transient_graphql_error_message(str(error))
+    if isinstance(error, _GraphQLErrorResponse):
+        return _is_transient_graphql_error_message(str(error))
+
+    return False
 
 
 def _sanitize_for_logging(data: Any, redaction_text: str = "<REDACTED>") -> Any:
@@ -167,7 +180,9 @@ class RunpodGraphQLClient:
                     error_msg = "; ".join(
                         [e.get("message", str(e)) for e in sanitized_errors]
                     )
-                    raise Exception(f"GraphQL errors: {error_msg}")
+                    raise _GraphQLErrorResponse(
+                        f"GraphQL errors: {error_msg}", sanitized_errors
+                    )
 
                 return response_data.get("data", {})
 
@@ -176,9 +191,18 @@ class RunpodGraphQLClient:
             raise _GraphQLNetworkError(f"HTTP request failed: {e}") from e
 
     async def _execute_graphql(
-        self, query: str, variables: Optional[Dict[str, Any]] = None
+        self,
+        query: str,
+        variables: Optional[Dict[str, Any]] = None,
+        idempotent: bool = False,
     ) -> Dict[str, Any]:
-        """Execute a GraphQL query/mutation with retry for transient failures."""
+        """Execute a GraphQL request with retry for transient failures.
+
+        Queries are retried automatically. Mutations are not retried by default,
+        and can opt in by setting ``idempotent=True``.
+        """
+        if _is_graphql_mutation_operation(query) and not idempotent:
+            return await self._execute_graphql_once(query, variables)
         max_attempts = GRAPHQL_MAX_RETRIES + 1
 
         for attempt in range(max_attempts):
@@ -200,8 +224,6 @@ class RunpodGraphQLClient:
                     f"(attempt {attempt + 1}/{GRAPHQL_MAX_RETRIES}): {e}"
                 )
                 await asyncio.sleep(delay)
-
-        raise RuntimeError("Unreachable GraphQL retry state")
 
     async def update_template(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         mutation = """
