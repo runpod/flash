@@ -6,7 +6,7 @@ user-invocable: true
 
 # Runpod Flash
 
-Write code locally, test with `flash run` (dev server at localhost:8888), and flash automatically provisions and deploys to remote GPUs/CPUs in the cloud. One class -- `Endpoint` -- handles everything.
+Write code locally, test with `flash run` (dev server at localhost:8888), and flash automatically provisions and deploys to remote GPUs/CPUs in the cloud. `Endpoint` handles everything.
 
 ## Setup
 
