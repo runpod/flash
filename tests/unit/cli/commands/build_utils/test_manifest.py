@@ -624,6 +624,81 @@ def test_extract_deployment_config_network_volume_minimal():
 # --- Tests for inline @Endpoint() deployment config extraction ---
 
 
+def test_extract_deployment_config_same_variable_name_different_files():
+    """Config extraction uses resource_config_name, not config_variable, to find the file.
+
+    When multiple files use the same variable name (e.g. both use ``api``),
+    each resource must resolve to its own file.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cpu_py = Path(tmpdir) / "cpu_lb.py"
+        cpu_py.write_text(
+            "from runpod_flash import Endpoint\n"
+            "\n"
+            "api = Endpoint(name='my_cpu', cpu='cpu3c-1-2')\n"
+            "\n"
+            "@api.post('/process')\n"
+            "async def process(data: dict) -> dict:\n"
+            "    return data\n"
+        )
+
+        gpu_py = Path(tmpdir) / "gpu_lb.py"
+        gpu_py.write_text(
+            "from runpod_flash import Endpoint, GpuGroup\n"
+            "\n"
+            "api = Endpoint(name='my_gpu', gpu=GpuGroup.ADA_24, workers=(1, 3))\n"
+            "\n"
+            "@api.post('/compute')\n"
+            "async def compute(data: dict) -> dict:\n"
+            "    return data\n"
+        )
+
+        functions = [
+            RemoteFunctionMetadata(
+                function_name="process",
+                module_path="cpu_lb",
+                resource_config_name="my_cpu",
+                resource_type="Endpoint",
+                is_async=True,
+                is_class=False,
+                file_path=cpu_py,
+                config_variable="api",
+                is_load_balanced=True,
+                http_method="POST",
+                http_path="/process",
+            ),
+            RemoteFunctionMetadata(
+                function_name="compute",
+                module_path="gpu_lb",
+                resource_config_name="my_gpu",
+                resource_type="Endpoint",
+                is_async=True,
+                is_class=False,
+                file_path=gpu_py,
+                config_variable="api",
+                is_load_balanced=True,
+                http_method="POST",
+                http_path="/compute",
+            ),
+        ]
+
+        scanner = MagicMock()
+        builder = ManifestBuilder("test_app", functions, scanner=scanner)
+
+        cpu_config = builder._extract_deployment_config("my_cpu", "api", "Endpoint")
+        gpu_config = builder._extract_deployment_config("my_gpu", "api", "Endpoint")
+
+        # cpu endpoint should get cpu config
+        assert cpu_config.get("instanceIds") == ["cpu3c-1-2"]
+        assert not cpu_config.get("gpuIds")
+
+        # gpu endpoint should get gpu config, not the cpu one
+        assert gpu_config.get("gpuIds") == "ADA_24"
+        assert not gpu_config.get("instanceIds")
+        assert gpu_config["workersMin"] == 1
+        assert gpu_config["workersMax"] == 3
+
+
 def test_extract_deployment_config_inline_cpu_instance():
     """Import-based extraction reads cpu= from inline @Endpoint decorator."""
     with tempfile.TemporaryDirectory() as tmpdir:

@@ -72,88 +72,100 @@ class ManifestBuilder:
         )
         self.build_dir = build_dir
 
+    def _import_module(self, file_path: Path):
+        """Import a module from file path, returning (module, cleanup_fn).
+
+        Caller must invoke cleanup_fn when done with the module.
+        Returns (None, noop) if the module cannot be loaded or executed.
+        """
+        noop = lambda: None  # noqa: E731
+        spec = importlib.util.spec_from_file_location(file_path.stem, file_path)
+        if not spec or not spec.loader:
+            return None, noop
+
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+
+        parent_dir = str(file_path.parent)
+        added_to_path = parent_dir not in sys.path
+        if added_to_path:
+            sys.path.insert(0, parent_dir)
+
+        def cleanup():
+            if spec.name in sys.modules:
+                del sys.modules[spec.name]
+            if added_to_path:
+                try:
+                    sys.path.remove(parent_dir)
+                except ValueError:
+                    pass
+
+        try:
+            spec.loader.exec_module(module)
+        except Exception:
+            cleanup()
+            return None, noop
+
+        return module, cleanup
+
     def _extract_deployment_config(
         self, resource_name: str, config_variable: Optional[str], resource_type: str
     ) -> Dict[str, Any]:
-        """Extract deployment config (imageName, templateId, etc.) from resource object.
+        """Extract deployment config by importing the source module.
 
-        Uses dynamic import to instantiate the resource config and read its
-        properties. For inline @Endpoint(...) decorators that have no
-        config_variable, falls back to AST-based keyword extraction.
-
-        Args:
-            resource_name: Name of the resource
-            config_variable: Variable name of the resource config (e.g., "gpu_config")
-            resource_type: Type of the resource (e.g., "LiveServerless")
-
-        Returns:
-            Dictionary with deployment config (may be empty if resource not found)
+        Finds the source file by matching ``resource_config_name``, imports it,
+        then reads the resource config object. For resources with a
+        ``config_variable`` (e.g. ``gpu_config = LiveServerless(...)``), reads
+        the named module attribute. For inline ``@Endpoint(...)`` decorators
+        (no config_variable), reads ``__remote_config__`` from the decorated
+        function. Both paths produce a fully-resolved config object with enum
+        expansion and validation already applied.
         """
-        config = {}
+        config: Dict[str, Any] = {}
 
-        if not self.scanner:
+        # find the source file by resource name, not config_variable,
+        # to avoid collisions when multiple files use the same variable name
+        func_meta = None
+        for func in self.remote_functions:
+            if func.resource_config_name == resource_name:
+                func_meta = func
+                break
+
+        if func_meta is None or not func_meta.file_path:
+            return config
+        if not func_meta.file_path.exists():
             return config
 
-        # for inline @Endpoint(...) QB decorators there is no config variable.
-        # extract what we can directly from the decorator's AST keywords.
-        if not config_variable:
-            return self._extract_deployment_config_from_import(resource_name)
-
         try:
-            # Get the module where this resource is defined
-            # Try to find it in the scanner's discovered files
-            resource_file = None
-            for func in self.remote_functions:
-                if func.config_variable == config_variable:
-                    resource_file = func.file_path
-                    break
-
-            if not resource_file or not resource_file.exists():
+            module, cleanup = self._import_module(func_meta.file_path)
+            if module is None:
                 return config
-
-            # Dynamically import the module and extract the resource config
-            spec = importlib.util.spec_from_file_location(
-                resource_file.stem, resource_file
-            )
-            if not spec or not spec.loader:
-                return config
-
-            module = importlib.util.module_from_spec(spec)
-            # Add module to sys.modules temporarily to allow relative imports
-            sys.modules[spec.name] = module
-
-            # Add parent directory to sys.path so sibling imports resolve
-            parent_dir = str(resource_file.parent)
-            added_to_path = parent_dir not in sys.path
-            if added_to_path:
-                sys.path.insert(0, parent_dir)
 
             try:
-                spec.loader.exec_module(module)
+                resource_config = None
 
-                # Get the resource config object
-                if hasattr(module, config_variable):
+                if config_variable and hasattr(module, config_variable):
                     resource_config = getattr(module, config_variable)
+                else:
+                    # inline @Endpoint() -- read __remote_config__ from the function
+                    fn = getattr(module, func_meta.function_name, None)
+                    if fn is not None:
+                        remote_cfg = getattr(fn, "__remote_config__", None)
+                        if isinstance(remote_cfg, dict):
+                            resource_config = remote_cfg.get("resource_config")
 
-                    # if the config is an Endpoint facade, unwrap to the
-                    # internal resource config for property extraction
-                    if hasattr(resource_config, "_build_resource_config"):
-                        resource_config = resource_config._build_resource_config()
+                if resource_config is None:
+                    return config
 
-                    self._extract_config_properties(config, resource_config)
+                # unwrap Endpoint facade to the internal resource config
+                if hasattr(resource_config, "_build_resource_config"):
+                    resource_config = resource_config._build_resource_config()
 
+                self._extract_config_properties(config, resource_config)
             finally:
-                # Clean up module from sys.modules to avoid conflicts
-                if spec.name in sys.modules:
-                    del sys.modules[spec.name]
-                if added_to_path:
-                    try:
-                        sys.path.remove(parent_dir)
-                    except ValueError:
-                        pass
+                cleanup()
 
         except Exception as e:
-            # Log warning but don't fail - deployment config is optional
             logger.debug(
                 f"Failed to extract deployment config for {resource_name}: {e}"
             )
@@ -241,78 +253,6 @@ class ManifestBuilder:
 
             if template_config:
                 config["template"] = template_config
-
-    def _extract_deployment_config_from_import(
-        self, resource_name: str
-    ) -> Dict[str, Any]:
-        """Extract deployment config by importing the module and reading __remote_config__.
-
-        Used for inline @Endpoint(...) QB decorators that have no config_variable.
-        Importing the module executes the decorator which builds a full resource
-        config object with all enum expansion and validation applied.
-        """
-        config: Dict[str, Any] = {}
-
-        func_meta = None
-        for f in self.remote_functions:
-            if f.resource_config_name == resource_name:
-                func_meta = f
-                break
-        if (
-            func_meta is None
-            or not func_meta.file_path
-            or not func_meta.file_path.exists()
-        ):
-            return config
-
-        try:
-            spec = importlib.util.spec_from_file_location(
-                func_meta.file_path.stem, func_meta.file_path
-            )
-            if not spec or not spec.loader:
-                return config
-
-            module = importlib.util.module_from_spec(spec)
-            sys.modules[spec.name] = module
-
-            parent_dir = str(func_meta.file_path.parent)
-            added_to_path = parent_dir not in sys.path
-            if added_to_path:
-                sys.path.insert(0, parent_dir)
-
-            try:
-                spec.loader.exec_module(module)
-
-                fn = getattr(module, func_meta.function_name, None)
-                if fn is None:
-                    return config
-
-                remote_cfg = getattr(fn, "__remote_config__", None)
-                if not isinstance(remote_cfg, dict):
-                    return config
-
-                resource_config = remote_cfg.get("resource_config")
-                if resource_config is None:
-                    return config
-
-                # unwrap Endpoint facade if needed
-                if hasattr(resource_config, "_build_resource_config"):
-                    resource_config = resource_config._build_resource_config()
-
-                self._extract_config_properties(config, resource_config)
-            finally:
-                if spec.name in sys.modules:
-                    del sys.modules[spec.name]
-                if added_to_path:
-                    try:
-                        sys.path.remove(parent_dir)
-                    except ValueError:
-                        pass
-
-        except Exception as e:
-            logger.debug(
-                f"Failed to extract deployment config for {resource_name}: {e}"
-            )
 
         return config
 
