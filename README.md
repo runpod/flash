@@ -636,19 +636,34 @@ All configuration is passed as parameters to the `Endpoint` class:
 
 GPU can be specified using `GpuGroup` (architecture-level) or `GpuType` (specific model):
 
-**GpuGroup** (common groups):
+**GpuGroup** (architecture-level, selects any GPU in the tier):
 - `GpuGroup.ANY` -- any available GPU (default)
-- `GpuGroup.ADA_24` -- NVIDIA GeForce RTX 4090
-- `GpuGroup.AMPERE_80` -- NVIDIA A100 80GB
-- `GpuGroup.AMPERE_48` -- NVIDIA A40, RTX A6000
-- `GpuGroup.AMPERE_24` -- NVIDIA RTX A5000, L4, RTX 3090
-- `GpuGroup.HOPPER_141` -- NVIDIA H200
+- `GpuGroup.ADA_24` -- 24GB Ada (RTX 4090)
+- `GpuGroup.ADA_32_PRO` -- 32GB Ada (RTX 5090)
+- `GpuGroup.ADA_48_PRO` -- 48GB Ada (L40S, L40, RTX 6000 Ada)
+- `GpuGroup.ADA_80_PRO` -- 80GB Ada (RTX Pro 6000)
+- `GpuGroup.AMPERE_16` -- 16GB Ampere (A4000, A4500, RTX 4000 Ada, RTX 2000 Ada)
+- `GpuGroup.AMPERE_24` -- 24GB Ampere (RTX A5000, L4, RTX 3090)
+- `GpuGroup.AMPERE_48` -- 48GB Ampere (A40, RTX A6000)
+- `GpuGroup.AMPERE_80` -- 80GB Ampere (A100 80GB)
+- `GpuGroup.HOPPER_141` -- 141GB Hopper (H200)
 
 **GpuType** (specific models):
+- `GpuType.ANY` -- any available GPU
+- `GpuType.NVIDIA_RTX_A4000` -- RTX A4000 (16 GB)
+- `GpuType.NVIDIA_RTX_A4500` -- RTX A4500 (16 GB)
+- `GpuType.NVIDIA_RTX_2000_ADA_GENERATION` -- RTX 2000 Ada (16 GB)
+- `GpuType.NVIDIA_RTX_4000_ADA_GENERATION` -- RTX 4000 Ada (16 GB)
+- `GpuType.NVIDIA_GEFORCE_RTX_3090` -- RTX 3090 (24 GB)
 - `GpuType.NVIDIA_GEFORCE_RTX_4090` -- RTX 4090 (24 GB)
-- `GpuType.NVIDIA_GEFORCE_RTX_5090` -- RTX 5090 (32 GB)
 - `GpuType.NVIDIA_L4` -- L4 (24 GB)
+- `GpuType.NVIDIA_RTX_A5000` -- RTX A5000 (24 GB)
+- `GpuType.NVIDIA_GEFORCE_RTX_5090` -- RTX 5090 (32 GB)
+- `GpuType.NVIDIA_A40` -- A40 (48 GB)
+- `GpuType.NVIDIA_RTX_A6000` -- RTX A6000 (48 GB)
+- `GpuType.NVIDIA_RTX_6000_ADA_GENERATION` -- RTX 6000 Ada (48 GB)
 - `GpuType.NVIDIA_A100_80GB_PCIe` -- A100 PCIe (80 GB)
+- `GpuType.NVIDIA_A100_SXM4_80GB` -- A100 SXM (80 GB)
 - `GpuType.NVIDIA_H100_80GB_HBM3` -- H100 (80 GB)
 - `GpuType.NVIDIA_H200` -- H200 (141 GB)
 
