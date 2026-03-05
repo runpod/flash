@@ -4,13 +4,10 @@ not the contents of .env file. Only explicitly declared env vars
 should be carried to deployed endpoints.
 """
 
-import pytest
-from unittest.mock import patch
-
-from runpod_flash.core.resources.live_serverless import LiveServerless, CpuLiveServerless
-from runpod_flash.core.resources.serverless import ServerlessEndpoint
-from runpod_flash.core.resources.serverless_cpu import CpuServerlessEndpoint
-from runpod_flash.core.resources.template import KeyValuePair
+from runpod_flash.core.resources.live_serverless import (
+    LiveServerless,
+    CpuLiveServerless,
+)
 
 
 class TestEnvDefaultsToNone:
