@@ -2,7 +2,6 @@
 name: flash
 description: Complete knowledge of the runpod-flash framework - SDK, CLI, architecture, deployment, and codebase. Use when working with runpod-flash code, writing Endpoint classes, configuring GPU/CPU endpoints, debugging deployments, or understanding the framework internals. Triggers on "flash", "runpod-flash", "Endpoint", "serverless", "deploy", "GpuGroup", "CpuInstanceType", "EndpointJob", "remote GPU".
 user-invocable: true
-allowed-tools: Read, Grep, Glob, Bash
 ---
 
 # Runpod Flash (v1.7.0)
