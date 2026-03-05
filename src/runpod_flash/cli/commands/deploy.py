@@ -227,11 +227,11 @@ async def _resolve_and_deploy(
 async def _resolve_environment(
     app_name: str, env_name: str | None
 ) -> tuple[FlashApp, str]:
+    from runpod_flash.core.resources.app import FlashAppNotFoundError
+
     try:
         app = await FlashApp.from_name(app_name)
-    except Exception as exc:
-        if "app not found" not in str(exc).lower():
-            raise
+    except FlashAppNotFoundError:
         target = env_name or "production"
         console.print(
             f"[dim]No app '{app_name}' found. Creating app and '{target}' environment...[/dim]"

@@ -118,7 +118,7 @@ class TestBuildGeneratesHandlerFiles:
     """HandlerGenerator produces valid Python handler files."""
 
     def test_build_generates_handler_files(self, tmp_path):
-        """HandlerGenerator produces syntactically valid handler file."""
+        """HandlerGenerator produces syntactically valid deployed handler."""
         build_dir = tmp_path / "build"
         build_dir.mkdir()
 
@@ -128,9 +128,8 @@ class TestBuildGeneratesHandlerFiles:
             "project_name": "test",
             "resources": {
                 "test-gpu": {
-                    "resource_type": "LiveServerless",
+                    "resource_type": "Endpoint",
                     "is_load_balanced": False,
-                    "is_live_resource": True,
                     "functions": [
                         {
                             "name": "process",
@@ -151,16 +150,14 @@ class TestBuildGeneratesHandlerFiles:
         assert handler_path.exists()
         assert handler_path.name == "handler_test-gpu.py"
 
-        # Verify it's valid Python
         content = handler_path.read_text()
-        ast.parse(content)  # Raises SyntaxError if invalid
+        ast.parse(content)
 
-        # Verify it contains the function registry
-        assert "FUNCTION_REGISTRY" in content
-        assert "process" in content
+        assert "def handler(job):" in content
+        assert "process(**job_input)" in content
 
-    def test_deployed_handler_generation(self, tmp_path):
-        """Deployed (non-live) resource generates deployed handler template."""
+    def test_class_handler_generation(self, tmp_path):
+        """HandlerGenerator produces class-aware handler for @remote classes."""
         build_dir = tmp_path / "build"
         build_dir.mkdir()
 
@@ -170,15 +167,15 @@ class TestBuildGeneratesHandlerFiles:
             "project_name": "test",
             "resources": {
                 "deployed-ep": {
-                    "resource_type": "ServerlessEndpoint",
+                    "resource_type": "Endpoint",
                     "is_load_balanced": False,
-                    "is_live_resource": False,
                     "functions": [
                         {
-                            "name": "inference",
+                            "name": "MyWorker",
                             "module": "model_worker",
                             "is_async": False,
-                            "is_class": False,
+                            "is_class": True,
+                            "class_methods": ["inference"],
                         }
                     ],
                 }
@@ -192,6 +189,6 @@ class TestBuildGeneratesHandlerFiles:
         content = handler_paths[0].read_text()
         ast.parse(content)
 
-        # Deployed handlers use inline handler() definition (not create_handler)
+        assert "_instance = MyWorker()" in content
         assert "def handler(job):" in content
-        assert "inference" in content
+        assert "getattr(_instance, method_name)" in content

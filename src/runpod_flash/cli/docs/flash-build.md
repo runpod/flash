@@ -4,14 +4,15 @@ Build a deployment-ready artifact for your Flash application.
 
 ## Overview
 
-The `flash build` command packages your Flash project into a deployable archive (`.flash/artifact.tar.gz`). It scans your codebase for `@remote` decorated functions, resolves dependencies, and creates a manifest that tells Runpod how to provision your serverless endpoints.
+The `flash build` command packages your Flash project into a deployable archive (`.flash/artifact.tar.gz`). It scans your codebase for `Endpoint` definitions, resolves dependencies, and creates a manifest that tells Runpod how to provision your serverless endpoints.
 
 ### What happens during build
 
-1. **Function discovery:** Finds all `@remote` functions and groups them by their `resource_config`
+1. **Endpoint discovery:** Finds all `Endpoint` definitions and groups them by resource configuration
 2. **Manifest generation:** Creates `.flash/flash_manifest.json` with endpoint definitions and routing info
-3. **Dependency installation:** Installs Python packages for Linux x86_64 (cross-platform compatible)
-4. **Packaging** — Bundles everything into a compressed archive
+3. **Handler generation:** Creates appropriate handler code for each endpoint type (function, class, or LB)
+4. **Dependency installation:** Installs Python packages for Linux x86_64 (cross-platform compatible)
+5. **Packaging:** Bundles everything into a compressed archive
 
 > **Tip:** Most users should use `flash deploy` instead, which runs build + deploy in one step. Use `flash build` when you need more control over the build process or want to inspect the artifact before deploying.
 
@@ -91,7 +92,7 @@ Installs all dependencies specified in your project (including transitive depend
 flash build --no-deps
 ```
 
-Only installs direct dependencies specified in `@remote` decorators:
+Only installs direct dependencies specified in `Endpoint` definitions:
 - Faster builds for large projects
 - Smaller deployment packages
 - Useful when base image already includes dependencies
@@ -141,14 +142,14 @@ When your application has functions on multiple endpoints (GPU and CPU, for exam
 
 ```python
 # CPU endpoint function
-@remote(resource_config=cpu_config)
+@Endpoint(name="preprocessor", cpu="cpu3c-4-8")
 def preprocess(data):
     return clean_data
 
 # GPU endpoint function
-@remote(resource_config=gpu_config)
+@Endpoint(name="inference", gpu=GpuGroup.AMPERE_80)
 async def inference(data):
-    # Calls CPU endpoint function
+    # calls CPU endpoint function
     clean = preprocess(data)
     return results
 ```
@@ -190,16 +191,14 @@ Successful build displays:
 
 ## Troubleshooting
 
-### Build fails with "functions not found"
+### Build fails with "endpoints not found"
 
-Ensure your project has `@remote` decorated functions in your `.py` files:
+Ensure your project has `Endpoint` definitions:
 
 ```python
-from runpod_flash import remote, LiveServerless
+from runpod_flash import Endpoint, GpuGroup
 
-gpu_config = LiveServerless(name="my-gpu")
-
-@remote(resource_config=gpu_config)
+@Endpoint(name="my-worker", gpu=GpuGroup.ANY)
 def my_function(data):
     return result
 ```
@@ -225,11 +224,10 @@ ls .flash/.build/my-project/
 
 If a package doesn't have pre-built Linux x86_64 wheels:
 
-1. **Install standard pip**: `python -m ensurepip --upgrade` - standard pip has better manylinux compatibility than uv pip
+1. **Install standard pip**: `python -m ensurepip --upgrade` -- standard pip has better manylinux compatibility than uv pip
 2. **Check package availability**: Visit PyPI and verify the package has Linux wheels for your Python version
-3. **Newer Python versions**: Python 3.13+ packages often require manylinux_2_27 or higher - standard pip handles these correctly
-4. **uv pip limitations**: uv pip has known issues with manylinux_2_27+ detection - use standard pip when possible
-5. **Pure-Python packages**: These should work regardless, as they don't require platform-specific builds
+3. **Newer Python versions**: Python 3.13+ packages often require manylinux_2_27 or higher -- standard pip handles these correctly
+4. **Pure-Python packages**: These work regardless, as they don't require platform-specific builds
 
 ## Managing Deployment Size
 
@@ -262,26 +260,11 @@ Check the [worker-flash repository](https://github.com/runpod-workers/worker-fla
 | `Dockerfile-lb` (GPU LoadBalanced) | `pytorch/pytorch:*-cuda*-cudnn*-runtime` | torch, torchvision, torchaudio | `--exclude torch,torchvision,torchaudio` |
 | `Dockerfile-lb-cpu` (CPU LoadBalanced) | `python:*-slim` | **None** | Do not exclude ML packages |
 
-**Common pre-installed packages** (versions change - verify in [worker-flash Dockerfiles](https://github.com/runpod-workers/worker-flash)):
-- cloudpickle
-- pydantic
-- requests
-- runpod
-- huggingface-hub
-- fastapi / uvicorn
-
 **Important:**
 - Only exclude packages you're certain exist in your base image
-- Check your resource config's base image before excluding
+- GPU endpoints: safe to exclude torch/torchvision/torchaudio
+- CPU endpoints: do NOT exclude torch (not pre-installed)
 - Verify current versions in the [worker-flash repository](https://github.com/runpod-workers/worker-flash)
-- CPU deployments: Do NOT exclude torch (not pre-installed)
-- GPU deployments: Safe to exclude torch/torchvision/torchaudio
-
-**How to determine your base image:**
-1. Check your `@remote` decorator's `resource_config`
-2. GPU configs use PyTorch base → exclude torch packages
-3. CPU configs use Python slim → bundle all ML packages
-4. When in doubt, check the [worker-flash Dockerfiles](https://github.com/runpod-workers/worker-flash)
 
 ## Next Steps
 

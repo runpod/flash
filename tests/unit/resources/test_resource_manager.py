@@ -260,7 +260,12 @@ class TestResourceManager:
         resource = ServerlessResource(name="rm-test", flashboot=False)
         resource.id = "endpoint-rm-test"
 
-        with patch.object(ServerlessResource, "is_deployed", return_value=False):
+        with patch.object(
+            ServerlessResource,
+            "is_deployed",
+            new_callable=AsyncMock,
+            return_value=False,
+        ):
             with patch.object(
                 ServerlessResource, "_do_deploy", new=AsyncMock(return_value=resource)
             ) as mock_do_deploy:
@@ -321,7 +326,9 @@ class TestResourceManager:
         )
         updated.id = "endpoint-existing"
 
-        with patch.object(ServerlessResource, "is_deployed", return_value=True):
+        with patch.object(
+            ServerlessResource, "is_deployed", new_callable=AsyncMock, return_value=True
+        ):
             with patch.object(
                 ServerlessResource, "update", new=AsyncMock(return_value=updated)
             ) as mock_update:

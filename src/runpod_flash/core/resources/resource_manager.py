@@ -238,7 +238,7 @@ class ResourceManager(SingletonMixin):
 
             if existing:
                 # Resource exists - check if still valid
-                if not existing.is_deployed():
+                if not await existing.is_deployed():
                     log.warning(f"{existing} is no longer valid, redeploying.")
                     self._remove_resource(resource_key)
                     try:

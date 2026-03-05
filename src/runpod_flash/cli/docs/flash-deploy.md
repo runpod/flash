@@ -15,7 +15,7 @@ The `flash deploy` command is the primary way to get your Flash application runn
 **What happens during deployment:**
 1. **Build:** Packages your code, dependencies, and manifest (same as `flash build`)
 2. **Upload:** Sends the artifact to Runpod's storage
-3. **Provision:** Creates or updates serverless endpoints based on your resource configs
+3. **Provision:** Creates or updates serverless endpoints based on your endpoint configs
 4. **Configure:** Sets up environment variables, volumes, and service discovery
 5. **Verify:** Confirms endpoints are healthy and displays access information
 
@@ -27,7 +27,7 @@ The `flash deploy` command is the primary way to get your Flash application runn
 
 ## Architecture: Fully Deployed to Runpod
 
-With `flash deploy`, your **entire application** runs on Runpod Serverless—all `@remote` functions deploy as peer serverless endpoints:
+With `flash deploy`, your **entire application** runs on Runpod Serverless -- all endpoints deploy as peer serverless endpoints:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -37,7 +37,7 @@ With `flash deploy`, your **entire application** runs on Runpod Serverless—all
 │                                                                 │
 │  ┌─────────────────────────┐  ┌─────────────────────────┐       │
 │  │ gpu-worker              │  │ cpu-worker              │       │
-│  │ (your @remote function) │  │ (your @remote function) │       │
+│  │ (your Endpoint function)│  │ (your Endpoint function)│       │
 │  └─────────────────────────┘  └─────────────────────────┘       │
 │                                                                 │
 │  ┌─────────────────────────┐                                    │
@@ -56,8 +56,8 @@ With `flash deploy`, your **entire application** runs on Runpod Serverless—all
 ```
 
 **Key points:**
-- **All `@remote` functions run on Runpod** as serverless endpoints
-- **Users call endpoint URLs** directly (e.g., `https://xyz123.api.runpod.ai/api/hello`)
+- **All endpoints run on Runpod** as serverless endpoints
+- **Users call endpoint URLs** directly (e.g., `https://{id}.api.runpod.ai/api/hello` for LB, `https://api.runpod.ai/v2/{id}/runsync` for QB)
 - **No `live-` prefix** on endpoint names (these are production endpoints)
 - **No hot reload:** code changes require a new deployment
 
@@ -68,7 +68,7 @@ This is different from `flash run`, where your FastAPI app runs locally on your 
 | Aspect | `flash run` | `flash deploy` |
 |--------|-------------|----------------|
 | **App runs on** | Your machine (localhost) | Runpod Serverless |
-| **`@remote` functions run on** | Runpod Serverless | Runpod Serverless |
+| **Endpoint functions run on** | Runpod Serverless | Runpod Serverless |
 | **Endpoint naming** | `live-` prefix (e.g., `live-gpu-worker`) | No prefix (e.g., `gpu-worker`) |
 | **Hot reload** | Yes | No |
 | **Use case** | Development & testing | Production deployment |
@@ -116,9 +116,10 @@ flash deploy --env staging --exclude torch --no-deps
 The deploy command combines building and deploying your Flash application in a single step:
 
 1. **Build Phase**: Creates deployment artifact (see [flash build](./flash-build.md) for details)
-   - Scans project for `@remote` decorated functions
-   - Groups functions by resource configuration
+   - Scans project for `Endpoint` definitions
+   - Groups endpoints by resource configuration
    - Creates `flash_manifest.json` for service discovery
+   - Generates handlers for each endpoint type
    - Installs dependencies with Linux x86_64 compatibility
    - Packages everything into `.flash/artifact.tar.gz`
 
@@ -151,7 +152,7 @@ The deploy command supports all build options from `flash build`:
 flash deploy --no-deps
 ```
 
-Only installs direct dependencies specified in `@remote` decorators. Useful when your base image already includes common packages.
+Only installs direct dependencies specified in `Endpoint` definitions. Useful when your base image already includes common packages.
 
 ### Exclude Packages
 
@@ -172,19 +173,10 @@ Builds your project and launches a local Docker-based test environment instead o
 **What happens:**
 1. Builds your project (creates the archive and manifest)
 2. Creates a Docker network for inter-container communication
-3. Starts one Docker container per resource config:
-   - Application container
-   - All worker containers (GPU, CPU, etc.)
+3. Starts one Docker container per resource config
 4. Exposes the application on `localhost:8000`
 5. All containers communicate via Docker DNS
 6. On shutdown (Ctrl+C), automatically stops and removes all containers
-
-**Use this when:**
-- Testing deployment before production
-- Validating manifest structure
-- Debugging resource provisioning
-- Verifying endpoint auto-discovery
-- Testing distributed function calls
 
 See [flash build](./flash-build.md#preview-environment) for more details on preview mode.
 
@@ -192,7 +184,7 @@ See [flash build](./flash-build.md#preview-environment) for more details on prev
 
 ### What Is an Environment?
 
-An **environment** is an isolated deployment context within a Flash app. Each environment is a separate "stage" (like `dev`, `staging`, or `production`) that contains its own deployed endpoints, build versions, network volumes (if used) and deployment status.
+An **environment** is an isolated deployment context within a Flash app. Each environment is a separate "stage" (like `dev`, `staging`, or `production`) that contains its own deployed endpoints, build versions, and deployment status.
 
 For more details about environment management, see [flash env](./flash-env.md).
 
@@ -226,24 +218,6 @@ flash deploy
 flash deploy --env staging
 ```
 
-### Managing Environments
-
-Use `flash env` commands to manage environments:
-
-```bash
-# List all environments
-flash env list
-
-# Create new environment
-flash env create staging
-
-# View environment details
-flash env get production
-
-# Delete environment
-flash env delete dev
-```
-
 ## Post-Deployment
 
 After successful deployment, the command displays guidance for using your deployed application:
@@ -253,37 +227,28 @@ After successful deployment, the command displays guidance for using your deploy
 All endpoints require authentication with your Runpod API key:
 
 ```bash
-# Set API key as environment variable (recommended)
 export RUNPOD_API_KEY="your_key_here"
-
-# Or use a .env file
-echo "RUNPOD_API_KEY=your_key_here" >> .env
 ```
 
-### 2. Calling Your Functions
+### 2. Calling Your Endpoints
 
-Using HTTP/curl:
-
+**QB endpoints:**
 ```bash
-curl -X POST https://YOUR_ENDPOINT_URL/YOUR_PATH \
+curl -X POST "https://api.runpod.ai/v2/{ENDPOINT_ID}/runsync" \
     -H "Authorization: Bearer $RUNPOD_API_KEY" \
     -H "Content-Type: application/json" \
-    -d '{"param1": "value1"}'
+    -d '{"input": {"key": "value"}}'
 ```
 
-### 3. Available Routes
-
-The deployment output shows all available routes registered from your `@remote` decorators:
-
-```
-POST   /api/process
-GET    /api/status
-POST   /gpu/inference
+**LB endpoints:**
+```bash
+curl -X POST "https://{ENDPOINT_ID}.api.runpod.ai/predict" \
+    -H "Authorization: Bearer $RUNPOD_API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{"key": "value"}'
 ```
 
-### 4. Monitoring
-
-View deployment status and logs:
+### 3. Monitoring
 
 ```bash
 # Check environment status
@@ -293,67 +258,11 @@ flash env get production
 # https://console.runpod.io/serverless
 ```
 
-### 5. Updates
-
-To update your deployment with new code:
+### 4. Updates
 
 ```bash
 # Deploy updated code to same environment
 flash deploy --env production
-```
-
-This creates a new build and updates all endpoints in the environment.
-
-## Output
-
-Successful deployment displays:
-
-```
-╭───────────────────────── Flash Build Configuration ──────────────────────────╮
-│ Project: my-project                                                          │
-│ Directory: /path/to/project                                                  │
-│ Archive: .flash/artifact.tar.gz                                              │
-│ Skip transitive deps: False                                                  │
-│ Keep build dir: False                                                        │
-╰──────────────────────────────────────────────────────────────────────────────╯
-⠙ ✓ Loaded ignore patterns
-⠙ ✓ Found 42 files to package
-⠙ ✓ Created .flash/.build/my-project/
-⠙ ✓ Copied 42 files
-⠙ ✓ Created manifest and registered 3 resources
-⠙ ✓ Installed 5 packages
-⠙ ✓ Created artifact.tar.gz (45.2 MB)
-⠙ ✓ Removed .build directory
-
-Deploying to 'production'...
-
-⠙ Uploading build artifact...
-⠙ Provisioning serverless endpoints...
-⠙ Configuring endpoints...
-
-✓ Deployment Complete
-
-Next Steps:
-
-1. Authentication Required
-   All endpoints require authentication. Set your API key as an environment
-   variable...
-
-2. Call Your Functions
-   Your application is deployed at:
-   https://api-xxxxx.runpod.net
-
-3. Available Routes
-   POST   /api/hello
-   POST   /gpu/process
-
-4. Monitor & Debug
-   flash env get production  - View environment status
-   Runpod Console  - View logs at https://console.runpod.io/serverless
-
-5. Update or Remove Deployment
-   flash deploy --env production  - Update deployment
-   flash env delete production  - Remove deployment
 ```
 
 ## Troubleshooting
@@ -363,7 +272,6 @@ Next Steps:
 **Problem**: `Error: Multiple environments found: dev, staging, production`
 
 **Solution**: Specify the target environment:
-
 ```bash
 flash deploy --env staging
 ```
@@ -377,67 +285,19 @@ If the build phase fails, see [flash build troubleshooting](./flash-build.md#tro
 **Problem**: Deployment exceeds Runpod's 1.5GB limit
 
 **Solution**: Use `--exclude` to skip packages already in your base image:
-
 ```bash
-# Exclude PyTorch packages (pre-installed in GPU images)
 flash deploy --exclude torch,torchvision,torchaudio
 ```
-
-See [flash build - Managing Deployment Size](./flash-build.md#managing-deployment-size) for details on base image packages.
 
 ### Authentication Fails
 
 **Problem**: `401 Unauthorized` when calling endpoints
 
 **Solution**: Ensure your API key is set correctly:
-
 ```bash
-# Check if API key is set
 echo $RUNPOD_API_KEY
-
-# Set API key
-export RUNPOD_API_KEY="your_key_here"
-
-# Or load from .env file
-source .env
+flash login
 ```
-
-### Environment Not Found After Creation
-
-If you just created an environment but it can't be found, wait a few seconds for the API to sync, then retry.
-
-## Performance Considerations
-
-### Build Time
-
-The build phase can take several minutes depending on:
-- The number of dependencies that must be installed
-- Project size and file count
-- Whether dependencies need cross-platform compilation
-
-### Deployment Time
-
-Endpoint provisioning typically takes 2-5 minutes:
-- Container image pull and initialization
-- Endpoint health checks and registration
-- Service discovery configuration
-
-### Optimization Tips
-
-1. **Use `--no-deps`** if base image has dependencies
-2. **Use `--exclude`** for packages in base image
-3. **Cache builds** by deploying to same environment
-4. **Test with `--preview`** before deploying to production
-
-## Next Steps
-
-After deploying:
-
-1. **Test Your Endpoints**: Call your functions to verify deployment
-2. **Monitor Performance**: Check logs and metrics in Runpod Console
-3. **Set Up CI/CD**: Automate deployments with GitHub Actions
-4. **Scale Resources**: Adjust resource configs for production load
-5. **Manage Environments**: Use `flash env` commands for environment lifecycle
 
 ## Related Commands
 

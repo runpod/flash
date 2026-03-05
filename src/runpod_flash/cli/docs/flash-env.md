@@ -6,7 +6,7 @@ Manage deployment environments for Flash applications.
 
 An **environment** is an isolated deployment context within a Flash app. Each environment is a separate "stage" (like `dev`, `staging`, or `production`) that contains its own:
 
-- **Deployed endpoints** — Serverless endpoints provisioned from your `@remote` functions
+- **Deployed endpoints** — Serverless endpoints provisioned from your `Endpoint` definitions
 - **Active build version** — The specific version of your code running in this environment
 - **Network volumes** — Persistent storage for models, caches, etc.
 - **Deployment state** — Current status (PENDING, DEPLOYING, DEPLOYED, etc.)
@@ -279,7 +279,7 @@ flash env delete staging
 ### What is a Flash Environment?
 
 An environment is a logical deployment context that groups:
-- **Endpoints**: Serverless endpoints provisioned from your `@remote` functions
+- **Endpoints**: Serverless endpoints provisioned from your `Endpoint` definitions
 - **Network Volumes**: Persistent storage for models, cache, etc.
 - **Build Version**: The active build artifact deployed to the environment
 - **State**: Current deployment status (PENDING, DEPLOYED, FAILED, etc.)
@@ -464,7 +464,7 @@ flash env delete <name>
 **Problem**: Command requires `--app` flag even when in project directory
 
 **Solution**: Ensure you're in a Flash project directory with:
-- Python files containing `@remote` decorated functions
+- Python files containing `Endpoint` definitions
 - `.env` file with `RUNPOD_API_KEY`
 
 Or specify app explicitly:

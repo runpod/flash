@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import aiohttp
 import pytest
 
+from runpod_flash.core.api import runpod as runpod_api
 from runpod_flash.core.api.runpod import (
     RunpodGraphQLClient,
     _sanitize_for_logging,
@@ -251,13 +252,21 @@ class TestRunpodGraphQLClientExecution:
         mock_ctx_mgr.__aenter__ = AsyncMock(return_value=mock_response)
         mock_ctx_mgr.__aexit__ = AsyncMock(return_value=False)
 
-        with patch.object(client, "_get_session") as mock_session:
+        with (
+            patch.object(client, "_get_session") as mock_session,
+            patch("runpod_flash.core.api.runpod.get_backoff_delay", return_value=0),
+            patch(
+                "runpod_flash.core.api.runpod.asyncio.sleep", new=AsyncMock()
+            ) as sleep,
+        ):
             mock_session_instance = MagicMock()
             mock_session_instance.post = MagicMock(return_value=mock_ctx_mgr)
             mock_session.return_value = mock_session_instance
 
             with pytest.raises(Exception, match="GraphQL errors"):
                 await client._execute_graphql("query { test }")
+
+        sleep.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_execute_graphql_handles_http_errors(self):
@@ -273,7 +282,13 @@ class TestRunpodGraphQLClientExecution:
         mock_ctx_mgr.__aenter__ = AsyncMock(return_value=mock_response)
         mock_ctx_mgr.__aexit__ = AsyncMock(return_value=False)
 
-        with patch.object(client, "_get_session") as mock_session:
+        with (
+            patch.object(client, "_get_session") as mock_session,
+            patch("runpod_flash.core.api.runpod.get_backoff_delay", return_value=0),
+            patch(
+                "runpod_flash.core.api.runpod.asyncio.sleep", new=AsyncMock()
+            ) as sleep,
+        ):
             mock_session_instance = MagicMock()
             mock_session_instance.post = MagicMock(return_value=mock_ctx_mgr)
             mock_session.return_value = mock_session_instance
@@ -281,12 +296,20 @@ class TestRunpodGraphQLClientExecution:
             with pytest.raises(Exception, match="GraphQL request failed: 500"):
                 await client._execute_graphql("query { test }")
 
+        assert sleep.await_count == runpod_api.GRAPHQL_MAX_RETRIES
+
     @pytest.mark.asyncio
     async def test_execute_graphql_handles_network_errors(self):
         """Test handling network/client errors."""
         client = RunpodGraphQLClient(api_key="test_key")
 
-        with patch.object(client, "_get_session") as mock_session:
+        with (
+            patch.object(client, "_get_session") as mock_session,
+            patch("runpod_flash.core.api.runpod.get_backoff_delay", return_value=0),
+            patch(
+                "runpod_flash.core.api.runpod.asyncio.sleep", new=AsyncMock()
+            ) as sleep,
+        ):
             mock_session_instance = MagicMock()
             mock_session_instance.post.side_effect = aiohttp.ClientError(
                 "Connection failed"
@@ -295,6 +318,8 @@ class TestRunpodGraphQLClientExecution:
 
             with pytest.raises(Exception, match="HTTP request failed"):
                 await client._execute_graphql("query { test }")
+
+        assert sleep.await_count == runpod_api.GRAPHQL_MAX_RETRIES
 
 
 class TestRunpodGraphQLClientEndpoints:
@@ -376,16 +401,8 @@ class TestRunpodGraphQLClientEndpoints:
         """Test checking if endpoint exists (returns True)."""
         client = RunpodGraphQLClient(api_key="test_key")
 
-        # Mock the actual GraphQL query that endpoint_exists uses (queries myself.endpoints)
         with patch.object(client, "_execute_graphql") as mock_execute:
-            mock_execute.return_value = {
-                "myself": {
-                    "endpoints": [
-                        {"id": "endpoint_123"},
-                        {"id": "endpoint_456"},
-                    ]
-                }
-            }
+            mock_execute.return_value = {"myself": {"endpoint": {"id": "endpoint_123"}}}
 
             exists = await client.endpoint_exists("endpoint_123")
 
@@ -399,14 +416,7 @@ class TestRunpodGraphQLClientEndpoints:
         with patch.object(
             client, "_execute_graphql", new_callable=AsyncMock
         ) as mock_gql:
-            # endpoint_exists queries myself.endpoints — return a list without the target
-            mock_gql.return_value = {
-                "myself": {
-                    "endpoints": [
-                        {"id": "endpoint_other"},
-                    ]
-                }
-            }
+            mock_gql.return_value = {"myself": {"endpoint": None}}
 
             exists = await client.endpoint_exists("endpoint_123")
 

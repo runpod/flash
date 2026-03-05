@@ -618,9 +618,24 @@ def should_exclude_package(requirement: str, exclusions: list[str]) -> bool:
     return package_name in exclusions
 
 
+def _extract_deps_from_call(call_node: ast.Call) -> list[str]:
+    """Extract the dependencies=[...] keyword value from an ast.Call node."""
+    deps = []
+    for keyword in call_node.keywords:
+        if keyword.arg == "dependencies" and isinstance(keyword.value, ast.List):
+            for elt in keyword.value.elts:
+                if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
+                    deps.append(elt.value)
+    return deps
+
+
 def extract_remote_dependencies(source_dir: Path) -> list[str]:
-    """
-    Extract dependencies from @remote decorators in Python source files.
+    """Extract dependencies from @remote and Endpoint(...) in Python source files.
+
+    Scans for three patterns:
+    - @remote(dependencies=[...]) on functions/classes
+    - @Endpoint(dependencies=[...]) on functions/classes (QB decorator)
+    - ep = Endpoint(dependencies=[...]) variable assignments (LB pattern)
 
     Args:
         source_dir: Path to directory containing Python source files
@@ -638,6 +653,8 @@ def extract_remote_dependencies(source_dir: Path) -> list[str]:
             tree = ast.parse(py_file.read_text(encoding="utf-8"))
 
             for node in ast.walk(tree):
+                # @remote(dependencies=[...]) or @Endpoint(dependencies=[...])
+                # on function/class definitions
                 if isinstance(
                     node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
                 ):
@@ -649,14 +666,18 @@ def extract_remote_dependencies(source_dir: Path) -> list[str]:
                             elif isinstance(decorator.func, ast.Attribute):
                                 func_name = decorator.func.attr
 
-                            if func_name == "remote":
-                                # Extract dependencies keyword argument
-                                for keyword in decorator.keywords:
-                                    if keyword.arg == "dependencies":
-                                        if isinstance(keyword.value, ast.List):
-                                            for elt in keyword.value.elts:
-                                                if isinstance(elt, ast.Constant):
-                                                    dependencies.append(elt.value)
+                            if func_name in ("remote", "Endpoint"):
+                                dependencies.extend(_extract_deps_from_call(decorator))
+
+                # ep = Endpoint(dependencies=[...]) variable assignments
+                if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call):
+                    call_name = None
+                    if isinstance(node.value.func, ast.Name):
+                        call_name = node.value.func.id
+                    elif isinstance(node.value.func, ast.Attribute):
+                        call_name = node.value.func.attr
+                    if call_name == "Endpoint":
+                        dependencies.extend(_extract_deps_from_call(node.value))
 
         except Exception as e:
             console.print(
