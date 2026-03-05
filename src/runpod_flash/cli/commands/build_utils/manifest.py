@@ -77,6 +77,10 @@ class ManifestBuilder:
     ) -> Dict[str, Any]:
         """Extract deployment config (imageName, templateId, etc.) from resource object.
 
+        Uses dynamic import to instantiate the resource config and read its
+        properties. For inline @Endpoint(...) decorators that have no
+        config_variable, falls back to AST-based keyword extraction.
+
         Args:
             resource_name: Name of the resource
             config_variable: Variable name of the resource config (e.g., "gpu_config")
@@ -87,9 +91,13 @@ class ManifestBuilder:
         """
         config = {}
 
-        # If no scanner or config variable, can't extract deployment config
-        if not self.scanner or not config_variable:
+        if not self.scanner:
             return config
+
+        # for inline @Endpoint(...) QB decorators there is no config variable.
+        # extract what we can directly from the decorator's AST keywords.
+        if not config_variable:
+            return self._extract_deployment_config_from_ast(resource_name)
 
         try:
             # Get the module where this resource is defined
@@ -253,6 +261,118 @@ class ManifestBuilder:
             )
 
         return config
+
+    def _extract_deployment_config_from_ast(self, resource_name: str) -> Dict[str, Any]:
+        """Extract deployment config by parsing Endpoint(...) decorator keywords.
+
+        Used for inline @Endpoint(...) QB decorators that have no config_variable.
+        Parses the source file's AST to read keyword arguments directly.
+        """
+        import ast
+
+        config: Dict[str, Any] = {}
+
+        # find the source file for this resource
+        func_meta = None
+        for f in self.remote_functions:
+            if f.resource_config_name == resource_name:
+                func_meta = f
+                break
+        if (
+            func_meta is None
+            or not func_meta.file_path
+            or not func_meta.file_path.exists()
+        ):
+            return config
+
+        try:
+            tree = ast.parse(func_meta.file_path.read_text(encoding="utf-8"))
+        except Exception:
+            return config
+
+        # find the decorated function/class node and its @Endpoint(...) decorator
+        for node in ast.walk(tree):
+            if not isinstance(
+                node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+            ):
+                continue
+            if node.name != func_meta.function_name:
+                continue
+
+            for decorator in node.decorator_list:
+                if not isinstance(decorator, ast.Call):
+                    continue
+                call_name = None
+                if isinstance(decorator.func, ast.Name):
+                    call_name = decorator.func.id
+                elif isinstance(decorator.func, ast.Attribute):
+                    call_name = decorator.func.attr
+                if call_name != "Endpoint":
+                    continue
+
+                # extract keyword arguments we care about
+                for kw in decorator.keywords:
+                    if kw.arg == "gpu" and isinstance(kw.value, ast.Attribute):
+                        # e.g. GpuGroup.ADA_24 -> "ADA_24"
+                        config["gpuIds"] = [kw.value.attr]
+                    elif kw.arg == "gpu" and isinstance(kw.value, ast.List):
+                        ids = []
+                        for elt in kw.value.elts:
+                            if isinstance(elt, ast.Attribute):
+                                ids.append(elt.attr)
+                        if ids:
+                            config["gpuIds"] = ids
+                    elif kw.arg == "cpu" and isinstance(kw.value, ast.Attribute):
+                        # e.g. CpuInstanceType.CPU3C_1_2 -> resolve to enum value
+                        config["instanceIds"] = [
+                            self._resolve_cpu_enum_value(kw.value.attr)
+                        ]
+                    elif kw.arg == "cpu" and isinstance(kw.value, ast.List):
+                        ids = []
+                        for elt in kw.value.elts:
+                            if isinstance(elt, ast.Attribute):
+                                ids.append(self._resolve_cpu_enum_value(elt.attr))
+                        if ids:
+                            config["instanceIds"] = ids
+                    elif kw.arg == "workers":
+                        if isinstance(kw.value, ast.Constant):
+                            config["workersMin"] = 0
+                            config["workersMax"] = kw.value.value
+                        elif (
+                            isinstance(kw.value, ast.Tuple) and len(kw.value.elts) == 2
+                        ):
+                            elts = kw.value.elts
+                            if isinstance(elts[0], ast.Constant):
+                                config["workersMin"] = elts[0].value
+                            if isinstance(elts[1], ast.Constant):
+                                config["workersMax"] = elts[1].value
+                    elif kw.arg == "image" and isinstance(kw.value, ast.Constant):
+                        config["imageName"] = kw.value.value
+                    elif kw.arg == "scaler_type" and isinstance(
+                        kw.value, ast.Attribute
+                    ):
+                        config["scalerType"] = kw.value.attr
+                    elif kw.arg == "scaler_value" and isinstance(
+                        kw.value, ast.Constant
+                    ):
+                        config["scalerValue"] = kw.value.value
+                return config
+
+        return config
+
+    @staticmethod
+    def _resolve_cpu_enum_value(enum_member_name: str) -> str:
+        """Resolve a CpuInstanceType enum member name to its value string.
+
+        Falls back to lowercasing and replacing underscores with hyphens
+        if the enum cannot be imported (matches CpuInstanceType naming convention).
+        """
+        try:
+            from runpod_flash.core.resources.cpu import CpuInstanceType
+
+            return CpuInstanceType[enum_member_name].value
+        except (ImportError, KeyError):
+            return enum_member_name.lower().replace("_", "-")
 
     def build(self) -> Dict[str, Any]:
         """Build the manifest dictionary.

@@ -619,3 +619,105 @@ def test_extract_deployment_config_network_volume_minimal():
         # Default size and dataCenterId should still be present
         assert config["networkVolume"]["size"] == 100
         assert config["networkVolume"]["dataCenterId"] == "EU-RO-1"
+
+
+# --- Tests for AST-based deployment config extraction (@Endpoint QB) ---
+
+
+def test_extract_deployment_config_from_ast_cpu_instance():
+    """AST extraction picks up cpu= from inline @Endpoint decorator."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        worker_py = Path(tmpdir) / "worker.py"
+        worker_py.write_text(
+            "from runpod_flash import Endpoint, CpuInstanceType\n"
+            "\n"
+            "@Endpoint(name='cpu-worker', cpu=CpuInstanceType.CPU3C_1_2)\n"
+            "async def handler(data: dict) -> dict:\n"
+            "    return data\n"
+        )
+
+        functions = [
+            RemoteFunctionMetadata(
+                function_name="handler",
+                module_path="worker",
+                resource_config_name="cpu-worker",
+                resource_type="Endpoint",
+                is_async=True,
+                is_class=False,
+                file_path=worker_py,
+                config_variable=None,
+            )
+        ]
+
+        scanner = MagicMock()
+        builder = ManifestBuilder("test_app", functions, scanner=scanner)
+        config = builder._extract_deployment_config("cpu-worker", None, "Endpoint")
+
+        assert config["instanceIds"] == ["cpu3c-1-2"]
+        assert "gpuIds" not in config
+
+
+def test_extract_deployment_config_from_ast_gpu():
+    """AST extraction picks up gpu= from inline @Endpoint decorator."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        worker_py = Path(tmpdir) / "worker.py"
+        worker_py.write_text(
+            "from runpod_flash import Endpoint, GpuGroup\n"
+            "\n"
+            "@Endpoint(name='gpu-worker', gpu=GpuGroup.ADA_24)\n"
+            "async def handler(data: dict) -> dict:\n"
+            "    return data\n"
+        )
+
+        functions = [
+            RemoteFunctionMetadata(
+                function_name="handler",
+                module_path="worker",
+                resource_config_name="gpu-worker",
+                resource_type="Endpoint",
+                is_async=True,
+                is_class=False,
+                file_path=worker_py,
+                config_variable=None,
+            )
+        ]
+
+        scanner = MagicMock()
+        builder = ManifestBuilder("test_app", functions, scanner=scanner)
+        config = builder._extract_deployment_config("gpu-worker", None, "Endpoint")
+
+        assert config["gpuIds"] == ["ADA_24"]
+        assert "instanceIds" not in config
+
+
+def test_extract_deployment_config_from_ast_workers():
+    """AST extraction picks up workers= tuple from inline @Endpoint decorator."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        worker_py = Path(tmpdir) / "worker.py"
+        worker_py.write_text(
+            "from runpod_flash import Endpoint, GpuGroup\n"
+            "\n"
+            "@Endpoint(name='scaled', gpu=GpuGroup.ANY, workers=(1, 5))\n"
+            "async def handler(data: dict) -> dict:\n"
+            "    return data\n"
+        )
+
+        functions = [
+            RemoteFunctionMetadata(
+                function_name="handler",
+                module_path="worker",
+                resource_config_name="scaled",
+                resource_type="Endpoint",
+                is_async=True,
+                is_class=False,
+                file_path=worker_py,
+                config_variable=None,
+            )
+        ]
+
+        scanner = MagicMock()
+        builder = ManifestBuilder("test_app", functions, scanner=scanner)
+        config = builder._extract_deployment_config("scaled", None, "Endpoint")
+
+        assert config["workersMin"] == 1
+        assert config["workersMax"] == 5
