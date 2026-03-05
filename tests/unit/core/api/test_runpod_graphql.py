@@ -376,16 +376,8 @@ class TestRunpodGraphQLClientEndpoints:
         """Test checking if endpoint exists (returns True)."""
         client = RunpodGraphQLClient(api_key="test_key")
 
-        # Mock the actual GraphQL query that endpoint_exists uses (queries myself.endpoints)
         with patch.object(client, "_execute_graphql") as mock_execute:
-            mock_execute.return_value = {
-                "myself": {
-                    "endpoints": [
-                        {"id": "endpoint_123"},
-                        {"id": "endpoint_456"},
-                    ]
-                }
-            }
+            mock_execute.return_value = {"myself": {"endpoint": {"id": "endpoint_123"}}}
 
             exists = await client.endpoint_exists("endpoint_123")
 
@@ -399,14 +391,7 @@ class TestRunpodGraphQLClientEndpoints:
         with patch.object(
             client, "_execute_graphql", new_callable=AsyncMock
         ) as mock_gql:
-            # endpoint_exists queries myself.endpoints — return a list without the target
-            mock_gql.return_value = {
-                "myself": {
-                    "endpoints": [
-                        {"id": "endpoint_other"},
-                    ]
-                }
-            }
+            mock_gql.return_value = {"myself": {"endpoint": None}}
 
             exists = await client.endpoint_exists("endpoint_123")
 

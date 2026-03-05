@@ -20,12 +20,14 @@ from typing import List, Optional
 from pydantic import model_validator
 
 from runpod_flash.core.utils.http import get_authenticated_httpx_client
+from ..api.runpod import RunpodGraphQLClient
 from .constants import ENDPOINT_DOMAIN
 from .cpu import CpuInstanceType
 from .serverless import ServerlessResource, ServerlessType, ServerlessScalerType
 from .serverless_cpu import CpuEndpointMixin
 
 log = logging.getLogger(__name__)
+
 
 # Configuration constants
 DEFAULT_HEALTH_CHECK_RETRIES = 10
@@ -248,7 +250,7 @@ class LoadBalancerSlsResource(ServerlessResource):
         self._validate_lb_configuration()
 
         # Check if already deployed
-        if self.is_deployed():
+        if await self.is_deployed():
             log.debug(f"{self} already deployed")
             return self
 
@@ -269,25 +271,25 @@ class LoadBalancerSlsResource(ServerlessResource):
             log.debug(f"Failed to deploy LB endpoint {self.name}: {e}")
             raise
 
-    def is_deployed(self) -> bool:
-        """
-        Override is_deployed to use async health check.
-
-        Note: This is a synchronous wrapper around the async health check.
-        Prefer is_deployed_async() in async contexts.
+    async def is_deployed(self) -> bool:
+        """Check if this endpoint exists in the user's RunPod account.
 
         Returns:
-            True if endpoint is deployed and /ping responds
+            True if the endpoint exists, False otherwise
         """
         if not self.id:
             return False
 
+        import os
+
+        if os.getenv("FLASH_IS_LIVE_PROVISIONING", "").lower() == "true":
+            return True
+
         try:
-            # Try the RunPod SDK health check (works for basic connectivity)
-            response = self.endpoint.health()
-            return response is not None
+            async with RunpodGraphQLClient() as client:
+                return await client.endpoint_exists(self.id)
         except Exception as e:
-            log.debug(f"RunPod health check failed for {self.name}: {e}")
+            log.debug(f"Endpoint existence check failed for {self.name}: {e}")
             return False
 
 

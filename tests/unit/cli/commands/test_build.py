@@ -189,6 +189,77 @@ class TestExtractRemoteDependencies:
 
         assert "transformers" in requirements
 
+    def test_extracts_dependencies_from_endpoint_qb_decorator(self, tmp_path):
+        """Extract dependencies from @Endpoint(...) QB decorator."""
+        workers_dir = tmp_path / "workers"
+        workers_dir.mkdir()
+        worker_file = workers_dir / "worker.py"
+
+        worker_file.write_text(
+            "from runpod_flash import Endpoint, GpuType\n"
+            '@Endpoint(name="gpu_worker", gpu=GpuType.ANY, dependencies=["torch"])\n'
+            "async def process(data: dict) -> dict:\n"
+            "    return data\n"
+        )
+
+        dependencies = extract_remote_dependencies(workers_dir)
+
+        assert dependencies == ["torch"]
+
+    def test_extracts_dependencies_from_endpoint_variable_assignment(self, tmp_path):
+        """Extract dependencies from ep = Endpoint(dependencies=[...]) LB pattern."""
+        workers_dir = tmp_path / "workers"
+        workers_dir.mkdir()
+        worker_file = workers_dir / "worker.py"
+
+        worker_file.write_text(
+            "from runpod_flash import Endpoint, GpuGroup\n"
+            'api = Endpoint(name="my-api", gpu=GpuGroup.ADA_24, dependencies=["numpy", "pandas"])\n'
+            "\n"
+            '@api.post("/compute")\n'
+            "async def compute(request: dict) -> dict:\n"
+            "    return request\n"
+        )
+
+        dependencies = extract_remote_dependencies(workers_dir)
+
+        assert sorted(dependencies) == ["numpy", "pandas"]
+
+    def test_extracts_dependencies_from_mixed_patterns(self, tmp_path):
+        """Extract dependencies from both @remote and Endpoint patterns."""
+        workers_dir = tmp_path / "workers"
+        workers_dir.mkdir()
+
+        # file with @remote
+        f1 = workers_dir / "remote_worker.py"
+        f1.write_text(
+            "from runpod_flash import remote, LiveServerless\n"
+            "gpu = LiveServerless()\n"
+            "@remote(gpu, dependencies=['torch'])\n"
+            "async def train(data): return data\n"
+        )
+
+        # file with @Endpoint QB
+        f2 = workers_dir / "endpoint_worker.py"
+        f2.write_text(
+            "from runpod_flash import Endpoint\n"
+            '@Endpoint(name="w", dependencies=["numpy"])\n'
+            "async def infer(data): return data\n"
+        )
+
+        # file with Endpoint LB variable
+        f3 = workers_dir / "lb_worker.py"
+        f3.write_text(
+            "from runpod_flash import Endpoint\n"
+            'api = Endpoint(name="api", dependencies=["fastapi"])\n'
+            '@api.get("/health")\n'
+            "async def health(): return {}\n"
+        )
+
+        dependencies = extract_remote_dependencies(workers_dir)
+
+        assert sorted(dependencies) == ["fastapi", "numpy", "torch"]
+
 
 class TestRunBuildHandlerGeneration:
     """Tests for QB handler generation in the build pipeline."""

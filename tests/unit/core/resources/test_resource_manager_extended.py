@@ -109,7 +109,7 @@ class TestGetOrDeployResource:
         manager = ResourceManager()
 
         existing = MagicMock()
-        existing.is_deployed.return_value = True
+        existing.is_deployed = AsyncMock(return_value=True)
         existing.config_hash = "same-hash"
 
         key = "TestResource:existing"
@@ -129,7 +129,7 @@ class TestGetOrDeployResource:
         manager = ResourceManager()
 
         existing = MagicMock()
-        existing.is_deployed.return_value = True
+        existing.is_deployed = AsyncMock(return_value=True)
         existing.config_hash = "old-hash"
         existing.update = AsyncMock(return_value=MagicMock(config_hash="new-hash"))
 
@@ -151,7 +151,7 @@ class TestGetOrDeployResource:
         manager = ResourceManager()
 
         existing = MagicMock()
-        existing.is_deployed.return_value = False
+        existing.is_deployed = AsyncMock(return_value=False)
 
         key = "TestResource:invalid"
         manager._resources[key] = existing

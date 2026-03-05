@@ -1,6 +1,6 @@
 """Tests for resource management commands."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -37,7 +37,7 @@ class TestGenerateResourceTableSingleResource:
     def test_single_active_resource_no_error(self, mock_resource_manager):
         """Test with single active resource doesn't error."""
         resource = MagicMock()
-        resource.is_deployed.return_value = True
+        resource.is_deployed = AsyncMock(return_value=True)
         resource.__class__.__name__ = "ServerlessEndpoint"
         resource.url = "https://example.com/endpoint-123"
 
@@ -52,7 +52,7 @@ class TestGenerateResourceTableSingleResource:
     def test_single_inactive_resource_no_error(self, mock_resource_manager):
         """Test with single inactive resource doesn't error."""
         resource = MagicMock()
-        resource.is_deployed.return_value = False
+        resource.is_deployed = AsyncMock(return_value=False)
         resource.__class__.__name__ = "ServerlessEndpoint"
         resource.url = "https://example.com/endpoint-456"
 
@@ -67,7 +67,7 @@ class TestGenerateResourceTableSingleResource:
     def test_resource_is_deployed_exception_handled(self, mock_resource_manager):
         """Test handles is_deployed exception."""
         resource = MagicMock()
-        resource.is_deployed.side_effect = Exception("Connection failed")
+        resource.is_deployed = AsyncMock(side_effect=Exception("Connection failed"))
         resource.__class__.__name__ = "ServerlessEndpoint"
         resource.url = "https://example.com/endpoint-789"
 
@@ -82,7 +82,7 @@ class TestGenerateResourceTableSingleResource:
     def test_resource_without_url_attribute_handled(self, mock_resource_manager):
         """Test resource without url attribute is handled."""
         resource = MagicMock(spec=["is_deployed", "__class__"])
-        resource.is_deployed.return_value = True
+        resource.is_deployed = AsyncMock(return_value=True)
         resource.__class__.__name__ = "LoadBalancer"
 
         mock_resource_manager._resources = {"lb-001": resource}
@@ -96,7 +96,7 @@ class TestGenerateResourceTableSingleResource:
     def test_resource_with_empty_url(self, mock_resource_manager):
         """Test resource with empty string URL."""
         resource = MagicMock()
-        resource.is_deployed.return_value = True
+        resource.is_deployed = AsyncMock(return_value=True)
         resource.__class__.__name__ = "ServerlessEndpoint"
         resource.url = ""
 
@@ -115,12 +115,12 @@ class TestGenerateResourceTableMultipleResources:
     def test_multiple_resources_mixed_status_no_error(self, mock_resource_manager):
         """Test with mixed statuses doesn't error."""
         active_resource = MagicMock()
-        active_resource.is_deployed.return_value = True
+        active_resource.is_deployed = AsyncMock(return_value=True)
         active_resource.__class__.__name__ = "ServerlessEndpoint"
         active_resource.url = "https://api.example.com/active"
 
         inactive_resource = MagicMock()
-        inactive_resource.is_deployed.return_value = False
+        inactive_resource.is_deployed = AsyncMock(return_value=False)
         inactive_resource.__class__.__name__ = "ServerlessEndpoint"
         inactive_resource.url = "https://api.example.com/inactive"
 
@@ -140,7 +140,7 @@ class TestGenerateResourceTableMultipleResources:
         resources = {}
         for i in range(3):
             resource = MagicMock()
-            resource.is_deployed.return_value = True
+            resource.is_deployed = AsyncMock(return_value=True)
             resource.__class__.__name__ = "ServerlessEndpoint"
             resource.url = f"https://api.example.com/endpoint-{i}"
             resources[f"endpoint-{i}"] = resource
@@ -156,7 +156,7 @@ class TestGenerateResourceTableMultipleResources:
     def test_long_resource_id_handling(self, mock_resource_manager):
         """Test that long resource IDs are handled (truncated)."""
         resource = MagicMock()
-        resource.is_deployed.return_value = True
+        resource.is_deployed = AsyncMock(return_value=True)
         resource.__class__.__name__ = "ServerlessEndpoint"
         resource.url = "https://example.com"
 
@@ -173,7 +173,7 @@ class TestGenerateResourceTableMultipleResources:
     def test_short_resource_id_no_error(self, mock_resource_manager):
         """Test short resource IDs work."""
         resource = MagicMock()
-        resource.is_deployed.return_value = True
+        resource.is_deployed = AsyncMock(return_value=True)
         resource.__class__.__name__ = "ServerlessEndpoint"
         resource.url = "https://example.com"
 
@@ -194,7 +194,7 @@ class TestGenerateResourceTableSummary:
         resources = {}
         for i in range(5):
             resource = MagicMock()
-            resource.is_deployed.return_value = True
+            resource.is_deployed = AsyncMock(return_value=True)
             resource.__class__.__name__ = "ServerlessEndpoint"
             resource.url = f"https://example.com/{i}"
             resources[f"endpoint-{i}"] = resource
@@ -213,20 +213,20 @@ class TestGenerateResourceTableSummary:
 
         for i in range(2):
             resource = MagicMock()
-            resource.is_deployed.return_value = True
+            resource.is_deployed = AsyncMock(return_value=True)
             resource.__class__.__name__ = "ServerlessEndpoint"
             resource.url = f"https://example.com/active-{i}"
             resources[f"endpoint-{i}"] = resource
 
         resource = MagicMock()
-        resource.is_deployed.return_value = False
+        resource.is_deployed = AsyncMock(return_value=False)
         resource.__class__.__name__ = "ServerlessEndpoint"
         resource.url = "https://example.com/inactive"
         resources["endpoint-2"] = resource
 
         for i in range(3, 5):
             resource = MagicMock()
-            resource.is_deployed.side_effect = Exception("Error")
+            resource.is_deployed = AsyncMock(side_effect=Exception("Error"))
             resource.__class__.__name__ = "ServerlessEndpoint"
             resource.url = f"https://example.com/unknown-{i}"
             resources[f"endpoint-{i}"] = resource
@@ -255,7 +255,7 @@ class TestGenerateResourceTableResourceTypes:
         resources = {}
         for i, res_type in enumerate(resource_types):
             resource = MagicMock()
-            resource.is_deployed.return_value = True
+            resource.is_deployed = AsyncMock(return_value=True)
             resource.__class__.__name__ = res_type
             resource.url = f"https://example.com/{res_type.lower()}-{i}"
             resources[f"res-{i}"] = resource

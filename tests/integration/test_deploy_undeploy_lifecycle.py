@@ -142,7 +142,7 @@ class TestResourceManagerDriftDetection:
             )
             return deployed
 
-        def mock_is_deployed(self_resource):
+        async def mock_is_deployed(self_resource):
             return self_resource.id is not None
 
         with (

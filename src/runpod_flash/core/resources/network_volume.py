@@ -79,7 +79,7 @@ class NetworkVolume(DeployableResource):
             raise ValueError("Network volume ID is not set")
         return f"{CONSOLE_BASE_URL}/user/storage"
 
-    def is_deployed(self) -> bool:
+    async def is_deployed(self) -> bool:
         """
         Checks if the network volume resource is deployed and available.
         """
@@ -138,7 +138,7 @@ class NetworkVolume(DeployableResource):
         """
         try:
             # If the resource is already deployed, return it
-            if self.is_deployed():
+            if await self.is_deployed():
                 log.debug(f"{self} exists")
                 return self
 

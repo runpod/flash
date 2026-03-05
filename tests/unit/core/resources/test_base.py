@@ -39,7 +39,7 @@ class SampleDeployableResource(DeployableResource):
         """Return endpoint URL."""
         return self.endpoint_url or f"https://example.com/{self.name}"
 
-    def is_deployed(self) -> bool:
+    async def is_deployed(self) -> bool:
         """Check if deployed."""
         return self.deployed
 
@@ -309,11 +309,11 @@ class TestDeployableResource:
         """Test deploy method."""
         resource = SampleDeployableResource(name="test-resource")
 
-        assert not resource.is_deployed()
+        assert not await resource.is_deployed()
 
         deployed = await resource.deploy()
 
-        assert deployed.is_deployed()
+        assert await deployed.is_deployed()
         assert deployed.id == "deployed-123"
 
     @pytest.mark.asyncio
@@ -322,12 +322,12 @@ class TestDeployableResource:
         resource = SampleDeployableResource(name="test-resource")
         await resource.deploy()
 
-        assert resource.is_deployed()
+        assert await resource.is_deployed()
 
         result = await resource.undeploy()
 
         assert result is True
-        assert not resource.is_deployed()
+        assert not await resource.is_deployed()
         assert resource.id is None
 
     def test_url_property(self):
@@ -348,15 +348,16 @@ class TestDeployableResource:
 
         assert url == "https://custom.com/endpoint"
 
-    def test_is_deployed(self):
+    @pytest.mark.asyncio
+    async def test_is_deployed(self):
         """Test is_deployed method."""
         resource = SampleDeployableResource(name="test-resource")
 
-        assert not resource.is_deployed()
+        assert not await resource.is_deployed()
 
         resource.deployed = True
 
-        assert resource.is_deployed()
+        assert await resource.is_deployed()
 
     def test_str_representation(self):
         """Test string representation."""

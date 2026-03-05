@@ -41,9 +41,13 @@ class TestRunCommandEnvironmentVariables:
 
     @pytest.fixture(autouse=True)
     def patch_watcher(self):
-        """Prevent the background watcher thread from blocking tests."""
+        """Prevent the background watcher thread and port probing from affecting tests."""
         with patch("runpod_flash.cli.commands.run._watch_and_regenerate"):
-            yield
+            with patch(
+                "runpod_flash.cli.commands.run._find_available_port",
+                side_effect=lambda host, port: port,
+            ):
+                yield
 
     def test_port_from_environment_variable(
         self, runner, temp_fastapi_app, monkeypatch
@@ -243,9 +247,13 @@ class TestRunCommandHotReload:
 
     @pytest.fixture(autouse=True)
     def patch_watcher(self):
-        """Prevent the background watcher thread from blocking tests."""
+        """Prevent the background watcher thread and port probing from affecting tests."""
         with patch("runpod_flash.cli.commands.run._watch_and_regenerate"):
-            yield
+            with patch(
+                "runpod_flash.cli.commands.run._find_available_port",
+                side_effect=lambda host, port: port,
+            ):
+                yield
 
     def _invoke_run(self, runner, monkeypatch, temp_fastapi_app, extra_args=None):
         """Helper: invoke flash run and return the Popen call args."""
@@ -804,3 +812,67 @@ class TestMapBodyToParams:
 
         result = _map_body_to_params(run_pipeline, {})
         assert result == {}
+
+
+class TestFindAvailablePort:
+    def test_returns_start_port_when_free(self):
+        from runpod_flash.cli.commands.run import _find_available_port
+
+        import socket
+
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("localhost", 0))
+            free_port = s.getsockname()[1]
+
+        assert _find_available_port("localhost", free_port) == free_port
+
+    def test_skips_occupied_port(self):
+        from runpod_flash.cli.commands.run import _find_available_port
+
+        import socket
+
+        blocker = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        blocker.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        blocker.bind(("localhost", 0))
+        occupied_port = blocker.getsockname()[1]
+        blocker.listen(1)
+
+        try:
+            result = _find_available_port("localhost", occupied_port)
+            assert result > occupied_port
+        finally:
+            blocker.close()
+
+    def test_exits_when_no_port_available(self):
+        from runpod_flash.cli.commands.run import (
+            _find_available_port,
+            _MAX_PORT_ATTEMPTS,
+        )
+
+        import socket
+
+        blockers = []
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("127.0.0.1", 0))
+            start = s.getsockname()[1]
+
+        for i in range(_MAX_PORT_ATTEMPTS):
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                s.bind(("127.0.0.1", start + i))
+                s.listen(1)
+                blockers.append(s)
+            except OSError:
+                s.close()
+                blockers.append(None)
+
+        try:
+            from click.exceptions import Exit as ClickExit
+
+            with pytest.raises((SystemExit, ClickExit)):
+                _find_available_port("127.0.0.1", start)
+        finally:
+            for s in blockers:
+                if s:
+                    s.close()
