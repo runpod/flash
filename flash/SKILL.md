@@ -29,11 +29,13 @@ flash run                                # start local dev server at localhost:8
 flash run --auto-provision               # same, but pre-provision endpoints (no cold start)
 flash build                              # package artifact for deployment (500MB limit)
 flash build --exclude pkg1,pkg2          # exclude packages from build
-flash deploy new staging                 # deploy to "staging" environment
-flash deploy send staging                # send latest build to "staging"
-flash deploy list staging                # list deployments in "staging"
-flash deploy info staging                # show deployment details
-flash deploy delete staging              # delete "staging" deployment
+flash deploy                             # build + deploy (auto-selects env if only one)
+flash deploy --env staging               # build + deploy to "staging" environment
+flash deploy --preview                   # build + launch local preview in Docker
+flash env list                           # list deployment environments
+flash env create staging                 # create "staging" environment
+flash env get staging                    # show environment details + resources
+flash env delete staging                 # delete environment + tear down resources
 flash undeploy list                      # list all active endpoints
 flash undeploy my-endpoint               # remove a specific endpoint
 ```
@@ -136,6 +138,7 @@ Endpoint(
     gpu_count=1,                           # GPUs per worker
     template=PodTemplate(containerDiskInGb=100),
     flashboot=True,                        # fast cold starts
+    execution_timeout_ms=0,                # max execution time (0 = unlimited)
 )
 ```
 
