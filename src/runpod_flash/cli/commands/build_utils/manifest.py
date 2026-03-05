@@ -148,15 +148,6 @@ class ManifestBuilder:
                     if hasattr(resource_config, "gpuIds") and resource_config.gpuIds:
                         config["gpuIds"] = resource_config.gpuIds
 
-                    if (
-                        hasattr(resource_config, "instanceIds")
-                        and resource_config.instanceIds
-                    ):
-                        config["instanceIds"] = [
-                            i.value if hasattr(i, "value") else str(i)
-                            for i in resource_config.instanceIds
-                        ]
-
                     if hasattr(resource_config, "workersMin"):
                         config["workersMin"] = resource_config.workersMin
 

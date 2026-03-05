@@ -131,8 +131,6 @@ def create_resource_from_manifest(
         deployment_kwargs["scalerType"] = resource_data["scalerType"]
     if "scalerValue" in resource_data:
         deployment_kwargs["scalerValue"] = resource_data["scalerValue"]
-    if "instanceIds" in resource_data:
-        deployment_kwargs["instanceIds"] = resource_data["instanceIds"]
 
     # Reconstruct NetworkVolume from manifest data if present
     if "networkVolume" in resource_data:

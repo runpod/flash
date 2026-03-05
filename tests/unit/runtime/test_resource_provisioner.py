@@ -320,33 +320,6 @@ class TestCreateResourceFromManifest:
         )
         assert isinstance(resource, CpuLiveLoadBalancer)
 
-    def test_endpoint_cpu_lb_passes_instance_ids(self):
-        """Test instanceIds from manifest is passed to CpuLiveLoadBalancer."""
-        from runpod_flash.core.resources.cpu import CpuInstanceType
-
-        resource = create_resource_from_manifest(
-            "cpu-api",
-            {
-                "resource_type": "Endpoint",
-                "is_load_balanced": True,
-                "instanceIds": ["cpu3c-1-2"],
-            },
-        )
-        assert resource.instanceIds == [CpuInstanceType.CPU3C_1_2]
-
-    def test_endpoint_cpu_qb_passes_instance_ids(self):
-        """Test instanceIds from manifest is passed to CpuLiveServerless."""
-        from runpod_flash.core.resources.cpu import CpuInstanceType
-
-        resource = create_resource_from_manifest(
-            "cpu-worker",
-            {
-                "resource_type": "Endpoint",
-                "instanceIds": ["cpu5c-4-8"],
-            },
-        )
-        assert resource.instanceIds == [CpuInstanceType.CPU5C_4_8]
-
     def test_create_resource_skips_api_key_when_not_set(self):
         """Test RUNPOD_API_KEY NOT injected when env var is not set."""
         resource_name = "caller_worker"
