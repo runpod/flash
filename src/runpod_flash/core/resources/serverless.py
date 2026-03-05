@@ -20,7 +20,6 @@ from ..utils.backoff import get_backoff_delay
 from .base import DeployableResource
 from .cloud import runpod
 from .constants import CONSOLE_URL, DEFAULT_WORKERS_MAX, DEFAULT_WORKERS_MIN
-from .environment import EnvironmentVars
 from .cpu import CpuInstanceType
 from .gpu import GpuGroup, GpuType
 from .network_volume import NetworkVolume, DataCenter
@@ -30,18 +29,6 @@ from .resource_manager import ResourceManager
 
 # Prefix applied to endpoint names during live provisioning
 LIVE_PREFIX = "live-"
-
-
-# Environment variables are loaded from the .env file
-def get_env_vars() -> Dict[str, str]:
-    """
-    Returns the environment variables from the .env file.
-    {
-        "KEY": "VALUE",
-    }
-    """
-    env_vars = EnvironmentVars()
-    return env_vars.get_env()
 
 
 log = logging.getLogger(__name__)
@@ -146,7 +133,7 @@ class ServerlessResource(DeployableResource):
 
     # === Input-only Fields ===
     cudaVersions: Optional[List[CudaVersion]] = []  # for allowedCudaVersions
-    env: Optional[Dict[str, str]] = Field(default_factory=get_env_vars)
+    env: Optional[Dict[str, str]] = Field(default=None)
     flashboot: Optional[bool] = True
     gpus: Optional[List[GpuGroup | GpuType]] = [GpuGroup.ANY]  # for gpuIds
     imageName: Optional[str] = ""  # for template.imageName
@@ -422,7 +409,7 @@ class ServerlessResource(DeployableResource):
         return PodTemplate(
             name=self.resource_id,
             imageName=self.imageName,
-            env=KeyValuePair.from_dict(self.env or get_env_vars()),
+            env=KeyValuePair.from_dict(self.env or {}),
         )
 
     def _configure_existing_template(self) -> None:
