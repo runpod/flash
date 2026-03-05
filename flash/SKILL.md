@@ -12,8 +12,13 @@ Write code locally, test with `flash run` (dev server at localhost:8888), and fl
 
 ```bash
 pip install runpod-flash                 # requires Python >=3.10
-flash login                              # authenticate via browser
-# OR: export RUNPOD_API_KEY=your_key     # alternative: set API key directly
+
+# auth option 1: browser-based login (saves token locally)
+flash login
+
+# auth option 2: API key via environment variable
+export RUNPOD_API_KEY=your_key
+
 flash init my-project                    # scaffold a new project in ./my-project
 ```
 
