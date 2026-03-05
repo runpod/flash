@@ -1,12 +1,12 @@
 ---
 name: flash
-description: Complete knowledge of the runpod-flash framework - SDK, CLI, architecture, deployment, and codebase. Use when working with runpod-flash code, writing Endpoint classes, configuring GPU/CPU endpoints, debugging deployments, or understanding the framework internals. Triggers on "flash", "runpod-flash", "Endpoint", "serverless", "deploy", "GpuGroup", "CpuInstanceType", "EndpointJob", "remote GPU".
+description: runpod-flash SDK and CLI for deploying AI workloads on RunPod serverless GPUs/CPUs.
 user-invocable: true
 ---
 
-# Runpod Flash (v1.7.0)
+# Runpod Flash
 
-Python SDK for running AI workloads on RunPod serverless. One class -- `Endpoint` -- handles everything.
+Python SDK (v1.7.0) for running AI workloads on RunPod serverless. One class -- `Endpoint` -- handles everything.
 
 `pip install runpod-flash` | `from runpod_flash import Endpoint, GpuGroup` | Python >=3.10 | Source: `src/runpod_flash/`
 
