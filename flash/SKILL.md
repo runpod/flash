@@ -113,6 +113,25 @@ Endpoint(
 - `gpu=` and `cpu=` are mutually exclusive
 - `workers=3` means `(0, 3)`. Default is `(0, 1)`
 - `idle_timeout` default is **60 seconds**
+- `flashboot=True` (default) -- enables fast cold starts via snapshot restore
+- `gpu_count` -- GPUs per worker (default 1), use >1 for multi-GPU models
+
+### NetworkVolume
+
+```python
+NetworkVolume(name="my-vol", size=100)  # size in GB, default 100
+```
+
+### PodTemplate
+
+```python
+PodTemplate(
+    containerDiskInGb=64,    # container disk size (default 64)
+    dockerArgs="",           # extra docker arguments
+    ports="",                # exposed ports
+    startScript="",          # script to run on start
+)
+```
 
 ## Cloudpickle Scoping (CRITICAL)
 
