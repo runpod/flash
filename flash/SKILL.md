@@ -1,12 +1,12 @@
 ---
 name: flash
-description: runpod-flash SDK and CLI for deploying AI workloads on RunPod serverless GPUs/CPUs.
+description: runpod-flash SDK and CLI for deploying AI workloads on Runpod serverless GPUs/CPUs.
 user-invocable: true
 ---
 
 # Runpod Flash
 
-Python SDK (v1.7.0) for running AI workloads on RunPod serverless. One class -- `Endpoint` -- handles everything.
+Python SDK (v1.7.0) for running AI workloads on Runpod serverless. One class -- `Endpoint` -- handles everything.
 
 `pip install runpod-flash` | `from runpod_flash import Endpoint, GpuGroup` | Python >=3.10 | Source: `src/runpod_flash/`
 
