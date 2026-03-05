@@ -47,7 +47,7 @@ One function = one endpoint with its own workers.
 ```python
 from runpod_flash import Endpoint, GpuGroup
 
-@Endpoint(name="my-worker", gpu=GpuGroup.AMPERE_80, workers=3, dependencies=["torch"])
+@Endpoint(name="my-worker", gpu=GpuGroup.AMPERE_80, workers=5, dependencies=["torch"])
 async def compute(data):
     import torch  # MUST import inside function (cloudpickle)
     return {"sum": torch.tensor(data, device="cuda").sum().item()}
@@ -122,9 +122,10 @@ print(job.output)
 Endpoint(
     name="endpoint-name",                  # required (unless id= set)
     id=None,                               # connect to existing endpoint
-    gpu=GpuGroup.AMPERE_80,               # GPU type (default: ANY)
+    gpu=GpuGroup.AMPERE_80,               # single GPU type (default: ANY)
+    gpu=[GpuGroup.ADA_24, GpuGroup.AMPERE_80],  # or list for auto-select by supply
     cpu=CpuInstanceType.CPU5C_4_8,        # CPU type (mutually exclusive with gpu)
-    workers=3,                             # shorthand for (0, 3)
+    workers=5,                             # shorthand for (0, 5)
     workers=(1, 5),                        # explicit (min, max)
     idle_timeout=60,                       # seconds before scale-down (default: 60)
     dependencies=["torch"],                # pip packages for remote exec
@@ -139,7 +140,7 @@ Endpoint(
 ```
 
 - `gpu=` and `cpu=` are mutually exclusive
-- `workers=3` means `(0, 3)`. Default is `(0, 1)`
+- `workers=5` means `(0, 5)`. Default is `(0, 1)`
 - `idle_timeout` default is **60 seconds**
 - `flashboot=True` (default) -- enables fast cold starts via snapshot restore
 - `gpu_count` -- GPUs per worker (default 1), use >1 for multi-GPU models
@@ -225,7 +226,7 @@ async def preprocess(raw):
     import pandas as pd
     return pd.DataFrame(raw).to_dict("records")
 
-@Endpoint(name="infer", gpu=GpuGroup.AMPERE_80, workers=3, dependencies=["torch"])
+@Endpoint(name="infer", gpu=GpuGroup.AMPERE_80, workers=5, dependencies=["torch"])
 async def infer(clean):
     import torch
     t = torch.tensor([[v for v in r.values()] for r in clean], device="cuda")
@@ -251,3 +252,4 @@ results = await asyncio.gather(compute(a), compute(b), compute(c))
 5. **idle_timeout is seconds** -- default 60s, not minutes.
 6. **10MB payload limit** -- pass URLs, not large objects.
 7. **Client vs decorator** -- `image=`/`id=` = client. Otherwise = decorator.
+8. **Auto GPU switching requires workers >= 5** -- pass a list of GPU types (e.g. `gpu=[GpuGroup.ADA_24, GpuGroup.AMPERE_80]`) and set `workers=5` or higher. The platform only auto-switches GPU types based on supply when max workers is at least 5.
