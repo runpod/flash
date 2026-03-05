@@ -31,6 +31,7 @@ flash build                              # package artifact for deployment (500M
 flash build --exclude pkg1,pkg2          # exclude packages from build
 flash deploy                             # build + deploy (auto-selects env if only one)
 flash deploy --env staging               # build + deploy to "staging" environment
+flash deploy --app my-app --env prod     # deploy a specific app to an environment
 flash deploy --preview                   # build + launch local preview in Docker
 flash env list                           # list deployment environments
 flash env create staging                 # create "staging" environment
@@ -188,7 +189,7 @@ await job.cancel()
 | `ADA_24` | RTX 4090 | 24GB |
 | `ADA_32_PRO` | RTX 5090 | 32GB |
 | `ADA_48_PRO` | RTX 6000 Ada | 48GB |
-| `ADA_80_PRO` | H100 | 80GB |
+| `ADA_80_PRO` | H100 | 80–94GB |
 | `HOPPER_141` | H200 | 141GB |
 
 ## CPU Types (CpuInstanceType)
@@ -256,3 +257,4 @@ results = await asyncio.gather(compute(a), compute(b), compute(c))
 6. **10MB payload limit** -- pass URLs, not large objects.
 7. **Client vs decorator** -- `image=`/`id=` = client. Otherwise = decorator.
 8. **Auto GPU switching requires workers >= 5** -- pass a list of GPU types (e.g. `gpu=[GpuGroup.ADA_24, GpuGroup.AMPERE_80]`) and set `workers=5` or higher. The platform only auto-switches GPU types based on supply when max workers is at least 5.
+9. **`runsync` timeout is 60s** -- cold starts can exceed 60s. Use `ep.runsync(data, timeout=120)` for first requests or use `ep.run()` + `job.wait()` instead.
