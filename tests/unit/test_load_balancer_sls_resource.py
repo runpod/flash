@@ -383,9 +383,12 @@ class TestLoadBalancerSlsResourceDeployment:
             id="existing-id",
         )
 
-        with patch.object(LoadBalancerSlsResource, "is_deployed") as mock_deployed:
-            mock_deployed.return_value = True
-
+        with patch.object(
+            LoadBalancerSlsResource,
+            "is_deployed",
+            new_callable=AsyncMock,
+            return_value=True,
+        ):
             result = await resource._do_deploy()
 
             assert result == resource
@@ -406,7 +409,7 @@ class TestLoadBalancerSlsResourceDeployment:
 
         with (
             patch.object(
-                LoadBalancerSlsResource, "is_deployed", MagicMock(return_value=False)
+                LoadBalancerSlsResource, "is_deployed", new_callable=AsyncMock, return_value=False
             ),
             patch.object(
                 resource, "_wait_for_health", new_callable=AsyncMock
@@ -434,7 +437,7 @@ class TestLoadBalancerSlsResourceDeployment:
 
         with (
             patch.object(
-                LoadBalancerSlsResource, "is_deployed", MagicMock(return_value=False)
+                LoadBalancerSlsResource, "is_deployed", new_callable=AsyncMock, return_value=False
             ),
             patch.object(
                 ServerlessResource,
@@ -461,35 +464,63 @@ class TestLoadBalancerSlsResourceIntegration:
         assert isinstance(resource, LoadBalancerSlsResource)
         assert resource.type == ServerlessType.LB
 
-    def test_is_deployed_sync(self):
-        """Test synchronous is_deployed method."""
+    @pytest.mark.asyncio
+    async def test_is_deployed_endpoint_exists(self):
+        """Test is_deployed returns True when GQL confirms endpoint exists."""
         resource = LoadBalancerSlsResource(
             name="test",
             imageName="image",
             id="test-id",
         )
 
-        # Mock the endpoint property and its health method
-        mock_endpoint = MagicMock()
-        mock_endpoint.health.return_value = {"status": "healthy"}
+        mock_client = AsyncMock()
+        mock_client.endpoint_exists = AsyncMock(return_value=True)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
 
-        with patch.object(
-            LoadBalancerSlsResource,
-            "endpoint",
-            new_callable=lambda: property(lambda self: mock_endpoint),
-        ):
-            result = resource.is_deployed()
-
+        # patch on the method's own globals dict so the mock survives
+        # sys.modules manipulation by other tests (test_dotenv_loading
+        # deletes and re-imports runpod_flash.core.* modules)
+        globs = LoadBalancerSlsResource.is_deployed.__globals__
+        original = globs["RunpodGraphQLClient"]
+        globs["RunpodGraphQLClient"] = MagicMock(return_value=mock_client)
+        try:
+            result = await resource.is_deployed()
             assert result is True
-            mock_endpoint.health.assert_called_once()
+        finally:
+            globs["RunpodGraphQLClient"] = original
 
-    def test_is_deployed_sync_no_id(self):
+    @pytest.mark.asyncio
+    async def test_is_deployed_endpoint_not_found(self):
+        """Test is_deployed returns False when endpoint not found via GQL."""
+        resource = LoadBalancerSlsResource(
+            name="test",
+            imageName="image",
+            id="nonexistent-id",
+        )
+
+        mock_client = AsyncMock()
+        mock_client.endpoint_exists = AsyncMock(return_value=False)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+
+        globs = LoadBalancerSlsResource.is_deployed.__globals__
+        original = globs["RunpodGraphQLClient"]
+        globs["RunpodGraphQLClient"] = MagicMock(return_value=mock_client)
+        try:
+            result = await resource.is_deployed()
+            assert result is False
+        finally:
+            globs["RunpodGraphQLClient"] = original
+
+    @pytest.mark.asyncio
+    async def test_is_deployed_no_id(self):
         """Test is_deployed returns False when no ID."""
         resource = LoadBalancerSlsResource(
             name="test",
             imageName="image",
         )
 
-        result = resource.is_deployed()
+        result = await resource.is_deployed()
 
         assert result is False

@@ -238,7 +238,10 @@ class ResourceManager(SingletonMixin):
 
             if existing:
                 # Resource exists - check if still valid
-                if not existing.is_deployed():
+                deployed_check = existing.is_deployed()
+                if asyncio.iscoroutine(deployed_check):
+                    deployed_check = await deployed_check
+                if not deployed_check:
                     log.warning(f"{existing} is no longer valid, redeploying.")
                     self._remove_resource(resource_key)
                     try:
