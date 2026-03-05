@@ -257,8 +257,8 @@ class TestCreateResourceFromManifest:
             assert resource.env["FLASH_ENVIRONMENT_ID"] == "flash-env-abc123"
             assert resource.env["RUNPOD_API_KEY"] == "test-api-key-secret"
 
-    def test_create_resource_skips_flash_env_id_when_no_remote_calls(self):
-        """Test FLASH_ENVIRONMENT_ID NOT injected when makes_remote_calls is False."""
+    def test_create_resource_injects_flash_env_id_even_without_remote_calls(self):
+        """Test FLASH_ENVIRONMENT_ID injected for all resources when flash_environment_id is provided."""
         resource_name = "isolated_worker"
         resource_data = {
             "resource_type": "ServerlessResource",
@@ -273,7 +273,7 @@ class TestCreateResourceFromManifest:
                 flash_environment_id="flash-env-abc123",
             )
 
-            assert "FLASH_ENVIRONMENT_ID" not in resource.env
+            assert resource.env["FLASH_ENVIRONMENT_ID"] == "flash-env-abc123"
 
     def test_endpoint_gpu_qb_resolves_to_live_serverless(self):
         """Test Endpoint resource_type with gpuIds resolves to LiveServerless."""

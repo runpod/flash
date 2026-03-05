@@ -81,7 +81,12 @@ def create_resource_from_manifest(
         if "app_variable" in resource_data:
             env["FLASH_APP_VARIABLE"] = resource_data["app_variable"]
 
-    # Inject credentials for endpoints that make remote calls
+    # flash environment id is needed by the worker to locate the
+    # build artifact in the state manager
+    if flash_environment_id:
+        env["FLASH_ENVIRONMENT_ID"] = flash_environment_id
+
+    # inject credentials for endpoints that make remote calls
     if resource_data.get("makes_remote_calls", False):
         from runpod_flash.core.credentials import get_api_key
 
@@ -95,8 +100,6 @@ def create_resource_from_manifest(
                     "Cross-endpoint calls from this resource will fail.",
                     resource_name,
                 )
-        if flash_environment_id:
-            env["FLASH_ENVIRONMENT_ID"] = flash_environment_id
 
     # Add "tmp-" prefix for test deployments
     # Check environment variable set by test deployment command
