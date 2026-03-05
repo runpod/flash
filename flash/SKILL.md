@@ -6,16 +6,21 @@ user-invocable: true
 
 # Runpod Flash
 
-`pip install runpod-flash` | Python >=3.10
-
 Write code locally, test with `flash run` (dev server at localhost:8888), and flash automatically provisions and deploys to remote GPUs/CPUs in the cloud. One class -- `Endpoint` -- handles everything.
+
+## Setup
+
+```bash
+pip install runpod-flash                 # requires Python >=3.10
+flash login                              # authenticate via browser
+# OR: export RUNPOD_API_KEY=your_key     # alternative: set API key directly
+flash init my-project                    # scaffold a new project in ./my-project
+```
 
 ## CLI
 
 ```bash
-flash login                              # authenticate via browser (or set RUNPOD_API_KEY env var)
-flash init my-project                    # scaffold a new project in ./my-project
-flash run                                # start dev server at localhost:8888
+flash run                                # start local dev server at localhost:8888
 flash run --auto-provision               # same, but pre-provision endpoints (no cold start)
 flash build                              # package artifact for deployment (500MB limit)
 flash build --exclude pkg1,pkg2          # exclude packages from build
