@@ -93,10 +93,14 @@ async def lb_execute(resource_config, func, body: dict):
     which serializes the function via cloudpickle to the remote container.
 
     Args:
-        resource_config: The resource config object (e.g. LiveLoadBalancer instance).
+        resource_config: The resource config object (e.g. LiveLoadBalancer instance)
+            or an Endpoint instance (which wraps a resource config internally).
         func: The @remote LB route handler function.
         body: Parsed request body (from FastAPI's automatic JSON parsing).
     """
+    # Endpoint facade wraps an internal resource config
+    if hasattr(resource_config, "_build_resource_config"):
+        resource_config = resource_config._build_resource_config()
     try:
         deployed = await _resource_manager.get_or_deploy_resource(resource_config)
     except Exception as e:

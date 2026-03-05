@@ -80,30 +80,22 @@ for the result. Use QB for compute-heavy tasks that may take seconds to minutes.
 
 **gpu_worker.py** — GPU serverless function:
 ```python
-from runpod_flash import GpuType, LiveServerless, remote
+from runpod_flash import Endpoint, GpuType
 
-gpu_config = LiveServerless(
-    name="gpu_worker",
-    gpus=[GpuType.ANY],
-)
-
-@remote(resource_config=gpu_config, dependencies=["torch"])
+@Endpoint(name="gpu_worker", gpu=GpuType.ANY, dependencies=["torch"])
 async def gpu_hello(input_data: dict) -> dict:
     import torch
-    gpu_available = torch.cuda.is_available()
-    gpu_name = torch.cuda.get_device_name(0) if gpu_available else "No GPU detected"
+    gpu_name = torch.cuda.get_device_name(0)
     return {"message": gpu_name}
 ```
 
 **cpu_worker.py** — CPU serverless function:
 ```python
-from runpod_flash import CpuLiveServerless, remote
+from runpod_flash import Endpoint
 
-cpu_config = CpuLiveServerless(name="cpu_worker")
-
-@remote(resource_config=cpu_config)
-async def cpu_hello(input_data: dict = {}) -> dict:
-    return {"message": "Hello from CPU!", **input_data}
+@Endpoint(name="cpu_worker", cpu="cpu3c-1-2")
+async def cpu_hello(input_data: dict) -> dict:
+    return {"message": "Hello from CPU!"}
 ```
 
 ### Load-Balanced (LB) Workers
@@ -113,41 +105,54 @@ Use LB for low-latency API endpoints that need horizontal scaling.
 
 **lb_worker.py** — HTTP endpoints on a load-balanced container:
 ```python
-from runpod_flash import CpuLiveLoadBalancer, remote
+from runpod_flash import Endpoint
 
-api_config = CpuLiveLoadBalancer(
-    name="lb_worker",
-    workersMin=1,
-)
+api = Endpoint(name="lb_worker", cpu="cpu3c-1-2", workers=(1, 3))
 
-@remote(resource_config=api_config, method="POST", path="/process")
+@api.post("/process")
 async def process(input_data: dict) -> dict:
     return {"status": "success", "echo": input_data}
 
-@remote(resource_config=api_config, method="GET", path="/health")
+@api.get("/health")
 async def health() -> dict:
     return {"status": "healthy"}
 ```
 
+### Client Mode
+
+Call an existing endpoint or a pre-built image without writing handler code:
+
+```python
+from runpod_flash import Endpoint
+
+# connect to an existing endpoint by id
+ep = Endpoint(id="ep-abc123")
+job = await ep.run({"prompt": "hello"})
+await job.wait()
+print(job.output)
+
+# deploy and call a pre-built image
+ep = Endpoint(name="vllm", image="runpod/worker-vllm:stable-cuda12.1.0")
+result = await ep.post("/v1/completions", {"prompt": "hello"})
+```
+
 ## Adding New Workers
 
-Create a new `.py` file with a `@remote` function. `flash run` auto-discovers all
-`@remote` functions in the project.
+Create a new `.py` file with an `Endpoint`. `flash run` auto-discovers all
+`Endpoint` functions in the project.
 
 ```python
 # my_worker.py
-from runpod_flash import LiveServerless, GpuType, remote
+from runpod_flash import Endpoint, GpuType
 
-config = LiveServerless(name="my_worker", gpus=[GpuType.NVIDIA_GEFORCE_RTX_4090])
-
-@remote(resource_config=config, dependencies=["transformers"])
+@Endpoint(name="my_worker", gpu=GpuType.NVIDIA_GEFORCE_RTX_4090, dependencies=["transformers"])
 async def predict(input_data: dict) -> dict:
     from transformers import pipeline
     pipe = pipeline("sentiment-analysis")
     return pipe(input_data["text"])[0]
 ```
 
-Then run `flash run` — the new worker appears automatically.
+Then run `flash run` -- the new worker appears automatically.
 
 ## GPU Types
 
@@ -165,11 +170,13 @@ Then run `flash run` — the new worker appears automatically.
 
 ## CPU Types
 
-| Config | vCPU | RAM |
-|--------|------|-----|
-| `CpuInstanceType.CPU3G_2_8` | 2 | 8 GB |
-| `CpuInstanceType.CPU3C_4_8` | 4 | 8 GB |
-| `CpuInstanceType.CPU5G_4_16` | 4 | 16 GB |
+Pass a CPU instance type string to `cpu=`:
+- `"cpu3c-1-2"` -- 1 vCPU, 2 GB RAM
+- `"cpu3c-4-8"` -- 4 vCPU, 8 GB RAM
+- `"cpu3g-2-8"` -- 2 vCPU, 8 GB RAM
+- `"cpu5g-4-16"` -- 4 vCPU, 16 GB RAM
+
+Or use `CpuInstanceType` enum values.
 
 ## Environment Variables
 

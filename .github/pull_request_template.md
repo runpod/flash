@@ -29,7 +29,7 @@ For breaking changes, use either:
 
 **Good Examples ✅**
 ```
-feat: add @remote decorator for CPU endpoints
+feat: add CPU endpoint support
 fix: resolve memory leak in resource cleanup
 perf: optimize GraphQL query batching
 docs: update installation instructions

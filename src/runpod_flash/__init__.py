@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING  # noqa: E402
 
 if TYPE_CHECKING:
     from .client import remote
+    from .endpoint import Endpoint, EndpointJob
     from .core.resources import (
         CpuInstanceType,
         CpuLiveLoadBalancer,
@@ -42,13 +43,21 @@ if TYPE_CHECKING:
     )
 
 
-def __getattr__(name):
-    """Lazily import core modules only when accessed."""
-    if name == "remote":
-        from .client import remote
+_DEPRECATED_RESOURCE_CLASSES = frozenset(
+    {
+        "CpuLiveLoadBalancer",
+        "CpuLiveServerless",
+        "CpuLoadBalancerSlsResource",
+        "CpuServerlessEndpoint",
+        "LiveLoadBalancer",
+        "LiveServerless",
+        "LoadBalancerSlsResource",
+        "ServerlessEndpoint",
+    }
+)
 
-        return remote
-    elif name in (
+_RESOURCE_NAMES = frozenset(
+    {
         "CpuInstanceType",
         "CpuLiveLoadBalancer",
         "CpuLiveServerless",
@@ -68,7 +77,32 @@ def __getattr__(name):
         "ServerlessScalerType",
         "ServerlessType",
         "FlashApp",
-    ):
+    }
+)
+
+
+def __getattr__(name):
+    """Lazily import core modules only when accessed."""
+    import warnings
+
+    if name == "Endpoint":
+        from .endpoint import Endpoint
+
+        return Endpoint
+    elif name == "EndpointJob":
+        from .endpoint import EndpointJob
+
+        return EndpointJob
+    elif name == "remote":
+        from .client import remote
+
+        warnings.warn(
+            "runpod_flash.remote is deprecated. Use runpod_flash.Endpoint instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return remote
+    elif name in _RESOURCE_NAMES:
         from .core.resources import (
             CpuInstanceType,
             CpuLiveLoadBalancer,
@@ -112,6 +146,14 @@ def __getattr__(name):
             "ServerlessType": ServerlessType,
             "FlashApp": FlashApp,
         }
+
+        if name in _DEPRECATED_RESOURCE_CLASSES:
+            warnings.warn(
+                f"runpod_flash.{name} is deprecated. Use runpod_flash.Endpoint instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
         return attrs[name]
     elif name in ("DEFAULT_WORKERS_MIN", "DEFAULT_WORKERS_MAX"):
         from .core.resources.constants import (
@@ -128,6 +170,8 @@ def __getattr__(name):
 
 
 __all__ = [
+    "Endpoint",
+    "EndpointJob",
     "remote",
     "CpuInstanceType",
     "CpuLiveLoadBalancer",
