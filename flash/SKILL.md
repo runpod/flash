@@ -4,11 +4,11 @@ description: runpod-flash SDK and CLI for deploying AI workloads on Runpod serve
 user-invocable: true
 ---
 
-# Runpod Flash
-
-Python SDK (v1.7.0) for running AI workloads on Runpod serverless. One class -- `Endpoint` -- handles everything.
+# Runpod Flash (v1.7.0)
 
 `pip install runpod-flash` | `from runpod_flash import Endpoint, GpuGroup` | Python >=3.10 | Source: `src/runpod_flash/`
+
+One class -- `Endpoint` -- handles everything: decorator mode, load-balanced routes, and external image deployment.
 
 ## Endpoint: Three Modes
 
