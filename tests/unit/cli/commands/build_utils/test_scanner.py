@@ -14,7 +14,7 @@ def test_discover_simple_function():
         project_dir = Path(tmpdir)
 
         # Create a simple test file
-        test_file = project_dir / "test_module.py"
+        test_file = project_dir / "worker_module.py"
         test_file.write_text(
             """
 from runpod_flash import LiveServerless, remote
@@ -42,7 +42,7 @@ def test_discover_class():
     with tempfile.TemporaryDirectory() as tmpdir:
         project_dir = Path(tmpdir)
 
-        test_file = project_dir / "test_module.py"
+        test_file = project_dir / "worker_module.py"
         test_file.write_text(
             """
 from runpod_flash import LiveServerless, remote
@@ -72,7 +72,7 @@ def test_discover_multiple_functions_same_config():
     with tempfile.TemporaryDirectory() as tmpdir:
         project_dir = Path(tmpdir)
 
-        test_file = project_dir / "test_module.py"
+        test_file = project_dir / "worker_module.py"
         test_file.write_text(
             """
 from runpod_flash import LiveServerless, remote
@@ -102,7 +102,7 @@ def test_discover_functions_different_configs():
     with tempfile.TemporaryDirectory() as tmpdir:
         project_dir = Path(tmpdir)
 
-        test_file = project_dir / "test_module.py"
+        test_file = project_dir / "worker_module.py"
         test_file.write_text(
             """
 from runpod_flash import LiveServerless, CpuLiveServerless, remote
@@ -163,7 +163,7 @@ def test_discover_inline_config():
     with tempfile.TemporaryDirectory() as tmpdir:
         project_dir = Path(tmpdir)
 
-        test_file = project_dir / "test_module.py"
+        test_file = project_dir / "worker_module.py"
         test_file.write_text(
             """
 from runpod_flash import LiveServerless, remote
@@ -186,7 +186,7 @@ def test_ignore_non_remote_functions():
     with tempfile.TemporaryDirectory() as tmpdir:
         project_dir = Path(tmpdir)
 
-        test_file = project_dir / "test_module.py"
+        test_file = project_dir / "worker_module.py"
         test_file.write_text(
             """
 async def normal_function(data):
@@ -208,7 +208,7 @@ def test_discover_sync_function():
     with tempfile.TemporaryDirectory() as tmpdir:
         project_dir = Path(tmpdir)
 
-        test_file = project_dir / "test_module.py"
+        test_file = project_dir / "worker_module.py"
         test_file.write_text(
             """
 from runpod_flash import LiveServerless, remote
@@ -236,7 +236,7 @@ def test_exclude_venv_directory():
         # Create .venv directory with Python files
         venv_dir = project_dir / ".venv" / "lib" / "python3.11"
         venv_dir.mkdir(parents=True)
-        venv_file = venv_dir / "test_module.py"
+        venv_file = venv_dir / "worker_module.py"
         venv_file.write_text(
             """
 from runpod_flash import LiveServerless, remote
@@ -405,7 +405,7 @@ def test_fallback_to_variable_name_when_name_parameter_missing():
     with tempfile.TemporaryDirectory() as tmpdir:
         project_dir = Path(tmpdir)
 
-        test_file = project_dir / "test_module.py"
+        test_file = project_dir / "worker_module.py"
         test_file.write_text(
             """
 from runpod_flash import LiveServerless, remote
@@ -431,7 +431,7 @@ def test_ignore_non_serverless_classes_with_serverless_in_name():
     with tempfile.TemporaryDirectory() as tmpdir:
         project_dir = Path(tmpdir)
 
-        test_file = project_dir / "test_module.py"
+        test_file = project_dir / "worker_module.py"
         test_file.write_text(
             """
 from runpod_flash import LiveServerless, remote
@@ -462,7 +462,7 @@ def test_extract_resource_name_with_special_characters():
     with tempfile.TemporaryDirectory() as tmpdir:
         project_dir = Path(tmpdir)
 
-        test_file = project_dir / "test_module.py"
+        test_file = project_dir / "worker_module.py"
         test_file.write_text(
             """
 from runpod_flash import LiveServerless, remote
