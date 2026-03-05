@@ -202,7 +202,9 @@ class TestDeployCommand:
         mock_discover.return_value = (Path("/tmp/project"), "my-app")
         mock_build.return_value = Path("/tmp/project/.flash/artifact.tar.gz")
         mock_deploy.return_value = {"success": True}
-        mock_from_name.side_effect = Exception("GraphQL errors: app not found")
+        from runpod_flash.core.resources.app import FlashAppNotFoundError
+
+        mock_from_name.side_effect = FlashAppNotFoundError("my-app")
 
         created_app = _make_flash_app()
         mock_create.return_value = (created_app, {"id": "env-1", "name": "production"})
