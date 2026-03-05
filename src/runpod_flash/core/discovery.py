@@ -90,17 +90,18 @@ class ResourceDiscovery:
         return resources
 
     def _find_resource_config_vars(self, file_path: Path) -> Set[str]:
-        """Find variable names used in @remote or @Endpoint decorators via AST parsing.
+        """Find names used in @remote or @Endpoint decorators via AST parsing.
 
         Detects:
         - @remote(resource_config=var) / @remote(var) patterns
         - ep = Endpoint(...) variables used as LB route decorators (@ep.get, @ep.post, etc)
+        - @Endpoint(...) used directly as a decorator (returns the function name)
 
         Args:
             file_path: Path to Python file to parse
 
         Returns:
-            Set of variable names referenced in decorators
+            Set of variable or function names to resolve from the module
         """
         var_names = set()
 
@@ -143,10 +144,26 @@ class ResourceDiscovery:
                             if var_name:
                                 var_names.add(var_name)
 
+                        # @Endpoint(...) used directly as a decorator
+                        elif self._is_inline_endpoint_decorator(decorator):
+                            var_names.add(node.name)
+
         except Exception as e:
             log.warning(f"Failed to parse {file_path}: {e}")
 
         return var_names
+
+    @staticmethod
+    def _is_inline_endpoint_decorator(decorator: ast.expr) -> bool:
+        """Check if decorator is @Endpoint(...) used directly on a function."""
+        if not isinstance(decorator, ast.Call):
+            return False
+        func = decorator.func
+        if isinstance(func, ast.Name) and func.id == "Endpoint":
+            return True
+        if isinstance(func, ast.Attribute) and func.attr == "Endpoint":
+            return True
+        return False
 
     def _is_endpoint_route_decorator(
         self, decorator: ast.expr, endpoint_vars: Set[str]
@@ -246,14 +263,16 @@ class ResourceDiscovery:
             return None
 
     def _resolve_resource_variable(self, module, var_name: str) -> DeployableResource:
-        """Resolve variable name to DeployableResource instance.
+        """Resolve a module attribute to a DeployableResource instance.
 
-        Handles both legacy resource config objects (LiveServerless, etc) and
-        Endpoint facade objects (unwraps via _build_resource_config()).
+        Handles:
+        - Direct DeployableResource instances (LiveServerless, etc)
+        - Endpoint facade objects (unwraps via _build_resource_config())
+        - Decorated functions with __remote_config__ (inline @Endpoint)
 
         Args:
             module: Imported module
-            var_name: Variable name to resolve
+            var_name: Attribute name to resolve (variable or function name)
 
         Returns:
             DeployableResource instance or None
@@ -270,7 +289,21 @@ class ResourceDiscovery:
                 if isinstance(resource, DeployableResource):
                     return resource
 
-            if obj is not None:
+            # decorated function with __remote_config__ (inline @Endpoint)
+            if obj and callable(obj):
+                remote_cfg = getattr(obj, "__remote_config__", None)
+                if isinstance(remote_cfg, dict):
+                    resource_config = remote_cfg.get("resource_config")
+                    if resource_config and hasattr(
+                        resource_config, "_build_resource_config"
+                    ):
+                        resource = resource_config._build_resource_config()
+                        if isinstance(resource, DeployableResource):
+                            return resource
+                    if isinstance(resource_config, DeployableResource):
+                        return resource_config
+
+            if obj is not None and not callable(obj):
                 log.warning(
                     f"Resource '{var_name}' failed to resolve to DeployableResource "
                     f"(found type: {type(obj).__name__}). "
