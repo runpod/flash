@@ -49,7 +49,7 @@ flash run                    # Local FastAPI dev server at localhost:8888/docs
 
 ## The Endpoint Class: Four Modes
 
-The `Endpoint` class is the single entry point. It replaces the old 8-class hierarchy (`LiveServerless`, etc.) which still works but emits `DeprecationWarning`.
+The `Endpoint` class is the single entry point for all Flash functionality.
 
 ### Mode 1: Queue-Based Decorator (QB)
 
