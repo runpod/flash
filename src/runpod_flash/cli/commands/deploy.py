@@ -12,6 +12,7 @@ from rich.console import Console
 
 from ..utils.app import discover_flash_project
 from ..utils.deployment import deploy_from_uploaded_build, validate_local_manifest
+from ..utils.env_preview import render_env_preview
 from .build import run_build
 
 from runpod_flash.core.resources.app import FlashApp
@@ -203,6 +204,8 @@ async def _resolve_and_deploy(
     app, resolved_env_name = await _resolve_environment(app_name, env_name)
 
     local_manifest = validate_local_manifest()
+
+    render_env_preview(local_manifest, console)
 
     with console.status("Uploading build..."):
         build = await app.upload_build(archive_path)
