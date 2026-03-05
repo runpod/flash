@@ -1,5 +1,6 @@
 """Tests for Runpod GraphQL retry behavior."""
 
+import asyncio
 from unittest.mock import AsyncMock, patch
 
 import aiohttp
@@ -229,3 +230,29 @@ class TestExecuteGraphQLRetry:
 
         assert execute_once.await_count == 1
         sleep.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_retries_on_timeout_error_then_succeeds(self):
+        client = RunpodGraphQLClient(api_key="test-api-key")
+
+        with (
+            patch.object(
+                client,
+                "_execute_graphql_once",
+                new=AsyncMock(
+                    side_effect=[
+                        asyncio.TimeoutError("request timed out"),
+                        {"data": "ok"},
+                    ]
+                ),
+            ) as execute_once,
+            patch("runpod_flash.core.api.runpod.get_backoff_delay", return_value=0.01),
+            patch(
+                "runpod_flash.core.api.runpod.asyncio.sleep", new=AsyncMock()
+            ) as sleep,
+        ):
+            result = await client._execute_graphql("query { ping }")
+
+        assert result == {"data": "ok"}
+        assert execute_once.await_count == 2
+        sleep.assert_awaited_once_with(0.01)

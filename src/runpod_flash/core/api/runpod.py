@@ -64,7 +64,9 @@ def _is_graphql_mutation_operation(query: str) -> bool:
 
 
 def _is_retryable_graphql_exception(error: Exception) -> bool:
-    if isinstance(error, (aiohttp.ClientError, _GraphQLNetworkError)):
+    if isinstance(
+        error, (aiohttp.ClientError, asyncio.TimeoutError, _GraphQLNetworkError)
+    ):
         return True
 
     if isinstance(error, _GraphQLHTTPStatusError):
@@ -179,6 +181,9 @@ class RunpodGraphQLClient:
         except aiohttp.ClientError as e:
             log.error(f"HTTP client error: {e}")
             raise _GraphQLNetworkError(f"HTTP request failed: {e}") from e
+        except asyncio.TimeoutError as e:
+            log.error(f"GraphQL request timed out: {e}")
+            raise
 
     async def _execute_graphql(
         self,
