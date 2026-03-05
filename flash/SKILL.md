@@ -206,11 +206,18 @@ results = await asyncio.gather(compute(a), compute(b), compute(c))
 
 | Command | Description |
 |---------|-------------|
+| `flash login` | Authenticate via browser |
 | `flash init [name]` | Create project template |
 | `flash run [--auto-provision]` | Local dev server at localhost:8888 |
 | `flash build [--exclude pkg1,pkg2]` | Package artifact (500MB limit) |
 | `flash deploy new/send/list/info/delete <env>` | Deploy to production |
 | `flash undeploy list/<name>` | Remove endpoints |
+
+## Authentication
+
+Two ways to authenticate:
+- `flash login` -- browser-based OAuth (recommended)
+- `RUNPOD_API_KEY` env var -- set in `.env` or export directly
 
 ## Gotchas
 
@@ -221,7 +228,3 @@ results = await asyncio.gather(compute(a), compute(b), compute(c))
 5. **idle_timeout is seconds** -- default 60s, not minutes.
 6. **10MB payload limit** -- pass URLs, not large objects.
 7. **Client vs decorator** -- `image=`/`id=` = client. Otherwise = decorator.
-
-## Architecture (for codebase work)
-
-Source: `src/runpod_flash/`. Entry: `endpoint.py` (Endpoint class) delegates to `client.py` (@remote, internal). Build scanner: `cli/commands/build_utils/scanner.py`. Runtime: `runtime/` (handlers, service registry, serialization). Resources: `core/resources/` (internal classes auto-selected by Endpoint). Dev: `make dev`, `make test-unit`, `make lint`, `make format`, `make index`.
