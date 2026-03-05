@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -43,6 +44,30 @@ console = Console()
 
 # Resource state file written by ResourceManager in the uvicorn subprocess.
 _RESOURCE_STATE_FILE = Path(".runpod") / "resources.pkl"
+
+_MAX_PORT_ATTEMPTS = 20
+
+
+def _find_available_port(host: str, start_port: int) -> int:
+    """Find the first available port starting from start_port.
+
+    Tries up to _MAX_PORT_ATTEMPTS consecutive ports. Raises typer.Exit
+    if no port is available.
+    """
+    for offset in range(_MAX_PORT_ATTEMPTS):
+        port = start_port + offset
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind((host, port))
+                return port
+        except OSError:
+            continue
+
+    console.print(
+        f"[red]Error:[/red] No available port found in range "
+        f"{start_port}-{start_port + _MAX_PORT_ATTEMPTS - 1}."
+    )
+    raise typer.Exit(1)
 
 
 @dataclass
@@ -994,6 +1019,14 @@ def run_command(
             "      return {'result': data}"
         )
         raise typer.Exit(1)
+
+    # find a free port, counting up from the requested one
+    actual_port = _find_available_port(host, port)
+    if actual_port != port:
+        console.print(
+            f"[yellow]Port {port} is in use, using {actual_port} instead.[/yellow]"
+        )
+    port = actual_port
 
     # Generate .flash/server.py
     _generate_flash_server(project_root, workers)
