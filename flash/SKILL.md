@@ -1,264 +1,227 @@
 ---
 name: flash
-description: Complete knowledge of runpod-flash - the Endpoint class, CLI, deployment, architecture.
-  Triggers on "flash", "runpod-flash", "Endpoint", "serverless", "deploy", "GpuType", "GpuGroup".
+description: Complete knowledge of the runpod-flash framework - SDK, CLI, architecture, deployment, and codebase. Use when working with runpod-flash code, writing Endpoint classes, configuring GPU/CPU endpoints, debugging deployments, or understanding the framework internals. Triggers on "flash", "runpod-flash", "Endpoint", "serverless", "deploy", "GpuGroup", "CpuInstanceType", "EndpointJob", "remote GPU".
 user-invocable: true
 allowed-tools: Read, Grep, Glob, Bash
 ---
 
-# Runpod Flash
+# Runpod Flash (v1.7.0)
 
-**runpod-flash** (v1.6.0) -- Python SDK for distributed inference and serving on Runpod serverless.
+Python SDK for running AI workloads on RunPod serverless. One class -- `Endpoint` -- handles everything.
 
-- **Package**: `pip install runpod-flash`
-- **Import**: `from runpod_flash import Endpoint, GpuGroup, GpuType, ...`
-- **CLI**: `flash`
-- **Python**: >=3.10, <3.15
+`pip install runpod-flash` | `from runpod_flash import Endpoint, GpuGroup` | Python >=3.10 | Source: `src/runpod_flash/`
 
-## Getting Started
+## Endpoint: Three Modes
 
-```bash
-pip install runpod-flash
-flash login                  # Authenticate via browser (recommended)
-# Or: export RUNPOD_API_KEY=... or add to .env file
-```
+### Mode 1: Your Code (Queue-Based Decorator)
 
-Minimal example:
-
-```python
-import asyncio
-from runpod_flash import Endpoint, GpuType
-
-@Endpoint(name="my-first-worker", gpu=GpuType.ANY, dependencies=["torch"])
-async def gpu_task(data):
-    import torch
-    tensor = torch.tensor(data, device="cuda")
-    return {"sum": tensor.sum().item(), "gpu": torch.cuda.get_device_name(0)}
-
-asyncio.run(gpu_task([1, 2, 3, 4, 5]))
-```
-
-First run takes ~1 minute (endpoint provisioning). Subsequent runs take ~1 second.
-
-Create a project with templates:
-
-```bash
-flash init my_project && cd my_project
-flash run                    # Local FastAPI dev server at localhost:8888/docs
-```
-
-## The Endpoint Class: Four Modes
-
-The `Endpoint` class is the single entry point for all Flash functionality.
-
-### Mode 1: Queue-Based Decorator (QB)
-
-One function = one endpoint = own workers. Best for batch, long-running tasks, automatic retries. Returns `JobOutput` with `.output`, `.error`, `.status`.
-
-```python
-from runpod_flash import Endpoint, GpuType
-
-@Endpoint(name="gpu_worker", gpu=GpuType.ANY, dependencies=["torch"])
-async def gpu_hello(input_data: dict) -> dict:
-    import torch
-    gpu_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "No GPU"
-    return {"message": input_data.get("message", "Hello!"), "gpu": gpu_name}
-
-result = await gpu_hello({"message": "test"})
-# result.output contains the return dict
-```
-
-### Mode 2: Load-Balanced Decorator (LB)
-
-Multiple routes, shared workers. Best for real-time APIs, low-latency HTTP. Returns dict directly (no wrapper). Supported methods: `GET`, `POST`, `PUT`, `DELETE`, `PATCH`. Reserved paths: `/execute`, `/ping`.
-
-```python
-from runpod_flash import Endpoint
-
-api = Endpoint(name="lb_worker", cpu="cpu3c-1-2", workers=(1, 3))
-
-@api.post("/process")
-async def process(input_data: dict) -> dict:
-    from datetime import datetime
-    return {"echo": input_data, "timestamp": datetime.now().isoformat()}
-
-@api.get("/health")
-async def health() -> dict:
-    return {"status": "healthy"}
-```
-
-### Mode 3: External Image Client
-
-Deploy a pre-built Docker image, call it as a client. Returns `EndpointJob` (see below).
+One function = one endpoint with its own workers.
 
 ```python
 from runpod_flash import Endpoint, GpuGroup
 
-vllm = Endpoint(name="vllm", image="vllm/vllm-openai:latest", gpu=GpuGroup.ADA_24)
+@Endpoint(name="my-worker", gpu=GpuGroup.AMPERE_80, workers=3, dependencies=["torch"])
+async def compute(data):
+    import torch  # MUST import inside function (cloudpickle)
+    return {"sum": torch.tensor(data, device="cuda").sum().item()}
 
-result = await vllm.post("/v1/completions", {"prompt": "hello"})  # LB-style
-job = await vllm.run({"prompt": "hello"})                         # QB-style
+result = await compute([1, 2, 3])
+```
+
+### Mode 2: Your Code (Load-Balanced Routes)
+
+Multiple HTTP routes share one pool of workers.
+
+```python
+from runpod_flash import Endpoint, GpuGroup
+
+api = Endpoint(name="my-api", gpu=GpuGroup.ADA_24, workers=(1, 5), dependencies=["torch"])
+
+@api.post("/predict")
+async def predict(data: list[float]):
+    import torch
+    return {"result": torch.tensor(data, device="cuda").sum().item()}
+
+@api.get("/health")
+async def health():
+    return {"status": "ok"}
+```
+
+### Mode 3: External Image (Client)
+
+Deploy a pre-built Docker image and call it via HTTP.
+
+```python
+from runpod_flash import Endpoint, GpuGroup, PodTemplate
+
+server = Endpoint(
+    name="my-server",
+    image="my-org/my-image:latest",
+    gpu=GpuGroup.AMPERE_80,
+    workers=1,
+    env={"HF_TOKEN": "xxx"},
+    template=PodTemplate(containerDiskInGb=100),
+)
+
+# LB-style
+result = await server.post("/v1/completions", {"prompt": "hello"})
+models = await server.get("/v1/models")
+
+# QB-style
+job = await server.run({"prompt": "hello"})
 await job.wait()
 print(job.output)
 ```
 
-### Mode 4: Existing Endpoint Client
-
-Connect to an already-deployed endpoint by ID. No provisioning. Returns `EndpointJob`.
+Connect to an existing endpoint by ID (no provisioning):
 
 ```python
 ep = Endpoint(id="abc123")
-job = await ep.runsync({"prompt": "hello"})
+job = await ep.runsync({"input": "hello"})
 print(job.output)
 ```
 
-**EndpointJob** (returned by `.run()` / `.runsync()` in client modes): properties `.id`, `.output`, `.error`, `.done`; methods `await job.status()`, `await job.wait(timeout=60)`, `await job.cancel()`.
+## How Mode Is Determined
 
-## Constructor Parameters
+| Parameters | Mode |
+|-----------|------|
+| `name=` only | Decorator (your code) |
+| `image=` set | Client (deploys image, then HTTP calls) |
+| `id=` set | Client (connects to existing, no provisioning) |
+
+## Endpoint Constructor
 
 ```python
 Endpoint(
-    name: str = None,                    # Required unless id= is set
-    *,
-    id: str = None,                      # Connect to existing endpoint (client mode)
-    gpu: GpuGroup | GpuType | list = None,  # GPU type(s) -- mutually exclusive with cpu
-    cpu: str | CpuInstanceType | list = None, # CPU type(s) -- mutually exclusive with gpu
-    workers: int | tuple[int, int] = None,    # (min, max) tuple or just max. Default: (0, 1)
-    idle_timeout: int = 60,              # Seconds before scale-down
-    dependencies: list[str] = None,      # pip packages to install
-    system_dependencies: list[str] = None, # apt-get packages
-    accelerate_downloads: bool = True,   # CDN download acceleration
-    volume: NetworkVolume = None,        # Persistent storage (NetworkVolume(name=..., size=100, dataCenterId=DataCenter.EU_RO_1))
-    datacenter: DataCenter = DataCenter.EU_RO_1,
-    env: dict[str, str] = None,          # Environment variables
-    gpu_count: int = 1,                  # GPUs per worker
-    execution_timeout_ms: int = 0,       # 0 = no limit
-    flashboot: bool = True,              # Fast cold starts
-    image: str = None,                   # Docker image (external image mode, mutually exclusive with id)
-    scaler_type: ServerlessScalerType = None,  # QUEUE_DELAY (QB) or REQUEST_COUNT (LB)
-    scaler_value: int = 4,
-    template: PodTemplate = None,        # Pod overrides (e.g. PodTemplate(containerDiskInGb=100))
+    name="endpoint-name",                  # required (unless id= set)
+    id=None,                               # connect to existing endpoint
+    gpu=GpuGroup.AMPERE_80,               # GPU type (default: ANY)
+    cpu=CpuInstanceType.CPU5C_4_8,        # CPU type (mutually exclusive with gpu)
+    workers=3,                             # shorthand for (0, 3)
+    workers=(1, 5),                        # explicit (min, max)
+    idle_timeout=60,                       # seconds before scale-down (default: 60)
+    dependencies=["torch"],                # pip packages for remote exec
+    system_dependencies=["ffmpeg"],        # apt-get packages
+    image="org/image:tag",                 # pre-built Docker image (client mode)
+    env={"KEY": "val"},                    # environment variables
+    volume=NetworkVolume(...),             # persistent storage
+    gpu_count=1,                           # GPUs per worker
+    template=PodTemplate(containerDiskInGb=100),
+    flashboot=True,                        # fast cold starts
 )
 ```
 
-- `gpu` and `cpu` are mutually exclusive. `id` and `image` are mutually exclusive.
-- If neither `gpu` nor `cpu` is set (non-client), defaults to `gpu=GpuGroup.ANY`.
-- `workers=5` means `(0, 5)`. `workers=(2, 5)` means min 2, max 5.
+- `gpu=` and `cpu=` are mutually exclusive
+- `workers=3` means `(0, 3)`. Default is `(0, 1)`
+- `idle_timeout` default is **60 seconds**
 
-## GPU & CPU Types
+## Cloudpickle Scoping (CRITICAL)
 
-### GpuGroup (by VRAM class)
-
-| Group | VRAM | GPUs |
-|-------|------|------|
-| `ANY` | Any | Any available (not for production) |
-| `AMPERE_16` | 16GB | RTX A4000/A4500 |
-| `AMPERE_24` | 24GB | RTX A5000, L4, RTX 3090 |
-| `ADA_24` | 24GB | RTX 4090 |
-| `ADA_32_PRO` | 32GB | RTX 5090 |
-| `AMPERE_48` | 48GB | A40, RTX A6000 |
-| `ADA_48_PRO` | 48GB | RTX 6000 Ada |
-| `AMPERE_80` | 80GB | A100 |
-| `ADA_80_PRO` | 80GB | H100 |
-| `HOPPER_141` | 141GB | H200 |
-
-For exact GPU selection, use `GpuType` enum (e.g. `GpuType.NVIDIA_GEFORCE_RTX_4090`). See `src/runpod_flash/core/resources/gpu.py` for full list.
-
-### CPU Instance Types
-
-Format: `cpu{gen}{type}-{vcpu}-{memory}`. Use string shorthand (`cpu="cpu3c-1-2"`) or `CpuInstanceType` enum.
-
-Families: `cpu3g` (general, 4GB/vCPU), `cpu3c` (compute, 2GB/vCPU), `cpu5c` (5th gen compute, 2GB/vCPU). Each from 1 to 8 vCPUs. See `src/runpod_flash/core/resources/cpu.py` for full list.
-
-## Cloudpickle Scoping Rules
-
-Functions decorated with `@Endpoint(...)` are serialized with cloudpickle. They can ONLY access:
-- Function parameters, local variables, imports done **inside** the function, built-ins
-
-They CANNOT access: module-level imports, global variables, external functions/classes.
+Decorated functions are serialized. They can ONLY access:
+- Parameters, local variables, imports inside the function, builtins
 
 ```python
 # WRONG
 import torch
-@Endpoint(name="worker", gpu=GpuGroup.ADA_24)
-async def bad(data):
-    return torch.tensor(data)  # torch not accessible remotely
+@Endpoint(name="w", gpu=GpuGroup.ADA_24, dependencies=["torch"])
+async def bad(x):
+    return torch.tensor(x)  # NameError
 
 # CORRECT
-@Endpoint(name="worker", gpu=GpuGroup.ADA_24, dependencies=["torch"])
-async def good(data):
+@Endpoint(name="w", gpu=GpuGroup.ADA_24, dependencies=["torch"])
+async def good(x):
     import torch
-    return torch.tensor(data)
+    return torch.tensor(x)
 ```
 
-All pip packages must be in `dependencies=[]`. System packages in `system_dependencies=[]`.
+## EndpointJob
 
-## CLI Commands
+Returned by `ep.run()` and `ep.runsync()` in client mode.
 
-```bash
-flash login                                      # Authenticate via browser
-flash init [project_name]                        # Create project from templates
-flash run [--host HOST] [--port PORT]            # Dev server at localhost:8888
-flash build [--exclude pkg1,pkg2] [--preview]    # Package artifact (500MB limit)
-flash deploy new|send|list|info|delete <env>     # Deployment lifecycle
-flash undeploy list                              # List deployed resources
-flash undeploy <name>                            # Remove specific resource
-flash env list|create|get|delete <name>          # Environment management
-flash app list|get <name>                        # App management
+```python
+job = await ep.run({"data": [1, 2, 3]})
+await job.wait(timeout=120)        # poll until done
+print(job.id, job.output, job.error, job.done)
+await job.cancel()
 ```
 
-Key notes:
-- `flash build --exclude torch,torchvision,torchaudio` -- exclude packages already in base Docker image to stay under 500MB limit
-- `flash build --preview` -- run in local Docker containers for end-to-end testing
-- `flash deploy send` requires `flash build` first
+## GPU Types (GpuGroup)
+
+| Enum | GPU | VRAM |
+|------|-----|------|
+| `ANY` | any | varies |
+| `AMPERE_16` | RTX A4000 | 16GB |
+| `AMPERE_24` | RTX A5000/L4 | 24GB |
+| `AMPERE_48` | A40/A6000 | 48GB |
+| `AMPERE_80` | A100 | 80GB |
+| `ADA_24` | RTX 4090 | 24GB |
+| `ADA_32_PRO` | RTX 5090 | 32GB |
+| `ADA_48_PRO` | RTX 6000 Ada | 48GB |
+| `ADA_80_PRO` | H100 | 80GB |
+| `HOPPER_141` | H200 | 141GB |
+
+## CPU Types (CpuInstanceType)
+
+Format: `CPU{gen}{type}_{vcpu}_{memory_gb}`. Example: `CPU5C_4_8` = 5th gen, compute, 4 vCPU, 8GB.
+
+```python
+from runpod_flash import Endpoint, CpuInstanceType
+
+@Endpoint(name="cpu-work", cpu=CpuInstanceType.CPU5C_4_8, workers=5, dependencies=["pandas"])
+async def process(data):
+    import pandas as pd
+    return pd.DataFrame(data).describe().to_dict()
+```
 
 ## Common Patterns
 
-### Hybrid GPU/CPU Pipeline
+### CPU + GPU Pipeline
 
 ```python
-from runpod_flash import Endpoint, GpuGroup
+from runpod_flash import Endpoint, GpuGroup, CpuInstanceType
 
-@Endpoint(name="preprocessor", cpu="cpu5c-4-8", dependencies=["pandas"])
-async def preprocess(data):
+@Endpoint(name="preprocess", cpu=CpuInstanceType.CPU5C_4_8, workers=5, dependencies=["pandas"])
+async def preprocess(raw):
     import pandas as pd
-    return pd.DataFrame(data).to_dict("records")
+    return pd.DataFrame(raw).to_dict("records")
 
-@Endpoint(name="inference", gpu=GpuGroup.AMPERE_80, dependencies=["torch"])
-async def inference(data):
+@Endpoint(name="infer", gpu=GpuGroup.AMPERE_80, workers=3, dependencies=["torch"])
+async def infer(clean):
     import torch
-    tensor = torch.tensor(data, device="cuda")
-    return {"result": tensor.sum().item()}
+    t = torch.tensor([[v for v in r.values()] for r in clean], device="cuda")
+    return {"predictions": t.mean(dim=1).tolist()}
 
-async def pipeline(raw_data):
-    clean = await preprocess(raw_data)
-    return await inference(clean)
+async def pipeline(data):
+    return await infer(await preprocess(data))
 ```
 
-### External Image
+### Parallel Execution
 
 ```python
-vllm = Endpoint(name="vllm-server", image="vllm/vllm-openai:latest", gpu=GpuGroup.ADA_80_PRO)
-result = await vllm.post("/v1/completions", {"prompt": "hello", "model": "meta-llama/Llama-3-8B"})
+import asyncio
+results = await asyncio.gather(compute(a), compute(b), compute(c))
 ```
 
-## Error Handling
+## CLI
 
-- **QB**: Returns `JobOutput` -- check `result.error` for failures, `result.output` for data
-- **LB**: Returns dict directly -- use try/except
-- **Client mode**: `EndpointJob` -- check `job.error` after `await job.wait()`
-- **Serialization limit**: cloudpickle + base64, max 10MB. Pass URLs/paths for large data.
+| Command | Description |
+|---------|-------------|
+| `flash init [name]` | Create project template |
+| `flash run [--auto-provision]` | Local dev server at localhost:8888 |
+| `flash build [--exclude pkg1,pkg2]` | Package artifact (500MB limit) |
+| `flash deploy new/send/list/info/delete <env>` | Deploy to production |
+| `flash undeploy list/<name>` | Remove endpoints |
 
-Exception hierarchy: `FlashRuntimeError` > `RemoteExecutionError`, `SerializationError`, `GraphQLError` > `GraphQLMutationError`/`GraphQLQueryError`, `ManifestError`.
+## Gotchas
 
-## Common Gotchas
+1. **Imports outside function** -- most common error. Everything inside the decorated function.
+2. **Forgetting await** -- all decorated functions and client methods need `await`.
+3. **Missing dependencies** -- must list in `dependencies=[]`.
+4. **gpu/cpu are exclusive** -- pick one per Endpoint.
+5. **idle_timeout is seconds** -- default 60s, not minutes.
+6. **10MB payload limit** -- pass URLs, not large objects.
+7. **Client vs decorator** -- `image=`/`id=` = client. Otherwise = decorator.
 
-1. **External scope in decorated functions** -- #1 error. All imports and logic must be inside the function body.
-2. **Forgetting `await`** -- All remote functions must be awaited.
-3. **Undeclared dependencies** -- Must be in `dependencies=[]`.
-4. **QB vs LB return types** -- QB returns `JobOutput` wrapper, LB returns dict directly.
-5. **Large payloads** -- Max 10MB serialization. Pass URLs, not data.
-6. **Bundle too large (>500MB)** -- Use `flash build --exclude` for packages in base image.
-7. **Mixing patterns** -- Cannot use `@Endpoint(...)` as decorator AND `.get()`/`.post()` on same instance.
-8. **Client vs decorator** -- `Endpoint(id=...)` and `Endpoint(image=...)` are clients, not decorators.
-9. **Endpoints accumulate** -- Clean up with `flash undeploy`.
+## Architecture (for codebase work)
+
+Source: `src/runpod_flash/`. Entry: `endpoint.py` (Endpoint class) delegates to `client.py` (@remote, internal). Build scanner: `cli/commands/build_utils/scanner.py`. Runtime: `runtime/` (handlers, service registry, serialization). Resources: `core/resources/` (internal classes auto-selected by Endpoint). Dev: `make dev`, `make test-unit`, `make lint`, `make format`, `make index`.
