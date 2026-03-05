@@ -97,7 +97,7 @@ class ManifestBuilder:
         # for inline @Endpoint(...) QB decorators there is no config variable.
         # extract what we can directly from the decorator's AST keywords.
         if not config_variable:
-            return self._extract_deployment_config_from_ast(resource_name)
+            return self._extract_deployment_config_from_import(resource_name)
 
         try:
             # Get the module where this resource is defined
@@ -140,109 +140,7 @@ class ManifestBuilder:
                     if hasattr(resource_config, "_build_resource_config"):
                         resource_config = resource_config._build_resource_config()
 
-                    # Extract deployment config properties
-                    if (
-                        hasattr(resource_config, "imageName")
-                        and resource_config.imageName
-                    ):
-                        config["imageName"] = resource_config.imageName
-
-                    if (
-                        hasattr(resource_config, "templateId")
-                        and resource_config.templateId
-                    ):
-                        config["templateId"] = resource_config.templateId
-
-                    if hasattr(resource_config, "gpuIds") and resource_config.gpuIds:
-                        config["gpuIds"] = resource_config.gpuIds
-
-                    if (
-                        hasattr(resource_config, "instanceIds")
-                        and resource_config.instanceIds
-                    ):
-                        config["instanceIds"] = [
-                            i.value if hasattr(i, "value") else str(i)
-                            for i in resource_config.instanceIds
-                        ]
-
-                    if hasattr(resource_config, "workersMin"):
-                        config["workersMin"] = resource_config.workersMin
-
-                    if hasattr(resource_config, "workersMax"):
-                        config["workersMax"] = resource_config.workersMax
-
-                    if (
-                        hasattr(resource_config, "scalerType")
-                        and resource_config.scalerType is not None
-                    ):
-                        val = resource_config.scalerType
-                        config["scalerType"] = (
-                            val.value if hasattr(val, "value") else val
-                        )
-
-                    if (
-                        hasattr(resource_config, "scalerValue")
-                        and resource_config.scalerValue is not None
-                    ):
-                        config["scalerValue"] = resource_config.scalerValue
-
-                    if hasattr(resource_config, "env") and resource_config.env:
-                        env_dict = dict(resource_config.env)
-                        env_dict.pop("RUNPOD_API_KEY", None)
-                        if env_dict:
-                            config["env"] = env_dict
-
-                    # Extract networkVolume configuration if present
-                    if (
-                        hasattr(resource_config, "networkVolume")
-                        and resource_config.networkVolume
-                    ):
-                        nv = resource_config.networkVolume
-                        nv_config = {"name": nv.name}
-                        if nv.size is not None:
-                            nv_config["size"] = nv.size
-                        if hasattr(nv, "dataCenterId") and nv.dataCenterId is not None:
-                            nv_config["dataCenterId"] = (
-                                nv.dataCenterId.value
-                                if hasattr(nv.dataCenterId, "value")
-                                else nv.dataCenterId
-                            )
-                        config["networkVolume"] = nv_config
-
-                    elif (
-                        hasattr(resource_config, "networkVolumeId")
-                        and resource_config.networkVolumeId
-                    ):
-                        config["networkVolumeId"] = resource_config.networkVolumeId
-
-                    # Extract template configuration if present
-                    if (
-                        hasattr(resource_config, "template")
-                        and resource_config.template
-                    ):
-                        template_obj = resource_config.template
-                        template_config = {}
-
-                        # Extract only the configurable template fields
-                        if hasattr(template_obj, "containerDiskInGb"):
-                            template_config["containerDiskInGb"] = (
-                                template_obj.containerDiskInGb
-                            )
-                        if hasattr(template_obj, "dockerArgs"):
-                            template_config["dockerArgs"] = template_obj.dockerArgs
-                        if hasattr(template_obj, "startScript"):
-                            template_config["startScript"] = template_obj.startScript
-                        if hasattr(template_obj, "advancedStart"):
-                            template_config["advancedStart"] = (
-                                template_obj.advancedStart
-                            )
-                        if hasattr(template_obj, "containerRegistryAuthId"):
-                            template_config["containerRegistryAuthId"] = (
-                                template_obj.containerRegistryAuthId
-                            )
-
-                        if template_config:
-                            config["template"] = template_config
+                    self._extract_config_properties(config, resource_config)
 
             finally:
                 # Clean up module from sys.modules to avoid conflicts
@@ -262,17 +160,99 @@ class ManifestBuilder:
 
         return config
 
-    def _extract_deployment_config_from_ast(self, resource_name: str) -> Dict[str, Any]:
-        """Extract deployment config by parsing Endpoint(...) decorator keywords.
+    @staticmethod
+    def _extract_config_properties(config: Dict[str, Any], resource_config) -> None:
+        """Read deployment properties from a resource config object into config dict."""
+        if hasattr(resource_config, "imageName") and resource_config.imageName:
+            config["imageName"] = resource_config.imageName
+
+        if hasattr(resource_config, "templateId") and resource_config.templateId:
+            config["templateId"] = resource_config.templateId
+
+        if hasattr(resource_config, "gpuIds") and resource_config.gpuIds:
+            config["gpuIds"] = resource_config.gpuIds
+
+        if hasattr(resource_config, "instanceIds") and resource_config.instanceIds:
+            config["instanceIds"] = [
+                i.value if hasattr(i, "value") else str(i)
+                for i in resource_config.instanceIds
+            ]
+
+        if hasattr(resource_config, "workersMin"):
+            config["workersMin"] = resource_config.workersMin
+
+        if hasattr(resource_config, "workersMax"):
+            config["workersMax"] = resource_config.workersMax
+
+        if (
+            hasattr(resource_config, "scalerType")
+            and resource_config.scalerType is not None
+        ):
+            val = resource_config.scalerType
+            config["scalerType"] = val.value if hasattr(val, "value") else val
+
+        if (
+            hasattr(resource_config, "scalerValue")
+            and resource_config.scalerValue is not None
+        ):
+            config["scalerValue"] = resource_config.scalerValue
+
+        if hasattr(resource_config, "env") and resource_config.env:
+            env_dict = dict(resource_config.env)
+            env_dict.pop("RUNPOD_API_KEY", None)
+            if env_dict:
+                config["env"] = env_dict
+
+        if hasattr(resource_config, "networkVolume") and resource_config.networkVolume:
+            nv = resource_config.networkVolume
+            nv_config = {"name": nv.name}
+            if nv.size is not None:
+                nv_config["size"] = nv.size
+            if hasattr(nv, "dataCenterId") and nv.dataCenterId is not None:
+                nv_config["dataCenterId"] = (
+                    nv.dataCenterId.value
+                    if hasattr(nv.dataCenterId, "value")
+                    else nv.dataCenterId
+                )
+            config["networkVolume"] = nv_config
+
+        elif (
+            hasattr(resource_config, "networkVolumeId")
+            and resource_config.networkVolumeId
+        ):
+            config["networkVolumeId"] = resource_config.networkVolumeId
+
+        if hasattr(resource_config, "template") and resource_config.template:
+            template_obj = resource_config.template
+            template_config = {}
+
+            if hasattr(template_obj, "containerDiskInGb"):
+                template_config["containerDiskInGb"] = template_obj.containerDiskInGb
+            if hasattr(template_obj, "dockerArgs"):
+                template_config["dockerArgs"] = template_obj.dockerArgs
+            if hasattr(template_obj, "startScript"):
+                template_config["startScript"] = template_obj.startScript
+            if hasattr(template_obj, "advancedStart"):
+                template_config["advancedStart"] = template_obj.advancedStart
+            if hasattr(template_obj, "containerRegistryAuthId"):
+                template_config["containerRegistryAuthId"] = (
+                    template_obj.containerRegistryAuthId
+                )
+
+            if template_config:
+                config["template"] = template_config
+
+    def _extract_deployment_config_from_import(
+        self, resource_name: str
+    ) -> Dict[str, Any]:
+        """Extract deployment config by importing the module and reading __remote_config__.
 
         Used for inline @Endpoint(...) QB decorators that have no config_variable.
-        Parses the source file's AST to read keyword arguments directly.
+        Importing the module executes the decorator which builds a full resource
+        config object with all enum expansion and validation applied.
         """
-        import ast
-
         config: Dict[str, Any] = {}
 
-        # find the source file for this resource
         func_meta = None
         for f in self.remote_functions:
             if f.resource_config_name == resource_name:
@@ -286,112 +266,55 @@ class ManifestBuilder:
             return config
 
         try:
-            tree = ast.parse(func_meta.file_path.read_text(encoding="utf-8"))
-        except Exception:
-            return config
-
-        # find the decorated function/class node and its @Endpoint(...) decorator
-        for node in ast.walk(tree):
-            if not isinstance(
-                node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
-            ):
-                continue
-            if node.name != func_meta.function_name:
-                continue
-
-            for decorator in node.decorator_list:
-                if not isinstance(decorator, ast.Call):
-                    continue
-                call_name = None
-                if isinstance(decorator.func, ast.Name):
-                    call_name = decorator.func.id
-                elif isinstance(decorator.func, ast.Attribute):
-                    call_name = decorator.func.attr
-                if call_name != "Endpoint":
-                    continue
-
-                # extract keyword arguments we care about
-                for kw in decorator.keywords:
-                    if kw.arg == "gpu" and isinstance(kw.value, ast.Attribute):
-                        # e.g. GpuGroup.ADA_24 -> "ADA_24"
-                        config["gpuIds"] = self._resolve_gpu_enum_value(kw.value.attr)
-                    elif kw.arg == "gpu" and isinstance(kw.value, ast.List):
-                        ids = []
-                        for elt in kw.value.elts:
-                            if isinstance(elt, ast.Attribute):
-                                ids.append(self._resolve_gpu_enum_value(elt.attr))
-                        if ids:
-                            config["gpuIds"] = ",".join(ids)
-                    elif kw.arg == "cpu" and isinstance(kw.value, ast.Attribute):
-                        # e.g. CpuInstanceType.CPU3C_1_2 -> resolve to enum value
-                        config["instanceIds"] = [
-                            self._resolve_cpu_enum_value(kw.value.attr)
-                        ]
-                    elif kw.arg == "cpu" and isinstance(kw.value, ast.List):
-                        ids = []
-                        for elt in kw.value.elts:
-                            if isinstance(elt, ast.Attribute):
-                                ids.append(self._resolve_cpu_enum_value(elt.attr))
-                        if ids:
-                            config["instanceIds"] = ids
-                    elif kw.arg == "workers":
-                        if isinstance(kw.value, ast.Constant):
-                            config["workersMin"] = 0
-                            config["workersMax"] = kw.value.value
-                        elif (
-                            isinstance(kw.value, ast.Tuple) and len(kw.value.elts) == 2
-                        ):
-                            elts = kw.value.elts
-                            if isinstance(elts[0], ast.Constant):
-                                config["workersMin"] = elts[0].value
-                            if isinstance(elts[1], ast.Constant):
-                                config["workersMax"] = elts[1].value
-                    elif kw.arg == "image" and isinstance(kw.value, ast.Constant):
-                        config["imageName"] = kw.value.value
-                    elif kw.arg == "scaler_type" and isinstance(
-                        kw.value, ast.Attribute
-                    ):
-                        config["scalerType"] = kw.value.attr
-                    elif kw.arg == "scaler_value" and isinstance(
-                        kw.value, ast.Constant
-                    ):
-                        config["scalerValue"] = kw.value.value
+            spec = importlib.util.spec_from_file_location(
+                func_meta.file_path.stem, func_meta.file_path
+            )
+            if not spec or not spec.loader:
                 return config
 
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[spec.name] = module
+
+            parent_dir = str(func_meta.file_path.parent)
+            added_to_path = parent_dir not in sys.path
+            if added_to_path:
+                sys.path.insert(0, parent_dir)
+
+            try:
+                spec.loader.exec_module(module)
+
+                fn = getattr(module, func_meta.function_name, None)
+                if fn is None:
+                    return config
+
+                remote_cfg = getattr(fn, "__remote_config__", None)
+                if not isinstance(remote_cfg, dict):
+                    return config
+
+                resource_config = remote_cfg.get("resource_config")
+                if resource_config is None:
+                    return config
+
+                # unwrap Endpoint facade if needed
+                if hasattr(resource_config, "_build_resource_config"):
+                    resource_config = resource_config._build_resource_config()
+
+                self._extract_config_properties(config, resource_config)
+            finally:
+                if spec.name in sys.modules:
+                    del sys.modules[spec.name]
+                if added_to_path:
+                    try:
+                        sys.path.remove(parent_dir)
+                    except ValueError:
+                        pass
+
+        except Exception as e:
+            logger.debug(
+                f"Failed to extract deployment config for {resource_name}: {e}"
+            )
+
         return config
-
-    @staticmethod
-    def _resolve_cpu_enum_value(enum_member_name: str) -> str:
-        """Resolve a CpuInstanceType enum member name to its value string.
-
-        Falls back to lowercasing and replacing underscores with hyphens
-        if the enum cannot be imported (matches CpuInstanceType naming convention).
-        """
-        try:
-            from runpod_flash.core.resources.cpu import CpuInstanceType
-
-            return CpuInstanceType[enum_member_name].value
-        except (ImportError, KeyError):
-            return enum_member_name.lower().replace("_", "-")
-
-    @staticmethod
-    def _resolve_gpu_enum_value(enum_member_name: str) -> str:
-        """Resolve a GpuGroup or GpuType enum member name to its value string.
-
-        Tries GpuGroup first, then GpuType. Falls back to the raw member name.
-        """
-        try:
-            from runpod_flash.core.resources.gpu import GpuGroup
-
-            return GpuGroup[enum_member_name].value
-        except (ImportError, KeyError):
-            pass
-        try:
-            from runpod_flash.core.resources.gpu import GpuType
-
-            return GpuType[enum_member_name].value
-        except (ImportError, KeyError):
-            return enum_member_name
 
     def build(self) -> Dict[str, Any]:
         """Build the manifest dictionary.
