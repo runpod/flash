@@ -8,7 +8,7 @@ user-invocable: true
 
 `pip install runpod-flash` | Python >=3.10
 
-One class -- `Endpoint` -- handles everything: decorator mode, load-balanced routes, and external image deployment.
+Write code locally, test with `flash run` (dev server at localhost:8888), and flash automatically provisions and deploys to remote GPUs/CPUs in the cloud. One class -- `Endpoint` -- handles everything.
 
 ## Endpoint: Three Modes
 
