@@ -15,7 +15,7 @@ from .cpu import (
     CPU_INSTANCE_DISK_LIMITS,
     get_max_disk_size_for_instances,
 )
-from .serverless import ServerlessEndpoint, get_env_vars
+from .serverless import ServerlessEndpoint
 from .template import KeyValuePair, PodTemplate
 
 
@@ -162,7 +162,7 @@ class CpuServerlessEndpoint(CpuEndpointMixin, ServerlessEndpoint):
         template = PodTemplate(
             name=self.resource_id,
             imageName=self.imageName,
-            env=KeyValuePair.from_dict(self.env or get_env_vars()),
+            env=KeyValuePair.from_dict(self.env or {}),
         )
         # Apply CPU-specific disk sizing
         self._apply_cpu_disk_sizing(template)
