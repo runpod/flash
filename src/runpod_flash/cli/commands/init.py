@@ -14,15 +14,21 @@ console = Console()
 
 
 def init_command(
+    ctx: typer.Context,
     project_name: Optional[str] = typer.Argument(
-        None, help="Project name or '.' for current directory"
+        None, help="Project name, or '.' to initialize in current directory"
     ),
     force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing files"),
 ):
     """Create new Flash project with Flash Server and GPU workers."""
 
+    # No argument provided — show usage and exit
+    if project_name is None:
+        console.print(Panel(ctx.get_help(), title="flash init", expand=False))
+        raise typer.Exit(0)
+
     # Determine target directory and initialization mode
-    if project_name is None or project_name == ".":
+    if project_name == ".":
         # Initialize in current directory
         project_dir = Path.cwd()
         is_current_dir = True
