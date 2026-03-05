@@ -4,7 +4,7 @@ description: runpod-flash SDK and CLI for deploying AI workloads on Runpod serve
 user-invocable: true
 ---
 
-# Runpod Flash (v1.7.0)
+# Runpod Flash
 
 `pip install runpod-flash` | Python >=3.10
 
