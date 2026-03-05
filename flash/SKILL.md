@@ -180,7 +180,20 @@ await job.cancel()
 
 ## CPU Types (CpuInstanceType)
 
-Format: `CPU{gen}{type}_{vcpu}_{memory_gb}`. Example: `CPU5C_4_8` = 5th gen, compute, 4 vCPU, 8GB.
+| Enum | vCPU | RAM | Max Disk | Type |
+|------|------|-----|----------|------|
+| `CPU3G_1_4` | 1 | 4GB | 10GB | General |
+| `CPU3G_2_8` | 2 | 8GB | 20GB | General |
+| `CPU3G_4_16` | 4 | 16GB | 40GB | General |
+| `CPU3G_8_32` | 8 | 32GB | 80GB | General |
+| `CPU3C_1_2` | 1 | 2GB | 10GB | Compute |
+| `CPU3C_2_4` | 2 | 4GB | 20GB | Compute |
+| `CPU3C_4_8` | 4 | 8GB | 40GB | Compute |
+| `CPU3C_8_16` | 8 | 16GB | 80GB | Compute |
+| `CPU5C_1_2` | 1 | 2GB | 15GB | Compute (5th gen) |
+| `CPU5C_2_4` | 2 | 4GB | 30GB | Compute (5th gen) |
+| `CPU5C_4_8` | 4 | 8GB | 60GB | Compute (5th gen) |
+| `CPU5C_8_16` | 8 | 16GB | 120GB | Compute (5th gen) |
 
 ```python
 from runpod_flash import Endpoint, CpuInstanceType
