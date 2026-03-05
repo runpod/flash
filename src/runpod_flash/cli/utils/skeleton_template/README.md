@@ -79,6 +79,7 @@ QB workers process jobs from a queue. Each call to `/runsync` sends a job and wa
 for the result. Use QB for compute-heavy tasks that may take seconds to minutes.
 
 **gpu_worker.py** — GPU serverless function:
+
 ```python
 from runpod_flash import Endpoint, GpuType
 
@@ -90,6 +91,7 @@ async def gpu_hello(input_data: dict) -> dict:
 ```
 
 **cpu_worker.py** — CPU serverless function:
+
 ```python
 from runpod_flash import Endpoint
 
@@ -104,6 +106,7 @@ LB workers expose standard HTTP endpoints (GET, POST, etc.) behind a load balanc
 Use LB for low-latency API endpoints that need horizontal scaling.
 
 **lb_worker.py** — HTTP endpoints on a load-balanced container:
+
 ```python
 from runpod_flash import Endpoint
 
@@ -156,17 +159,18 @@ Then run `flash run` -- the new worker appears automatically.
 
 ## GPU Types
 
-| Config | Hardware | VRAM |
-|--------|----------|------|
-| `GpuType.ANY` | Any available GPU | varies |
-| `GpuType.NVIDIA_GEFORCE_RTX_4090` | RTX 4090 | 24 GB |
-| `GpuType.NVIDIA_GEFORCE_RTX_5090` | RTX 5090 | 32 GB |
-| `GpuType.NVIDIA_RTX_6000_ADA_GENERATION` | RTX 6000 Ada | 48 GB |
-| `GpuType.NVIDIA_L4` | L4 | 24 GB |
-| `GpuType.NVIDIA_A100_80GB_PCIe` | A100 PCIe | 80 GB |
-| `GpuType.NVIDIA_A100_SXM4_80GB` | A100 SXM4 | 80 GB |
-| `GpuType.NVIDIA_H100_80GB_HBM3` | H100 | 80 GB |
-| `GpuType.NVIDIA_H200` | H200 | 141 GB |
+| Config                                    | Hardware          | VRAM   |
+| ----------------------------------------- | ----------------- | ------ |
+| `GpuType.ANY`                             | Any available GPU | varies |
+| `GpuType.NVIDIA_GEFORCE_RTX_4090`         | RTX 4090          | 24 GB  |
+| `GpuType.NVIDIA_GEFORCE_RTX_5090`         | RTX 5090          | 32 GB  |
+| `GpuType.NVIDIA_RTX_6000_ADA_GENERATION`  | RTX 6000 Ada      | 48 GB  |
+| `GpuType.NVIDIA_L4`                       | L4                | 24 GB  |
+| `GpuType.NVIDIA_A100_80GB_PCIe`           | A100 PCIe         | 80 GB  |
+| `GpuType.NVIDIA_A100_SXM4_80GB`           | A100 SXM4         | 80 GB  |
+| `GpuType.NVIDIA_H100_80GB_HBM3`           | H100              | 80 GB  |
+| `GpuType.NVIDIA_H200`                     | H200              | 141 GB |
+| `GpuType.NVIDIA_B200`                     | B200              | 180 GB |
 
 ## CPU Types
 
