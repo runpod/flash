@@ -8,7 +8,7 @@ allowed-tools: Read, Grep, Glob, Bash
 
 # Runpod Flash
 
-**runpod-flash** (v1.6.0) is a Python SDK for distributed inference and serving on RunPod serverless. Write Python functions locally, configure with the `Endpoint` class, and Flash handles GPU/CPU provisioning, dependency management, and data transfer.
+**runpod-flash** (v1.6.0) is a Python SDK for distributed inference and serving on Runpod serverless. Write Python functions locally, configure with the `Endpoint` class, and Flash handles GPU/CPU provisioning, dependency management, and data transfer.
 
 - **Package**: `pip install runpod-flash`
 - **Import**: `from runpod_flash import Endpoint, GpuGroup, GpuType, ...`
@@ -31,7 +31,7 @@ Either log in via browser (recommended):
 flash login
 ```
 
-Or set your API key manually. Get a key from [RunPod account settings](https://docs.runpod.io/get-started/api-keys):
+Or set your API key manually. Get a key from [Runpod account settings](https://docs.runpod.io/get-started/api-keys):
 
 ```bash
 export RUNPOD_API_KEY=your_api_key_here
@@ -310,7 +310,7 @@ All pip packages must be listed in `dependencies=[]`. System packages go in `sys
 flash login [--no-open] [--timeout SECONDS]
 ```
 
-Authenticate via browser. Opens RunPod console for authorization, saves credentials locally.
+Authenticate via browser. Opens Runpod console for authorization, saves credentials locally.
 
 ### flash init
 
