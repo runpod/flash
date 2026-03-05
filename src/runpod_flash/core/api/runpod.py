@@ -3,6 +3,7 @@ Direct GraphQL communication with Runpod API.
 Bypasses the outdated runpod-python SDK limitations.
 """
 
+import asyncio
 import json  # noqa: F401 - used in commented debug logs
 import logging
 import os
@@ -12,6 +13,7 @@ import aiohttp
 
 from runpod_flash.core.credentials import get_api_key
 from runpod_flash.core.exceptions import RunpodAPIKeyError
+from runpod_flash.core.utils.backoff import BackoffStrategy, get_backoff_delay
 from runpod_flash.runtime.exceptions import GraphQLMutationError, GraphQLQueryError
 
 log = logging.getLogger(__name__)
@@ -21,6 +23,59 @@ RUNPOD_REST_API_URL = os.environ.get("RUNPOD_REST_API_URL", "https://rest.runpod
 
 # Sensitive fields that should be redacted from logs (pre-signed URLs, tokens, etc.)
 SENSITIVE_FIELDS = {"uploadUrl", "downloadUrl", "presignedUrl"}
+GRAPHQL_MAX_RETRIES = 3
+GRAPHQL_BACKOFF_BASE_SECONDS = 1.0
+GRAPHQL_BACKOFF_MAX_SECONDS = 15.0
+
+_TRANSIENT_GRAPHQL_ERROR_PATTERNS = (
+    "try again later",
+    "internal server error",
+    "service unavailable",
+    "too many requests",
+    "temporarily unavailable",
+)
+
+
+class _GraphQLHTTPStatusError(Exception):
+    def __init__(self, status_code: int, message: str):
+        super().__init__(message)
+        self.status_code = status_code
+
+
+class _GraphQLNetworkError(Exception):
+    pass
+
+
+class _GraphQLErrorResponse(Exception):
+    def __init__(self, message: str, errors: List[Dict[str, Any]]):
+        super().__init__(message)
+        self.errors = errors
+
+
+def _is_transient_graphql_error_message(message: str) -> bool:
+    lower_message = message.lower()
+    return any(
+        pattern in lower_message for pattern in _TRANSIENT_GRAPHQL_ERROR_PATTERNS
+    )
+
+
+def _is_graphql_mutation_operation(query: str) -> bool:
+    return query.lstrip().lower().startswith("mutation")
+
+
+def _is_retryable_graphql_exception(error: Exception) -> bool:
+    if isinstance(
+        error, (aiohttp.ClientError, asyncio.TimeoutError, _GraphQLNetworkError)
+    ):
+        return True
+
+    if isinstance(error, _GraphQLHTTPStatusError):
+        return 500 <= error.status_code < 600
+
+    if isinstance(error, _GraphQLErrorResponse):
+        return _is_transient_graphql_error_message(str(error))
+
+    return False
 
 
 def _sanitize_for_logging(data: Any, redaction_text: str = "<REDACTED>") -> Any:
@@ -82,10 +137,10 @@ class RunpodGraphQLClient:
             )
         return self.session
 
-    async def _execute_graphql(
+    async def _execute_graphql_once(
         self, query: str, variables: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
-        """Execute a GraphQL query/mutation."""
+        """Execute a single GraphQL query/mutation request."""
         session = await self._get_session()
 
         payload = {"query": query, "variables": variables or {}}
@@ -106,8 +161,9 @@ class RunpodGraphQLClient:
 
                 if response.status >= 400:
                     sanitized_err = _sanitize_for_logging(response_data)
-                    raise Exception(
-                        f"GraphQL request failed: {response.status} - {sanitized_err}"
+                    raise _GraphQLHTTPStatusError(
+                        response.status,
+                        f"GraphQL request failed: {response.status} - {sanitized_err}",
                     )
 
                 if "errors" in response_data:
@@ -116,13 +172,53 @@ class RunpodGraphQLClient:
                     error_msg = "; ".join(
                         [e.get("message", str(e)) for e in sanitized_errors]
                     )
-                    raise Exception(f"GraphQL errors: {error_msg}")
+                    raise _GraphQLErrorResponse(
+                        f"GraphQL errors: {error_msg}", sanitized_errors
+                    )
 
                 return response_data.get("data", {})
 
         except aiohttp.ClientError as e:
             log.error(f"HTTP client error: {e}")
-            raise Exception(f"HTTP request failed: {e}")
+            raise _GraphQLNetworkError(f"HTTP request failed: {e}") from e
+        except asyncio.TimeoutError as e:
+            log.error(f"GraphQL request timed out: {e}")
+            raise
+
+    async def _execute_graphql(
+        self,
+        query: str,
+        variables: Optional[Dict[str, Any]] = None,
+        idempotent: bool = False,
+    ) -> Dict[str, Any]:
+        """Execute a GraphQL request with retry for transient failures.
+
+        Queries are retried automatically. Mutations are not retried by default,
+        and can opt in by setting ``idempotent=True``.
+        """
+        if _is_graphql_mutation_operation(query) and not idempotent:
+            return await self._execute_graphql_once(query, variables)
+        max_attempts = GRAPHQL_MAX_RETRIES + 1
+
+        for attempt in range(max_attempts):
+            try:
+                return await self._execute_graphql_once(query, variables)
+            except Exception as e:
+                is_last_attempt = attempt >= max_attempts - 1
+                if is_last_attempt or not _is_retryable_graphql_exception(e):
+                    raise
+
+                delay = get_backoff_delay(
+                    attempt,
+                    base=GRAPHQL_BACKOFF_BASE_SECONDS,
+                    max_seconds=GRAPHQL_BACKOFF_MAX_SECONDS,
+                    strategy=BackoffStrategy.EXPONENTIAL,
+                )
+                log.warning(
+                    f"Retrying GraphQL request after transient failure "
+                    f"(attempt {attempt + 1}/{GRAPHQL_MAX_RETRIES}): {e}"
+                )
+                await asyncio.sleep(delay)
 
     async def update_template(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         mutation = """
