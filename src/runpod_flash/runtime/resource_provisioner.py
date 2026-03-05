@@ -69,8 +69,10 @@ def create_resource_from_manifest(
 
     # Inject credentials for endpoints that make remote calls
     if resource_data.get("makes_remote_calls", False):
-        api_key = os.getenv("RUNPOD_API_KEY")
+        from runpod_flash.core.credentials import get_api_key
+
         if "RUNPOD_API_KEY" not in env:
+            api_key = get_api_key()
             if api_key:
                 env["RUNPOD_API_KEY"] = api_key
             else:
@@ -111,6 +113,15 @@ def create_resource_from_manifest(
         deployment_kwargs["workersMin"] = resource_data["workersMin"]
     if "workersMax" in resource_data:
         deployment_kwargs["workersMax"] = resource_data["workersMax"]
+
+    # Reconstruct NetworkVolume from manifest data if present
+    if "networkVolume" in resource_data:
+        from runpod_flash.core.resources.network_volume import NetworkVolume
+
+        nv_data = resource_data["networkVolume"]
+        deployment_kwargs["networkVolume"] = NetworkVolume(**nv_data)
+    elif "networkVolumeId" in resource_data:
+        deployment_kwargs["networkVolumeId"] = resource_data["networkVolumeId"]
 
     # Note: template is extracted but not passed to resource constructor
     # Let resources create their own templates with proper initialization

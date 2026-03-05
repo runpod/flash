@@ -1,6 +1,6 @@
 [project]
 name = "runpod-flash"
-version = "1.5.0"
+version = "1.6.0"
 description = "A Python library for distributed inference and serving of machine learning models"
 authors = [
     { name = "Runpod", email = "engineer@runpod.io" },
@@ -39,6 +39,7 @@ test = [
     "pytest-asyncio>=1.0.0",
     "pytest-cov>=6.2.1",
     "pytest-xdist>=3.6.1",
+    "pytest-timeout>=2.3.1",
     "twine>=6.1.0",
 ]
 
@@ -70,6 +71,7 @@ addopts = [
     "--cov-report=term-missing",
     "--cov-fail-under=65"
 ]
+timeout = 30
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 markers = [

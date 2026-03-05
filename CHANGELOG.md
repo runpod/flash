@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.6.0](https://github.com/runpod/flash/compare/v1.5.0...v1.6.0) (2026-03-04)
+
+
+### Features
+
+* **core:** replace hardcoded worker values with constants ([#201](https://github.com/runpod/flash/issues/201)) ([08375a1](https://github.com/runpod/flash/commit/08375a1631be5d84a2f61a394687238bb845085f))
+
+
+### Bug Fixes
+
+* **deploy:** preserve networkVolume config through manifest pipeline ([#242](https://github.com/runpod/flash/issues/242)) ([d0e0a1f](https://github.com/runpod/flash/commit/d0e0a1f5358ac7cf985b4189997248f6ccf2c8e4))
+* **stubs:** resolve sibling module imports in dependency resolver ([#240](https://github.com/runpod/flash/issues/240)) ([eec4fba](https://github.com/runpod/flash/commit/eec4fbab2ee69ae82df2b493fba1715817849483))
+
+
+### Code Refactoring
+
+* consolidate HTTP client factories with Content-Type headers ([#203](https://github.com/runpod/flash/issues/203)) ([f52ed84](https://github.com/runpod/flash/commit/f52ed84b8974bdff50edf404b1e9ec4f483702f3))
+
 ## [1.5.0](https://github.com/runpod/flash/compare/v1.4.2...v1.5.0) (2026-02-27)
 
 

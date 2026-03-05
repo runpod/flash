@@ -6,6 +6,7 @@ properly use async locking to prevent race conditions and duplicate deployments.
 """
 
 import asyncio
+import os
 import tempfile
 import shutil
 import base64
@@ -33,6 +34,7 @@ from runpod_flash.protos.remote_execution import FunctionResponse
 
 @pytest.mark.serial
 @pytest.mark.asyncio
+@patch.dict(os.environ, {"RUNPOD_ENDPOINT_ID": "", "RUNPOD_POD_ID": ""})
 class TestRemoteConcurrency:
     """Test concurrency behavior of @remote decorated functions."""
 
