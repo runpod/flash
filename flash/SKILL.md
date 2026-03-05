@@ -133,10 +133,6 @@ PodTemplate(
 )
 ```
 
-## Cloudpickle Scoping (CRITICAL)
-
-Decorated functions are serialized. They can ONLY access: parameters, local variables, imports inside the function, builtins. All imports must be inside the function body.
-
 ## EndpointJob
 
 Returned by `ep.run()` and `ep.runsync()` in client mode.
