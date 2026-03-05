@@ -874,11 +874,16 @@ def _discover_resources(project_root: Path):
         sys.path.insert(0, root_str)
 
     resources = []
+    seen_names: set[str] = set()
     try:
         for py_file in py_files:
             try:
                 discovery = ResourceDiscovery(str(py_file), max_depth=0)
-                resources.extend(discovery.discover())
+                for res in discovery.discover():
+                    res_name = getattr(res, "name", None)
+                    if res_name and res_name not in seen_names:
+                        seen_names.add(res_name)
+                        resources.append(res)
             except Exception as e:
                 logger.debug("Discovery failed for %s: %s", py_file, e)
     finally:
