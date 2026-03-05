@@ -6,7 +6,7 @@ user-invocable: true
 
 # Runpod Flash (v1.7.0)
 
-`pip install runpod-flash` | `from runpod_flash import Endpoint, GpuGroup` | Python >=3.10 | Source: `src/runpod_flash/`
+`pip install runpod-flash` | `from runpod_flash import Endpoint, GpuGroup` | Python >=3.10
 
 One class -- `Endpoint` -- handles everything: decorator mode, load-balanced routes, and external image deployment.
 
