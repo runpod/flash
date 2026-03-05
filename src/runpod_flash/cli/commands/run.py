@@ -875,17 +875,39 @@ def _discover_resources(project_root: Path):
 
     resources = []
     seen_names: set[str] = set()
+
+    def _collect(discovered):
+        for res in discovered:
+            res_name = getattr(res, "name", None)
+            if res_name and res_name not in seen_names:
+                seen_names.add(res_name)
+                resources.append(res)
+
     try:
+        # first pass: entry-point and static-import discovery per file
+        # (directory scan fallback disabled via max_depth=0 + skip_directory_scan)
         for py_file in py_files:
             try:
                 discovery = ResourceDiscovery(str(py_file), max_depth=0)
-                for res in discovery.discover():
-                    res_name = getattr(res, "name", None)
-                    if res_name and res_name not in seen_names:
-                        seen_names.add(res_name)
-                        resources.append(res)
+                resource_vars = discovery._find_resource_config_vars(Path(str(py_file)))
+                if not resource_vars:
+                    continue
+                module = discovery._import_module(Path(str(py_file)))
+                if module:
+                    for var_name in resource_vars:
+                        res = discovery._resolve_resource_variable(module, var_name)
+                        if res:
+                            _collect([res])
             except Exception as e:
                 logger.debug("Discovery failed for %s: %s", py_file, e)
+
+        # single fallback directory scan if nothing was found
+        if not resources:
+            try:
+                discovery = ResourceDiscovery(str(py_files[0]), max_depth=0)
+                _collect(discovery._scan_project_directory())
+            except Exception as e:
+                logger.debug("Directory scan fallback failed: %s", e)
     finally:
         if added_to_path:
             sys.path.remove(root_str)
