@@ -128,6 +128,23 @@ Full documentation: **[docs.runpod.io/flash](https://docs.runpod.io/flash)**
 - [CLI reference](https://docs.runpod.io/flash/cli/overview) - `flash run`, `flash deploy`, `flash build`
 - [Configuration](https://docs.runpod.io/flash/configuration/parameters) - All endpoint parameters
 
+## Flash apps
+
+When you're ready to move beyond scripts and build a production-ready API, you can create a [Flash app](https://docs.runpod.io/flash/apps/overview) (a collection of interconnected endpoints with diverse hardware configurations) and deploy it to Runpod.
+
+[Follow this tutorial to build your first Flash app](https://docs.runpod.io/flash/apps/build-app).
+
+## Flash CLI
+
+The Flash CLI provides a set of commands for managing your Flash apps and endpoints.
+
+```bash
+flash --help
+```
+
+[Learn more about the Flash CLI](https://docs.runpod.io/flash/cli/overview).
+
+
 ## Examples
 
 Browse working examples: **[github.com/runpod/flash-examples](https://github.com/runpod/flash-examples)**
