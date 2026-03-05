@@ -26,23 +26,23 @@ class TestSkeletonTemplateStructure:
         )
 
     def test_gpu_worker_template_structure(self):
-        """CLI-INIT-001: GPU worker template uses LiveServerless + GpuType."""
+        """CLI-INIT-001: GPU worker template uses Endpoint + GpuType."""
         template = self._get_template_dir() / "gpu_worker.py"
         content = template.read_text()
 
         assert "from runpod_flash import" in content
-        assert "LiveServerless" in content
+        assert "Endpoint" in content
         assert "GpuType" in content
-        assert "@remote" in content
+        assert "@Endpoint(" in content
         assert "async def gpu_hello" in content
 
     def test_cpu_worker_template_structure(self):
-        """CLI-INIT-002: CPU worker template uses CpuLiveServerless."""
+        """CLI-INIT-002: CPU worker template uses Endpoint with cpu param."""
         template = self._get_template_dir() / "cpu_worker.py"
         content = template.read_text()
 
-        assert "CpuLiveServerless" in content
-        assert "@remote" in content
+        assert "Endpoint" in content
+        assert "@Endpoint(" in content
         assert "async def cpu_hello" in content
 
     def test_lb_worker_template_structure(self):
@@ -50,11 +50,11 @@ class TestSkeletonTemplateStructure:
         template = self._get_template_dir() / "lb_worker.py"
         content = template.read_text()
 
-        assert "CpuLiveLoadBalancer" in content
-        assert 'method="POST"' in content
-        assert 'path="/process"' in content
-        assert 'method="GET"' in content
-        assert 'path="/health"' in content
+        assert "Endpoint" in content
+        assert ".post(" in content
+        assert '"/process"' in content
+        assert ".get(" in content
+        assert '"/health"' in content
 
     def test_pyproject_toml_has_runpod_flash_dependency(self):
         """CLI-INIT-004: pyproject.toml includes runpod-flash dependency."""

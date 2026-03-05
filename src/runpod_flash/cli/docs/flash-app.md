@@ -444,7 +444,7 @@ flash deploy --app my-project
 ```
 
 Or ensure you're in a valid Flash project directory with:
-- Python files containing `@remote` decorated functions
+- Python files containing `Endpoint` definitions
 - Proper project structure
 
 ### Multiple Apps With Same Name

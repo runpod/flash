@@ -975,16 +975,23 @@ def run_command(
     workers = _scan_project_workers(project_root)
 
     if not workers:
-        console.print("[red]Error:[/red] No @remote functions found.")
-        console.print("Add @remote decorators to your functions to get started.")
-        console.print("\nExample:")
+        console.print("[red]Error:[/red] No endpoints found.")
+        console.print("Decorate your functions with @Endpoint to get started.")
+        console.print("\nQueue-based (one function per endpoint):")
         console.print(
-            "  from runpod_flash import LiveServerless, remote\n"
-            "  gpu_config = LiveServerless(name='my_worker')\n"
+            "  from runpod_flash import Endpoint, GpuGroup\n"
             "\n"
-            "  @remote(gpu_config)\n"
+            "  @Endpoint(name='my-worker', gpu=GpuGroup.ANY)\n"
             "  async def process(input_data: dict) -> dict:\n"
             "      return {'result': input_data}"
+        )
+        console.print("\nLoad-balanced (multiple routes, shared workers):")
+        console.print(
+            "  api = Endpoint(name='my-api', cpu='cpu3g-2-8', workers=(1, 3))\n"
+            "\n"
+            "  @api.post('/compute')\n"
+            "  async def compute(data: dict) -> dict:\n"
+            "      return {'result': data}"
         )
         raise typer.Exit(1)
 

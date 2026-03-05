@@ -127,6 +127,11 @@ class ManifestBuilder:
                 if hasattr(module, config_variable):
                     resource_config = getattr(module, config_variable)
 
+                    # if the config is an Endpoint facade, unwrap to the
+                    # internal resource config for property extraction
+                    if hasattr(resource_config, "_build_resource_config"):
+                        resource_config = resource_config._build_resource_config()
+
                     # Extract deployment config properties
                     if (
                         hasattr(resource_config, "imageName")
@@ -148,6 +153,21 @@ class ManifestBuilder:
 
                     if hasattr(resource_config, "workersMax"):
                         config["workersMax"] = resource_config.workersMax
+
+                    if (
+                        hasattr(resource_config, "scalerType")
+                        and resource_config.scalerType is not None
+                    ):
+                        val = resource_config.scalerType
+                        config["scalerType"] = (
+                            val.value if hasattr(val, "value") else val
+                        )
+
+                    if (
+                        hasattr(resource_config, "scalerValue")
+                        and resource_config.scalerValue is not None
+                    ):
+                        config["scalerValue"] = resource_config.scalerValue
 
                     if hasattr(resource_config, "env") and resource_config.env:
                         env_dict = dict(resource_config.env)
@@ -320,6 +340,11 @@ class ManifestBuilder:
                     "module": f.module_path,
                     "is_async": f.is_async,
                     "is_class": f.is_class,
+                    **(
+                        {"class_methods": f.class_methods}
+                        if f.is_class and f.class_methods
+                        else {}
+                    ),
                     **(
                         {"http_method": f.http_method, "http_path": f.http_path}
                         if is_load_balanced

@@ -275,6 +275,51 @@ class TestCreateResourceFromManifest:
 
             assert "FLASH_ENVIRONMENT_ID" not in resource.env
 
+    def test_endpoint_gpu_qb_resolves_to_live_serverless(self):
+        """Test Endpoint resource_type with gpuIds resolves to LiveServerless."""
+        from runpod_flash.core.resources.live_serverless import LiveServerless
+
+        resource = create_resource_from_manifest(
+            "gpu-worker",
+            {"resource_type": "Endpoint", "gpuIds": "any", "imageName": "img:latest"},
+        )
+        assert isinstance(resource, LiveServerless)
+
+    def test_endpoint_cpu_qb_resolves_to_cpu_live_serverless(self):
+        """Test Endpoint resource_type without gpuIds resolves to CpuLiveServerless."""
+        from runpod_flash.core.resources.live_serverless import CpuLiveServerless
+
+        resource = create_resource_from_manifest(
+            "cpu-worker",
+            {"resource_type": "Endpoint"},
+        )
+        assert isinstance(resource, CpuLiveServerless)
+
+    def test_endpoint_gpu_lb_resolves_to_live_load_balancer(self):
+        """Test Endpoint LB with gpuIds resolves to LiveLoadBalancer."""
+        from runpod_flash.core.resources.live_serverless import LiveLoadBalancer
+
+        resource = create_resource_from_manifest(
+            "gpu-api",
+            {
+                "resource_type": "Endpoint",
+                "is_load_balanced": True,
+                "gpuIds": "any",
+                "imageName": "img:latest",
+            },
+        )
+        assert isinstance(resource, LiveLoadBalancer)
+
+    def test_endpoint_cpu_lb_resolves_to_cpu_live_load_balancer(self):
+        """Test Endpoint LB without gpuIds resolves to CpuLiveLoadBalancer."""
+        from runpod_flash.core.resources.live_serverless import CpuLiveLoadBalancer
+
+        resource = create_resource_from_manifest(
+            "cpu-api",
+            {"resource_type": "Endpoint", "is_load_balanced": True},
+        )
+        assert isinstance(resource, CpuLiveLoadBalancer)
+
     def test_create_resource_skips_api_key_when_not_set(self):
         """Test RUNPOD_API_KEY NOT injected when env var is not set."""
         resource_name = "caller_worker"

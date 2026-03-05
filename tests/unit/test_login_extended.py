@@ -122,6 +122,7 @@ class TestLoginConsumedStatus:
                 )
 
 
+@pytest.mark.serial
 class TestLoginExpiresAtDeadline:
     """Test expiresAt deadline capping."""
 
@@ -203,6 +204,7 @@ class TestLoginTimeout:
 # ── login_command CLI wrapper ────────────────────────────────────────────
 
 
+@pytest.mark.serial
 class TestLoginCommand:
     """Test the login_command Typer wrapper."""
 
@@ -227,6 +229,7 @@ class TestLoginCommand:
 # ── GraphQL auth methods ────────────────────────────────────────────────
 
 
+@pytest.mark.serial
 class TestGraphQLAuthMethods:
     """Direct tests for create_flash_auth_request and get_flash_auth_request_status."""
 
@@ -313,6 +316,7 @@ class TestGraphQLAuthMethods:
 # ── GraphQL session without API key ──────────────────────────────────────
 
 
+@pytest.mark.serial
 class TestGraphQLSessionWithoutApiKey:
     """Test that _get_session omits Authorization when api_key is None."""
 
