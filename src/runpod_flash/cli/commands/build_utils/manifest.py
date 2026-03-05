@@ -210,10 +210,7 @@ class ManifestBuilder:
             config["scalerValue"] = resource_config.scalerValue
 
         if hasattr(resource_config, "env") and resource_config.env:
-            env_dict = dict(resource_config.env)
-            env_dict.pop("RUNPOD_API_KEY", None)
-            if env_dict:
-                config["env"] = env_dict
+            config["env"] = dict(resource_config.env)
 
         if hasattr(resource_config, "networkVolume") and resource_config.networkVolume:
             nv = resource_config.networkVolume
