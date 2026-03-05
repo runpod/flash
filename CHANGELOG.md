@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.6.1](https://github.com/runpod/flash/compare/v1.6.0...v1.6.1) (2026-03-05)
+
+
+### Bug Fixes
+
+* **env:** handle app-not-found gracefully in flash env list ([#243](https://github.com/runpod/flash/issues/243)) ([97608e7](https://github.com/runpod/flash/commit/97608e7a043d33fb11534489f99d6b43d3b13020))
+
+
+### Code Refactoring
+
+* Endpoint class as a single entrypoint uniting `[@remote](https://github.com/remote)` and ServerlessResource-based classes ([#223](https://github.com/runpod/flash/issues/223)) ([5c3f3a6](https://github.com/runpod/flash/commit/5c3f3a6cf6583396da2868896e56a39dce37781b))
+
 ## [1.6.0](https://github.com/runpod/flash/compare/v1.5.0...v1.6.0) (2026-03-04)
 
 
