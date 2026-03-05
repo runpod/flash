@@ -6,6 +6,7 @@ import pytest
 from typer.testing import CliRunner
 
 from runpod_flash.cli.main import app
+from runpod_flash.core.resources.app import FlashAppNotFoundError
 
 
 @pytest.fixture
@@ -79,6 +80,27 @@ class TestEnvList:
         )
         assert "dev" in printed
         assert "build-1" in printed
+
+    @patch("runpod_flash.cli.commands.env.FlashApp.from_name", new_callable=AsyncMock)
+    def test_list_environments_app_not_found(
+        self, mock_from_name, runner, mock_asyncio_run_coro, patched_console
+    ):
+        mock_from_name.side_effect = FlashAppNotFoundError("demo")
+
+        with patch(
+            "runpod_flash.cli.commands.env.asyncio.run",
+            side_effect=mock_asyncio_run_coro,
+        ):
+            result = runner.invoke(app, ["env", "list", "--app", "demo"])
+
+        assert result.exit_code == 0
+        printed = " ".join(
+            str(call.args[0])
+            for call in patched_console.print.call_args_list
+            if call.args
+        )
+        assert "demo" in printed
+        assert "flash deploy" in printed
 
     @patch("runpod_flash.cli.commands.env.discover_flash_project")
     @patch("runpod_flash.cli.commands.env.FlashApp.from_name", new_callable=AsyncMock)

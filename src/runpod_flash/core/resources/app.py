@@ -463,8 +463,6 @@ class FlashApp:
         except json.JSONDecodeError as e:
             raise ValueError(f"Invalid manifest JSON at {manifest_path}: {e}") from e
 
-        from runpod_flash.core.utils.http import get_authenticated_requests_session
-
         await self._hydrate()
         tarball_size = tar_path.stat().st_size
 
@@ -472,17 +470,24 @@ class FlashApp:
         url = result["uploadUrl"]
         object_key = result["objectKey"]
 
-        with get_authenticated_requests_session() as session:
-            # Override Content-Type for tarball upload
-            session.headers["Content-Type"] = TARBALL_CONTENT_TYPE
+        # presigned URLs already carry auth in query params, so an
+        # Authorization header causes R2/S3 to reject the request.
+        import requests as _requests
 
-            with tar_path.open("rb") as fh:
-                resp = session.put(url, data=fh)
+        from runpod_flash.core.utils.user_agent import get_user_agent
 
-            try:
-                resp.raise_for_status()
-            finally:
-                resp.close()
+        upload_headers = {
+            "User-Agent": get_user_agent(),
+            "Content-Type": TARBALL_CONTENT_TYPE,
+        }
+
+        with tar_path.open("rb") as fh:
+            resp = _requests.put(url, data=fh, headers=upload_headers)
+
+        try:
+            resp.raise_for_status()
+        finally:
+            resp.close()
         resp = await self._finalize_upload_build(object_key, manifest)
         return resp
 
@@ -564,7 +569,12 @@ class FlashApp:
     @classmethod
     async def from_name(cls, app_name: str) -> "FlashApp":
         async with RunpodGraphQLClient() as client:
-            result = await client.get_flash_app_by_name(app_name)
+            try:
+                result = await client.get_flash_app_by_name(app_name)
+            except Exception as exc:
+                if "app not found" in str(exc).lower():
+                    raise FlashAppNotFoundError(app_name) from exc
+                raise
         return cls(app_name, id=result["id"], eager_hydrate=False)
 
     @classmethod
@@ -575,15 +585,12 @@ class FlashApp:
 
     @classmethod
     async def get_or_create(cls, app_name: str) -> "FlashApp":
-        async with RunpodGraphQLClient() as client:
-            try:
-                result = await client.get_flash_app_by_name(app_name)
-                return cls(app_name, id=result["id"], eager_hydrate=False)
-            except Exception as exc:
-                if "app not found" not in str(exc).lower():
-                    raise
+        try:
+            return await cls.from_name(app_name)
+        except FlashAppNotFoundError:
+            async with RunpodGraphQLClient() as client:
                 result = await client.create_flash_app({"name": app_name})
-                return cls(app_name, id=result["id"], eager_hydrate=False)
+            return cls(app_name, id=result["id"], eager_hydrate=False)
 
     @classmethod
     async def create_environment_and_app(

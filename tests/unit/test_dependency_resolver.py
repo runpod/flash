@@ -5,6 +5,7 @@ of @remote function dependencies for stacked execution.
 """
 
 import ast
+import sys
 import textwrap
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -425,7 +426,7 @@ class TestResolveInFunctionImports:
         assert "plain_helper" not in result
 
     def test_skips_unimportable_modules(self):
-        """Modules that fail to import should be silently skipped."""
+        """Modules not found (ImportError/ModuleNotFoundError) are skipped."""
         source = textwrap.dedent("""\
         async def classify(text: str) -> dict:
             from nonexistent_module import something
@@ -569,6 +570,246 @@ class TestResolveInFunctionImports:
 
         assert "process" in result
         assert result["process"] is fn1  # first discovered wins
+
+
+# ---------------------------------------------------------------------------
+# Tests: resolve_in_function_imports — file-based sibling loading
+# ---------------------------------------------------------------------------
+
+
+class TestResolveInFunctionImportsFileBased:
+    """Tests for file-based sibling module loading (replaces sys.path mutation)."""
+
+    def _write_sibling(self, tmp_path, filename, content):
+        """Write a Python file to tmp_path and return its path."""
+        f = tmp_path / filename
+        f.write_text(textwrap.dedent(content))
+        return f
+
+    def test_sibling_module_loaded_via_file(self, tmp_path):
+        """Sibling .py found and loaded when __file__ present."""
+        self._write_sibling(
+            tmp_path,
+            "gpu_worker.py",
+            """\
+            class _sentinel:
+                __remote_config__ = {"resource_config": "mock"}
+            gpu_inference = _sentinel()
+            """,
+        )
+        handler = tmp_path / "handler.py"
+        handler.write_text("")
+
+        source = textwrap.dedent("""\
+        async def classify(text: str) -> dict:
+            from gpu_worker import gpu_inference
+            return await gpu_inference(text)
+        """)
+
+        result = resolve_in_function_imports(source, {"__file__": str(handler)})
+        assert "gpu_inference" in result
+        assert hasattr(result["gpu_inference"], "__remote_config__")
+
+    def test_no_sys_path_mutation(self, tmp_path):
+        """sys.path unchanged after call."""
+        self._write_sibling(
+            tmp_path,
+            "gpu_worker.py",
+            """\
+            class _s:
+                __remote_config__ = {"resource_config": "mock"}
+            gpu_inference = _s()
+            """,
+        )
+        handler = tmp_path / "handler.py"
+        handler.write_text("")
+
+        original_path = list(sys.path)
+
+        source = textwrap.dedent("""\
+        async def classify(text: str) -> dict:
+            from gpu_worker import gpu_inference
+            return await gpu_inference(text)
+        """)
+
+        resolve_in_function_imports(source, {"__file__": str(handler)})
+        assert sys.path == original_path
+
+    def test_no_sys_modules_pollution(self, tmp_path):
+        """sys.modules not polluted after loading sibling module."""
+        mod_name = f"_test_sibling_{id(tmp_path)}"
+        self._write_sibling(
+            tmp_path,
+            f"{mod_name}.py",
+            """\
+            class _s:
+                __remote_config__ = {"resource_config": "mock"}
+            func = _s()
+            """,
+        )
+        handler = tmp_path / "handler.py"
+        handler.write_text("")
+
+        source = f"""\
+async def classify(text: str) -> dict:
+    from {mod_name} import func
+    return await func(text)
+"""
+
+        assert mod_name not in sys.modules
+        resolve_in_function_imports(source, {"__file__": str(handler)})
+        assert mod_name not in sys.modules
+
+    def test_second_project_gets_fresh_module(self, tmp_path):
+        """Two projects with same module name get independent copies."""
+        project_a = tmp_path / "project_a"
+        project_b = tmp_path / "project_b"
+        project_a.mkdir()
+        project_b.mkdir()
+
+        (project_a / "worker.py").write_text(
+            "class _s:\n    __remote_config__ = {'val': 'A'}\nfunc = _s()\n"
+        )
+        (project_b / "worker.py").write_text(
+            "class _s:\n    __remote_config__ = {'val': 'B'}\nfunc = _s()\n"
+        )
+
+        source = textwrap.dedent("""\
+        async def run(x):
+            from worker import func
+            return func
+        """)
+
+        result_a = resolve_in_function_imports(
+            source, {"__file__": str(project_a / "handler.py")}
+        )
+        result_b = resolve_in_function_imports(
+            source, {"__file__": str(project_b / "handler.py")}
+        )
+
+        assert result_a["func"].__remote_config__["val"] == "A"
+        assert result_b["func"].__remote_config__["val"] == "B"
+
+    def test_syntax_error_in_sibling_propagates(self, tmp_path):
+        """SyntaxError in sibling module raises, not swallowed."""
+        (tmp_path / "bad_module.py").write_text("def broken(\n")
+        handler = tmp_path / "handler.py"
+        handler.write_text("")
+
+        source = textwrap.dedent("""\
+        async def classify(text: str) -> dict:
+            from bad_module import something
+            return something(text)
+        """)
+
+        with pytest.raises(SyntaxError):
+            resolve_in_function_imports(source, {"__file__": str(handler)})
+
+    def test_fallback_to_import_module_when_no_file(self):
+        """No __file__ -> uses importlib.import_module fallback."""
+        fake_module = MagicMock()
+        remote_fn = MagicMock()
+        remote_fn.__remote_config__ = {"resource_config": MagicMock()}
+        fake_module.gpu_inference = remote_fn
+
+        source = textwrap.dedent("""\
+        async def classify(text: str) -> dict:
+            from fake_gpu_module import gpu_inference
+            return await gpu_inference(text)
+        """)
+
+        with patch(
+            "runpod_flash.stubs.dependency_resolver.importlib.import_module",
+            return_value=fake_module,
+        ):
+            result = resolve_in_function_imports(source, {})
+
+        assert "gpu_inference" in result
+
+    def test_fallback_to_import_module_when_not_sibling(self, tmp_path):
+        """__file__ present but no sibling .py -> fallback to import_module."""
+        handler = tmp_path / "handler.py"
+        handler.write_text("")
+        # No sibling gpu_worker.py exists in tmp_path
+
+        fake_module = MagicMock()
+        remote_fn = MagicMock()
+        remote_fn.__remote_config__ = {"resource_config": MagicMock()}
+        fake_module.gpu_inference = remote_fn
+
+        source = textwrap.dedent("""\
+        async def classify(text: str) -> dict:
+            from gpu_worker import gpu_inference
+            return await gpu_inference(text)
+        """)
+
+        with patch(
+            "runpod_flash.stubs.dependency_resolver.importlib.import_module",
+            return_value=fake_module,
+        ):
+            result = resolve_in_function_imports(source, {"__file__": str(handler)})
+
+        assert "gpu_inference" in result
+
+    def test_dotted_module_resolves_to_subpath(self, tmp_path):
+        """from workers.cpu import func -> checks workers/cpu.py."""
+        workers_dir = tmp_path / "workers"
+        workers_dir.mkdir()
+        (workers_dir / "cpu.py").write_text(
+            "class _s:\n    __remote_config__ = {'resource_config': 'mock'}\nfunc = _s()\n"
+        )
+        handler = tmp_path / "handler.py"
+        handler.write_text("")
+
+        source = textwrap.dedent("""\
+        async def run(x):
+            from workers.cpu import func
+            return func
+        """)
+
+        result = resolve_in_function_imports(source, {"__file__": str(handler)})
+        assert "func" in result
+        assert hasattr(result["func"], "__remote_config__")
+
+    def test_sibling_takes_priority_over_installed_package(self, tmp_path):
+        """Sibling .py loaded even when importlib.import_module would succeed."""
+        self._write_sibling(
+            tmp_path,
+            "json.py",  # shadows stdlib json
+            """\
+            class _s:
+                __remote_config__ = {"resource_config": "from_sibling"}
+            loads = _s()
+            """,
+        )
+        handler = tmp_path / "handler.py"
+        handler.write_text("")
+
+        source = textwrap.dedent("""\
+        async def run(x):
+            from json import loads
+            return loads
+        """)
+
+        result = resolve_in_function_imports(source, {"__file__": str(handler)})
+        assert "loads" in result
+        assert result["loads"].__remote_config__["resource_config"] == "from_sibling"
+
+    def test_sibling_import_error_does_not_fallthrough(self, tmp_path):
+        """Sibling file exists but has ImportError -> returns None, no fallthrough."""
+        (tmp_path / "broken_dep.py").write_text("import nonexistent_package_xyz_123\n")
+        handler = tmp_path / "handler.py"
+        handler.write_text("")
+
+        source = textwrap.dedent("""\
+        async def run(x):
+            from broken_dep import something
+            return something
+        """)
+
+        # Should not fall through to importlib.import_module
+        result = resolve_in_function_imports(source, {"__file__": str(handler)})
+        assert "something" not in result
 
 
 # ---------------------------------------------------------------------------

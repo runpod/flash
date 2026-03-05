@@ -30,7 +30,7 @@ RUNPOD_API_KEY=your_api_key_here
 Get your API key from: https://docs.runpod.io/get-started/api-keys
 
 **When is the API key needed?**
-- Remote execution features (`@remote` decorator)
+- Remote execution features (`Endpoint` class)
 - Resource deployment and management
 - Integration tests that interact with Runpod API
 
@@ -204,7 +204,7 @@ BREAKING CHANGE: The old auth method is no longer supported
 
 ```bash
 # Good
-feat: add @remote decorator for CPU endpoints
+feat: add CPU endpoint support
 fix: resolve memory leak in resource cleanup
 docs: update installation instructions
 refactor: simplify resource manager singleton
@@ -342,13 +342,13 @@ make query-classes
 **Find specific symbol:**
 
 ```bash
-make query SYMBOL=ServerlessEndpoint
+make query SYMBOL=Endpoint
 ```
 
 **Get class interface (methods without implementations):**
 
 ```bash
-uv run python scripts/code_intel.py interface LiveServerless
+uv run python scripts/code_intel.py interface Endpoint
 ```
 
 **List symbols in a file:**

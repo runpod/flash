@@ -10,7 +10,7 @@ Flash automatically logs all CLI operations to local files during development. T
 
 File-based logging is enabled by default in local development mode ([flash run](./flash-run.md)) and automatically disabled in deployed containers ([flash deploy](./flash-deploy.md)).
 
-When you run a `@remote` function, Flash logs the activity to a file:
+When you run an `Endpoint` function, Flash logs the activity to a file:
 
 ```
 flash run
