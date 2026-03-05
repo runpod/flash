@@ -273,6 +273,89 @@ class TestResourceManager:
         assert result is resource
 
     @pytest.mark.asyncio
+    async def test_get_or_deploy_resource_prefers_async_probe(self, mock_resource_file):
+        """When available, async probe is used instead of sync is_deployed."""
+        manager = ResourceManager()
+
+        existing = ServerlessResource(name="lb-test", flashboot=False)
+        existing.id = "endpoint-existing"
+
+        config = ServerlessResource(name="lb-test", flashboot=False)
+        resource_key = config.get_resource_key()
+
+        manager._resources[resource_key] = existing
+        manager._resource_configs[resource_key] = existing.config_hash
+
+        with (
+            patch.object(
+                ServerlessResource,
+                "is_deployed_async",
+                new=AsyncMock(return_value=True),
+                create=True,
+            ) as mock_async_probe,
+            patch.object(
+                ServerlessResource, "is_deployed", return_value=False
+            ) as mock_sync,
+            patch.object(
+                ServerlessResource,
+                "_do_deploy",
+                new=AsyncMock(),
+            ) as mock_do_deploy,
+        ):
+            result = await manager.get_or_deploy_resource(config)
+
+        mock_async_probe.assert_awaited_once()
+        mock_sync.assert_not_called()
+        mock_do_deploy.assert_not_awaited()
+        assert result is existing
+
+    @pytest.mark.asyncio
+    async def test_get_or_deploy_resource_redeploys_when_async_probe_fails(
+        self, mock_resource_file
+    ):
+        """A false async probe result triggers redeploy even if sync probe says true."""
+        manager = ResourceManager()
+
+        existing = ServerlessResource(name="lb-test", flashboot=False)
+        existing.id = "endpoint-existing"
+
+        config = ServerlessResource(name="lb-test", flashboot=False)
+        resource_key = config.get_resource_key()
+
+        manager._resources[resource_key] = existing
+        manager._resource_configs[resource_key] = existing.config_hash
+
+        deployed = ServerlessResource(name="lb-test", flashboot=False)
+        deployed.id = "endpoint-new"
+
+        with (
+            patch.object(
+                ServerlessResource,
+                "is_deployed_async",
+                new=AsyncMock(return_value=False),
+                create=True,
+            ) as mock_async_probe,
+            patch.object(
+                ServerlessResource, "is_deployed", return_value=True
+            ) as mock_sync,
+            patch.object(
+                ServerlessResource,
+                "_do_deploy",
+                new=AsyncMock(return_value=deployed),
+            ) as mock_do_deploy,
+            patch.object(manager, "_remove_resource") as mock_remove,
+            patch.object(manager, "_add_resource") as mock_add,
+        ):
+            result = await manager.get_or_deploy_resource(config)
+
+        mock_async_probe.assert_awaited_once()
+        mock_sync.assert_not_called()
+        mock_remove.assert_called_once_with(resource_key)
+        mock_do_deploy.assert_awaited_once()
+        mock_add.assert_called_once_with(resource_key, deployed)
+        assert result is deployed
+
+    @pytest.mark.asyncio
     async def test_deploy_with_error_context_adds_resource_name(
         self, mock_resource_file
     ):

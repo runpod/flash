@@ -31,7 +31,7 @@ log = logging.getLogger(__name__)
 DEFAULT_HEALTH_CHECK_RETRIES = 10
 DEFAULT_HEALTH_CHECK_INTERVAL = 5  # seconds between retries
 DEFAULT_PING_REQUEST_TIMEOUT = (
-    15.0  # seconds (load-balanced workers need time for cold starts)
+    90.0  # seconds (load-balanced workers need time for cold starts)
 )
 HEALTHY_STATUS_CODES = (200, 204)
 

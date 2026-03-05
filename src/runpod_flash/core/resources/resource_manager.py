@@ -203,6 +203,33 @@ class ResourceManager(SingletonMixin):
     async def get_resource_from_store(self, uid: str):
         return self._resources.get(uid)
 
+    async def _is_resource_deployed(self, resource: DeployableResource) -> bool:
+        """Check deployment status, preferring async probe when available."""
+        async_probe = getattr(resource, "is_deployed_async", None)
+
+        if callable(async_probe):
+            probe_result = async_probe()
+            if asyncio.iscoroutine(probe_result):
+                is_deployed = await probe_result
+            else:
+                is_deployed = bool(probe_result)
+            log.debug(
+                "Resource availability check (async) for '%s' [%s]: %s",
+                getattr(resource, "name", "unknown"),
+                resource.__class__.__name__,
+                is_deployed,
+            )
+            return is_deployed
+
+        is_deployed = resource.is_deployed()
+        log.debug(
+            "Resource availability check (sync) for '%s' [%s]: %s",
+            getattr(resource, "name", "unknown"),
+            resource.__class__.__name__,
+            is_deployed,
+        )
+        return is_deployed
+
     async def get_or_deploy_resource(
         self, config: DeployableResource
     ) -> DeployableResource:
@@ -238,7 +265,7 @@ class ResourceManager(SingletonMixin):
 
             if existing:
                 # Resource exists - check if still valid
-                if not existing.is_deployed():
+                if not await self._is_resource_deployed(existing):
                     log.warning(f"{existing} is no longer valid, redeploying.")
                     self._remove_resource(resource_key)
                     try:
