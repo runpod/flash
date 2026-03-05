@@ -161,10 +161,7 @@ class DeploymentOrchestrator:
         async with semaphore:
             try:
                 # Quick check if already deployed
-                deployed_check = resource.is_deployed()
-                if asyncio.iscoroutine(deployed_check):
-                    deployed_check = await deployed_check
-                if deployed_check:
+                if await resource.is_deployed():
                     duration = (datetime.now() - start_time).total_seconds()
                     return DeploymentResult(
                         resource=resource,

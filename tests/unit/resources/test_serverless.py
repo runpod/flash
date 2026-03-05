@@ -469,22 +469,28 @@ class TestServerlessResourceDeployment:
             "networkVolumeId": "vol-456",
         }
 
-    def test_is_deployed_false_when_no_id(self):
+    @pytest.mark.asyncio
+    async def test_is_deployed_false_when_no_id(self):
         """Test is_deployed returns False when no ID is set."""
         serverless = ServerlessResource(name="test")
 
-        assert serverless.is_deployed() is False
+        assert await serverless.is_deployed() is False
 
-    def test_is_deployed_skips_health_check_during_live_provisioning(self, monkeypatch):
+    @pytest.mark.asyncio
+    async def test_is_deployed_skips_health_check_during_live_provisioning(
+        self, monkeypatch
+    ):
         """During flash run, is_deployed returns True based on ID alone."""
         monkeypatch.setenv("FLASH_IS_LIVE_PROVISIONING", "true")
         serverless = ServerlessResource(name="test")
         serverless.id = "ep-live-123"
 
-        # health() must NOT be called — no mock needed, any call would raise
-        assert serverless.is_deployed() is True
+        assert await serverless.is_deployed() is True
 
-    def test_is_deployed_uses_health_check_outside_live_provisioning(self, monkeypatch):
+    @pytest.mark.asyncio
+    async def test_is_deployed_uses_health_check_outside_live_provisioning(
+        self, monkeypatch
+    ):
         """Outside flash run, is_deployed falls back to health check."""
         monkeypatch.delenv("FLASH_IS_LIVE_PROVISIONING", raising=False)
         serverless = ServerlessResource(name="test")
@@ -498,7 +504,7 @@ class TestServerlessResourceDeployment:
             "endpoint",
             new_callable=lambda: property(lambda self: mock_endpoint),
         ):
-            assert serverless.is_deployed() is True
+            assert await serverless.is_deployed() is True
             mock_endpoint.health.assert_called_once()
 
     @pytest.mark.asyncio
@@ -507,7 +513,9 @@ class TestServerlessResourceDeployment:
         serverless = ServerlessResource(name="test")
         serverless.id = "existing-123"
 
-        with patch.object(ServerlessResource, "is_deployed", return_value=True):
+        with patch.object(
+            ServerlessResource, "is_deployed", new_callable=AsyncMock, return_value=True
+        ):
             result = await serverless.deploy()
 
             assert result == serverless
@@ -536,7 +544,10 @@ class TestServerlessResourceDeployment:
                 ServerlessResource, "_ensure_network_volume_deployed"
             ) as mock_ensure_volume:
                 with patch.object(
-                    ServerlessResource, "is_deployed", return_value=False
+                    ServerlessResource,
+                    "is_deployed",
+                    new_callable=AsyncMock,
+                    return_value=False,
                 ):
                     result = await serverless.deploy()
 
@@ -586,7 +597,10 @@ class TestServerlessResourceDeployment:
                 new=AsyncMock(),
             ):
                 with patch.object(
-                    ServerlessResource, "is_deployed", return_value=False
+                    ServerlessResource,
+                    "is_deployed",
+                    new_callable=AsyncMock,
+                    return_value=False,
                 ):
                     result = await serverless._do_deploy()
 
@@ -615,7 +629,12 @@ class TestServerlessResourceDeployment:
             mock_client_class.return_value.__aenter__.return_value = mock_runpod_client
             mock_client_class.return_value.__aexit__.return_value = None
 
-            with patch.object(ServerlessResource, "is_deployed", return_value=False):
+            with patch.object(
+                ServerlessResource,
+                "is_deployed",
+                new_callable=AsyncMock,
+                return_value=False,
+            ):
                 with patch.object(
                     ServerlessResource,
                     "_ensure_network_volume_deployed",
@@ -738,7 +757,12 @@ class TestServerlessResourceDeployment:
             mock_client_class.return_value.__aenter__.return_value = mock_runpod_client
             mock_client_class.return_value.__aexit__.return_value = None
 
-            with patch.object(ServerlessResource, "is_deployed", return_value=False):
+            with patch.object(
+                ServerlessResource,
+                "is_deployed",
+                new_callable=AsyncMock,
+                return_value=False,
+            ):
                 with patch.object(
                     ServerlessResource, "_ensure_network_volume_deployed"
                 ):
@@ -956,7 +980,8 @@ class TestCpuServerlessEndpoint:
 class TestServerlessResourceEdgeCases:
     """Test edge cases and error scenarios."""
 
-    def test_is_deployed_with_exception(self):
+    @pytest.mark.asyncio
+    async def test_is_deployed_with_exception(self):
         """Test is_deployed handles endpoint exceptions."""
         serverless = ServerlessResource(name="test")
         serverless.id = "test-id-123"
@@ -969,7 +994,7 @@ class TestServerlessResourceEdgeCases:
             "endpoint",
             new_callable=lambda: property(lambda self: mock_endpoint),
         ):
-            result = serverless.is_deployed()
+            result = await serverless.is_deployed()
 
             assert result is False
 

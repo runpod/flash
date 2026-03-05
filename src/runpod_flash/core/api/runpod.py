@@ -756,11 +756,11 @@ class RunpodGraphQLClient:
         return {"success": "deleteFlashEnvironment" in result}
 
     async def endpoint_exists(self, endpoint_id: str) -> bool:
-        """Check if an endpoint exists by querying the user's endpoint list."""
+        """Check if an endpoint exists by querying for it directly."""
         query = """
-        query {
+        query getEndpoint($id: String!) {
             myself {
-                endpoints {
+                endpoint(id: $id) {
                     id
                 }
             }
@@ -768,11 +768,9 @@ class RunpodGraphQLClient:
         """
 
         try:
-            result = await self._execute_graphql(query)
-            endpoints = result.get("myself", {}).get("endpoints", [])
-            endpoint_ids = [ep.get("id") for ep in endpoints]
-            exists = endpoint_id in endpoint_ids
-
+            result = await self._execute_graphql(query, {"id": endpoint_id})
+            endpoint = result.get("myself", {}).get("endpoint")
+            exists = endpoint is not None and endpoint.get("id") == endpoint_id
             log.debug(f"Endpoint {endpoint_id} exists: {exists}")
             return exists
         except Exception as e:

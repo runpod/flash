@@ -56,9 +56,7 @@ def _render_resource_report(resource_manager: ResourceManager):
 
     for uid, resource in resources.items():
         try:
-            is_deployed = resource.is_deployed()
-            if asyncio.iscoroutine(is_deployed):
-                is_deployed = asyncio.run(is_deployed)
+            is_deployed = asyncio.run(resource.is_deployed())
             if is_deployed:
                 color, status_text = "green", "active"
                 active_count += 1

@@ -101,7 +101,7 @@ class TestRemoteConcurrency:
             deployed._deployed = True
             return deployed
 
-        def mock_is_deployed(self):
+        async def mock_is_deployed(self):
             return hasattr(self, "id") and self.id is not None
 
         # Mock at the deployment level to let ResourceManager handle concurrency
@@ -340,7 +340,7 @@ class TestRemoteConcurrency:
             deployed._deployed = True
             return deployed
 
-        def mock_is_deployed(self):
+        async def mock_is_deployed(self):
             return hasattr(self, "id") and self.id is not None
 
         # Mock at the deployment level to let ResourceManager handle concurrency
@@ -428,7 +428,7 @@ class TestRemoteConcurrency:
             deployed._deployed = True
             return deployed
 
-        def mock_is_deployed(self):
+        async def mock_is_deployed(self):
             return hasattr(self, "id") and self.id is not None
 
         # Mock at the deployment level to let ResourceManager handle concurrency
@@ -525,7 +525,7 @@ class TestRemoteConcurrency:
             deployed._deployed = True
             return deployed
 
-        def mock_is_deployed(self):
+        async def mock_is_deployed(self):
             return hasattr(self, "id") and self.id is not None
 
         # Mock at the deployment level to let ResourceManager handle concurrency
@@ -613,7 +613,7 @@ class TestRemoteConcurrency:
             deployed._deployed = True
             return deployed
 
-        def mock_is_deployed(self):
+        async def mock_is_deployed(self):
             return hasattr(self, "id") and self.id is not None
 
         # Mock at the deployment level to let ResourceManager handle concurrency
@@ -720,7 +720,7 @@ class TestRemoteConcurrency:
             deployed._deployed = True
             return deployed
 
-        def mock_is_deployed(self):
+        async def mock_is_deployed(self):
             return hasattr(self, "id") and self.id is not None
 
         # Mock at the deployment level to let ResourceManager handle concurrency
@@ -817,7 +817,7 @@ class TestRemoteConcurrency:
             deployed._deployed = True
             return deployed
 
-        def mock_is_deployed(self):
+        async def mock_is_deployed(self):
             return hasattr(self, "id") and self.id is not None
 
         # Mock at the deployment level to let ResourceManager handle concurrency
@@ -924,7 +924,7 @@ class TestRemoteConcurrency:
             deployed._deployed = True
             return deployed
 
-        def mock_is_deployed(self):
+        async def mock_is_deployed(self):
             return hasattr(self, "id") and self.id is not None
 
         # Mock at the deployment level to let ResourceManager handle concurrency

@@ -20,17 +20,17 @@ class TestDeploymentOrchestrator:
         resource1 = MagicMock(spec=ServerlessResource)
         resource1.name = "gpu-endpoint-1"
         resource1.id = "endpoint-1"
-        resource1.is_deployed.return_value = False
+        resource1.is_deployed = AsyncMock(return_value=False)
 
         resource2 = MagicMock(spec=ServerlessResource)
         resource2.name = "gpu-endpoint-2"
         resource2.id = "endpoint-2"
-        resource2.is_deployed.return_value = False
+        resource2.is_deployed = AsyncMock(return_value=False)
 
         resource3 = MagicMock(spec=ServerlessResource)
         resource3.name = "cpu-endpoint-1"
         resource3.id = "endpoint-3"
-        resource3.is_deployed.return_value = False
+        resource3.is_deployed = AsyncMock(return_value=False)
 
         return [resource1, resource2, resource3]
 
@@ -40,7 +40,7 @@ class TestDeploymentOrchestrator:
         resource = MagicMock(spec=ServerlessResource)
         resource.name = "cached-endpoint"
         resource.id = "cached-1"
-        resource.is_deployed.return_value = True
+        resource.is_deployed = AsyncMock(return_value=True)
         return resource
 
     @pytest.mark.asyncio

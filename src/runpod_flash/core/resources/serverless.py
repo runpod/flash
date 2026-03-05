@@ -480,7 +480,7 @@ class ServerlessResource(DeployableResource):
             deployedNetworkVolume = await self.networkVolume.deploy()
             self.networkVolumeId = deployedNetworkVolume.id
 
-    def is_deployed(self) -> bool:
+    async def is_deployed(self) -> bool:
         """
         Checks if the serverless resource is deployed and available.
         """
@@ -493,7 +493,6 @@ class ServerlessResource(DeployableResource):
             # endpoint exists but the health API hasn't registered it yet.
             # Trusting the cached ID is correct here; actual failures surface
             # on the first real run/runsync call.
-            # Case-insensitive check; unset env var defaults to "" via getenv.
             if os.getenv("FLASH_IS_LIVE_PROVISIONING", "").lower() == "true":
                 return True
 
@@ -637,7 +636,7 @@ class ServerlessResource(DeployableResource):
         """
         try:
             # If the resource is already deployed, return it
-            if self.is_deployed():
+            if await self.is_deployed():
                 log.debug(f"{self} exists")
                 return self
 

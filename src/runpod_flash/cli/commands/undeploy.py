@@ -63,10 +63,7 @@ def _get_resource_status(resource) -> Tuple[str, str]:
         Tuple of (color, status_text)
     """
     try:
-        deployed = resource.is_deployed()
-        if asyncio.iscoroutine(deployed):
-            deployed = asyncio.run(deployed)
-        if deployed:
+        if asyncio.run(resource.is_deployed()):
             return "green", "active"
         return "red", "inactive"
     except Exception:

@@ -409,7 +409,10 @@ class TestLoadBalancerSlsResourceDeployment:
 
         with (
             patch.object(
-                LoadBalancerSlsResource, "is_deployed", new_callable=AsyncMock, return_value=False
+                LoadBalancerSlsResource,
+                "is_deployed",
+                new_callable=AsyncMock,
+                return_value=False,
             ),
             patch.object(
                 resource, "_wait_for_health", new_callable=AsyncMock
@@ -437,7 +440,10 @@ class TestLoadBalancerSlsResourceDeployment:
 
         with (
             patch.object(
-                LoadBalancerSlsResource, "is_deployed", new_callable=AsyncMock, return_value=False
+                LoadBalancerSlsResource,
+                "is_deployed",
+                new_callable=AsyncMock,
+                return_value=False,
             ),
             patch.object(
                 ServerlessResource,
