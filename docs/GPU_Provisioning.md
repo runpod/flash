@@ -8,160 +8,134 @@ This document describes the architectural design and implementation of GPU provi
 
 GPU provisioning requires sophisticated resource management:
 - Multiple GPU types with different capabilities and memory configurations
-- CUDA version compatibility across different GPU architectures  
+- CUDA version compatibility across different GPU architectures
 - Dynamic GPU group selection and availability
 - Integration with cloud provider GPU inventory
 - Pricing optimization and resource allocation
 
-## Architecture Design
+## User-Facing API
+
+All GPU provisioning is configured through the `Endpoint` class:
+
+```python
+from runpod_flash import Endpoint, GpuGroup, GpuType
+
+# architecture-level GPU selection (GpuGroup)
+@Endpoint(name="inference", gpu=GpuGroup.AMPERE_80, workers=(0, 5))
+async def infer(data: dict) -> dict:
+    return {"result": data}
+
+# specific GPU model (GpuType)
+@Endpoint(name="rtx-worker", gpu=GpuType.NVIDIA_GEFORCE_RTX_4090)
+async def render(data: dict) -> dict:
+    return {"result": data}
+
+# multiple GPU groups for fallback
+@Endpoint(name="flexible", gpu=[GpuGroup.AMPERE_80, GpuGroup.ADA_80_PRO])
+async def flexible(data: dict) -> dict:
+    return {"result": data}
+
+# multi-GPU per worker
+@Endpoint(name="large-model", gpu=GpuGroup.HOPPER_141, gpu_count=2)
+async def large_model(data: dict) -> dict:
+    return {"result": data}
+```
+
+When no `gpu=` or `cpu=` is specified, `Endpoint` defaults to `GpuGroup.ANY`.
+
+## Internal Architecture
 
 ### Core Components
 
 ```mermaid
 graph TD
-    A[GpuGroup Enum] --> B[GPU Selection Logic]
-    B --> C[ServerlessResource]
-    C --> D[Field Synchronization]
-    D --> E[API Serialization]
-    
-    F[CudaVersion Enum] --> G[CUDA Compatibility]
-    G --> C
-    
-    H[GpuType Models] --> I[GPU Metadata]
-    I --> B
-    
-    J[LiveServerless] --> K[GPU Image Lock]
-    K --> C
+    A["Endpoint(gpu=...)"] --> B["_normalize_gpu()"]
+    B --> C["_build_resource_config()"]
+    C --> D["ServerlessResource"]
+    D --> E["Field Synchronization"]
+    E --> F["API Serialization"]
+
+    G["CudaVersion Enum"] --> H["CUDA Compatibility"]
+    H --> D
 ```
 
-### Class Hierarchy
+### How Endpoint Maps to Resource Classes
 
-```mermaid
-classDiagram
-    class ServerlessResource {
-        +gpus: List[GpuGroup]
-        +cudaVersions: List[CudaVersion]
-        +workersMax: int
-        +workersMin: int
-        +scalerType: ServerlessScalerType
-        +scalerValue: int
-        +gpuIds: str
-        +allowedCudaVersions: str
-        +_sync_input_fields_gpu()
-        +validate_gpus()
-    }
-    
-    class ServerlessEndpoint {
-        +imageName: str
-        +template: PodTemplate
-    }
-    
-    class LiveServerless {
-        +_live_image: str
-        +imageName: str (locked property)
-    }
-    
-    class GpuGroup {
-        +ANY: str
-        +ADA_24: str
-        +AMPERE_80: str
-        +HOPPER_141: str
-        +all() List[GpuGroup]
-    }
-    
-    class CudaVersion {
-        +V11_8: str
-        +V12_0: str
-        +V12_8: str
-    }
-    
-    ServerlessResource <|-- ServerlessEndpoint
-    ServerlessEndpoint <|-- LiveServerless
-    ServerlessResource --> GpuGroup
-    ServerlessResource --> CudaVersion
-```
+When `Endpoint._build_resource_config()` runs, the GPU configuration is passed to the appropriate internal resource class:
 
-## Implementation Details
+| Endpoint Config | Internal Class | Notes |
+|----------------|---------------|-------|
+| `gpu=GpuGroup.ADA_24` (QB) | `LiveServerless` | Locked image, full code execution |
+| `gpu=GpuGroup.ADA_24` (LB) | `LiveLoadBalancer` | Locked image, HTTP routes |
+| `image="...", gpu=GpuGroup.ADA_24` | `ServerlessEndpoint` | Custom image, raw JSON only |
+| `cpu="cpu3c-1-2"` | `CpuLiveServerless` | CPU endpoint, no GPU |
 
-### 1. Worker-Based GPU Scaling
+The GPU normalization pipeline (`_normalize_gpu()`) handles:
+- Single `GpuGroup` -> `[GpuGroup]`
+- Single `GpuType` -> `[GpuType]`
+- Mixed lists of `GpuGroup`/`GpuType` -> flattened list
+- `None` -> `None` (resolved later based on cpu= presence)
 
-GPU provisioning is primarily managed through a worker scaling model rather than direct GPU allocation:
+### Worker-Based GPU Scaling
+
+GPU provisioning is managed through a worker scaling model:
 
 ```python
-class ServerlessResource(DeployableResource):
-    # Worker scaling configuration
-    workersMax: Optional[int] = 3          # Maximum concurrent workers
-    workersMin: Optional[int] = 0          # Minimum active workers  
-    scalerType: Optional[ServerlessScalerType] = ServerlessScalerType.QUEUE_DELAY
-    scalerValue: Optional[int] = 4         # Scaling threshold
-    
-    # GPU configuration per worker
-    gpus: Optional[List[GpuGroup]] = [GpuGroup.ANY]
-    cudaVersions: Optional[List[CudaVersion]] = []
+# each worker gets the configured GPU(s)
+@Endpoint(
+    name="ml-server",
+    gpu=GpuGroup.AMPERE_80,
+    workers=(1, 10),          # 1-10 workers, each with 1x A100
+    gpu_count=1,              # GPUs per worker (default 1)
+    scaler_value=4,           # scale up when queue delay > 4s
+)
+async def serve(data: dict) -> dict:
+    return {"result": data}
 ```
 
 #### Scaling Strategies
 
 | Scaler Type | Description | Scaling Trigger |
 |------------|-------------|-----------------|
-| `QUEUE_DELAY` | Scale based on request queue delay | `scalerValue` seconds of queue time |
-| `REQUEST_COUNT` | Scale based on request volume | `scalerValue` requests per time window |
+| `QUEUE_DELAY` | Scale based on request queue delay (QB default) | `scaler_value` seconds of queue time |
+| `REQUEST_COUNT` | Scale based on request volume (LB default) | `scaler_value` requests per time window |
 
-#### Worker Lifecycle
+The scaler type is auto-selected based on usage pattern. QB endpoints default to `QUEUE_DELAY`, LB endpoints default to `REQUEST_COUNT`. Override with `scaler_type=`:
 
-```mermaid
-graph LR
-    A[Request Queue] --> B{Queue Delay > Threshold?}
-    B -->|Yes| C[Scale Up Worker]
-    B -->|No| D{Idle Time > Limit?}
-    D -->|Yes| E[Scale Down Worker]  
-    D -->|No| F[Maintain Workers]
-    C --> G[GPU Provisioned]
-    G --> H[Worker Ready]
-    E --> I[GPU Released]
+```python
+from runpod_flash import Endpoint, GpuGroup, ServerlessScalerType
+
+@Endpoint(
+    name="custom-scaling",
+    gpu=GpuGroup.ANY,
+    scaler_type=ServerlessScalerType.QUEUE_DELAY,
+    scaler_value=2,
+)
+async def worker(data: dict) -> dict:
+    return {"result": data}
 ```
 
-### 2. GPU Group Classification
+## GPU Group Classification
 
 GPU groups are organized by architecture, memory, and performance tier:
 
-```python
-class GpuGroup(Enum):
-    ANY = "any"
-    
-    # Ada Lovelace Architecture
-    ADA_24 = "ADA_24"        # NVIDIA GeForce RTX 4090
-    ADA_32_PRO = "ADA_32_PRO"    # NVIDIA GeForce RTX 5090
-    ADA_48_PRO = "ADA_48_PRO"    # NVIDIA RTX 6000 Ada, L40, L40S
-    ADA_80_PRO = "ADA_80_PRO"    # NVIDIA H100 variants
-    
-    # Ampere Architecture
-    AMPERE_16 = "AMPERE_16"   # RTX A4000, A4500, RTX 4000 Ada
-    AMPERE_24 = "AMPERE_24"   # RTX A5000, L4, RTX 3090
-    AMPERE_48 = "AMPERE_48"   # A40, RTX A6000
-    AMPERE_80 = "AMPERE_80"   # A100 80GB variants
-    
-    # Hopper Architecture
-    HOPPER_141 = "HOPPER_141" # NVIDIA H200
-```
-
-#### GPU Group Specifications
-
 | Group | Architecture | Memory | Examples | Use Cases |
 |-------|-------------|--------|----------|-----------|
-| ADA_24 | Ada Lovelace | 24GB | RTX 4090 | Gaming workloads, ML inference |
-| ADA_32_PRO | Ada Lovelace | 32GB | RTX 5090 | Professional graphics, training |
-| ADA_48_PRO | Ada Lovelace | 48GB | L40, L40S | AI training, rendering |
-| ADA_80_PRO | Ada Lovelace | 80GB | H100 PCIe | Large model training |
-| AMPERE_16 | Ampere | 16GB | RTX A4000 | Development, small models |
-| AMPERE_24 | Ampere | 24GB | RTX 3090 | Research, mid-size training |
-| AMPERE_48 | Ampere | 48GB | A40 | Professional ML workloads |
-| AMPERE_80 | Ampere | 80GB | A100 | Large-scale training |
-| HOPPER_141 | Hopper | 141GB | H200 | Cutting-edge AI research |
+| `ADA_24` | Ada Lovelace | 24GB | RTX 4090 | ML inference, gaming |
+| `ADA_32_PRO` | Ada Lovelace | 32GB | RTX 5090 | Professional graphics, training |
+| `ADA_48_PRO` | Ada Lovelace | 48GB | L40, L40S | AI training, rendering |
+| `ADA_80_PRO` | Ada Lovelace | 80GB | H100 PCIe | Large model training |
+| `AMPERE_16` | Ampere | 16GB | RTX A4000 | Development, small models |
+| `AMPERE_24` | Ampere | 24GB | RTX 3090 | Research, mid-size training |
+| `AMPERE_48` | Ampere | 48GB | A40 | Professional ML workloads |
+| `AMPERE_80` | Ampere | 80GB | A100 | Large-scale training |
+| `HOPPER_141` | Hopper | 141GB | H200 | Cutting-edge AI research |
 
-### 2. CUDA Version Management
+`GpuGroup.ANY` expands to all available GPU groups at validation time, maximizing job placement opportunities.
 
-CUDA compatibility is managed through version enums:
+## CUDA Version Management
+
+CUDA compatibility is managed through the `CudaVersion` enum:
 
 ```python
 class CudaVersion(Enum):
@@ -177,7 +151,7 @@ class CudaVersion(Enum):
     V12_8 = "12.8"
 ```
 
-#### CUDA Compatibility Matrix
+### CUDA Compatibility Matrix
 
 | GPU Architecture | Supported CUDA Versions | Recommended |
 |------------------|-------------------------|-------------|
@@ -185,150 +159,39 @@ class CudaVersion(Enum):
 | Ada Lovelace | 11.8+ | 12.1+ |
 | Hopper | 12.0+ | 12.4+ |
 
-### 3. GPU Selection and Validation
+## Field Synchronization System
 
-The system implements intelligent GPU selection:
-
-```python
-@field_validator("gpus")
-@classmethod
-def validate_gpus(cls, value: List[GpuGroup]) -> List[GpuGroup]:
-    """Expand ANY to all available GPU groups."""
-    if value == [GpuGroup.ANY]:
-        return GpuGroup.all()  # Returns all specific GPU groups
-    return value
-
-@classmethod  
-def all(cls) -> List["GpuGroup"]:
-    """Returns all GPU groups except ANY."""
-    return [cls.AMPERE_48] + [g for g in cls if g != cls.ANY]
-```
-
-### 4. Field Synchronization System
-
-GPU provisioning uses a dual-field system for developer experience and API compatibility:
-
-```python
-def _sync_input_fields_gpu(self):
-    """Synchronize GPU fields between developer-friendly and API formats."""
-    
-    # Convert gpus list to gpuIds string for API
-    if self.gpus:
-        self.gpuIds = ",".join(gpu.value for gpu in self.gpus)
-    elif self.gpuIds:
-        # Convert gpuIds string back to gpus list (from API responses)
-        gpu_values = [v.strip() for v in self.gpuIds.split(",") if v.strip()]
-        self.gpus = [GpuGroup(value) for value in gpu_values]
-    
-    # Convert cudaVersions list to allowedCudaVersions string for API
-    if self.cudaVersions:
-        self.allowedCudaVersions = ",".join(v.value for v in self.cudaVersions)
-    elif self.allowedCudaVersions:
-        # Convert allowedCudaVersions string back to cudaVersions list
-        version_values = [
-            v.strip() for v in self.allowedCudaVersions.split(",") if v.strip()
-        ]
-        self.cudaVersions = [CudaVersion(value) for value in version_values]
-```
-
-#### Field Mapping
+Internally, the `ServerlessResource` base class maintains dual fields for developer experience and API compatibility:
 
 | Developer Field | API Field | Purpose |
 |----------------|-----------|---------|
 | `gpus: List[GpuGroup]` | `gpuIds: str` | GPU group selection |
 | `cudaVersions: List[CudaVersion]` | `allowedCudaVersions: str` | CUDA compatibility |
-| `workersMax: int` | `workersMax: int` | Maximum concurrent workers |
-| `workersMin: int` | `workersMin: int` | Minimum active workers |
-| `scalerType: ServerlessScalerType` | `scalerType: str` | Auto-scaling strategy |
-| `scalerValue: int` | `scalerValue: int` | Scaling threshold value |
 
-### 5. Live Serverless GPU Integration
+The `_sync_input_fields_gpu()` method synchronizes between these formats. When a user sets `gpu=GpuGroup.AMPERE_80` on `Endpoint`, the value flows through:
 
-Live serverless endpoints lock GPU images and provide curated experiences:
-
-```python
-class LiveServerless(LiveServerlessMixin, ServerlessEndpoint):
-    """GPU-only live serverless endpoint with locked image."""
-    
-    @property
-    def _live_image(self) -> str:
-        return FLASH_GPU_IMAGE  # Locked to GPU-optimized image
-    
-    @property
-    def imageName(self):
-        return self._live_image  # Cannot be overridden
-    
-    @imageName.setter  
-    def imageName(self, value):
-        pass  # Setter disabled to prevent changes
-```
-
-## Design Decisions
-
-### 1. Enum-Based GPU Groups
-
-**Decision**: Use enums for GPU group classification
-**Rationale**:
-- Type safety and IDE autocompletion
-- Clear documentation of available options
-- Easy extension for new GPU types
-- Consistent naming across codebase
-
-### 2. Dual Field System
-
-**Decision**: Maintain both developer-friendly and API-compatible fields
-**Rationale**:
-- Preserves backward compatibility with existing API
-- Provides better developer experience with typed lists
-- Automatic synchronization prevents inconsistencies
-- Supports both directions (input and response parsing)
-
-### 3. "ANY" GPU Expansion
-
-**Decision**: Expand `GpuGroup.ANY` to all available GPU groups
-**Rationale**:
-- Maximizes job placement opportunities
-- Simplifies common use case of "any available GPU"
-- Allows system to optimize for availability and cost
-- Reduces configuration complexity for users
-
-### 4. Locked Images for Live Serverless
-
-**Decision**: Lock image names for live serverless endpoints
-**Rationale**:
-- Ensures compatibility with live serverless runtime
-- Prevents configuration errors from custom images
-- Enables optimized GPU drivers and libraries
-- Provides consistent execution environment
+1. `_normalize_gpu()` converts to `[GpuGroup.AMPERE_80]`
+2. `_build_resource_config()` passes to `ServerlessResource(gpus=[GpuGroup.AMPERE_80])`
+3. `_sync_input_fields_gpu()` converts to `gpuIds="AMPERE_80"` for the API
 
 ## GPU Metadata System
 
-### GpuType Models
+The system supports querying GPU metadata for pricing and availability:
 
 ```python
 class GpuType(BaseModel):
-    id: str                 # Unique GPU identifier
-    displayName: str        # Human-readable name
-    memoryInGb: int        # GPU memory capacity
+    id: str                 # unique GPU identifier
+    displayName: str        # human-readable name
+    memoryInGb: int         # GPU memory capacity
 
 class GpuTypeDetail(GpuType):
-    communityCloud: Optional[bool]      # Community cloud availability
-    communityPrice: Optional[float]     # Community pricing
-    cudaCores: Optional[int]           # CUDA core count
-    manufacturer: Optional[str]        # GPU manufacturer
-    maxGpuCount: Optional[int]        # Maximum GPUs per node
-    secureCloud: Optional[bool]       # Secure cloud availability
-    securePrice: Optional[float]      # Secure cloud pricing
-```
-
-### Pricing Integration
-
-The system supports multiple pricing models:
-
-```python
-class GpuLowestPrice(BaseModel):
-    minimumBidPrice: Optional[float]      # Spot pricing
-    uninterruptablePrice: Optional[float] # On-demand pricing
+    communityCloud: Optional[bool]
+    communityPrice: Optional[float]
+    cudaCores: Optional[int]
+    manufacturer: Optional[str]
+    maxGpuCount: Optional[int]
+    secureCloud: Optional[bool]
+    securePrice: Optional[float]
 ```
 
 ## Usage Examples
@@ -338,26 +201,8 @@ class GpuLowestPrice(BaseModel):
 ```python
 from runpod_flash import Endpoint, GpuGroup
 
-# single GPU type with worker scaling
 @Endpoint(name="gpu-inference", gpu=GpuGroup.AMPERE_24, workers=(0, 5))
 async def inference(data: dict) -> dict:
-    return {"result": data}
-```
-
-### Auto-Scaling Configuration
-
-```python
-from runpod_flash import Endpoint, GpuGroup, ServerlessScalerType
-
-# queue-delay scaling: scale up when queue delay > 4 seconds
-@Endpoint(
-    name="auto-scaling",
-    gpu=[GpuGroup.AMPERE_80, GpuGroup.ADA_80_PRO],
-    workers=(1, 10),
-    scaler_type=ServerlessScalerType.QUEUE_DELAY,
-    scaler_value=4,
-)
-async def auto_scaling_inference(data: dict) -> dict:
     return {"result": data}
 ```
 
@@ -366,7 +211,6 @@ async def auto_scaling_inference(data: dict) -> dict:
 ```python
 from runpod_flash import Endpoint, GpuGroup, ServerlessScalerType
 
-# request-count scaling with aggressive worker allocation
 @Endpoint(
     name="high-throughput",
     gpu=GpuGroup.ANY,
@@ -378,12 +222,11 @@ async def high_throughput(data: dict) -> dict:
     return {"result": data}
 ```
 
-### High-Memory Workloads with Conservative Scaling
+### High-Memory Workloads
 
 ```python
 from runpod_flash import Endpoint, GpuGroup
 
-# target high-memory GPUs with controlled scaling
 @Endpoint(
     name="large-model",
     gpu=[GpuGroup.AMPERE_80, GpuGroup.HOPPER_141],
@@ -393,85 +236,42 @@ async def large_model_inference(data: dict) -> dict:
     return {"result": data}
 ```
 
-## Error Handling
-
-### GPU Validation Errors
-
-```python
-# Invalid GPU group
-try:
-    ServerlessEndpoint(gpus=["invalid_gpu"])
-except ValueError as e:
-    # "invalid_gpu is not a valid GpuGroup"
-    
-# Incompatible CUDA version
-try:
-    ServerlessEndpoint(
-        gpus=[GpuGroup.HOPPER_141],
-        cudaVersions=[CudaVersion.V11_8]  # Too old for Hopper
-    )
-except ValueError as e:
-    # CUDA compatibility warning
-```
-
-### Resource Availability
-
-```python
-# System handles resource unavailability gracefully
-endpoint = ServerlessEndpoint(
-    name="fallback-example",
-    gpus=[GpuGroup.HOPPER_141, GpuGroup.ADA_80_PRO, GpuGroup.AMPERE_80]
-)
-# If H200 unavailable, falls back to H100, then A100
-```
-
-## Performance Considerations
-
 ### GPU Selection Strategy
 
-1. **Memory Requirements**: Match GPU memory to model size
-2. **Architecture Compatibility**: Consider CUDA version requirements  
-3. **Cost Optimization**: Balance performance vs. pricing
+When choosing GPUs, consider:
+
+1. **Memory requirements**: Match GPU memory to model size
+2. **Architecture compatibility**: Consider CUDA version requirements
+3. **Cost optimization**: Balance performance vs. pricing
 4. **Availability**: Use multiple GPU options for better scheduling
 
-### Optimization Patterns
-
 ```python
-# Memory-optimized selection
-def select_gpu_for_model_size(model_gb: float) -> List[GpuGroup]:
-    """Select appropriate GPU groups based on model memory requirements."""
+# memory-optimized selection based on model size
+def select_gpu_for_model(model_gb: float) -> list:
     if model_gb <= 16:
         return [GpuGroup.AMPERE_24, GpuGroup.ADA_24]
     elif model_gb <= 48:
         return [GpuGroup.AMPERE_48, GpuGroup.ADA_48_PRO]
     else:
         return [GpuGroup.AMPERE_80, GpuGroup.ADA_80_PRO, GpuGroup.HOPPER_141]
-
-# Cost-optimized selection  
-def select_gpu_for_budget(budget_per_hour: float) -> List[GpuGroup]:
-    """Select GPU groups within budget constraints."""
-    # Implementation would query pricing data
-    pass
 ```
 
-## Testing Strategy
+## Design Decisions
 
-### Unit Tests
-- GPU group validation and expansion
-- CUDA version compatibility checks
-- Field synchronization between formats
-- Enum serialization and deserialization
+### Enum-Based GPU Groups
 
-### Integration Tests
-- End-to-end GPU provisioning workflow
-- Live serverless image locking
-- API field mapping accuracy
-- Error handling and validation
+GPU groups use enums for type safety, IDE autocompletion, clear documentation, and easy extension for new GPU types.
 
-### Test Categories
+### "ANY" GPU Expansion
 
-1. **GPU Selection Tests**: Validate group expansion and selection logic
-2. **CUDA Compatibility Tests**: Version validation and compatibility
-3. **Field Sync Tests**: Bidirectional field synchronization
-4. **Live Serverless Tests**: Image locking and override prevention
-5. **Error Handling Tests**: Invalid configurations and error messages
+`GpuGroup.ANY` expands to all available GPU groups at validation time. This maximizes job placement opportunities and simplifies the common use case of "any available GPU".
+
+### Locked Images for Live Endpoints
+
+`Endpoint` in decorator mode (without `image=`) uses a fixed, optimized Docker image. This ensures compatibility with Flash's remote code execution runtime, prevents configuration errors, and provides a consistent execution environment. Use `image=` when you need a custom Docker image.
+
+## Related Documentation
+
+- [Flash SDK Reference](Flash_SDK_Reference.md) -- complete Endpoint API reference
+- [CPU Container Disk Sizing](CPU_Container_Disk_Sizing.md) -- CPU-specific disk defaults
+- [Resource Config Drift Detection](Resource_Config_Drift_Detection.md) -- how GPU changes trigger drift

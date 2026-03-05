@@ -1,6 +1,6 @@
 # Flash CLI Documentation
 
-Command-line interface for Flash - distributed inference and serving framework.
+Command-line interface for Flash -- distributed inference and serving framework.
 
 ## Quick Start
 
@@ -18,12 +18,17 @@ cd my-project
 uv sync                          # or: pip install -r requirements.txt
 ```
 
-Add your Runpod API key to `.env`:
+Authenticate with Runpod:
+```bash
+flash login
+```
+
+Or add your Runpod API key to `.env`:
 ```bash
 echo "RUNPOD_API_KEY=your_api_key_here" > .env
 ```
 
-Start the development server to test your `@remote` functions:
+Start the development server to test your endpoints:
 
 ```bash
 flash run
@@ -294,8 +299,9 @@ Default location: `.flash/logs/activity.log`
 
 ```
 my-project/
-├── gpu_worker.py        # GPU worker with @remote function
-├── cpu_worker.py        # CPU worker with @remote function
+├── gpu_worker.py        # GPU worker with @Endpoint function
+├── cpu_worker.py        # CPU worker with @Endpoint function
+├── lb_worker.py         # Load-balanced HTTP endpoint
 ├── .env
 ├── pyproject.toml       # Python dependencies (uv/pip compatible)
 └── README.md
@@ -314,15 +320,20 @@ RUNPOD_API_KEY=your_api_key_here
 # Health check
 curl http://localhost:8888/ping
 
-# Call GPU worker
+# Call GPU worker (QB endpoint)
 curl -X POST http://localhost:8888/gpu_worker/runsync \
   -H "Content-Type: application/json" \
   -d '{"input": {"message": "Hello GPU!"}}'
 
-# Call CPU worker
+# Call CPU worker (QB endpoint)
 curl -X POST http://localhost:8888/cpu_worker/runsync \
   -H "Content-Type: application/json" \
   -d '{"input": {"message": "Hello CPU!"}}'
+
+# Call LB endpoint
+curl -X POST http://localhost:8888/lb_worker/process \
+  -H "Content-Type: application/json" \
+  -d '{"input": "test"}'
 ```
 
 ## Getting Help

@@ -2,9 +2,9 @@
 
 ## Introduction
 
-Flash supports two execution models for serverless endpoints: queue-based (QB) and load-balanced (LB). This guide covers creating load-balanced endpoints using the `Endpoint` class for HTTP-based function execution.
+Flash supports two execution models: queue-based (QB) and load-balanced (LB). This guide covers creating load-balanced endpoints with HTTP routing using the `Endpoint` class.
 
-### Queue-Based vs Load-Balanced
+### QB vs LB
 
 **Queue-Based** (`@Endpoint(...)` on a function)
 - Requests queued and processed sequentially
@@ -128,8 +128,8 @@ Run locally with `flash run`:
 
 ```bash
 flash run
-# Starts a local dev server at http://localhost:8888
-# All routes are auto-discovered and registered
+# starts a local dev server at http://localhost:8888
+# all routes are auto-discovered and registered
 ```
 
 The dev server exposes your routes at `http://localhost:8888/{endpoint_name}/{path}`.
@@ -180,14 +180,31 @@ flash deploy --env production
 
 ### Verifying Deployment
 
+LB endpoints use subdomain-based URLs:
+
 ```bash
 # health check
-curl https://<endpoint-url>/ping
+curl https://{endpoint-id}.api.runpod.ai/ping
 
 # call a route
-curl -X POST https://<endpoint-url>/users \
+curl -X POST https://{endpoint-id}.api.runpod.ai/users \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $RUNPOD_API_KEY" \
   -d '{"name": "Alice", "email": "alice@example.com"}'
+```
+
+## Calling LB Endpoints Programmatically
+
+Use `Endpoint(id=...)` to call a deployed LB endpoint:
+
+```python
+from runpod_flash import Endpoint
+
+ep = Endpoint(id="your-endpoint-id")
+
+# HTTP calls return raw response data
+result = await ep.post("/predict", {"data": [1, 2, 3]})
+health = await ep.get("/health")
 ```
 
 ## Troubleshooting
@@ -221,5 +238,5 @@ curl -X POST https://<endpoint-url>/users \
 ## Related Documentation
 
 - [Flash SDK Reference](Flash_SDK_Reference.md) -- complete API reference
-- [Load Balancer Endpoints](Load_Balancer_Endpoints.md) -- internal architecture
+- [Load Balancer Endpoints (Internal)](Load_Balancer_Endpoints.md) -- internal architecture
 - [LoadBalancer Runtime Architecture](LoadBalancer_Runtime_Architecture.md) -- runtime execution details
