@@ -189,7 +189,7 @@ await job.cancel()
 | `ADA_24` | RTX 4090 | 24GB |
 | `ADA_32_PRO` | RTX 5090 | 32GB |
 | `ADA_48_PRO` | RTX 6000 Ada | 48GB |
-| `ADA_80_PRO` | H100 | 80–94GB |
+| `ADA_80_PRO` | H100 PCIe (80GB) / H100 HBM3 (80GB) / H100 NVL (94GB) | 80GB+ |
 | `HOPPER_141` | H200 | 141GB |
 
 ## CPU Types (CpuInstanceType)
