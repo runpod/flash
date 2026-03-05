@@ -135,22 +135,7 @@ PodTemplate(
 
 ## Cloudpickle Scoping (CRITICAL)
 
-Decorated functions are serialized. They can ONLY access:
-- Parameters, local variables, imports inside the function, builtins
-
-```python
-# WRONG
-import torch
-@Endpoint(name="w", gpu=GpuGroup.ADA_24, dependencies=["torch"])
-async def bad(x):
-    return torch.tensor(x)  # NameError
-
-# CORRECT
-@Endpoint(name="w", gpu=GpuGroup.ADA_24, dependencies=["torch"])
-async def good(x):
-    import torch
-    return torch.tensor(x)
-```
+Decorated functions are serialized. They can ONLY access: parameters, local variables, imports inside the function, builtins. All imports must be inside the function body.
 
 ## EndpointJob
 
