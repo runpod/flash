@@ -10,6 +10,24 @@ user-invocable: true
 
 Write code locally, test with `flash run` (dev server at localhost:8888), and flash automatically provisions and deploys to remote GPUs/CPUs in the cloud. One class -- `Endpoint` -- handles everything.
 
+## CLI
+
+```bash
+flash login                              # authenticate via browser (or set RUNPOD_API_KEY env var)
+flash init my-project                    # scaffold a new project in ./my-project
+flash run                                # start dev server at localhost:8888
+flash run --auto-provision               # same, but pre-provision endpoints (no cold start)
+flash build                              # package artifact for deployment (500MB limit)
+flash build --exclude pkg1,pkg2          # exclude packages from build
+flash deploy new staging                 # deploy to "staging" environment
+flash deploy send staging                # send latest build to "staging"
+flash deploy list staging                # list deployments in "staging"
+flash deploy info staging                # show deployment details
+flash deploy delete staging              # delete "staging" deployment
+flash undeploy list                      # list all active endpoints
+flash undeploy my-endpoint               # remove a specific endpoint
+```
+
 ## Endpoint: Three Modes
 
 ### Mode 1: Your Code (Queue-Based Decorator)
@@ -213,23 +231,6 @@ async def pipeline(data):
 import asyncio
 results = await asyncio.gather(compute(a), compute(b), compute(c))
 ```
-
-## CLI
-
-| Command | Description |
-|---------|-------------|
-| `flash login` | Authenticate via browser |
-| `flash init [name]` | Create project template |
-| `flash run [--auto-provision]` | Local dev server at localhost:8888 |
-| `flash build [--exclude pkg1,pkg2]` | Package artifact (500MB limit) |
-| `flash deploy new/send/list/info/delete <env>` | Deploy to production |
-| `flash undeploy list/<name>` | Remove endpoints |
-
-## Authentication
-
-Two ways to authenticate:
-- `flash login` -- browser-based OAuth (recommended)
-- `RUNPOD_API_KEY` env var -- set in `.env` or export directly
 
 ## Gotchas
 
