@@ -143,7 +143,7 @@ flash deploy --env production
     │   │   ├── If new: create endpoint via GraphQL API
     │   │   ├── If exists + config drift: update endpoint
     │   │   └── If exists + no drift: skip
-    │   └── Set environment variables on each endpoint
+    │   └── Set env vars on each endpoint (explicit env={} + system vars like RUNPOD_API_KEY)
     │
     ├── 4. Register with State Manager
     │   └── Store endpoint IDs for cross-endpoint routing
@@ -186,7 +186,7 @@ When deploying to an environment that already has endpoints, Flash compares the 
 
 When `flash deploy` provisions endpoints:
 
-1. Each endpoint gets `RUNPOD_API_KEY` injected as an env var
+1. Endpoints with `makes_remote_calls=True` get `RUNPOD_API_KEY` injected automatically
 2. Each endpoint gets the `flash_manifest.json` included in its artifact
 3. The State Manager stores `{environment_id, resource_name} -> endpoint_id`
 4. At runtime, the `ServiceRegistry` uses the manifest + State Manager to route calls

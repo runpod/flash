@@ -88,9 +88,9 @@ Changes to these `Endpoint` parameters trigger drift detection and endpoint upda
 ### Why env is Excluded
 
 Environment variables are excluded from the hash because:
-- Different processes may load `.env` files with different values
 - Changing env vars shouldn't trigger a full endpoint redeploy
-- Env vars are updated separately via the API
+- Env vars declared via `env={}` on the resource config are updated separately via the API
+- `.env` files only populate `os.environ` for CLI and local dev; they are not carried to deployed endpoints
 
 ## CPU LoadBalancer Special Case
 
