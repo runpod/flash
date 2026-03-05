@@ -686,7 +686,7 @@ def test_extract_deployment_config_from_ast_gpu():
         builder = ManifestBuilder("test_app", functions, scanner=scanner)
         config = builder._extract_deployment_config("gpu-worker", None, "Endpoint")
 
-        assert config["gpuIds"] == ["ADA_24"]
+        assert config["gpuIds"] == "ADA_24"
         assert "instanceIds" not in config
 
 

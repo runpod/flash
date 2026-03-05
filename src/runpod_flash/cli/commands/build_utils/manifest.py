@@ -314,14 +314,14 @@ class ManifestBuilder:
                 for kw in decorator.keywords:
                     if kw.arg == "gpu" and isinstance(kw.value, ast.Attribute):
                         # e.g. GpuGroup.ADA_24 -> "ADA_24"
-                        config["gpuIds"] = [kw.value.attr]
+                        config["gpuIds"] = self._resolve_gpu_enum_value(kw.value.attr)
                     elif kw.arg == "gpu" and isinstance(kw.value, ast.List):
                         ids = []
                         for elt in kw.value.elts:
                             if isinstance(elt, ast.Attribute):
-                                ids.append(elt.attr)
+                                ids.append(self._resolve_gpu_enum_value(elt.attr))
                         if ids:
-                            config["gpuIds"] = ids
+                            config["gpuIds"] = ",".join(ids)
                     elif kw.arg == "cpu" and isinstance(kw.value, ast.Attribute):
                         # e.g. CpuInstanceType.CPU3C_1_2 -> resolve to enum value
                         config["instanceIds"] = [
@@ -373,6 +373,25 @@ class ManifestBuilder:
             return CpuInstanceType[enum_member_name].value
         except (ImportError, KeyError):
             return enum_member_name.lower().replace("_", "-")
+
+    @staticmethod
+    def _resolve_gpu_enum_value(enum_member_name: str) -> str:
+        """Resolve a GpuGroup or GpuType enum member name to its value string.
+
+        Tries GpuGroup first, then GpuType. Falls back to the raw member name.
+        """
+        try:
+            from runpod_flash.core.resources.gpu import GpuGroup
+
+            return GpuGroup[enum_member_name].value
+        except (ImportError, KeyError):
+            pass
+        try:
+            from runpod_flash.core.resources.gpu import GpuType
+
+            return GpuType[enum_member_name].value
+        except (ImportError, KeyError):
+            return enum_member_name
 
     def build(self) -> Dict[str, Any]:
         """Build the manifest dictionary.
