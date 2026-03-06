@@ -7,12 +7,14 @@ from .constants import (
     DEFAULT_PYTHON_VERSION,
     get_image_name,
 )
+from .injection import build_injection_cmd
 from .load_balancer_sls_resource import (
     CpuLoadBalancerSlsResource,
     LoadBalancerSlsResource,
 )
 from .serverless import ServerlessEndpoint
 from .serverless_cpu import CpuServerlessEndpoint
+from .template import PodTemplate
 
 
 class LiveServerlessMixin:
@@ -27,6 +29,12 @@ class LiveServerlessMixin:
     concrete subclass (see ``_apply_default_live_image``); reads and writes of
     ``imageName`` go through the normal Pydantic field machinery so model
     serialization, drift detection, and ``setattr`` all stay consistent.
+    """Configures process injection via dockerArgs for any base image.
+
+    Sets a default base image (user can override via imageName) and generates
+    dockerArgs to download, extract, and run the flash-worker tarball at container
+    start time. QB vs LB mode is determined by FLASH_ENDPOINT_TYPE env var at
+    runtime, not by the Docker image.
     """
 
     _image_type: ClassVar[str] = (
@@ -52,6 +60,18 @@ def _apply_default_live_image(data: Any, image_type: str):
         python_version = data.get("python_version") or DEFAULT_PYTHON_VERSION
         data["imageName"] = get_image_name(image_type, python_version)
     return data
+
+    def _create_new_template(self) -> PodTemplate:
+        """Create template with dockerArgs for process injection."""
+        template = super()._create_new_template()  # type: ignore[misc]
+        template.dockerArgs = build_injection_cmd()
+        return template
+
+    def _configure_existing_template(self) -> None:
+        """Configure existing template, adding dockerArgs for injection if not user-set."""
+        super()._configure_existing_template()  # type: ignore[misc]
+        if self.template is not None and not self.template.dockerArgs:  # type: ignore[attr-defined]
+            self.template.dockerArgs = build_injection_cmd()  # type: ignore[attr-defined]
 
 
 class LiveServerless(LiveServerlessMixin, ServerlessEndpoint):
