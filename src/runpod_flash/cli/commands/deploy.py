@@ -205,7 +205,10 @@ async def _resolve_and_deploy(
 
     local_manifest = validate_local_manifest()
 
-    render_env_preview(local_manifest, console)
+    try:
+        render_env_preview(local_manifest, console)
+    except Exception:
+        logger.debug("Failed to render env preview", exc_info=True)
 
     with console.status("Uploading build..."):
         build = await app.upload_build(archive_path)

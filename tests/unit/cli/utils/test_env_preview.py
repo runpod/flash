@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+from io import StringIO
 from unittest.mock import patch
 
 import pytest
+from rich.console import Console
 
 from runpod_flash.cli.utils.env_preview import (
     collect_env_for_preview,
     mask_env_value,
+    render_env_preview,
 )
 
 
@@ -100,7 +103,7 @@ class TestCollectEnvForPreview:
     @patch(
         "runpod_flash.core.credentials.get_api_key", return_value="rp_test_key_12345"
     )
-    def test_remote_calls_resource_gets_api_key_injected(
+    def test_qb_remote_calls_resource_gets_api_key_injected(
         self, mock_get_api_key: object
     ) -> None:
         manifest = {
@@ -113,6 +116,28 @@ class TestCollectEnvForPreview:
         result = collect_env_for_preview(manifest)
         entries = result["mothership"]
         assert ("RUNPOD_API_KEY", "rp_test_key_12345", "flash") in entries
+
+    @patch(
+        "runpod_flash.core.credentials.get_api_key", return_value="rp_test_key_12345"
+    )
+    def test_lb_remote_calls_resource_does_not_get_api_key(
+        self, mock_get_api_key: object
+    ) -> None:
+        """LB endpoints do not get RUNPOD_API_KEY injected at deploy time."""
+        manifest = {
+            "resources": {
+                "lb-worker": {
+                    "makes_remote_calls": True,
+                    "is_load_balanced": True,
+                    "module_path": "app:Model",
+                },
+            },
+        }
+        result = collect_env_for_preview(manifest)
+        entries = result["lb-worker"]
+        keys = [k for k, _, _ in entries]
+        assert "RUNPOD_API_KEY" not in keys
+        assert "FLASH_MODULE_PATH" in keys
 
     @patch("runpod_flash.core.credentials.get_api_key", return_value=None)
     def test_remote_calls_no_api_key_available(self, mock_get_api_key: object) -> None:
@@ -182,3 +207,59 @@ class TestCollectEnvForPreview:
         result = collect_env_for_preview(manifest)
         keys = [k for k, _, _ in result["worker"]]
         assert keys == ["APPLE", "MANGO", "ZEBRA"]
+
+
+class TestRenderEnvPreview:
+    """Tests for render_env_preview(manifest, console)."""
+
+    def test_empty_manifest_produces_no_output(self) -> None:
+        buf = StringIO()
+        console = Console(file=buf, force_terminal=True, width=120)
+        render_env_preview({}, console)
+        assert buf.getvalue() == ""
+
+    def test_resource_with_no_env_shows_none_placeholder(self) -> None:
+        manifest = {"resources": {"worker": {}}}
+        buf = StringIO()
+        console = Console(file=buf, force_terminal=True, width=120)
+        render_env_preview(manifest, console)
+        output = buf.getvalue()
+        assert "worker" in output
+        assert "(none)" in output
+
+    @patch(
+        "runpod_flash.core.credentials.get_api_key", return_value="rp_abcdef1234567890"
+    )
+    def test_secret_values_are_masked_in_output(self, mock_get_api_key: object) -> None:
+        manifest = {
+            "resources": {
+                "worker": {
+                    "makes_remote_calls": True,
+                    "env": {"HF_TOKEN": "hf_secret_longvalue"},
+                },
+            },
+        }
+        buf = StringIO()
+        console = Console(file=buf, force_terminal=True, width=120)
+        render_env_preview(manifest, console)
+        output = buf.getvalue()
+        assert "hf_sec...****" in output
+        assert "rp_abc...****" in output
+        assert "hf_secret_longvalue" not in output
+        assert "rp_abcdef1234567890" not in output
+
+    def test_source_label_shows_injected_by_flash(self) -> None:
+        manifest = {
+            "resources": {
+                "lb-worker": {
+                    "is_load_balanced": True,
+                    "module_path": "app:Model",
+                },
+            },
+        }
+        buf = StringIO()
+        console = Console(file=buf, force_terminal=True, width=120)
+        render_env_preview(manifest, console)
+        output = buf.getvalue()
+        assert "injected by flash" in output
+        assert "FLASH_MODULE_PATH" in output
