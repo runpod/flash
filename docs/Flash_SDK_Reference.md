@@ -48,7 +48,7 @@ Endpoint(
 | `accelerate_downloads` | `bool` | `True` | Enable accelerated downloads. |
 | `volume` | `NetworkVolume` | `None` | Network volume for persistent storage. |
 | `datacenter` | `DataCenter` | `EU_RO_1` | Preferred datacenter. |
-| `env` | `dict[str, str]` | `None` | Environment variables for the endpoint. |
+| `env` | `dict[str, str]` | `None` | Environment variables for the deployed endpoint. This is the only way to pass env vars to deployed workers; `.env` files are not carried to endpoints. |
 | `gpu_count` | `int` | `1` | GPUs per worker. |
 | `execution_timeout_ms` | `int` | `0` | Max execution time in ms. 0 = no limit. |
 | `flashboot` | `bool` | `True` | Enable Flashboot fast startup. |

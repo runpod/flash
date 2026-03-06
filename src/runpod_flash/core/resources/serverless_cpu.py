@@ -15,7 +15,7 @@ from .cpu import (
     CPU_INSTANCE_DISK_LIMITS,
     get_max_disk_size_for_instances,
 )
-from .serverless import ServerlessEndpoint, get_env_vars
+from .serverless import ServerlessEndpoint
 from .template import KeyValuePair, PodTemplate
 
 
@@ -137,8 +137,8 @@ class CpuServerlessEndpoint(CpuEndpointMixin, ServerlessEndpoint):
         but these fields should not be included in config_hash to avoid false drift
         detection. This override computes the hash using only CPU-relevant fields.
         """
-        # CPU-relevant fields for config hash, excluding 'env' to prevent false drift
-        # (env is dynamically computed from .env file at initialization time)
+        # CPU-relevant fields for config hash, excluding 'env' to keep
+        # env-only changes from triggering endpoint redeployment
         cpu_fields = {
             "datacenter",
             "flashboot",
@@ -159,7 +159,7 @@ class CpuServerlessEndpoint(CpuEndpointMixin, ServerlessEndpoint):
         template = PodTemplate(
             name=self.resource_id,
             imageName=self.imageName,
-            env=KeyValuePair.from_dict(self.env or get_env_vars()),
+            env=KeyValuePair.from_dict(self.env or {}),
         )
         # Apply CPU-specific disk sizing
         self._apply_cpu_disk_sizing(template)
