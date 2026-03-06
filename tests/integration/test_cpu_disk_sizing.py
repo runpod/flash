@@ -125,11 +125,11 @@ class TestCpuDiskSizingIntegration:
         )
 
         # Verify integration:
-        # 1. Uses CPU image (locked)
+        # 1. Uses CPU base image (default)
         # 2. CPU utilities calculate minimum disk size
         # 3. Template creation with auto-sizing
         # 4. Validation passes
-        assert "flash-cpu:" in live_serverless.imageName
+        assert live_serverless.imageName == "python:3.12-slim"
         assert live_serverless.instanceIds == [
             CpuInstanceType.CPU5C_1_2,
             CpuInstanceType.CPU5C_2_4,
@@ -253,9 +253,18 @@ class TestLiveServerlessImageIntegration:
         cpu_live = CpuLiveServerless(name="cpu-live")
 
         # Verify different default images are used per resource type.
+class TestLiveServerlessImageDefaultsIntegration:
+    """Test image defaults in live serverless variants."""
+
+    def test_live_serverless_image_defaults(self):
+        """Test that LiveServerless variants use correct base images."""
+        gpu_live = LiveServerless(name="gpu-live")
+        cpu_live = CpuLiveServerless(name="cpu-live")
+
+        # Verify different base images are used
         assert gpu_live.imageName != cpu_live.imageName
-        assert "flash:" in gpu_live.imageName
-        assert "flash-cpu:" in cpu_live.imageName
+        assert "pytorch" in gpu_live.imageName
+        assert "python" in cpu_live.imageName
 
     def test_live_serverless_image_override_via_constructor(self):
         """Caller-supplied imageName overrides the Flash runtime default (AE-3153)."""
@@ -266,6 +275,11 @@ class TestLiveServerlessImageIntegration:
 
         assert gpu_live.imageName == "custom/image:latest"
         assert cpu_live.imageName == "custom/cpu-image:latest"
+        # Verify images can be overridden (BYOI)
+        custom_gpu = LiveServerless(
+            name="custom-gpu", imageName="nvidia/cuda:12.8.0-runtime"
+        )
+        assert custom_gpu.imageName == "nvidia/cuda:12.8.0-runtime"
 
     def test_live_serverless_template_integration(self):
         """Test live serverless template integration with disk sizing."""
