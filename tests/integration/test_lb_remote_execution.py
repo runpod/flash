@@ -114,22 +114,18 @@ class TestRemoteWithLoadBalancerIntegration:
         # Verify resource is correctly configured
         # Note: name may have "-fb" appended by flash boot validator
         assert "test-live-api" in lb.name
-        assert "flash-lb" in lb.imageName
+        assert "pytorch" in lb.imageName  # GPU base image
         assert echo.__remote_config__["method"] == "POST"
 
-    def test_live_load_balancer_image_locked(self):
-        """Test that LiveLoadBalancer locks the image to Flash LB image."""
+    def test_live_load_balancer_default_image(self):
+        """Test that LiveLoadBalancer uses GPU base image by default."""
         lb = LiveLoadBalancer(name="test-api")
+        assert "pytorch" in lb.imageName
 
-        # Verify image is locked and cannot be overridden
-        original_image = lb.imageName
-        assert "flash-lb" in original_image
-
-        # Try to set a different image (should be ignored due to property)
-        lb.imageName = "custom-image:latest"
-
-        # Image should still be locked to Flash
-        assert lb.imageName == original_image
+    def test_live_load_balancer_allows_custom_image(self):
+        """Test that LiveLoadBalancer allows user to set custom image (BYOI)."""
+        lb = LiveLoadBalancer(name="test-api", imageName="custom-image:latest")
+        assert lb.imageName == "custom-image:latest"
 
     def test_load_balancer_vs_queue_based_endpoints(self):
         """Test that LB and QB endpoints have different characteristics."""

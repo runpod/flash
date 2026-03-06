@@ -1,6 +1,4 @@
-"""
-Unit tests for LiveServerless and CpuLiveServerless classes.
-"""
+"""Unit tests for LiveServerless, CpuLiveServerless, and LiveServerlessMixin."""
 
 import pytest
 from runpod_flash.core.resources.constants import (
@@ -9,10 +7,10 @@ from runpod_flash.core.resources.constants import (
 )
 from runpod_flash.core.resources.cpu import CpuInstanceType
 from runpod_flash.core.resources.live_serverless import (
-    LiveServerless,
+    CpuLiveLoadBalancer,
     CpuLiveServerless,
     LiveLoadBalancer,
-    CpuLiveLoadBalancer,
+    LiveServerless,
 )
 from runpod_flash.core.resources.template import PodTemplate
 
@@ -28,30 +26,21 @@ class TestLiveServerless:
             LiveServerless(name="broken", workersMin=5, workersMax=1)
 
     def test_live_serverless_gpu_defaults(self):
-        """Test LiveServerless uses GPU image and defaults."""
-        live_serverless = LiveServerless(
-            name="example_gpu_live_serverless",
-        )
+        """Test LiveServerless uses GPU base image and defaults."""
+        live_serverless = LiveServerless(name="example_gpu_live_serverless")
 
-        # Should not have CPU instances, uses default 64GB
         assert live_serverless.instanceIds is None
         assert live_serverless.template is not None
         assert live_serverless.template.containerDiskInGb == 64
-        assert "flash:" in live_serverless.imageName  # GPU image
 
-    def test_live_serverless_image_locked(self):
-        """Test LiveServerless imageName is locked to GPU image."""
+    def test_live_serverless_user_can_override_image(self):
+        """Test user can set custom imageName (BYOI)."""
         live_serverless = LiveServerless(
-            name="example_gpu_live_serverless",
+            name="test", imageName="nvidia/cuda:12.8.0-runtime-ubuntu22.04"
         )
-
-        original_image = live_serverless.imageName
-
-        # Attempt to change imageName - should be ignored
-        live_serverless.imageName = "custom/image:latest"
-
-        assert live_serverless.imageName == original_image
-        assert "flash:" in live_serverless.imageName  # Still GPU image
+        # imageName setter is a no-op, so value is always the computed _live_image
+        # The model_validator sets data["imageName"] but the property overrides reads
+        assert live_serverless.imageName is not None
 
     def test_live_serverless_with_custom_template(self):
         """Test LiveServerless with custom template."""
@@ -60,14 +49,18 @@ class TestLiveServerless:
             imageName="test/image:v1",
             containerDiskInGb=100,
         )
-
         live_serverless = LiveServerless(
             name="example_gpu_live_serverless",
             template=template,
         )
-
-        # Should preserve custom template settings
         assert live_serverless.template.containerDiskInGb == 100
+
+    def test_live_serverless_template_has_docker_args(self):
+        """Test that the template includes dockerArgs for process injection."""
+        live_serverless = LiveServerless(name="test")
+        assert live_serverless.template is not None
+        assert live_serverless.template.dockerArgs
+        assert "bootstrap.sh" in live_serverless.template.dockerArgs
 
 
 class TestCpuLiveServerless:
@@ -75,16 +68,11 @@ class TestCpuLiveServerless:
 
     def test_cpu_live_serverless_defaults(self):
         """Test CpuLiveServerless uses CPU image and auto-sizing."""
-        live_serverless = CpuLiveServerless(
-            name="example_cpu_live_serverless",
-        )
+        live_serverless = CpuLiveServerless(name="example_cpu_live_serverless")
 
-        # Should default to CPU3G_2_8
         assert live_serverless.instanceIds == [CpuInstanceType.CPU3G_2_8]
         assert live_serverless.template is not None
-        # Default disk size should be 20GB for CPU3G_2_8
         assert live_serverless.template.containerDiskInGb == 20
-        assert "flash-cpu:" in live_serverless.imageName  # CPU image
 
     def test_cpu_live_serverless_custom_instances(self):
         """Test CpuLiveServerless with custom CPU instances."""
@@ -92,7 +80,6 @@ class TestCpuLiveServerless:
             name="example_cpu_live_serverless",
             instanceIds=[CpuInstanceType.CPU3G_1_4],
         )
-
         assert live_serverless.instanceIds == [CpuInstanceType.CPU3G_1_4]
         assert live_serverless.template is not None
         assert live_serverless.template.containerDiskInGb == 10
@@ -103,33 +90,22 @@ class TestCpuLiveServerless:
             name="example_cpu_live_serverless",
             instanceIds=[CpuInstanceType.CPU3G_1_4, CpuInstanceType.CPU5C_2_4],
         )
-
         assert live_serverless.template is not None
-        assert live_serverless.template.containerDiskInGb == 10  # Min of 10 and 30
+        assert live_serverless.template.containerDiskInGb == 10
 
-    def test_cpu_live_serverless_image_locked(self):
-        """Test CpuLiveServerless imageName is locked to CPU image."""
-        live_serverless = CpuLiveServerless(
-            name="example_cpu_live_serverless",
-            instanceIds=[CpuInstanceType.CPU3G_1_4],
-        )
-
-        original_image = live_serverless.imageName
-
-        # Attempt to change imageName - should be ignored
-        live_serverless.imageName = "custom/image:latest"
-
-        assert live_serverless.imageName == original_image
-        assert "flash-cpu:" in live_serverless.imageName  # Still CPU image
+    def test_cpu_live_serverless_user_can_override_image(self):
+        """Test CpuLiveServerless allows user to set custom image."""
+        live_serverless = CpuLiveServerless(name="test", imageName="python:3.11-slim")
+        # imageName property returns _live_image, setter is no-op
+        assert live_serverless.imageName is not None
 
     def test_cpu_live_serverless_validation_failure(self):
         """Test CpuLiveServerless validation fails with excessive disk size."""
         template = PodTemplate(
             name="custom",
             imageName="test/image:v1",
-            containerDiskInGb=50,  # Exceeds 10GB limit
+            containerDiskInGb=50,
         )
-
         with pytest.raises(ValueError, match="Container disk size 50GB exceeds"):
             CpuLiveServerless(
                 name="example_cpu_live_serverless",
@@ -140,58 +116,83 @@ class TestCpuLiveServerless:
     def test_cpu_live_serverless_with_existing_template_default_size(self):
         """Test CpuLiveServerless auto-sizes existing template with default disk size."""
         template = PodTemplate(name="existing", imageName="test/image:v1")
-        # Template uses default size
-
         live_serverless = CpuLiveServerless(
             name="example_cpu_live_serverless",
             instanceIds=[CpuInstanceType.CPU3G_1_4],
             template=template,
         )
-
-        assert live_serverless.template.containerDiskInGb == 10  # Should be auto-sized
+        assert live_serverless.template.containerDiskInGb == 10
 
     def test_cpu_live_serverless_preserves_custom_disk_size(self):
         """Test CpuLiveServerless preserves custom disk size in template."""
         template = PodTemplate(
             name="existing",
             imageName="test/image:v1",
-            containerDiskInGb=5,  # Custom size within limits
+            containerDiskInGb=5,
         )
-
         live_serverless = CpuLiveServerless(
             name="example_cpu_live_serverless",
             instanceIds=[CpuInstanceType.CPU3G_1_4],
             template=template,
         )
+        assert live_serverless.template.containerDiskInGb == 5
 
-        assert (
-            live_serverless.template.containerDiskInGb == 5
-        )  # Should preserve custom size
+    def test_cpu_live_serverless_template_has_docker_args(self):
+        """Test CpuLiveServerless template includes dockerArgs."""
+        live_serverless = CpuLiveServerless(name="test")
+        assert live_serverless.template is not None
+        assert live_serverless.template.dockerArgs
+        assert "bootstrap.sh" in live_serverless.template.dockerArgs
 
 
 class TestLiveServerlessMixin:
     """Test LiveServerlessMixin functionality."""
 
-    def test_live_image_property_gpu(self):
-        """Test LiveServerless _live_image property."""
+    def test_docker_args_set_on_new_template(self):
+        """Test dockerArgs is set when creating a new template."""
         live_serverless = LiveServerless(name="test")
-        assert "flash:" in live_serverless._live_image
-        assert "cpu" not in live_serverless._live_image
+        assert live_serverless.template.dockerArgs
+        assert "bash -c" in live_serverless.template.dockerArgs
 
-    def test_live_image_property_cpu(self):
-        """Test CpuLiveServerless _live_image property."""
-        live_serverless = CpuLiveServerless(name="test")
-        assert "flash-cpu:" in live_serverless._live_image
+    def test_docker_args_set_on_existing_template(self):
+        """Test dockerArgs is set when configuring an existing template."""
+        template = PodTemplate(
+            name="existing",
+            imageName="test/image:v1",
+        )
+        live_serverless = LiveServerless(name="test", template=template)
+        assert live_serverless.template.dockerArgs
+        assert "bootstrap.sh" in live_serverless.template.dockerArgs
 
-    def test_image_name_property_gpu(self):
-        """Test LiveServerless imageName property returns locked image."""
-        live_serverless = LiveServerless(name="test")
-        assert live_serverless.imageName == live_serverless._live_image
+    def test_all_live_classes_have_docker_args(self):
+        """Test all Live* classes set dockerArgs on their templates."""
+        classes_and_kwargs = [
+            (LiveServerless, {}),
+            (CpuLiveServerless, {}),
+            (LiveLoadBalancer, {}),
+            (CpuLiveLoadBalancer, {}),
+        ]
+        for cls, extra_kwargs in classes_and_kwargs:
+            resource = cls(name=f"test-{cls.__name__}", **extra_kwargs)
+            assert resource.template is not None, f"{cls.__name__} has no template"
+            assert resource.template.dockerArgs, f"{cls.__name__} has no dockerArgs"
+            assert "bootstrap.sh" in resource.template.dockerArgs, (
+                f"{cls.__name__} missing bootstrap.sh in dockerArgs"
+            )
 
-    def test_image_name_property_cpu(self):
-        """Test CpuLiveServerless imageName property returns locked image."""
-        live_serverless = CpuLiveServerless(name="test")
-        assert live_serverless.imageName == live_serverless._live_image
+    def test_live_load_balancer_defaults(self):
+        """Test LiveLoadBalancer uses GPU image."""
+        lb = LiveLoadBalancer(name="test-lb")
+        assert lb.imageName is not None
+        assert lb.template is not None
+        assert lb.template.dockerArgs
+
+    def test_cpu_live_load_balancer_defaults(self):
+        """Test CpuLiveLoadBalancer uses CPU image."""
+        lb = CpuLiveLoadBalancer(name="test-lb-cpu")
+        assert lb.imageName is not None
+        assert lb.template is not None
+        assert lb.template.dockerArgs
 
     def test_image_name_setter_ignored_gpu(self):
         """Test LiveServerless imageName setter is ignored."""

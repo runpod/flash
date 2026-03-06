@@ -8,16 +8,24 @@ from .constants import (
     get_image_name,
     local_python_version,
 )
+from .injection import build_injection_cmd
 from .load_balancer_sls_resource import (
     CpuLoadBalancerSlsResource,
     LoadBalancerSlsResource,
 )
 from .serverless import ServerlessEndpoint
 from .serverless_cpu import CpuServerlessEndpoint
+from .template import PodTemplate
 
 
 class LiveServerlessMixin:
-    """Common mixin for live serverless endpoints that locks the image."""
+    """Configures process injection via dockerArgs for any base image.
+
+    Sets a default base image (user can override via imageName) and generates
+    dockerArgs to download, extract, and run the flash-worker tarball at container
+    start time. QB vs LB mode is determined by FLASH_ENDPOINT_TYPE env var at
+    runtime, not by the Docker image.
+    """
 
     _image_type: ClassVar[str] = (
         ""  # Override in subclasses: 'gpu', 'cpu', 'lb', 'lb-cpu'
@@ -41,6 +49,18 @@ class LiveServerlessMixin:
     @imageName.setter
     def imageName(self, value):
         pass
+
+    def _create_new_template(self) -> PodTemplate:
+        """Create template with dockerArgs for process injection."""
+        template = super()._create_new_template()  # type: ignore[misc]
+        template.dockerArgs = build_injection_cmd()
+        return template
+
+    def _configure_existing_template(self) -> None:
+        """Configure existing template, adding dockerArgs for injection if not user-set."""
+        super()._configure_existing_template()  # type: ignore[misc]
+        if self.template is not None and not self.template.dockerArgs:  # type: ignore[attr-defined]
+            self.template.dockerArgs = build_injection_cmd()  # type: ignore[attr-defined]
 
 
 class LiveServerless(LiveServerlessMixin, ServerlessEndpoint):
