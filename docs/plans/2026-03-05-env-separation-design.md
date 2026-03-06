@@ -35,7 +35,7 @@ Clean separation between two concerns:
 
 ### Manifest pipeline
 
-- `_extract_deployment_config` in `manifest.py`: reads `resource.env` as-is (now `None` or explicit dict). If `None`, manifest stores `"env": {}`.
+- `_extract_deployment_config` in `manifest.py`: reads `resource.env` as-is (now `None` or explicit dict). If `None` or otherwise falsy, the manifest omits the `"env"` key.
 - Remove the existing `RUNPOD_API_KEY` stripping logic -- it won't be in user env anymore, and runtime injection handles it via `_inject_runtime_template_vars()`.
 
 ### Template creation

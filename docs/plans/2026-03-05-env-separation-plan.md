@@ -10,7 +10,7 @@
 
 **Branch base:** `deanq/ae-1549-env-vars-from-cwd-first`
 
-**Working directory:** `/Users/deanquinanola/Github/python/flash-project/flash/deanq-ae-1549-env-vars-from-cwd-first`
+**Working directory:** `$REPO_ROOT`
 
 **Test command:** `make format && make lint-fix && make quality-check` (then `git commit --no-verify`)
 
@@ -685,7 +685,7 @@ git commit --no-verify -m "docs: update API key management for env separation"
 - Modify: `docs/cli/troubleshooting.md`
 - Modify: `docs/cli/getting-started.md`
 
-**Working directory:** `/Users/deanquinanola/Github/python/flash-project/flash-examples/main`
+**Working directory:** `$FLASH_EXAMPLES_ROOT/main`
 
 **Step 1: Identify all `.env` references that need updating**
 
@@ -730,7 +730,7 @@ Update all documentation to reflect env separation:
 **Step 1: Run full quality check on flash repo**
 
 ```bash
-cd /Users/deanquinanola/Github/python/flash-project/flash/deanq-ae-1549-env-vars-from-cwd-first
+cd $REPO_ROOT
 make format && make lint-fix && make quality-check
 ```
 

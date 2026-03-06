@@ -248,12 +248,13 @@ class TestRenderEnvPreview:
         assert "hf_secret_longvalue" not in output
         assert "rp_abcdef1234567890" not in output
 
-    def test_source_label_shows_injected_by_flash(self) -> None:
+    def test_source_label_shows_flash_and_user(self) -> None:
         manifest = {
             "resources": {
                 "lb-worker": {
                     "is_load_balanced": True,
                     "module_path": "app:Model",
+                    "env": {"MY_VAR": "val"},
                 },
             },
         }
@@ -261,5 +262,6 @@ class TestRenderEnvPreview:
         console = Console(file=buf, force_terminal=True, width=120)
         render_env_preview(manifest, console)
         output = buf.getvalue()
-        assert "injected by flash" in output
+        assert "flash" in output
+        assert "user" in output
         assert "FLASH_MODULE_PATH" in output

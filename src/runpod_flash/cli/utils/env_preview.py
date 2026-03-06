@@ -76,7 +76,7 @@ def render_env_preview(
     manifest: dict[str, Any],
     console: Console | None = None,
 ) -> None:
-    """Render deploy-time env preview table to console."""
+    """Render a compact deploy-time env preview table to console."""
     if console is None:
         console = Console()
 
@@ -85,26 +85,32 @@ def render_env_preview(
     if not env_data:
         return
 
-    console.print("\n[bold]Environment Variables per Resource:[/bold]\n")
+    # Single compact table: one row per (resource, var) pair
+    table = Table(
+        title="Deploy Env Vars",
+        show_header=True,
+        header_style="bold",
+        padding=(0, 1),
+    )
+    table.add_column("Resource", style="cyan")
+    table.add_column("Variable")
+    table.add_column("Value")
+    table.add_column("Source", style="dim")
 
     for resource_name, entries in sorted(env_data.items()):
-        table = Table(
-            title=resource_name,
-            show_header=True,
-            header_style="bold",
-            padding=(0, 1),
-        )
-        table.add_column("Variable", style="cyan")
-        table.add_column("Value")
-        table.add_column("Source", style="dim")
-
         if not entries:
-            table.add_row("(none)", "", "")
+            table.add_row(resource_name, "(none)", "", "")
         else:
-            for key, value, source in entries:
+            for i, (key, value, source) in enumerate(entries):
                 masked = mask_env_value(key, value)
-                source_label = "injected by flash" if source == "flash" else ""
-                table.add_row(key, masked, source_label)
+                if source == "flash":
+                    source_label = "flash"
+                elif source == "user":
+                    source_label = "user"
+                else:
+                    source_label = source or ""
+                # Show resource name only on first row for that resource
+                label = resource_name if i == 0 else ""
+                table.add_row(label, key, masked, source_label)
 
-        console.print(table)
-        console.print()
+    console.print(table)
