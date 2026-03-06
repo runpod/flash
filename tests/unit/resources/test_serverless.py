@@ -1375,3 +1375,49 @@ class TestHealthModels:
         health = ServerlessHealth(workers=workers_health, jobs=jobs_health)
 
         assert health.is_ready is False
+
+
+class TestServerlessResourcePythonVersion:
+    """Tests for python_version field on ServerlessResource."""
+
+    def _get_class_set(self, attr_name: str) -> set:
+        """Extract set from class attribute, handling ModelPrivateAttr wrapping."""
+        attr = getattr(ServerlessEndpoint, attr_name, None)
+        if isinstance(attr, (set, frozenset)):
+            return attr
+        if hasattr(attr, "default") and isinstance(attr.default, (set, frozenset)):
+            return attr.default
+        raise TypeError(f"Cannot extract set from {attr_name}: {type(attr)}")
+
+    def test_python_version_defaults_to_none(self):
+        endpoint = ServerlessEndpoint(name="test", imageName="test:latest")
+        assert endpoint.python_version is None
+
+    def test_python_version_accepts_valid_values(self):
+        from runpod_flash.core.resources.constants import SUPPORTED_PYTHON_VERSIONS
+
+        for version in SUPPORTED_PYTHON_VERSIONS:
+            endpoint = ServerlessEndpoint(
+                name="test", imageName="test:latest", python_version=version
+            )
+            assert endpoint.python_version == version
+
+    def test_python_version_rejects_invalid(self):
+        with pytest.raises(ValueError, match="not supported"):
+            ServerlessEndpoint(
+                name="test", imageName="test:latest", python_version="3.13"
+            )
+
+    def test_python_version_rejects_3_9(self):
+        with pytest.raises(ValueError, match="not supported"):
+            ServerlessEndpoint(
+                name="test", imageName="test:latest", python_version="3.9"
+            )
+
+    def test_python_version_in_hashed_fields(self):
+        hashed = self._get_class_set("_hashed_fields")
+        assert "python_version" in hashed
+
+    def test_python_version_in_input_only(self):
+        input_only = self._get_class_set("_input_only")
+        assert "python_version" in input_only

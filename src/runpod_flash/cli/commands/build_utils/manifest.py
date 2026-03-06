@@ -406,6 +406,7 @@ class ManifestBuilder:
 
         manifest = {
             "version": "1.0",
+            "python_version": f"{sys.version_info.major}.{sys.version_info.minor}",
             "generated_at": datetime.now(timezone.utc)
             .isoformat()
             .replace("+00:00", "Z"),

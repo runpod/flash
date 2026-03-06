@@ -20,7 +20,11 @@ try:
 except ImportError:
     import tomli as tomllib  # Python 3.9-3.10
 
-from runpod_flash.core.resources.constants import MAX_TARBALL_SIZE_MB
+from runpod_flash.core.resources.constants import (
+    MAX_TARBALL_SIZE_MB,
+    SUPPORTED_PYTHON_VERSIONS,
+    validate_python_version,
+)
 
 from ..utils.ignore import get_file_tree, load_ignore_patterns
 from .build_utils.handler_generator import HandlerGenerator
@@ -794,6 +798,21 @@ def install_dependencies(
 
     # Get current Python version for compatibility
     python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
+
+    try:
+        validate_python_version(python_version)
+    except ValueError:
+        console.print(
+            f"\n[red]Python {python_version} is not supported for Flash deployment.[/red]"
+        )
+        console.print(
+            f"[yellow]Supported versions: {', '.join(SUPPORTED_PYTHON_VERSIONS)}[/yellow]"
+        )
+        console.print(
+            "[yellow]Set python_version explicitly in your resource config "
+            "or switch to a supported Python version.[/yellow]"
+        )
+        return False
 
     # Determine if using uv pip or standard pip (different flag formats)
     is_uv_pip = pip_cmd[0] == UV_COMMAND
