@@ -429,7 +429,7 @@ class FlashApp:
 
         Args:
             tar_path: Path to the tarball file (string or Path object)
-                     Must be .tar.gz or .tgz, under 500MB
+                     Must be .tar.gz or .tgz, under 1500MB
 
         Returns:
             Dictionary containing build information including the build ID
