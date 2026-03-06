@@ -237,6 +237,24 @@ def run_build(
     spec = load_ignore_patterns(project_dir)
     files = get_file_tree(project_dir, spec)
 
+    # Validate Python version unconditionally — even projects with no dependencies
+    # must build on a supported Python to avoid runtime ABI mismatches.
+    python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
+    try:
+        validate_python_version(python_version)
+    except ValueError:
+        console.print(
+            f"\n[red]Python {python_version} is not supported for Flash deployment.[/red]"
+        )
+        console.print(
+            f"[yellow]Supported versions: {', '.join(SUPPORTED_PYTHON_VERSIONS)}[/yellow]"
+        )
+        console.print(
+            "[yellow]Please switch your local Python interpreter to a supported "
+            "version, or build inside a virtual environment that uses one.[/yellow]"
+        )
+        raise typer.Exit(1)
+
     try:
         copy_project_files(files, project_dir, build_dir)
 
@@ -245,7 +263,11 @@ def run_build(
             remote_functions = scanner.discover_remote_functions()
 
             manifest_builder = ManifestBuilder(
-                app_name, remote_functions, scanner, build_dir=build_dir
+                app_name,
+                remote_functions,
+                scanner,
+                build_dir=build_dir,
+                python_version=python_version,
             )
             manifest = manifest_builder.build()
             manifest_path = build_dir / "flash_manifest.json"
@@ -796,28 +818,11 @@ def install_dependencies(
         console.print(f"  • {UV_COMMAND} {PIP_MODULE} install {PIP_MODULE}")
         return False
 
-    # Get current Python version for compatibility
-    python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
-
-    try:
-        validate_python_version(python_version)
-    except ValueError:
-        console.print(
-            f"\n[red]Python {python_version} is not supported for Flash deployment.[/red]"
-        )
-        console.print(
-            f"[yellow]Supported versions: {', '.join(SUPPORTED_PYTHON_VERSIONS)}[/yellow]"
-        )
-        console.print(
-            "[yellow]Please switch your local Python interpreter to a supported "
-            "version, or build inside a virtual environment that uses one.[/yellow]"
-        )
-        return False
-
     # Determine if using uv pip or standard pip (different flag formats)
     is_uv_pip = pip_cmd[0] == UV_COMMAND
 
     # Build pip command with platform-specific flags for RunPod serverless
+    python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
     cmd = pip_cmd + [
         "install",
         "--target",
