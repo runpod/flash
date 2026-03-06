@@ -43,6 +43,8 @@ def collect_env_for_preview(
     resources = manifest.get("resources", {})
     result: dict[str, list[tuple[str, str, str]]] = {}
 
+    api_key = get_api_key()
+
     for resource_name, config in resources.items():
         entries: list[tuple[str, str, str]] = []
 
@@ -50,13 +52,16 @@ def collect_env_for_preview(
         for key, value in sorted(user_env.items()):
             entries.append((key, str(value), "user"))
 
-        if config.get("makes_remote_calls", False):
-            if "RUNPOD_API_KEY" not in user_env:
-                api_key = get_api_key()
-                if api_key:
-                    entries.append(("RUNPOD_API_KEY", api_key, "flash"))
+        is_lb = config.get("is_load_balanced", False)
 
-        if config.get("is_load_balanced", False):
+        # Mirror _do_deploy injection: QB endpoints get RUNPOD_API_KEY,
+        # LB endpoints get FLASH_MODULE_PATH. LB endpoints do NOT get
+        # RUNPOD_API_KEY injected at deploy time.
+        if not is_lb and config.get("makes_remote_calls", False):
+            if "RUNPOD_API_KEY" not in user_env and api_key:
+                entries.append(("RUNPOD_API_KEY", api_key, "flash"))
+
+        if is_lb:
             if "FLASH_MODULE_PATH" not in user_env:
                 module_path = config.get("module_path", "")
                 if module_path:

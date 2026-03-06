@@ -318,8 +318,9 @@ class ServerlessResource(DeployableResource):
     def config_hash(self) -> str:
         """Get config hash excluding runtime-assigned fields.
 
-        Prevents false drift from:
-        - Runtime-assigned fields (template, templateId, aiKey, userId, etc.)
+        Fields that are None are excluded via exclude_none. When env is None
+        (default), it is not included in the hash. When env is explicitly set,
+        it IS included and triggers drift detection.
 
         Hashes user-specified configuration including env vars.
         """

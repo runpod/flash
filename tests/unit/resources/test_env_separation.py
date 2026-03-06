@@ -5,9 +5,10 @@ should be carried to deployed endpoints.
 """
 
 from runpod_flash.core.resources.live_serverless import (
-    LiveServerless,
     CpuLiveServerless,
+    LiveServerless,
 )
+from runpod_flash.core.resources.template import KeyValuePair, PodTemplate
 
 
 class TestEnvDefaultsToNone:
@@ -61,3 +62,38 @@ class TestCreateNewTemplateEnv:
 
         template = resource._create_new_template()
         assert template.env == []
+
+
+class TestConfigureExistingTemplateEnv:
+    """_configure_existing_template should not overwrite template env when resource.env is None."""
+
+    def test_existing_template_env_preserved_when_resource_env_is_none(self):
+        """When resource env is None, existing template env should not be touched."""
+
+        existing_env = [KeyValuePair(key="EXISTING_VAR", value="keep_me")]
+        template = PodTemplate(env=existing_env)
+
+        resource = LiveServerless(name="test-gpu", template=template)
+        assert resource.env is None
+
+        resource._configure_existing_template()
+        assert len(resource.template.env) == 1
+        assert resource.template.env[0].key == "EXISTING_VAR"
+        assert resource.template.env[0].value == "keep_me"
+
+    def test_existing_template_env_overwritten_when_resource_env_is_set(self):
+        """When resource env is explicitly set, template env should be updated."""
+
+        existing_env = [KeyValuePair(key="OLD_VAR", value="old")]
+        template = PodTemplate(env=existing_env)
+
+        resource = LiveServerless(
+            name="test-gpu",
+            template=template,
+            env={"NEW_VAR": "new"},
+        )
+
+        resource._configure_existing_template()
+        assert len(resource.template.env) == 1
+        assert resource.template.env[0].key == "NEW_VAR"
+        assert resource.template.env[0].value == "new"
