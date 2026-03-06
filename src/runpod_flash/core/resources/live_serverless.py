@@ -1,51 +1,72 @@
-# Ship serverless code as you write it. No builds, no deploys — just run.
+# Ship serverless code as you write it. No builds, no deploys -- just run.
 from pydantic import model_validator
 
 from .constants import (
+    FLASH_CPU_BASE_IMAGE,
     FLASH_CPU_IMAGE,
     FLASH_CPU_LB_IMAGE,
+    FLASH_GPU_BASE_IMAGE,
     FLASH_GPU_IMAGE,
     FLASH_LB_IMAGE,
 )
+from .injection import build_injection_cmd
 from .load_balancer_sls_resource import (
     CpuLoadBalancerSlsResource,
     LoadBalancerSlsResource,
 )
 from .serverless import ServerlessEndpoint
 from .serverless_cpu import CpuServerlessEndpoint
+from .template import PodTemplate
 
 
 class LiveServerlessMixin:
-    """Common mixin for live serverless endpoints that locks the image."""
+    """Configures process injection via dockerArgs for any base image.
+
+    Sets a default base image (user can override via imageName) and generates
+    dockerArgs to download, extract, and run the flash-worker tarball at container
+    start time. QB vs LB mode is determined by FLASH_ENDPOINT_TYPE env var at
+    runtime, not by the Docker image.
+    """
 
     @property
-    def _live_image(self) -> str:
-        """Override in subclasses to specify the locked image."""
-        raise NotImplementedError("Subclasses must define _live_image")
+    def _default_base_image(self) -> str:
+        raise NotImplementedError("Subclasses must define _default_base_image")
 
     @property
-    def imageName(self):
-        # Lock imageName to specific image
-        return self._live_image
+    def _legacy_image(self) -> str:
+        """Legacy Docker Hub image for preview mode."""
+        raise NotImplementedError("Subclasses must define _legacy_image")
 
-    @imageName.setter
-    def imageName(self, value):
-        # Prevent manual setting of imageName
-        pass
+    def _create_new_template(self) -> PodTemplate:
+        """Create template with dockerArgs for process injection."""
+        template = super()._create_new_template()  # type: ignore[misc]
+        template.dockerArgs = build_injection_cmd()
+        return template
+
+    def _configure_existing_template(self) -> None:
+        """Configure existing template, adding dockerArgs for injection if not user-set."""
+        super()._configure_existing_template()  # type: ignore[misc]
+        if self.template is not None and not self.template.dockerArgs:  # type: ignore[attr-defined]
+            self.template.dockerArgs = build_injection_cmd()  # type: ignore[attr-defined]
 
 
 class LiveServerless(LiveServerlessMixin, ServerlessEndpoint):
     """GPU-only live serverless endpoint."""
 
     @property
-    def _live_image(self) -> str:
+    def _default_base_image(self) -> str:
+        return FLASH_GPU_BASE_IMAGE
+
+    @property
+    def _legacy_image(self) -> str:
         return FLASH_GPU_IMAGE
 
     @model_validator(mode="before")
     @classmethod
     def set_live_serverless_template(cls, data: dict):
-        """Set default GPU image for Live Serverless."""
-        data["imageName"] = FLASH_GPU_IMAGE
+        """Set default GPU base image for Live Serverless."""
+        if not data.get("imageName"):
+            data["imageName"] = FLASH_GPU_BASE_IMAGE
         return data
 
 
@@ -53,14 +74,19 @@ class CpuLiveServerless(LiveServerlessMixin, CpuServerlessEndpoint):
     """CPU-only live serverless endpoint with automatic disk sizing."""
 
     @property
-    def _live_image(self) -> str:
+    def _default_base_image(self) -> str:
+        return FLASH_CPU_BASE_IMAGE
+
+    @property
+    def _legacy_image(self) -> str:
         return FLASH_CPU_IMAGE
 
     @model_validator(mode="before")
     @classmethod
     def set_live_serverless_template(cls, data: dict):
-        """Set default CPU image for Live Serverless."""
-        data["imageName"] = FLASH_CPU_IMAGE
+        """Set default CPU base image for Live Serverless."""
+        if not data.get("imageName"):
+            data["imageName"] = FLASH_CPU_BASE_IMAGE
         return data
 
 
@@ -71,12 +97,6 @@ class LiveLoadBalancer(LiveServerlessMixin, LoadBalancerSlsResource):
     Enables local testing of @remote decorated functions with LB endpoints
     before deploying to production.
 
-    Features:
-    - Locks to Flash LB image (flash-lb)
-    - Direct HTTP execution (not queue-based)
-    - Local development with flash run
-    - Same @remote decorator pattern as LoadBalancerSlsResource
-
     Usage:
         from runpod_flash import LiveLoadBalancer, remote
 
@@ -85,32 +105,22 @@ class LiveLoadBalancer(LiveServerlessMixin, LoadBalancerSlsResource):
         @remote(api, method="POST", path="/api/process")
         async def process_data(x: int, y: int):
             return {"result": x + y}
-
-        # Test locally
-        result = await process_data(5, 3)
-
-    Local Development Flow:
-        1. Create LiveLoadBalancer with routing
-        2. Decorate functions with @remote(lb_resource, method=..., path=...)
-        3. Run with `flash run` to start local endpoint
-        4. Call functions directly in tests or scripts
-        5. Deploy to production with `flash build` and `flash deploy`
-
-    Note:
-        The endpoint_url is configured by the Flash runtime when the
-        endpoint is deployed locally. For true local testing without
-        deployment, use the functions directly or mock the HTTP layer.
     """
 
     @property
-    def _live_image(self) -> str:
+    def _default_base_image(self) -> str:
+        return FLASH_GPU_BASE_IMAGE
+
+    @property
+    def _legacy_image(self) -> str:
         return FLASH_LB_IMAGE
 
     @model_validator(mode="before")
     @classmethod
     def set_live_lb_template(cls, data: dict):
         """Set default image for Live Load-Balanced endpoint."""
-        data["imageName"] = FLASH_LB_IMAGE
+        if not data.get("imageName"):
+            data["imageName"] = FLASH_GPU_BASE_IMAGE
         return data
 
 
@@ -120,13 +130,6 @@ class CpuLiveLoadBalancer(LiveServerlessMixin, CpuLoadBalancerSlsResource):
     Similar to LiveLoadBalancer but configured for CPU instances with
     automatic disk sizing and validation.
 
-    Features:
-    - Locks to CPU Flash LB image (flash-lb-cpu)
-    - CPU instance support with automatic disk sizing
-    - Direct HTTP execution (not queue-based)
-    - Local development with flash run
-    - Same @remote decorator pattern as CpuLoadBalancerSlsResource
-
     Usage:
         from runpod_flash import CpuLiveLoadBalancer, remote
 
@@ -135,25 +138,20 @@ class CpuLiveLoadBalancer(LiveServerlessMixin, CpuLoadBalancerSlsResource):
         @remote(api, method="POST", path="/api/process")
         async def process_data(x: int, y: int):
             return {"result": x + y}
-
-        # Test locally
-        result = await process_data(5, 3)
-
-    Local Development Flow:
-        1. Create CpuLiveLoadBalancer with routing
-        2. Decorate functions with @remote(lb_resource, method=..., path=...)
-        3. Run with `flash run` to start local endpoint
-        4. Call functions directly in tests or scripts
-        5. Deploy to production with `flash build` and `flash deploy`
     """
 
     @property
-    def _live_image(self) -> str:
+    def _default_base_image(self) -> str:
+        return FLASH_CPU_BASE_IMAGE
+
+    @property
+    def _legacy_image(self) -> str:
         return FLASH_CPU_LB_IMAGE
 
     @model_validator(mode="before")
     @classmethod
     def set_live_cpu_lb_template(cls, data: dict):
         """Set default CPU image for Live Load-Balanced endpoint."""
-        data["imageName"] = FLASH_CPU_LB_IMAGE
+        if not data.get("imageName"):
+            data["imageName"] = FLASH_CPU_BASE_IMAGE
         return data
