@@ -129,7 +129,7 @@ class TestCpuDiskSizingIntegration:
         # 2. CPU utilities calculate minimum disk size
         # 3. Template creation with auto-sizing
         # 4. Validation passes
-        assert live_serverless.imageName == "python:3.12-slim"
+        assert live_serverless.imageName == "python:3.11-slim"
         assert live_serverless.instanceIds == [
             CpuInstanceType.CPU5C_1_2,
             CpuInstanceType.CPU5C_2_4,
