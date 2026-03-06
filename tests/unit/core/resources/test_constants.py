@@ -25,7 +25,7 @@ class TestSupportedPythonVersions:
     def test_cpu_python_versions(self):
         assert CPU_PYTHON_VERSIONS == ("3.10", "3.11", "3.12")
 
-    def test_default_python_version_is_3_12(self):
+    def test_default_python_version_is_3_11(self):
         assert DEFAULT_PYTHON_VERSION == "3.11"
 
 
@@ -106,6 +106,14 @@ class TestGetImageName:
     def test_env_var_override_lb_cpu(self):
         with patch.dict(os.environ, {"FLASH_CPU_LB_IMAGE": "custom/lb-cpu:mine"}):
             assert get_image_name("lb-cpu", "3.11") == "custom/lb-cpu:mine"
+
+    def test_env_var_override_bypasses_unsupported_version(self):
+        with patch.dict(os.environ, {"FLASH_GPU_IMAGE": "custom/gpu:mine"}):
+            assert get_image_name("gpu", "3.9") == "custom/gpu:mine"
+
+    def test_env_var_override_bypasses_gpu_version_constraint(self):
+        with patch.dict(os.environ, {"FLASH_GPU_IMAGE": "custom/gpu:mine"}):
+            assert get_image_name("gpu", "3.10") == "custom/gpu:mine"
 
 
 class TestValidatePythonVersion:

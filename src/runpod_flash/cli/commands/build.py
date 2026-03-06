@@ -809,8 +809,8 @@ def install_dependencies(
             f"[yellow]Supported versions: {', '.join(SUPPORTED_PYTHON_VERSIONS)}[/yellow]"
         )
         console.print(
-            "[yellow]Set python_version explicitly in your resource config "
-            "or switch to a supported Python version.[/yellow]"
+            "[yellow]Please switch your local Python interpreter to a supported "
+            "version, or build inside a virtual environment that uses one.[/yellow]"
         )
         return False
 

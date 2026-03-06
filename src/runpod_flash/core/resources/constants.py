@@ -91,6 +91,12 @@ def get_image_name(
             f"Valid types: {', '.join(sorted(_IMAGE_REPOS))}"
         )
 
+    # Environment variable override takes precedence, bypassing version validation
+    env_var = _IMAGE_ENV_VARS[image_type]
+    override = os.environ.get(env_var)
+    if override:
+        return override
+
     validate_python_version(python_version)
 
     if image_type in _GPU_IMAGE_TYPES and python_version not in GPU_PYTHON_VERSIONS:
@@ -98,12 +104,6 @@ def get_image_name(
         raise ValueError(
             f"GPU endpoints require Python {gpu_versions}. Got Python {python_version}."
         )
-
-    # Environment variable override takes precedence
-    env_var = _IMAGE_ENV_VARS[image_type]
-    override = os.environ.get(env_var)
-    if override:
-        return override
 
     resolved_tag = tag or os.environ.get("FLASH_IMAGE_TAG", "latest")
     repo = _IMAGE_REPOS[image_type]
