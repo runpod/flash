@@ -832,3 +832,47 @@ def test_extract_deployment_config_inline_workers():
 
         assert config["workersMin"] == 1
         assert config["workersMax"] == 5
+
+
+def test_manifest_includes_python_version():
+    """Manifest should record the Python version used at build time."""
+    functions = [
+        RemoteFunctionMetadata(
+            function_name="gpu_inference",
+            module_path="workers.gpu",
+            resource_config_name="gpu_config",
+            resource_type="LiveServerless",
+            is_async=True,
+            is_class=False,
+            file_path=Path("workers/gpu.py"),
+        )
+    ]
+
+    builder = ManifestBuilder("test_app", functions)
+    manifest = builder.build()
+
+    assert "python_version" in manifest
+    import sys
+
+    expected = f"{sys.version_info.major}.{sys.version_info.minor}"
+    assert manifest["python_version"] == expected
+
+
+def test_manifest_uses_explicit_python_version():
+    """Manifest should use the explicitly passed python_version over sys.version_info."""
+    functions = [
+        RemoteFunctionMetadata(
+            function_name="gpu_inference",
+            module_path="workers.gpu",
+            resource_config_name="gpu_config",
+            resource_type="LiveServerless",
+            is_async=True,
+            is_class=False,
+            file_path=Path("workers/gpu.py"),
+        )
+    ]
+
+    builder = ManifestBuilder("test_app", functions, python_version="3.12")
+    manifest = builder.build()
+
+    assert manifest["python_version"] == "3.12"

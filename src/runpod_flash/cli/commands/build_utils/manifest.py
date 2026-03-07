@@ -64,6 +64,7 @@ class ManifestBuilder:
         remote_functions: List[RemoteFunctionMetadata],
         scanner=None,
         build_dir: Optional[Path] = None,
+        python_version: Optional[str] = None,
     ):
         self.project_name = project_name
         self.remote_functions = remote_functions
@@ -71,6 +72,9 @@ class ManifestBuilder:
             scanner  # Optional: RemoteDecoratorScanner with resource config info
         )
         self.build_dir = build_dir
+        self.python_version = (
+            python_version or f"{sys.version_info.major}.{sys.version_info.minor}"
+        )
 
     def _import_module(self, file_path: Path):
         """Import a module from file path, returning (module, cleanup_fn).
@@ -406,6 +410,7 @@ class ManifestBuilder:
 
         manifest = {
             "version": "1.0",
+            "python_version": self.python_version,
             "generated_at": datetime.now(timezone.utc)
             .isoformat()
             .replace("+00:00", "Z"),
