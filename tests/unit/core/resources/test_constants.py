@@ -11,6 +11,7 @@ from runpod_flash.core.resources.constants import (
     GPU_PYTHON_VERSIONS,
     SUPPORTED_PYTHON_VERSIONS,
     get_image_name,
+    local_python_version,
     validate_python_version,
 )
 
@@ -114,6 +115,23 @@ class TestGetImageName:
     def test_env_var_override_bypasses_gpu_version_constraint(self):
         with patch.dict(os.environ, {"FLASH_GPU_IMAGE": "custom/gpu:mine"}):
             assert get_image_name("gpu", "3.10") == "custom/gpu:mine"
+
+
+class TestLocalPythonVersion:
+    def test_returns_major_minor_string(self):
+        import sys
+
+        expected = f"{sys.version_info.major}.{sys.version_info.minor}"
+        assert local_python_version() == expected
+
+    def test_returns_string_type(self):
+        assert isinstance(local_python_version(), str)
+
+    def test_matches_dot_separated_format(self):
+        version = local_python_version()
+        parts = version.split(".")
+        assert len(parts) == 2
+        assert all(part.isdigit() for part in parts)
 
 
 class TestValidatePythonVersion:

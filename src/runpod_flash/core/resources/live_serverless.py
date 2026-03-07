@@ -3,7 +3,7 @@ from typing import ClassVar
 
 from pydantic import model_validator
 
-from .constants import DEFAULT_PYTHON_VERSION, get_image_name
+from .constants import get_image_name, local_python_version
 from .load_balancer_sls_resource import (
     CpuLoadBalancerSlsResource,
     LoadBalancerSlsResource,
@@ -21,7 +21,7 @@ class LiveServerlessMixin:
 
     @property
     def _live_image(self) -> str:
-        python_version = getattr(self, "python_version", None) or DEFAULT_PYTHON_VERSION
+        python_version = getattr(self, "python_version", None) or local_python_version()
         return get_image_name(self._image_type, python_version)
 
     @property
@@ -42,7 +42,7 @@ class LiveServerless(LiveServerlessMixin, ServerlessEndpoint):
     @classmethod
     def set_live_serverless_template(cls, data: dict):
         """Set default GPU image for Live Serverless."""
-        python_version = data.get("python_version") or DEFAULT_PYTHON_VERSION
+        python_version = data.get("python_version") or local_python_version()
         data["imageName"] = get_image_name("gpu", python_version)
         return data
 
@@ -56,7 +56,7 @@ class CpuLiveServerless(LiveServerlessMixin, CpuServerlessEndpoint):
     @classmethod
     def set_live_serverless_template(cls, data: dict):
         """Set default CPU image for Live Serverless."""
-        python_version = data.get("python_version") or DEFAULT_PYTHON_VERSION
+        python_version = data.get("python_version") or local_python_version()
         data["imageName"] = get_image_name("cpu", python_version)
         return data
 
@@ -70,7 +70,7 @@ class LiveLoadBalancer(LiveServerlessMixin, LoadBalancerSlsResource):
     @classmethod
     def set_live_lb_template(cls, data: dict):
         """Set default image for Live Load-Balanced endpoint."""
-        python_version = data.get("python_version") or DEFAULT_PYTHON_VERSION
+        python_version = data.get("python_version") or local_python_version()
         data["imageName"] = get_image_name("lb", python_version)
         return data
 
@@ -84,6 +84,6 @@ class CpuLiveLoadBalancer(LiveServerlessMixin, CpuLoadBalancerSlsResource):
     @classmethod
     def set_live_cpu_lb_template(cls, data: dict):
         """Set default CPU image for Live Load-Balanced endpoint."""
-        python_version = data.get("python_version") or DEFAULT_PYTHON_VERSION
+        python_version = data.get("python_version") or local_python_version()
         data["imageName"] = get_image_name("lb-cpu", python_version)
         return data

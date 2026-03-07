@@ -3,6 +3,7 @@ Unit tests for LiveServerless and CpuLiveServerless classes.
 """
 
 import pytest
+from runpod_flash.core.resources.constants import local_python_version
 from runpod_flash.core.resources.cpu import CpuInstanceType
 from runpod_flash.core.resources.live_serverless import (
     LiveServerless,
@@ -211,9 +212,9 @@ class TestLiveServerlessMixin:
 class TestLiveServerlessPythonVersion:
     """Test python_version support in Live* classes."""
 
-    def test_gpu_default_image_includes_py311(self):
+    def test_gpu_default_image_uses_local_python(self):
         ls = LiveServerless(name="test")
-        assert "py3.11" in ls.imageName
+        assert f"py{local_python_version()}" in ls.imageName
 
     def test_gpu_explicit_python_311(self):
         ls = LiveServerless(name="test", python_version="3.11")
@@ -221,7 +222,6 @@ class TestLiveServerlessPythonVersion:
         assert "runpod/flash:" in ls.imageName
 
     def test_gpu_explicit_python_310_raises(self):
-        """GPU endpoints don't support Python 3.10."""
         with pytest.raises(ValueError, match="GPU endpoints require"):
             LiveServerless(name="test", python_version="3.10")
 
@@ -239,9 +239,9 @@ class TestLiveServerlessPythonVersion:
 class TestLiveLoadBalancerPythonVersion:
     """Test python_version support in LiveLoadBalancer classes."""
 
-    def test_lb_default_image_includes_py311(self):
+    def test_lb_default_image_uses_local_python(self):
         lb = LiveLoadBalancer(name="test")
-        assert "py3.11" in lb.imageName
+        assert f"py{local_python_version()}" in lb.imageName
         assert "runpod/flash-lb:" in lb.imageName
 
     def test_lb_explicit_python_311(self):
@@ -257,6 +257,6 @@ class TestLiveLoadBalancerPythonVersion:
         assert "py3.10" in lb.imageName
         assert "runpod/flash-lb-cpu:" in lb.imageName
 
-    def test_cpu_lb_default_py311(self):
+    def test_cpu_lb_default_uses_local_python(self):
         lb = CpuLiveLoadBalancer(name="test")
-        assert "py3.11" in lb.imageName
+        assert f"py{local_python_version()}" in lb.imageName

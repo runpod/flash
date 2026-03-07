@@ -21,9 +21,17 @@ ENDPOINT_DOMAIN = _endpoint_domain_from_base_url(runpod.endpoint_url_base)
 
 # Python version support
 SUPPORTED_PYTHON_VERSIONS: tuple[str, ...] = ("3.10", "3.11", "3.12")
-GPU_PYTHON_VERSIONS: tuple[str, ...] = ("3.11", "3.12")
+GPU_PYTHON_VERSIONS: tuple[str, ...] = ("3.10", "3.11", "3.12")
 CPU_PYTHON_VERSIONS: tuple[str, ...] = ("3.10", "3.11", "3.12")
 DEFAULT_PYTHON_VERSION: str = "3.11"
+
+
+def local_python_version() -> str:
+    """Return the running interpreter's major.minor version string."""
+    import sys
+
+    return f"{sys.version_info.major}.{sys.version_info.minor}"
+
 
 # Image type to repository mapping
 _IMAGE_REPOS: dict[str, str] = {
