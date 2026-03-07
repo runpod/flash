@@ -12,7 +12,7 @@ class TestBuildInjectionCmd:
 
         assert cmd.startswith("bash -c '")
         assert "FW_VER=1.1.1" in cmd
-        assert "flash-worker/releases/download/v1.1.1/" in cmd
+        assert "runpod-workers/flash/releases/download/v1.1.1/" in cmd
         assert "bootstrap.sh'" in cmd
 
     def test_custom_tarball_url(self):
@@ -50,12 +50,13 @@ class TestBuildInjectionCmd:
         assert "/runpod-volume/.flash-worker/" in cmd
         assert "NV_CACHE" in cmd
 
-    def test_curl_wget_fallback(self):
-        """Test curl/wget fallback logic."""
+    def test_curl_wget_python_fallback(self):
+        """Test curl/wget/python3 fallback chain."""
         cmd = build_injection_cmd(worker_version="1.0.0")
 
         assert "curl -sSL" in cmd
         assert "wget -qO-" in cmd
+        assert "urllib.request" in cmd
 
     def test_default_uses_constants(self):
         """Test that calling with no args uses module-level constants."""
