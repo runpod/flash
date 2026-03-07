@@ -39,7 +39,12 @@ def build_injection_cmd(
         "else "
         "mkdir -p $FW_DIR; "
         f'DL_URL="{tarball_url}"; '
-        '(command -v curl >/dev/null 2>&1 && curl -sSL "$DL_URL" || wget -qO- "$DL_URL") '
+        "dl() { "
+        '(command -v curl >/dev/null 2>&1 && curl -sSL "$1" || '
+        'command -v wget >/dev/null 2>&1 && wget -qO- "$1" || '
+        'python3 -c "import urllib.request,sys;sys.stdout.buffer.write(urllib.request.urlopen(sys.argv[1]).read())" "$1"); '
+        "}; "
+        'dl "$DL_URL" '
         "| tar xz -C $FW_DIR --strip-components=1; "
         # Cache to network volume if available
         "if [ -d /runpod-volume ]; then "
