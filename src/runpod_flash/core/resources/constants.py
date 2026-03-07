@@ -40,7 +40,7 @@ FLASH_CPU_BASE_IMAGE = os.environ.get("FLASH_CPU_BASE_IMAGE", "python:3.11-slim"
 FLASH_WORKER_VERSION = os.environ.get("FLASH_WORKER_VERSION", "1.1.1")
 FLASH_WORKER_TARBALL_URL_TEMPLATE = os.environ.get(
     "FLASH_WORKER_TARBALL_URL",
-    "https://github.com/runpod/flash-worker/releases/download/"
+    "https://github.com/runpod-workers/flash/releases/download/"
     "v{version}/flash-worker-v{version}-py3.11-linux-x86_64.tar.gz",
 )
 
