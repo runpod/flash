@@ -21,7 +21,7 @@ ENDPOINT_DOMAIN = _endpoint_domain_from_base_url(runpod.endpoint_url_base)
 
 # Python version support
 SUPPORTED_PYTHON_VERSIONS: tuple[str, ...] = ("3.10", "3.11", "3.12")
-GPU_PYTHON_VERSIONS: tuple[str, ...] = ("3.10", "3.11", "3.12")
+GPU_PYTHON_VERSIONS: tuple[str, ...] = ("3.12",)
 CPU_PYTHON_VERSIONS: tuple[str, ...] = ("3.10", "3.11", "3.12")
 
 # GPU base image (runpod/pytorch:1.0.3-cu1281-torch291-ubuntu2204) ships Python 3.12.

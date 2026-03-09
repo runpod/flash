@@ -22,7 +22,7 @@ class TestSupportedPythonVersions:
         assert SUPPORTED_PYTHON_VERSIONS == ("3.10", "3.11", "3.12")
 
     def test_gpu_python_versions(self):
-        assert GPU_PYTHON_VERSIONS == ("3.10", "3.11", "3.12")
+        assert GPU_PYTHON_VERSIONS == ("3.12",)
 
     def test_cpu_python_versions(self):
         assert CPU_PYTHON_VERSIONS == ("3.10", "3.11", "3.12")
@@ -40,15 +40,13 @@ class TestGetImageName:
             get_image_name("gpu", "3.12", tag="latest") == "runpod/flash:py3.12-latest"
         )
 
-    def test_gpu_3_11(self):
-        assert (
-            get_image_name("gpu", "3.11", tag="latest") == "runpod/flash:py3.11-latest"
-        )
+    def test_gpu_3_11_raises(self):
+        with pytest.raises(ValueError, match="GPU endpoints require"):
+            get_image_name("gpu", "3.11", tag="latest")
 
-    def test_gpu_3_10(self):
-        assert (
-            get_image_name("gpu", "3.10", tag="latest") == "runpod/flash:py3.10-latest"
-        )
+    def test_gpu_3_10_raises(self):
+        with pytest.raises(ValueError, match="GPU endpoints require"):
+            get_image_name("gpu", "3.10", tag="latest")
 
     def test_cpu_3_11(self):
         assert (
@@ -62,16 +60,18 @@ class TestGetImageName:
             == "runpod/flash-cpu:py3.10-latest"
         )
 
-    def test_lb_3_11(self):
-        assert (
+    def test_lb_3_11_raises(self):
+        with pytest.raises(ValueError, match="GPU endpoints require"):
             get_image_name("lb", "3.11", tag="latest")
-            == "runpod/flash-lb:py3.11-latest"
-        )
 
-    def test_lb_3_10(self):
-        assert (
+    def test_lb_3_10_raises(self):
+        with pytest.raises(ValueError, match="GPU endpoints require"):
             get_image_name("lb", "3.10", tag="latest")
-            == "runpod/flash-lb:py3.10-latest"
+
+    def test_lb_3_12(self):
+        assert (
+            get_image_name("lb", "3.12", tag="latest")
+            == "runpod/flash-lb:py3.12-latest"
         )
 
     def test_lb_cpu_3_10(self):
@@ -97,7 +97,7 @@ class TestGetImageName:
             get_image_name("gpu", "3.13")
 
     def test_custom_tag(self):
-        assert get_image_name("gpu", "3.11", tag="v2.0") == "runpod/flash:py3.11-v2.0"
+        assert get_image_name("gpu", "3.12", tag="v2.0") == "runpod/flash:py3.12-v2.0"
 
     def test_env_var_override_gpu(self):
         with patch.dict(os.environ, {"FLASH_GPU_IMAGE": "custom/gpu:mine"}):
