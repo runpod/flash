@@ -23,7 +23,13 @@ ENDPOINT_DOMAIN = _endpoint_domain_from_base_url(runpod.endpoint_url_base)
 SUPPORTED_PYTHON_VERSIONS: tuple[str, ...] = ("3.10", "3.11", "3.12")
 GPU_PYTHON_VERSIONS: tuple[str, ...] = ("3.10", "3.11", "3.12")
 CPU_PYTHON_VERSIONS: tuple[str, ...] = ("3.10", "3.11", "3.12")
-DEFAULT_PYTHON_VERSION: str = "3.11"
+
+# GPU base image (runpod/pytorch:1.0.3-cu1281-torch291-ubuntu2204) ships Python 3.12.
+# This is a fact of the Docker image, not configurable at build time.
+GPU_BASE_IMAGE_PYTHON_VERSION: str = "3.12"
+
+# Default must match GPU to avoid ABI mismatch (one tarball serves all resources)
+DEFAULT_PYTHON_VERSION: str = "3.12"
 
 
 def local_python_version() -> str:

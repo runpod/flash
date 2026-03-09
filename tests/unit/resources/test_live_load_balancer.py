@@ -31,7 +31,7 @@ class TestLiveLoadBalancer:
         importlib.reload(ls_module)
 
         lb = ls_module.LiveLoadBalancer(name="test-lb")
-        expected_image = "runpod/flash-lb:py3.11-local"
+        expected_image = "runpod/flash-lb:py3.12-local"
         assert lb.imageName == expected_image
         assert lb.template is not None
         assert lb.template.imageName == expected_image

@@ -8,6 +8,7 @@ import pytest
 from runpod_flash.core.resources.constants import (
     CPU_PYTHON_VERSIONS,
     DEFAULT_PYTHON_VERSION,
+    GPU_BASE_IMAGE_PYTHON_VERSION,
     GPU_PYTHON_VERSIONS,
     SUPPORTED_PYTHON_VERSIONS,
     get_image_name,
@@ -26,8 +27,11 @@ class TestSupportedPythonVersions:
     def test_cpu_python_versions(self):
         assert CPU_PYTHON_VERSIONS == ("3.10", "3.11", "3.12")
 
-    def test_default_python_version_is_3_11(self):
-        assert DEFAULT_PYTHON_VERSION == "3.11"
+    def test_default_python_version_is_3_12(self):
+        assert DEFAULT_PYTHON_VERSION == "3.12"
+
+    def test_gpu_base_image_python_version(self):
+        assert GPU_BASE_IMAGE_PYTHON_VERSION == "3.12"
 
 
 class TestGetImageName:

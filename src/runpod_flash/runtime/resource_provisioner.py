@@ -112,8 +112,14 @@ def create_resource_from_manifest(
     # Extract deployment config from manifest
     deployment_kwargs = {"name": prefixed_name, "env": env}
 
-    if python_version:
-        deployment_kwargs["python_version"] = python_version
+    # Use per-resource target_python_version (set by manifest builder based on
+    # resource type: GPU uses GPU_BASE_IMAGE_PYTHON_VERSION, CPU uses DEFAULT).
+    # Falls back to the caller-provided python_version for backward compatibility.
+    effective_python_version = (
+        resource_data.get("target_python_version") or python_version
+    )
+    if effective_python_version:
+        deployment_kwargs["python_version"] = effective_python_version
 
     if flash_environment_id:
         deployment_kwargs["flashEnvironmentId"] = flash_environment_id

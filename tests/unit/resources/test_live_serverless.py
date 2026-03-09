@@ -3,7 +3,10 @@ Unit tests for LiveServerless and CpuLiveServerless classes.
 """
 
 import pytest
-from runpod_flash.core.resources.constants import local_python_version
+from runpod_flash.core.resources.constants import (
+    GPU_BASE_IMAGE_PYTHON_VERSION,
+    local_python_version,
+)
 from runpod_flash.core.resources.cpu import CpuInstanceType
 from runpod_flash.core.resources.live_serverless import (
     LiveServerless,
@@ -212,9 +215,9 @@ class TestLiveServerlessMixin:
 class TestLiveServerlessPythonVersion:
     """Test python_version support in Live* classes."""
 
-    def test_gpu_default_image_uses_local_python(self):
+    def test_gpu_default_image_uses_gpu_base_python(self):
         ls = LiveServerless(name="test")
-        assert f"py{local_python_version()}" in ls.imageName
+        assert f"py{GPU_BASE_IMAGE_PYTHON_VERSION}" in ls.imageName
 
     def test_gpu_explicit_python_311(self):
         ls = LiveServerless(name="test", python_version="3.11")
@@ -240,9 +243,9 @@ class TestLiveServerlessPythonVersion:
 class TestLiveLoadBalancerPythonVersion:
     """Test python_version support in LiveLoadBalancer classes."""
 
-    def test_lb_default_image_uses_local_python(self):
+    def test_lb_default_image_uses_gpu_base_python(self):
         lb = LiveLoadBalancer(name="test")
-        assert f"py{local_python_version()}" in lb.imageName
+        assert f"py{GPU_BASE_IMAGE_PYTHON_VERSION}" in lb.imageName
         assert "runpod/flash-lb:" in lb.imageName
 
     def test_lb_explicit_python_311(self):

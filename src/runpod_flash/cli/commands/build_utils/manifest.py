@@ -9,6 +9,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from runpod_flash.core.resources.constants import (
+    DEFAULT_PYTHON_VERSION,
+    GPU_BASE_IMAGE_PYTHON_VERSION,
+)
+
 from .scanner import (
     RemoteFunctionMetadata,
     file_to_module_path,
@@ -377,6 +382,20 @@ class ManifestBuilder:
             # Determine if this resource makes remote calls
             makes_remote_calls = any(func.calls_remote_functions for func in functions)
 
+            # One tarball serves all resources, so target_python_version must agree.
+            # GPU resources are pinned to the base image's Python; CPU resources
+            # use DEFAULT_PYTHON_VERSION (aligned to GPU to avoid ABI mismatch).
+            _GPU_RESOURCE_TYPES = {
+                "LiveServerless",
+                "LiveLoadBalancer",
+                "LoadBalancerSlsResource",
+                "ServerlessEndpoint",
+            }
+            if resource_type in _GPU_RESOURCE_TYPES:
+                target_python_version = GPU_BASE_IMAGE_PYTHON_VERSION
+            else:
+                target_python_version = DEFAULT_PYTHON_VERSION
+
             resources_dict[resource_name] = {
                 "resource_type": resource_type,
                 "file_path": file_path_str,
@@ -387,6 +406,7 @@ class ManifestBuilder:
                 "is_live_resource": is_live_resource,
                 "config_variable": config_variable,
                 "makes_remote_calls": makes_remote_calls,
+                "target_python_version": target_python_version,
                 **deployment_config,  # Include imageName, templateId, gpuIds, workers config
             }
 
