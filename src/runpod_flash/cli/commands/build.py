@@ -60,19 +60,17 @@ UV_COMMAND = "uv"
 PIP_MODULE = "pip"
 
 
-# Packages pre-installed in base Docker images (runpod/pytorch:*).
-# Always excluded from build artifacts to avoid:
-#   1. Exceeding the 500 MB tarball limit (torch alone is ~500 MB)
-#   2. Redundant copies — these are already in the base Docker image
-# NOTE: numpy is excluded because the base Docker image provides it, and
-# keeping it out of the tarball saves ~30 MB toward the 500 MB limit.
-BASE_IMAGE_PACKAGES: frozenset[str] = frozenset(
+# Packages excluded because they exceed the 500 MB tarball size limit.
+# These are CUDA/GPU-specific — CPU endpoints never need them, and GPU
+# base images (runpod/pytorch:*) pre-install them.
+# Do NOT add packages here just because the GPU image ships them (e.g. numpy).
+# The blacklist is defined by size constraints, not base image contents.
+SIZE_PROHIBITIVE_PACKAGES: frozenset[str] = frozenset(
     {
-        "torch",
-        "torchvision",
-        "torchaudio",
-        "numpy",
-        "triton",
+        "torch",  # ~500 MB
+        "torchvision",  # ~50 MB, requires torch
+        "torchaudio",  # ~30 MB, requires torch
+        "triton",  # ~150 MB, CUDA compiler
     }
 )
 
@@ -272,11 +270,11 @@ def run_build(
     # Create build directory first to ensure clean state before collecting files
     build_dir = create_build_directory(project_dir, app_name)
 
-    # Parse exclusions: merge user-specified with always-excluded base image packages
+    # Parse exclusions: merge user-specified with always-excluded size-prohibitive packages
     user_excluded = []
     if exclude:
         user_excluded = [pkg.strip().lower() for pkg in exclude.split(",")]
-    excluded_packages = list(set(user_excluded) | BASE_IMAGE_PACKAGES)
+    excluded_packages = list(set(user_excluded) | SIZE_PROHIBITIVE_PACKAGES)
 
     spec = load_ignore_patterns(project_dir)
     files = get_file_tree(project_dir, spec)
@@ -370,7 +368,7 @@ def run_build(
         for req in requirements:
             if should_exclude_package(req, excluded_packages):
                 pkg_name = extract_package_name(req)
-                if pkg_name in BASE_IMAGE_PACKAGES:
+                if pkg_name in SIZE_PROHIBITIVE_PACKAGES:
                     auto_matched.add(pkg_name)
                 if pkg_name in user_excluded:
                     user_matched.add(pkg_name)
@@ -381,12 +379,12 @@ def run_build(
 
         if auto_matched:
             console.print(
-                f"[dim]Auto-excluded base image packages: "
+                f"[dim]Auto-excluded size-prohibitive packages: "
                 f"{', '.join(sorted(auto_matched))}[/dim]"
             )
 
         # Only warn about unmatched user-specified packages (not auto-excludes)
-        user_unmatched = set(user_excluded) - user_matched - BASE_IMAGE_PACKAGES
+        user_unmatched = set(user_excluded) - user_matched - SIZE_PROHIBITIVE_PACKAGES
         if user_unmatched:
             console.print(
                 f"[yellow]Warning:[/yellow] No packages matched exclusions: "
@@ -981,7 +979,7 @@ def create_tarball(
     excluded_packages: list[str] | None = None,
 ) -> None:
     """
-    Create gzipped tarball of build directory, excluding base image packages.
+    Create gzipped tarball of build directory, excluding size-prohibitive packages.
 
     Filters at tarball creation time rather than constraining pip resolution,
     because pip constraints (`<0.0.0a0`) break resolution for any package that
