@@ -23,7 +23,7 @@ from .constants import (
     CONSOLE_URL,
     DEFAULT_WORKERS_MAX,
     DEFAULT_WORKERS_MIN,
-    SUPPORTED_PYTHON_VERSIONS,
+    validate_python_version as _validate_python_version,
 )
 from .environment import EnvironmentVars
 from .cpu import CpuInstanceType
@@ -253,11 +253,8 @@ class ServerlessResource(DeployableResource):
     @field_validator("python_version")
     @classmethod
     def validate_python_version(cls, v: Optional[str]) -> Optional[str]:
-        if v is not None and v not in SUPPORTED_PYTHON_VERSIONS:
-            supported = ", ".join(SUPPORTED_PYTHON_VERSIONS)
-            raise ValueError(
-                f"Python {v} is not supported. Supported versions: {supported}"
-            )
+        if v is not None:
+            _validate_python_version(v)
         return v
 
     @property
