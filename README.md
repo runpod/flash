@@ -155,6 +155,14 @@ Browse working examples: **[github.com/runpod/flash-examples](https://github.com
 - macOS or Linux (Windows support in development)
 - [Runpod account](https://runpod.io/console) with API key
 
+### Python version in deployed workers
+
+Your local Python version does not affect what runs in the cloud. `flash build` downloads wheels for the container's Python version automatically.
+
+- **GPU workers**: Python 3.12 only. The GPU base image ships multiple interpreters (3.9-3.14) for interactive pod use, but torch and CUDA libraries are installed only for 3.12. Using a different version would require reinstalling torch (~2GB) and matching all C-extension wheel ABIs.
+- **CPU workers**: Python 3.10, 3.11, or 3.12. Configurable via the `PYTHON_VERSION` build arg.
+- **Image tags**: `py{version}-{tag}` (e.g., `runpod/flash:py3.12-latest`).
+
 ## Contributing
 
 We welcome contributions! See [RELEASE_SYSTEM.md](RELEASE_SYSTEM.md) for development workflow.

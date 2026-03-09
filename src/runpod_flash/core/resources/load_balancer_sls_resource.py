@@ -342,6 +342,7 @@ class CpuLoadBalancerSlsResource(CpuEndpointMixin, LoadBalancerSlsResource):
         "allowedCudaVersions",
         "imageName",
         "networkVolume",
+        "python_version",
     }
 
     def _setup_cpu_template(self) -> None:

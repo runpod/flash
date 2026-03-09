@@ -123,6 +123,7 @@ class CpuServerlessEndpoint(CpuEndpointMixin, ServerlessEndpoint):
         "flashEnvironmentId",
         "imageName",
         "networkVolume",
+        "python_version",
     }
 
     # Override GPU field from parent to None for CPU endpoints

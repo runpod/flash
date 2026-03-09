@@ -19,7 +19,12 @@ from ..api.runpod import RunpodGraphQLClient
 from ..utils.backoff import get_backoff_delay
 from .base import DeployableResource
 from .cloud import runpod
-from .constants import CONSOLE_URL, DEFAULT_WORKERS_MAX, DEFAULT_WORKERS_MIN
+from .constants import (
+    CONSOLE_URL,
+    DEFAULT_WORKERS_MAX,
+    DEFAULT_WORKERS_MIN,
+    validate_python_version as _validate_python_version,
+)
 from .environment import EnvironmentVars
 from .cpu import CpuInstanceType
 from .gpu import GpuGroup, GpuType
@@ -105,6 +110,7 @@ class ServerlessResource(DeployableResource):
         "flashEnvironmentId",
         "imageName",
         "networkVolume",
+        "python_version",
     }
 
     _hashed_fields = {
@@ -116,6 +122,7 @@ class ServerlessResource(DeployableResource):
         "locations",
         "name",
         "networkVolumeId",
+        "python_version",
         "scalerType",
         "scalerValue",
         "workersMax",
@@ -152,6 +159,10 @@ class ServerlessResource(DeployableResource):
     imageName: Optional[str] = ""  # for template.imageName
     networkVolume: Optional[NetworkVolume] = None
     datacenter: DataCenter = Field(default=DataCenter.EU_RO_1)
+    python_version: Optional[str] = Field(
+        default=None,
+        description="Python version for runtime image selection. Defaults to the local interpreter version at build time.",
+    )
 
     # === Input Fields ===
     executionTimeoutMs: Optional[int] = 0
@@ -238,6 +249,13 @@ class ServerlessResource(DeployableResource):
         if GpuGroup.ANY in value or GpuType.ANY in value:
             return GpuGroup.all()
         return value
+
+    @field_validator("python_version")
+    @classmethod
+    def validate_python_version(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            _validate_python_version(v)
+        return v
 
     @property
     def config_hash(self) -> str:

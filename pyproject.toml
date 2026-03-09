@@ -8,12 +8,12 @@ authors = [
 readme = "README.md"
 license = { text = "MIT" }
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
-requires-python = ">=3.10,<3.15"
+requires-python = ">=3.10,<3.13"
 
 dependencies = [
     "cloudpickle>=3.1.1",

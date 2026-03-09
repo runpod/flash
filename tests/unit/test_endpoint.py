@@ -5,6 +5,10 @@ from unittest.mock import patch
 
 import pytest
 
+from runpod_flash.core.resources.constants import (
+    DEFAULT_WORKERS_MAX,
+    DEFAULT_WORKERS_MIN,
+)
 from runpod_flash.endpoint import Endpoint, _normalize_workers
 from runpod_flash.core.resources.cpu import CpuInstanceType
 from runpod_flash.core.resources.gpu import GpuGroup, GpuType
@@ -18,10 +22,10 @@ from runpod_flash.core.resources.template import PodTemplate
 
 class TestNormalizeWorkers:
     def test_none_defaults(self):
-        assert _normalize_workers(None) == (0, 1)
+        assert _normalize_workers(None) == (DEFAULT_WORKERS_MIN, DEFAULT_WORKERS_MAX)
 
     def test_int_shorthand(self):
-        assert _normalize_workers(3) == (0, 3)
+        assert _normalize_workers(3) == (DEFAULT_WORKERS_MIN, 3)
 
     def test_tuple(self):
         assert _normalize_workers((1, 5)) == (1, 5)
@@ -81,7 +85,7 @@ class TestEndpointInit:
 
     def test_workers_int(self):
         ep = Endpoint(name="test", workers=5)
-        assert ep.workers_min == 0
+        assert ep.workers_min == DEFAULT_WORKERS_MIN
         assert ep.workers_max == 5
 
     def test_workers_tuple(self):
@@ -91,8 +95,8 @@ class TestEndpointInit:
 
     def test_workers_default(self):
         ep = Endpoint(name="test")
-        assert ep.workers_min == 0
-        assert ep.workers_max == 1
+        assert ep.workers_min == DEFAULT_WORKERS_MIN
+        assert ep.workers_max == DEFAULT_WORKERS_MAX
 
     def test_all_params(self):
         vol = NetworkVolume(name="test-vol", size=50)

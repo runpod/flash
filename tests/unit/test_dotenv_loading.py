@@ -188,7 +188,7 @@ CUSTOM_TEST_VAR=file_value
 
             # Import specific modules that use environment variables
             from runpod_flash.core.api.runpod import RunpodGraphQLClient
-            from runpod_flash.core.resources.live_serverless import (
+            from runpod_flash.core.resources.constants import (
                 FLASH_GPU_IMAGE,
                 FLASH_CPU_IMAGE,
             )

@@ -31,7 +31,7 @@ def deploy_command(
     exclude: str | None = typer.Option(
         None,
         "--exclude",
-        help="Comma-separated packages to exclude (e.g., 'torch,torchvision')",
+        help="Comma-separated additional packages to exclude (torch packages are auto-excluded)",
     ),
     output_name: str | None = typer.Option(
         None, "--output", "-o", help="Custom archive name (default: artifact.tar.gz)"
@@ -53,7 +53,7 @@ def deploy_command(
       flash deploy --env staging                # build + deploy to staging
       flash deploy --app my-app --env prod      # deploy a different app
       flash deploy --preview                    # build + launch local preview
-      flash deploy --exclude torch,torchvision  # exclude packages from build
+      flash deploy --exclude transformers        # exclude additional packages from build
     """
     try:
         project_dir, discovered_app_name = discover_flash_project()
