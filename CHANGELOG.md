@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.7.0](https://github.com/runpod/flash/compare/v1.6.1...v1.7.0) (2026-03-05)
+
+
+### Features
+
+* AE-2276: retryable graphql queries ([#239](https://github.com/runpod/flash/issues/239)) ([05a5149](https://github.com/runpod/flash/commit/05a51494e2454595effc9c7b8a0c76614f011edf))
+* auto-select next available port when default is in use ([#249](https://github.com/runpod/flash/issues/249)) ([90276aa](https://github.com/runpod/flash/commit/90276aaba937aab09efa460b39c0f325ef2aefb7))
+
+
+### Bug Fixes
+
+* auto-create app on deploy when app does not exist ([#253](https://github.com/runpod/flash/issues/253)) ([0413e8a](https://github.com/runpod/flash/commit/0413e8a1467917c991199342f316649bef8e12d1))
+* CPU instance type not passed through manifest during deploy ([#250](https://github.com/runpod/flash/issues/250)) ([8998123](https://github.com/runpod/flash/commit/899812339558b9357ca5b001cc66e4e189be6bc5))
+* extract dependencies from Endpoint() patterns during build ([#252](https://github.com/runpod/flash/issues/252)) ([3f136bd](https://github.com/runpod/flash/commit/3f136bdbbb3b58d3a68681cc6f4ecc1bc6e421c2))
+* LB endpoint redeployment desync on second deploy ([#251](https://github.com/runpod/flash/issues/251)) ([6aa3696](https://github.com/runpod/flash/commit/6aa3696ffd20cceba1fd79969bcdf4e53198f1c2))
+
 ## [1.6.1](https://github.com/runpod/flash/compare/v1.6.0...v1.6.1) (2026-03-05)
 
 
