@@ -10,6 +10,7 @@ import logging
 import os
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from .core.resources.constants import DEFAULT_WORKERS_MAX, DEFAULT_WORKERS_MIN
 from .core.resources.cpu import CpuInstanceType
 from .core.resources.gpu import GpuGroup, GpuType
 from .core.resources.network_volume import DataCenter, NetworkVolume
@@ -173,14 +174,14 @@ def _normalize_workers(
     """convert workers param to (min, max) tuple.
 
     accepts:
-      - int: shorthand for (0, n)
+      - int: shorthand for (DEFAULT_WORKERS_MIN, n)
       - (min, max): explicit tuple
-      - None: defaults to (0, 1)
+      - None: defaults to (DEFAULT_WORKERS_MIN, DEFAULT_WORKERS_MAX)
     """
     if workers is None:
-        return (0, 1)
+        return (DEFAULT_WORKERS_MIN, DEFAULT_WORKERS_MAX)
     if isinstance(workers, int):
-        min_w, max_w = 0, workers
+        min_w, max_w = DEFAULT_WORKERS_MIN, workers
     elif isinstance(workers, (tuple, list)) and len(workers) == 2:
         min_w, max_w = int(workers[0]), int(workers[1])
     else:
