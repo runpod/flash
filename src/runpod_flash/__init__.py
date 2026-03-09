@@ -1,4 +1,4 @@
-__version__ = "1.7.0"  # x-release-please-version
+__version__ = "1.8.0"  # x-release-please-version
 
 # Load .env vars from file before everything else
 from dotenv import load_dotenv
