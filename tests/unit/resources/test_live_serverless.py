@@ -58,9 +58,7 @@ class TestLiveServerless:
         live_serverless = LiveServerless(
             name="test", imageName="nvidia/cuda:12.8.0-runtime-ubuntu22.04"
         )
-        # imageName setter is a no-op, so value is always the computed _live_image
-        # The model_validator sets data["imageName"] but the property overrides reads
-        assert live_serverless.imageName is not None
+        assert live_serverless.imageName == "nvidia/cuda:12.8.0-runtime-ubuntu22.04"
 
     def test_live_serverless_with_custom_template(self):
         """Test LiveServerless with custom template."""
@@ -133,8 +131,7 @@ class TestCpuLiveServerless:
     def test_cpu_live_serverless_user_can_override_image(self):
         """Test CpuLiveServerless allows user to set custom image."""
         live_serverless = CpuLiveServerless(name="test", imageName="python:3.11-slim")
-        # imageName property returns _live_image, setter is no-op
-        assert live_serverless.imageName is not None
+        assert live_serverless.imageName == "python:3.11-slim"
 
     def test_cpu_live_serverless_validation_failure(self):
         """Test CpuLiveServerless validation fails with excessive disk size."""
@@ -265,6 +262,15 @@ class TestLiveServerlessMixin:
         original = LiveServerless(name="test", imageName="byo/image:v1")
         revalidated = LiveServerless.model_validate(original)
         assert revalidated.imageName == "byo/image:v1"
+    def test_live_serverless_byoi_gpu(self):
+        """Test LiveServerless respects user-provided imageName."""
+        live_serverless = LiveServerless(name="test", imageName="custom/gpu:v1")
+        assert live_serverless.imageName == "custom/gpu:v1"
+
+    def test_live_serverless_byoi_cpu(self):
+        """Test CpuLiveServerless respects user-provided imageName."""
+        live_serverless = CpuLiveServerless(name="test", imageName="custom/cpu:v1")
+        assert live_serverless.imageName == "custom/cpu:v1"
 
 
 class TestLiveServerlessPythonVersion:
