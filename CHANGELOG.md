@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.0](https://github.com/runpod/flash/compare/v1.7.0...v1.8.0) (2026-03-09)
+
+
+### Features
+
+* Python version-aware Docker image selection ([#261](https://github.com/runpod/flash/issues/261)) ([e10c18e](https://github.com/runpod/flash/commit/e10c18e7f2ec9b245e6c69e12dcbc68ec32d510e))
+
 ## [1.7.0](https://github.com/runpod/flash/compare/v1.6.1...v1.7.0) (2026-03-05)
 
 
