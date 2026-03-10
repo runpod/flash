@@ -58,9 +58,9 @@ class TestQBAndLBMixCodegen:
             assert "_call_with_body(process" in content
 
             # LB worker: config + function import + LB route
-            assert "from api import api_config" in content
+            assert "from api import api_config as _cfg_api" in content
             assert "from api import list_items" in content
-            assert "_lb_execute(api_config, list_items," in content
+            assert "_lb_execute(_cfg_api, list_items," in content
 
             # Both import helpers should be present
             assert "_call_with_body" in content
@@ -113,9 +113,9 @@ class TestQBAndLBMixCodegen:
             assert "_instance_TextModel.predict" in content
 
             # LB function: config import + route
-            assert "from health import health_config" in content
+            assert "from health import health_config as _cfg_health" in content
             assert "from health import status" in content
-            assert "_lb_execute(health_config, status," in content
+            assert "_lb_execute(_cfg_health, status," in content
 
     def test_multiple_lb_routes_alongside_qb(self):
         """Multiple LB routes + QB function all present."""
@@ -160,8 +160,8 @@ class TestQBAndLBMixCodegen:
             content = server_path.read_text()
 
             # Both LB routes registered
-            assert "_lb_execute(lb_config, create," in content
-            assert "_lb_execute(lb_config, read," in content
+            assert "_lb_execute(_cfg_routes, create," in content
+            assert "_lb_execute(_cfg_routes, read," in content
             # QB route also present
             assert '"/worker/runsync"' in content
 
