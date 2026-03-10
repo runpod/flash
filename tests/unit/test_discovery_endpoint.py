@@ -143,6 +143,128 @@ class TestDiscoveryEndpointDirectoryScan:
         assert "found-api" in resources[0].name
 
 
+class TestDiscoveryEndpointQB:
+    """test discovery of @Endpoint(...) decorator on functions (QB pattern)."""
+
+    @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "true"})
+    def test_discover_endpoint_qb_gpu(self, tmp_path):
+        """@Endpoint(name=..., gpu=...) on a function is discovered."""
+        entry = tmp_path / "worker.py"
+        entry.write_text(
+            dedent("""\
+                from runpod_flash import Endpoint
+                from runpod_flash.core.resources.gpu import GpuGroup
+
+                @Endpoint(name="qb-gpu-worker", gpu=GpuGroup.ADA_24, workers=(0, 3))
+                async def gpu_task(payload: dict) -> dict:
+                    return {"status": "done"}
+            """)
+        )
+
+        discovery = ResourceDiscovery(str(entry))
+        resources = discovery.discover()
+
+        assert len(resources) == 1
+        assert isinstance(resources[0], DeployableResource)
+        assert "qb-gpu-worker" in resources[0].name
+
+    @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "true"})
+    def test_discover_endpoint_qb_cpu(self, tmp_path):
+        """@Endpoint(name=..., cpu=...) on a function is discovered."""
+        entry = tmp_path / "worker.py"
+        entry.write_text(
+            dedent("""\
+                from runpod_flash import Endpoint
+
+                @Endpoint(name="qb-cpu-worker", cpu="cpu3c-1-2")
+                async def cpu_task(payload: dict) -> dict:
+                    return {"status": "done"}
+            """)
+        )
+
+        discovery = ResourceDiscovery(str(entry))
+        resources = discovery.discover()
+
+        assert len(resources) == 1
+        assert "qb-cpu-worker" in resources[0].name
+        assert "Cpu" in type(resources[0]).__name__
+
+    @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "true"})
+    def test_discover_multiple_qb_endpoints_same_file(self, tmp_path):
+        """Multiple @Endpoint decorators in the same file are all discovered."""
+        entry = tmp_path / "worker.py"
+        entry.write_text(
+            dedent("""\
+                from runpod_flash import Endpoint
+                from runpod_flash.core.resources.gpu import GpuGroup
+
+                @Endpoint(name="worker-a", gpu=GpuGroup.ADA_24)
+                async def task_a(payload: dict) -> dict:
+                    return {"a": True}
+
+                @Endpoint(name="worker-b", cpu="cpu3c-1-2")
+                async def task_b(payload: dict) -> dict:
+                    return {"b": True}
+            """)
+        )
+
+        discovery = ResourceDiscovery(str(entry))
+        resources = discovery.discover()
+
+        assert len(resources) == 2
+        names = {r.name for r in resources}
+        assert any("worker-a" in n for n in names)
+        assert any("worker-b" in n for n in names)
+
+    @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "true"})
+    def test_discover_qb_on_class(self, tmp_path):
+        """@Endpoint(...) on a class is discovered."""
+        entry = tmp_path / "worker.py"
+        entry.write_text(
+            dedent("""\
+                from runpod_flash import Endpoint
+                from runpod_flash.core.resources.gpu import GpuGroup
+
+                @Endpoint(name="class-worker", gpu=GpuGroup.ADA_24)
+                class MyWorker:
+                    async def generate(self, prompt: str) -> dict:
+                        return {"result": prompt}
+            """)
+        )
+
+        discovery = ResourceDiscovery(str(entry))
+        resources = discovery.discover()
+
+        assert len(resources) == 1
+        assert "class-worker" in resources[0].name
+
+    @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "true"})
+    def test_discover_qb_via_directory_scan(self, tmp_path):
+        """directory scan fallback finds @Endpoint QB patterns."""
+        entry = tmp_path / "main.py"
+        entry.write_text("import importlib.util\n")
+
+        workers_dir = tmp_path / "workers"
+        workers_dir.mkdir()
+        worker = workers_dir / "gpu_worker.py"
+        worker.write_text(
+            dedent("""\
+                from runpod_flash import Endpoint
+                from runpod_flash.core.resources.gpu import GpuGroup
+
+                @Endpoint(name="scan-worker", gpu=GpuGroup.ADA_24)
+                async def gpu_task(payload: dict) -> dict:
+                    return {"ok": True}
+            """)
+        )
+
+        discovery = ResourceDiscovery(str(entry))
+        resources = discovery.discover()
+
+        assert len(resources) == 1
+        assert "scan-worker" in resources[0].name
+
+
 class TestDiscoveryMixed:
     """test discovery with both legacy @remote and Endpoint patterns."""
 
@@ -184,3 +306,32 @@ class TestDiscoveryMixed:
         # internal resource configs may modify names (e.g. "live-" prefix, "-fb" suffix)
         assert any("legacy" in n for n in names)
         assert any("new-api" in n for n in names)
+
+    @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "true"})
+    def test_mixed_qb_and_lb_endpoints(self, tmp_path):
+        """both QB and LB Endpoint patterns in the same file are discovered."""
+        entry = tmp_path / "main.py"
+        entry.write_text(
+            dedent("""\
+                from runpod_flash import Endpoint
+                from runpod_flash.core.resources.gpu import GpuGroup
+
+                @Endpoint(name="qb-worker", gpu=GpuGroup.ADA_24)
+                async def gpu_task(payload: dict) -> dict:
+                    return {"result": "done"}
+
+                api = Endpoint(name="lb-api", cpu="cpu3c-1-2", workers=(1, 3))
+
+                @api.post("/process")
+                async def process(data):
+                    return data
+            """)
+        )
+
+        discovery = ResourceDiscovery(str(entry))
+        resources = discovery.discover()
+
+        assert len(resources) == 2
+        names = {r.name for r in resources}
+        assert any("qb-worker" in n for n in names)
+        assert any("lb-api" in n for n in names)

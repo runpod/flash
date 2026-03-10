@@ -95,6 +95,7 @@ class ResourceDiscovery:
         Detects:
         - @remote(resource_config=var) / @remote(var) patterns
         - ep = Endpoint(...) variables used as LB route decorators (@ep.get, @ep.post, etc)
+        - @Endpoint(...) used directly as a function/class decorator (QB pattern)
 
         Args:
             file_path: Path to Python file to parse
@@ -143,6 +144,10 @@ class ResourceDiscovery:
                             if var_name:
                                 var_names.add(var_name)
 
+                        # @Endpoint(name=..., gpu=...) directly on function/class (QB)
+                        elif self._is_endpoint_direct_decorator(decorator):
+                            var_names.add(node.name)
+
         except Exception as e:
             log.warning(f"Failed to parse {file_path}: {e}")
 
@@ -169,6 +174,21 @@ class ResourceDiscovery:
         if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
             return func.value.id
         return ""
+
+    def _is_endpoint_direct_decorator(self, decorator: ast.expr) -> bool:
+        """Check if decorator is @Endpoint(...) used directly on a function/class (QB pattern).
+
+        Matches @Endpoint(name=..., gpu=...) but NOT @ep.get()/@ep.post() (which are
+        attribute calls on an Endpoint variable, handled separately).
+        """
+        if not isinstance(decorator, ast.Call):
+            return False
+        func = decorator.func
+        if isinstance(func, ast.Name) and func.id == "Endpoint":
+            return True
+        if isinstance(func, ast.Attribute) and func.attr == "Endpoint":
+            return True
+        return False
 
     def _is_remote_decorator(self, decorator: ast.expr) -> bool:
         """Check if decorator is @remote.
@@ -248,8 +268,10 @@ class ResourceDiscovery:
     def _resolve_resource_variable(self, module, var_name: str) -> DeployableResource:
         """Resolve variable name to DeployableResource instance.
 
-        Handles both legacy resource config objects (LiveServerless, etc) and
-        Endpoint facade objects (unwraps via _build_resource_config()).
+        Handles:
+        - Legacy resource config objects (LiveServerless, etc)
+        - Endpoint facade objects (unwraps via _build_resource_config())
+        - QB-decorated functions/classes (unwraps __remote_config__["resource_config"])
 
         Args:
             module: Imported module
@@ -267,6 +289,13 @@ class ResourceDiscovery:
             # unwrap Endpoint facade to its internal resource config
             if obj and hasattr(obj, "_build_resource_config"):
                 resource = obj._build_resource_config()
+                if isinstance(resource, DeployableResource):
+                    return resource
+
+            # unwrap @Endpoint(...)-decorated function/class (QB pattern).
+            # Endpoint.__call__ wraps via @remote which attaches __remote_config__
+            if obj is not None and hasattr(obj, "__remote_config__"):
+                resource = obj.__remote_config__.get("resource_config")
                 if isinstance(resource, DeployableResource):
                     return resource
 
