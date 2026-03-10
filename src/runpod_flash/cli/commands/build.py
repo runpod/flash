@@ -60,11 +60,12 @@ UV_COMMAND = "uv"
 PIP_MODULE = "pip"
 
 
-# Packages excluded because they exceed the 500 MB tarball size limit.
-# These are CUDA/GPU-specific — CPU endpoints never need them, and GPU
-# base images (runpod/pytorch:*) pre-install them.
+# These are CUDA/GPU-oriented packages whose large CUDA builds are already
+# provided by the GPU base images (runpod/pytorch:*) and therefore should
+# not be bundled into the tarball.
 # Do NOT add packages here just because the GPU image ships them (e.g. numpy).
-# The blacklist is defined by size constraints, not base image contents.
+# The blacklist is defined strictly by size constraints, not by whether a
+# package happens to be present in a particular base image.
 SIZE_PROHIBITIVE_PACKAGES: frozenset[str] = frozenset(
     {
         "torch",  # ~500 MB

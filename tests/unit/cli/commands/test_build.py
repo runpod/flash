@@ -608,7 +608,7 @@ class TestBaseImageAutoExclusion:
         assert "triton" in SIZE_PROHIBITIVE_PACKAGES
 
     def test_numpy_not_in_size_prohibitive_packages(self):
-        """Numpy must NOT be excluded — CPU images (python-slim) don't ship it."""
+        """NumPy must NOT be excluded — CPU images (python-slim) don't ship it."""
         assert "numpy" not in SIZE_PROHIBITIVE_PACKAGES
 
     def test_auto_excludes_torch_without_flag(self, tmp_path):
@@ -698,7 +698,7 @@ class TestBaseImageAutoExclusion:
             run_build(project_dir, "test_app", no_deps=True)
 
         captured = capsys.readouterr()
-        assert "Auto-excluded base image packages" not in captured.out
+        assert "Auto-excluded size-prohibitive packages" not in captured.out
 
     def test_user_unmatched_warning_excludes_base_image_packages(
         self, tmp_path, capsys
