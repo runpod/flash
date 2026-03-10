@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.1](https://github.com/runpod/flash/compare/v1.8.0...v1.8.1) (2026-03-10)
+
+
+### Bug Fixes
+
+* **build:** remove numpy from dependency blacklist, rename to SIZE_PROHIBITIVE_PACKAGES ([#263](https://github.com/runpod/flash/issues/263)) ([65fde9d](https://github.com/runpod/flash/commit/65fde9da8bfaef0cb7db7b8bbe1b11d271448c94))
+
 ## [1.8.0](https://github.com/runpod/flash/compare/v1.7.0...v1.8.0) (2026-03-09)
 
 
