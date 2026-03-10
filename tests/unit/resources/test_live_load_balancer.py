@@ -50,8 +50,7 @@ class TestLiveLoadBalancer:
     def test_live_load_balancer_user_can_override_image(self):
         """Test user can set custom imageName (BYOI)."""
         lb = LiveLoadBalancer(name="test-lb", imageName="custom/image:v1")
-        # imageName property returns _live_image, setter is no-op
-        assert lb.imageName is not None
+        assert lb.imageName == "custom/image:v1"
 
     def test_live_load_balancer_template_creation(self):
         """Test LiveLoadBalancer creates proper template from imageName."""
@@ -210,8 +209,7 @@ class TestCpuLiveLoadBalancer:
     def test_cpu_live_load_balancer_user_can_override_image(self):
         """Test CpuLiveLoadBalancer allows user image override."""
         lb = CpuLiveLoadBalancer(name="test-lb", imageName="python:3.11-slim")
-        # imageName property returns _live_image, setter is no-op
-        assert lb.imageName is not None
+        assert lb.imageName == "python:3.11-slim"
 
     def test_cpu_live_load_balancer_defaults(self):
         """Test CpuLiveLoadBalancer defaults to CPU3G_2_8."""
