@@ -226,9 +226,11 @@ class TestGraphQLQueries:
                 lambda r: len(r) == 1,
             ),
         ],
-        ids=lambda x: x
-        if isinstance(x, str) and not x.startswith("{") and not x.startswith("(")
-        else "",
+        ids=lambda x: (
+            x
+            if isinstance(x, str) and not x.startswith("{") and not x.startswith("(")
+            else ""
+        ),
     )
     async def test_query_success(
         self, method_name, call_args, mock_response, assert_fn

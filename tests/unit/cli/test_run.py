@@ -469,7 +469,7 @@ class TestGenerateFlashServer:
             worker = self._make_lb_worker(tmp_path, method)
             content = _generate_flash_server(tmp_path, [worker]).read_text()
             assert "body: _api_list_routes_Input" in content
-            assert "_lb_execute(api_config, list_routes, _to_dict(body))" in content
+            assert "_lb_execute(_cfg_api, list_routes, _to_dict(body))" in content
 
     def test_get_lb_route_uses_query_params(self, tmp_path):
         """GET LB routes pass query params as a dict."""
@@ -477,15 +477,14 @@ class TestGenerateFlashServer:
         content = _generate_flash_server(tmp_path, [worker]).read_text()
         assert "async def _route_api_list_routes(request: Request):" in content
         assert (
-            "_lb_execute(api_config, list_routes, dict(request.query_params))"
-            in content
+            "_lb_execute(_cfg_api, list_routes, dict(request.query_params))" in content
         )
 
     def test_lb_config_var_and_function_imported(self, tmp_path):
         """LB config vars and functions are both imported for remote dispatch."""
         worker = self._make_lb_worker(tmp_path)
         content = _generate_flash_server(tmp_path, [worker]).read_text()
-        assert "from api import api_config" in content
+        assert "from api import api_config as _cfg_api" in content
         assert "from api import list_routes" in content
 
     def test_lb_execute_import_present_when_lb_routes_exist(self, tmp_path):

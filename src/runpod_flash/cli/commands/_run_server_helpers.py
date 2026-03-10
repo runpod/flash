@@ -98,6 +98,11 @@ async def lb_execute(resource_config, func, body: dict):
         func: The @remote LB route handler function.
         body: Parsed request body (from FastAPI's automatic JSON parsing).
     """
+    # Extract dependencies before unwrapping the Endpoint facade
+    dependencies = getattr(resource_config, "dependencies", None)
+    system_dependencies = getattr(resource_config, "system_dependencies", None)
+    accelerate_downloads = getattr(resource_config, "accelerate_downloads", False)
+
     # Endpoint facade wraps an internal resource config
     if hasattr(resource_config, "_build_resource_config"):
         resource_config = resource_config._build_resource_config()
@@ -121,7 +126,9 @@ async def lb_execute(resource_config, func, body: dict):
     log.info(f"{resource_config} | {route_label}")
 
     try:
-        result = await stub(func, None, None, False, **kwargs)
+        result = await stub(
+            func, dependencies, system_dependencies, accelerate_downloads, **kwargs
+        )
         log.info(f"{resource_config} | Execution complete")
         return result
     except TimeoutError as e:

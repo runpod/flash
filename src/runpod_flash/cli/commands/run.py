@@ -242,7 +242,7 @@ def _module_parent_subdir(module_path: str) -> str | None:
     return parts[0].replace(".", "/")
 
 
-def _make_import_line(module_path: str, name: str) -> str:
+def _make_import_line(module_path: str, name: str, alias: str | None = None) -> str:
     """Build an import statement for *name* from *module_path*.
 
     Uses a regular ``from … import …`` when the module path is a valid
@@ -250,12 +250,22 @@ def _make_import_line(module_path: str, name: str) -> str:
     helper in server.py) when any segment starts with a digit. The helper
     temporarily scopes ``sys.path`` so sibling imports in the target module
     resolve to the correct directory.
+
+    Args:
+        module_path: Dotted module path to import from.
+        name: Symbol name to import.
+        alias: If provided, assign the import to this variable name instead
+            of *name*. Prevents collisions when multiple modules export the
+            same symbol (e.g. multiple files exporting ``api``).
     """
+    target = alias or name
     if _has_numeric_module_segments(module_path):
         subdir = _module_parent_subdir(module_path)
         if subdir:
-            return f'{name} = _flash_import("{module_path}", "{name}", "{subdir}")'
-        return f'{name} = _flash_import("{module_path}", "{name}")'
+            return f'{target} = _flash_import("{module_path}", "{name}", "{subdir}")'
+        return f'{target} = _flash_import("{module_path}", "{name}")'
+    if alias:
+        return f"from {module_path} import {name} as {alias}"
     return f"from {module_path} import {name}"
 
 
@@ -390,13 +400,22 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
                 )
         elif worker.worker_type == "LB":
             # Import the resource config variable (e.g. "api" from api = LiveLoadBalancer(...))
+            # Use aliased names to prevent collisions when multiple files export
+            # the same variable name (e.g. multiple files exporting "api").
             config_vars = {
                 r["config_variable"]
                 for r in worker.lb_routes
                 if r.get("config_variable")
             }
             for var in sorted(config_vars):
-                all_imports.append(_make_import_line(worker.module_path, var))
+                alias = f"_cfg_{_sanitize_fn_name(worker.resource_name)}"
+                all_imports.append(
+                    _make_import_line(worker.module_path, var, alias=alias)
+                )
+                # Store the alias so route codegen can reference it
+                for r in worker.lb_routes:
+                    if r.get("config_variable") == var:
+                        r["_config_alias"] = alias
             for fn_name in worker.functions:
                 all_imports.append(_make_import_line(worker.module_path, fn_name))
 
@@ -561,7 +580,7 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
                 method = route["method"].lower()
                 sub_path = route["path"].lstrip("/")
                 fn_name = route["fn_name"]
-                config_var = route["config_variable"]
+                config_var = route.get("_config_alias") or route["config_variable"]
                 full_path = f"{worker.url_prefix}/{sub_path}"
                 handler_name = _sanitize_fn_name(
                     f"_route_{worker.resource_name}_{fn_name}"

@@ -7,7 +7,7 @@ import pytest
 import typer
 
 from runpod_flash.cli.commands.build import (
-    BASE_IMAGE_PACKAGES,
+    SIZE_PROHIBITIVE_PACKAGES,
     _find_runpod_flash,
     _resolve_pip_python_version,
     collect_requirements,
@@ -601,15 +601,18 @@ class TestBaseImageAutoExclusion:
         return _stack()
 
     def test_constant_contains_expected_packages(self):
-        """Verify torch ecosystem, numpy, and triton are in BASE_IMAGE_PACKAGES."""
-        assert "torch" in BASE_IMAGE_PACKAGES
-        assert "torchvision" in BASE_IMAGE_PACKAGES
-        assert "torchaudio" in BASE_IMAGE_PACKAGES
-        assert "numpy" in BASE_IMAGE_PACKAGES
-        assert "triton" in BASE_IMAGE_PACKAGES
+        """Verify CUDA/torch ecosystem packages are in SIZE_PROHIBITIVE_PACKAGES."""
+        assert "torch" in SIZE_PROHIBITIVE_PACKAGES
+        assert "torchvision" in SIZE_PROHIBITIVE_PACKAGES
+        assert "torchaudio" in SIZE_PROHIBITIVE_PACKAGES
+        assert "triton" in SIZE_PROHIBITIVE_PACKAGES
+
+    def test_numpy_not_in_size_prohibitive_packages(self):
+        """NumPy must NOT be excluded — CPU images (python-slim) don't ship it."""
+        assert "numpy" not in SIZE_PROHIBITIVE_PACKAGES
 
     def test_auto_excludes_torch_without_flag(self, tmp_path):
-        """Torch and numpy are filtered even with no --exclude flag."""
+        """Torch is filtered even with no --exclude flag; numpy passes through."""
         project_dir = tmp_path / "project"
         project_dir.mkdir()
         (project_dir / "worker.py").write_text(
@@ -637,11 +640,11 @@ class TestBaseImageAutoExclusion:
 
         pkg_names = [extract_package_name(r) for r in installed]
         assert "torch" not in pkg_names
-        assert "numpy" not in pkg_names
+        assert "numpy" in pkg_names
         assert "requests" in pkg_names
 
     def test_user_excludes_merged_with_auto(self, tmp_path):
-        """User --exclude scipy + auto torch/numpy = all excluded."""
+        """User --exclude scipy + auto torch = all excluded; numpy passes through."""
         project_dir = tmp_path / "project"
         project_dir.mkdir()
         (project_dir / "worker.py").write_text(
@@ -669,12 +672,12 @@ class TestBaseImageAutoExclusion:
 
         pkg_names = [extract_package_name(r) for r in installed]
         assert "torch" not in pkg_names
-        assert "numpy" not in pkg_names
+        assert "numpy" in pkg_names
         assert "scipy" not in pkg_names
         assert "pandas" in pkg_names
 
     def test_auto_exclude_silent_when_not_in_requirements(self, tmp_path, capsys):
-        """No auto-exclude message if no base image packages are in requirements."""
+        """No auto-exclude message if no size-prohibitive packages are in requirements."""
         project_dir = tmp_path / "project"
         project_dir.mkdir()
         (project_dir / "worker.py").write_text(
@@ -695,7 +698,7 @@ class TestBaseImageAutoExclusion:
             run_build(project_dir, "test_app", no_deps=True)
 
         captured = capsys.readouterr()
-        assert "Auto-excluded base image packages" not in captured.out
+        assert "Auto-excluded size-prohibitive packages" not in captured.out
 
     def test_user_unmatched_warning_excludes_base_image_packages(
         self, tmp_path, capsys
