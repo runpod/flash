@@ -114,7 +114,7 @@ class TestRemoteWithLoadBalancerIntegration:
         # Verify resource is correctly configured
         # Note: name may have "-fb" appended by flash boot validator
         assert "test-live-api" in lb.name
-        assert "pytorch" in lb.imageName  # GPU base image
+        assert "runpod/flash-lb:" in lb.imageName  # GPU LB base image
         assert echo.__remote_config__["method"] == "POST"
 
     def test_live_load_balancer_image_default_and_override(self):
@@ -133,9 +133,9 @@ class TestRemoteWithLoadBalancerIntegration:
         # same default (e.g. the override branch reverting to a no-op).
         assert default_lb.imageName != custom_lb.imageName
     def test_live_load_balancer_default_image(self):
-        """Test that LiveLoadBalancer uses GPU base image by default."""
+        """Test that LiveLoadBalancer uses GPU LB base image by default."""
         lb = LiveLoadBalancer(name="test-api")
-        assert "pytorch" in lb.imageName
+        assert "runpod/flash-lb:" in lb.imageName
 
     def test_live_load_balancer_allows_custom_image(self):
         """Test that LiveLoadBalancer allows user to set custom image (BYOI)."""
