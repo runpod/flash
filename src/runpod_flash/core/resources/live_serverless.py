@@ -1,11 +1,10 @@
-# Ship serverless code as you write it. No builds, no deploys -- just run.
-from typing import ClassVar
-
+# Ship serverless code as you write it. No builds, no deploys — just run.
 from pydantic import model_validator
 
 from .constants import (
-    DEFAULT_PYTHON_VERSION,
+    GPU_BASE_IMAGE_PYTHON_VERSION,
     get_image_name,
+    local_python_version,
 )
 from .injection import build_injection_cmd
 from .load_balancer_sls_resource import (
@@ -26,23 +25,6 @@ class LiveServerlessMixin:
     runtime, not by the Docker image.
     """
 
-    _image_type: ClassVar[str] = (
-        ""  # override in subclasses: 'gpu', 'cpu', 'lb', 'lb-cpu'
-    )
-
-    @property
-    def _live_image(self) -> str:
-        python_version = getattr(self, "python_version", None) or DEFAULT_PYTHON_VERSION
-        return get_image_name(self._image_type, python_version)
-
-    @property
-    def imageName(self):
-        return self._live_image
-
-    @imageName.setter
-    def imageName(self, value):
-        pass
-
     def _create_new_template(self) -> PodTemplate:
         """Create template with dockerArgs for process injection."""
         template = super()._create_new_template()  # type: ignore[misc]
@@ -59,54 +41,50 @@ class LiveServerlessMixin:
 class LiveServerless(LiveServerlessMixin, ServerlessEndpoint):
     """GPU-only live serverless endpoint."""
 
-    _image_type: ClassVar[str] = "gpu"
-
     @model_validator(mode="before")
     @classmethod
     def set_live_serverless_template(cls, data: dict):
         """Set default GPU image for Live Serverless."""
-        python_version = data.get("python_version") or DEFAULT_PYTHON_VERSION
-        data["imageName"] = get_image_name("gpu", python_version)
+        if "imageName" not in data:
+            python_version = data.get("python_version") or GPU_BASE_IMAGE_PYTHON_VERSION
+            data["imageName"] = get_image_name("gpu", python_version)
         return data
 
 
 class CpuLiveServerless(LiveServerlessMixin, CpuServerlessEndpoint):
     """CPU-only live serverless endpoint with automatic disk sizing."""
 
-    _image_type: ClassVar[str] = "cpu"
-
     @model_validator(mode="before")
     @classmethod
     def set_live_serverless_template(cls, data: dict):
         """Set default CPU image for Live Serverless."""
-        python_version = data.get("python_version") or DEFAULT_PYTHON_VERSION
-        data["imageName"] = get_image_name("cpu", python_version)
+        if "imageName" not in data:
+            python_version = data.get("python_version") or local_python_version()
+            data["imageName"] = get_image_name("cpu", python_version)
         return data
 
 
 class LiveLoadBalancer(LiveServerlessMixin, LoadBalancerSlsResource):
     """Live load-balanced endpoint."""
 
-    _image_type: ClassVar[str] = "lb"
-
     @model_validator(mode="before")
     @classmethod
     def set_live_lb_template(cls, data: dict):
         """Set default image for Live Load-Balanced endpoint."""
-        python_version = data.get("python_version") or DEFAULT_PYTHON_VERSION
-        data["imageName"] = get_image_name("lb", python_version)
+        if "imageName" not in data:
+            python_version = data.get("python_version") or GPU_BASE_IMAGE_PYTHON_VERSION
+            data["imageName"] = get_image_name("lb", python_version)
         return data
 
 
 class CpuLiveLoadBalancer(LiveServerlessMixin, CpuLoadBalancerSlsResource):
     """CPU-only live load-balanced endpoint."""
 
-    _image_type: ClassVar[str] = "lb-cpu"
-
     @model_validator(mode="before")
     @classmethod
     def set_live_cpu_lb_template(cls, data: dict):
         """Set default CPU image for Live Load-Balanced endpoint."""
-        python_version = data.get("python_version") or DEFAULT_PYTHON_VERSION
-        data["imageName"] = get_image_name("lb-cpu", python_version)
+        if "imageName" not in data:
+            python_version = data.get("python_version") or local_python_version()
+            data["imageName"] = get_image_name("lb-cpu", python_version)
         return data

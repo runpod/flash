@@ -129,7 +129,7 @@ class TestCpuDiskSizingIntegration:
         # 2. CPU utilities calculate minimum disk size
         # 3. Template creation with auto-sizing
         # 4. Validation passes
-        assert live_serverless.imageName == "python:3.11-slim"
+        assert "runpod/flash-cpu:" in live_serverless.imageName
         assert live_serverless.instanceIds == [
             CpuInstanceType.CPU5C_1_2,
             CpuInstanceType.CPU5C_2_4,
@@ -254,8 +254,8 @@ class TestLiveServerlessImageDefaultsIntegration:
 
         # Verify different base images are used
         assert gpu_live.imageName != cpu_live.imageName
-        assert "pytorch" in gpu_live.imageName
-        assert "python" in cpu_live.imageName
+        assert "runpod/flash:" in gpu_live.imageName
+        assert "runpod/flash-cpu:" in cpu_live.imageName
 
         # Verify images can be overridden (BYOI)
         custom_gpu = LiveServerless(
