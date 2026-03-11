@@ -342,6 +342,7 @@ class CpuLoadBalancerSlsResource(CpuEndpointMixin, LoadBalancerSlsResource):
         "allowedCudaVersions",
         "imageName",
         "networkVolume",
+        "networkVolumes",
         "python_version",
     }
 

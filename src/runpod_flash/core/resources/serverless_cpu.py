@@ -123,6 +123,7 @@ class CpuServerlessEndpoint(CpuEndpointMixin, ServerlessEndpoint):
         "flashEnvironmentId",
         "imageName",
         "networkVolume",
+        "networkVolumes",
         "python_version",
     }
 

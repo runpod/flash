@@ -17,12 +17,44 @@ log = logging.getLogger(__name__)
 
 
 class DataCenter(str, Enum):
-    """
-    Enum representing available data centers for network volumes.
-    #TODO: Add more data centers as needed. Lock this to the available data center.
-    """
+    """Enum representing available RunPod data centers."""
 
+    US_GA_1 = "US-GA-1"
+    US_KS_1 = "US-KS-1"
+    US_TX_1 = "US-TX-1"
+    US_OR_1 = "US-OR-1"
+    CA_MTL_1 = "CA-MTL-1"
+    EU_NL_1 = "EU-NL-1"
+    EU_CZ_1 = "EU-CZ-1"
     EU_RO_1 = "EU-RO-1"
+    EU_NO_1 = "EU-NO-1"
+    EU_SE_1 = "EU-SE-1"
+
+    @classmethod
+    def from_string(cls, value: str) -> "DataCenter":
+        """Parse a datacenter ID string into a DataCenter enum.
+
+        Accepts the canonical form (e.g. "EU-RO-1") as well as common
+        variations like lowercase or underscore-separated.
+        """
+        normalized = value.strip().upper().replace("_", "-")
+        try:
+            return cls(normalized)
+        except ValueError:
+            valid = ", ".join(dc.value for dc in cls)
+            raise ValueError(
+                f"Unknown datacenter '{value}'. Valid datacenters: {valid}"
+            )
+
+
+# data centers that support CPU serverless endpoints
+CPU_DATACENTERS: frozenset[DataCenter] = frozenset(
+    {
+        DataCenter.EU_RO_1,
+        DataCenter.US_TX_1,
+        DataCenter.EU_SE_1,
+    }
+)
 
 
 class NetworkVolume(DeployableResource):
@@ -41,8 +73,7 @@ class NetworkVolume(DeployableResource):
         "name",
     }
 
-    # Internal fixed value
-    dataCenterId: DataCenter = Field(default=DataCenter.EU_RO_1, frozen=True)
+    dataCenterId: DataCenter = Field(default=DataCenter.EU_RO_1)
 
     id: Optional[str] = Field(default=None)
     name: str

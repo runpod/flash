@@ -271,33 +271,64 @@ class TestServerlessResourceValidation:
 
         assert serverless.name == "test-serverless-fb"
 
-    def test_datacenter_defaults_to_eu_ro_1(self):
-        """Test datacenter defaults to EU_RO_1."""
+    def test_datacenter_defaults_to_none(self):
+        """Test datacenter defaults to None (all datacenters)."""
         serverless = ServerlessResource(name="test")
 
-        assert serverless.datacenter == DataCenter.EU_RO_1
+        assert serverless.datacenter is None
 
-    def test_datacenter_can_be_overridden(self):
-        """Test datacenter can be overridden by user."""
-        # This would work if we had other datacenters defined
+    def test_datacenter_single_value(self):
+        """Test datacenter accepts a single DataCenter and normalizes to list."""
         serverless = ServerlessResource(name="test", datacenter=DataCenter.EU_RO_1)
 
-        assert serverless.datacenter == DataCenter.EU_RO_1
+        assert serverless.datacenter == [DataCenter.EU_RO_1]
 
-    def test_locations_synced_from_datacenter(self, monkeypatch):
-        """Test locations field gets synced from datacenter in prod."""
-        monkeypatch.setenv("RUNPOD_ENV", "prod")
-        serverless = ServerlessResource(name="test")
+    def test_datacenter_multiple_values(self):
+        """Test datacenter accepts a list of DataCenter values."""
+        serverless = ServerlessResource(
+            name="test",
+            datacenter=[DataCenter.EU_RO_1, DataCenter.US_GA_1],
+        )
+        assert serverless.datacenter == [DataCenter.EU_RO_1, DataCenter.US_GA_1]
 
-        # Should automatically set locations from datacenter in prod
+    def test_datacenter_string_value(self):
+        """Test datacenter accepts string values."""
+        serverless = ServerlessResource(name="test", datacenter="EU-RO-1")
+        assert serverless.datacenter == [DataCenter.EU_RO_1]
+
+    def test_datacenter_string_list(self):
+        """Test datacenter accepts list of strings."""
+        serverless = ServerlessResource(name="test", datacenter=["EU-RO-1", "US-GA-1"])
+        assert serverless.datacenter == [DataCenter.EU_RO_1, DataCenter.US_GA_1]
+
+    def test_datacenter_invalid_string_raises(self):
+        """Test that an invalid datacenter string raises ValueError."""
+        with pytest.raises(ValueError, match="Unknown datacenter"):
+            ServerlessResource(name="test", datacenter="INVALID-DC")
+
+    def test_locations_synced_from_datacenter(self):
+        """Test locations field gets synced from datacenter."""
+        serverless = ServerlessResource(name="test", datacenter=DataCenter.EU_RO_1)
         assert serverless.locations == "EU-RO-1"
+
+    def test_locations_synced_from_multi_datacenter(self):
+        """Test locations field gets synced from multiple datacenters."""
+        serverless = ServerlessResource(
+            name="test",
+            datacenter=[DataCenter.EU_RO_1, DataCenter.US_GA_1],
+        )
+        assert serverless.locations == "EU-RO-1,US-GA-1"
+
+    def test_no_datacenter_no_locations(self):
+        """Test that no datacenter means no locations restriction."""
+        serverless = ServerlessResource(name="test")
+        assert serverless.locations is None
 
     def test_explicit_locations_not_overridden(self):
         """Test explicit locations field is not overridden."""
-        serverless = ServerlessResource(name="test", locations="US-WEST-1")
+        serverless = ServerlessResource(name="test", locations="US-GA-1")
 
-        # Explicit locations should not be overridden
-        assert serverless.locations == "US-WEST-1"
+        assert serverless.locations == "US-GA-1"
 
     def test_datacenter_validation_matching_datacenters(self):
         """Test that matching datacenters between endpoint and volume work."""
@@ -306,36 +337,25 @@ class TestServerlessResourceValidation:
             name="test", datacenter=DataCenter.EU_RO_1, networkVolume=volume
         )
 
-        # Should not raise any validation error
-        assert serverless.datacenter == DataCenter.EU_RO_1
+        assert serverless.datacenter == [DataCenter.EU_RO_1]
         assert serverless.networkVolume.dataCenterId == DataCenter.EU_RO_1
 
-    def test_datacenter_validation_logic_exists(self):
-        """Test that datacenter validation logic exists in sync_input_fields."""
-        # Test by examining the validation code directly
-        # Since we can't easily mock frozen fields, we'll test the logic exists
-        volume = NetworkVolume(name="test-volume", dataCenterId=DataCenter.EU_RO_1)
-        _ = ServerlessResource(
-            name="test", datacenter=DataCenter.EU_RO_1, networkVolume=volume
-        )
-
-        # Create a mock volume with mismatched datacenter for direct validation test
-        mock_volume = MagicMock()
-        mock_volume.dataCenterId.value = "US-WEST-1"
-        mock_datacenter = MagicMock()
-        mock_datacenter.value = "EU-RO-1"
-
-        # Test the validation logic directly
+    def test_datacenter_validation_volume_not_in_dc_list(self):
+        """Test that a volume DC not in endpoint's DC list raises an error."""
+        volume = NetworkVolume(name="test-volume", dataCenterId=DataCenter.US_GA_1)
         with pytest.raises(
             ValueError,
-            match="Network volume datacenter.*must match endpoint datacenter",
+            match="Network volume datacenter.*is not in the endpoint's datacenter list",
         ):
-            # Simulate the validation check
-            if mock_volume.dataCenterId != mock_datacenter:
-                raise ValueError(
-                    f"Network volume datacenter ({mock_volume.dataCenterId.value}) "
-                    f"must match endpoint datacenter ({mock_datacenter.value})"
-                )
+            ServerlessResource(
+                name="test", datacenter=DataCenter.EU_RO_1, networkVolume=volume
+            )
+
+    def test_volume_dc_allowed_when_no_datacenter_set(self):
+        """Test that any volume DC is allowed when no datacenter restriction is set."""
+        volume = NetworkVolume(name="test-volume", dataCenterId=DataCenter.US_GA_1)
+        serverless = ServerlessResource(name="test", networkVolume=volume)
+        assert serverless.networkVolume.dataCenterId == DataCenter.US_GA_1
 
     def test_no_flashboot_keeps_name(self):
         """Test flashboot=False keeps original name."""
@@ -402,6 +422,103 @@ class TestServerlessResourceSyncFields:
         assert serverless.cudaVersions is not None
         assert CudaVersion.V12_1 in serverless.cudaVersions
         assert CudaVersion.V11_8 in serverless.cudaVersions
+
+
+class TestMultiVolumeValidation:
+    """Test multiple network volume support."""
+
+    def test_single_volume_compat(self):
+        """Test single networkVolume still works."""
+        vol = NetworkVolume(name="v1", dataCenterId=DataCenter.EU_RO_1)
+        s = ServerlessResource(name="test", networkVolume=vol)
+        assert s.networkVolume is vol
+        assert s.networkVolumes == [vol]
+
+    def test_multiple_volumes_via_list(self):
+        """Test networkVolumes accepts multiple volumes."""
+        v1 = NetworkVolume(name="v1", dataCenterId=DataCenter.EU_RO_1)
+        v2 = NetworkVolume(name="v2", dataCenterId=DataCenter.US_GA_1)
+        s = ServerlessResource(name="test", networkVolumes=[v1, v2])
+        assert len(s.networkVolumes) == 2
+        assert s.networkVolume is v1
+
+    def test_duplicate_dc_raises(self):
+        """Test two volumes in the same DC raises."""
+        v1 = NetworkVolume(name="v1", dataCenterId=DataCenter.EU_RO_1)
+        v2 = NetworkVolume(name="v2", dataCenterId=DataCenter.EU_RO_1)
+        with pytest.raises(ValueError, match="Multiple volumes in datacenter EU-RO-1"):
+            ServerlessResource(name="test", networkVolumes=[v1, v2])
+
+    def test_volumes_dc_outside_endpoint_dc_raises(self):
+        """Test volume DC not in endpoint's DC list raises."""
+        vol = NetworkVolume(name="v1", dataCenterId=DataCenter.US_GA_1)
+        with pytest.raises(
+            ValueError,
+            match="is not in the endpoint's datacenter list",
+        ):
+            ServerlessResource(
+                name="test",
+                datacenter=DataCenter.EU_RO_1,
+                networkVolumes=[vol],
+            )
+
+    def test_volumes_dc_within_endpoint_dc_list(self):
+        """Test volume DCs all within endpoint DC list works."""
+        v1 = NetworkVolume(name="v1", dataCenterId=DataCenter.EU_RO_1)
+        v2 = NetworkVolume(name="v2", dataCenterId=DataCenter.US_GA_1)
+        s = ServerlessResource(
+            name="test",
+            datacenter=[DataCenter.EU_RO_1, DataCenter.US_GA_1],
+            networkVolumes=[v1, v2],
+        )
+        assert len(s.networkVolumes) == 2
+
+
+class TestCpuDatacenterValidation:
+    """Test CPU datacenter validation."""
+
+    def test_cpu_endpoint_in_supported_dc(self):
+        """Test CPU endpoint in supported datacenter works."""
+        endpoint = CpuServerlessEndpoint(
+            name="test-cpu",
+            imageName="test/cpu:latest",
+            datacenter=DataCenter.EU_RO_1,
+        )
+        assert endpoint.datacenter == [DataCenter.EU_RO_1]
+
+    def test_cpu_endpoint_in_unsupported_dc_raises(self):
+        """Test CPU endpoint in unsupported datacenter raises."""
+        with pytest.raises(ValueError, match="CPU endpoints are not available in"):
+            CpuServerlessEndpoint(
+                name="test-cpu",
+                imageName="test/cpu:latest",
+                datacenter=DataCenter.US_GA_1,
+            )
+
+    def test_cpu_endpoint_mixed_dcs_raises(self):
+        """Test CPU endpoint with mix of supported/unsupported DCs raises."""
+        with pytest.raises(ValueError, match="CPU endpoints are not available in"):
+            CpuServerlessEndpoint(
+                name="test-cpu",
+                imageName="test/cpu:latest",
+                datacenter=[DataCenter.EU_RO_1, DataCenter.US_GA_1],
+            )
+
+    def test_cpu_endpoint_no_datacenter_ok(self):
+        """Test CPU endpoint with no datacenter (all DCs) is allowed."""
+        endpoint = CpuServerlessEndpoint(
+            name="test-cpu",
+            imageName="test/cpu:latest",
+        )
+        assert endpoint.datacenter is None
+
+    def test_gpu_endpoint_any_dc_ok(self):
+        """Test GPU endpoint in any datacenter is allowed."""
+        serverless = ServerlessResource(
+            name="test-gpu",
+            datacenter=DataCenter.US_GA_1,
+        )
+        assert serverless.datacenter == [DataCenter.US_GA_1]
 
 
 class TestJobOutput:
@@ -522,14 +639,14 @@ class TestServerlessResourceDeployment:
 
     @pytest.mark.asyncio
     async def test_deploy_success_with_network_volume(
-        self, mock_runpod_client, deployment_response, monkeypatch
+        self, mock_runpod_client, deployment_response
     ):
         """Test successful deployment with network volume integration."""
-        monkeypatch.setenv("RUNPOD_ENV", "prod")
         serverless = ServerlessResource(
             name="test-serverless",
             gpus=[GpuGroup.AMPERE_48],
             cudaVersions=[CudaVersion.V12_1],
+            datacenter=DataCenter.EU_RO_1,
         )
 
         mock_runpod_client.save_endpoint.return_value = deployment_response
