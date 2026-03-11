@@ -20,8 +20,8 @@ Endpoint(
     dependencies: Optional[List[str]] = None,
     system_dependencies: Optional[List[str]] = None,
     accelerate_downloads: bool = True,
-    volume: Optional[NetworkVolume] = None,
-    datacenter: DataCenter = DataCenter.EU_RO_1,
+    volume: Optional[Union[NetworkVolume, List[NetworkVolume]]] = None,
+    datacenter: Optional[Union[DataCenter, List[DataCenter], str, List[str]]] = None,
     env: Optional[Dict[str, str]] = None,
     gpu_count: int = 1,
     execution_timeout_ms: int = 0,
@@ -46,8 +46,8 @@ Endpoint(
 | `dependencies` | `list[str]` | `None` | Python packages to install (e.g., `["torch", "numpy==1.24"]`). |
 | `system_dependencies` | `list[str]` | `None` | System packages to install. |
 | `accelerate_downloads` | `bool` | `True` | Enable accelerated downloads. |
-| `volume` | `NetworkVolume` | `None` | Network volume for persistent storage. |
-| `datacenter` | `DataCenter` | `EU_RO_1` | Preferred datacenter. |
+| `volume` | `NetworkVolume` or list | `None` | Network volume(s) for persistent storage. One volume per datacenter. |
+| `datacenter` | `DataCenter`, list, `str`, or `None` | `None` | Datacenter(s) to deploy into. `None` means all available DCs. Accepts a single value, a list, or string DC IDs. CPU endpoints must use DCs in `CPU_DATACENTERS`. |
 | `env` | `dict[str, str]` | `None` | Environment variables for the endpoint. |
 | `gpu_count` | `int` | `1` | GPUs per worker. |
 | `execution_timeout_ms` | `int` | `0` | Max execution time in ms. 0 = no limit. |
@@ -335,8 +335,20 @@ CPU instance selection. Can also be passed as a string to `cpu=`.
 
 | Value | Location |
 |-------|----------|
-| `DataCenter.EU_RO_1` | Europe - Romania (default) |
-| `DataCenter.US_TX_3` | US - Texas |
+| `DataCenter.US_GA_1` | US - Georgia |
+| `DataCenter.US_KS_1` | US - Kansas |
+| `DataCenter.US_TX_1` | US - Texas |
+| `DataCenter.US_OR_1` | US - Oregon |
+| `DataCenter.CA_MTL_1` | Canada - Montreal |
+| `DataCenter.EU_NL_1` | Europe - Netherlands |
+| `DataCenter.EU_CZ_1` | Europe - Czech Republic |
+| `DataCenter.EU_RO_1` | Europe - Romania |
+| `DataCenter.EU_NO_1` | Europe - Norway |
+| `DataCenter.EU_SE_1` | Europe - Sweden |
+
+When `datacenter=None` (the default), the endpoint is available in all data centers.
+
+CPU endpoints are restricted to the `CPU_DATACENTERS` subset: `EU_RO_1`, `US_TX_1`, `EU_SE_1`.
 
 ### CudaVersion
 
@@ -350,12 +362,22 @@ CPU instance selection. Can also be passed as a string to `cpu=`.
 
 ### NetworkVolume
 
-Persistent storage that survives worker restarts.
+Persistent storage that survives worker restarts. Each volume is tied to a specific datacenter.
 
 ```python
-from runpod_flash import NetworkVolume
+from runpod_flash import NetworkVolume, DataCenter
 
+# existing volume by ID
 vol = NetworkVolume(id="vol_abc123")
+
+# create a new volume in a specific datacenter
+vol = NetworkVolume(name="my-models", size=100, dataCenterId=DataCenter.US_GA_1)
+
+# multiple volumes across datacenters (one per DC)
+volumes = [
+    NetworkVolume(name="models-us", size=100, dataCenterId=DataCenter.US_GA_1),
+    NetworkVolume(name="models-eu", size=100, dataCenterId=DataCenter.EU_RO_1),
+]
 ```
 
 ### PodTemplate
@@ -392,6 +414,7 @@ from runpod_flash import (
     CpuInstanceType,
     CudaVersion,
     DataCenter,
+    CPU_DATACENTERS,
     NetworkVolume,
     PodTemplate,
     ServerlessScalerType,
