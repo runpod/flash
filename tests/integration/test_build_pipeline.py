@@ -192,5 +192,3 @@ class TestBuildGeneratesHandlerFiles:
         assert "_instance = MyWorker()" in content
         assert "def handler(job):" in content
         assert "getattr(_instance, method_name)" in content
-
-

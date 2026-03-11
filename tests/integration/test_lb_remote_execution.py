@@ -203,4 +203,6 @@ def get_status():
             assert "test-api-fb" in scanner.resource_types
             assert scanner.resource_types["test-api-fb"] == "LiveLoadBalancer"
             assert "deployed-api-fb" in scanner.resource_types
-            assert scanner.resource_types["deployed-api-fb"] == "LoadBalancerSlsResource"
+            assert (
+                scanner.resource_types["deployed-api-fb"] == "LoadBalancerSlsResource"
+            )
