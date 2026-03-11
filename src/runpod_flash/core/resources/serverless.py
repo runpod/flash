@@ -53,14 +53,6 @@ def get_env_vars() -> Dict[str, str]:
 log = logging.getLogger(__name__)
 
 
-def _is_prod_environment() -> bool:
-    env = os.getenv("RUNPOD_ENV")
-    if env:
-        return env.lower() == "prod"
-    api_base = os.getenv("RUNPOD_API_BASE_URL", "https://api.runpod.io")
-    return "api.runpod.io" in api_base or "api.runpod.ai" in api_base
-
-
 class ServerlessScalerType(Enum):
     QUEUE_DELAY = "QUEUE_DELAY"
     REQUEST_COUNT = "REQUEST_COUNT"
