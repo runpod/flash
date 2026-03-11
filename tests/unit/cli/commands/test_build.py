@@ -162,7 +162,7 @@ class TestExtractRemoteDependencies:
 
         worker_file.write_text(
             "from runpod_flash import remote, LiveServerless\n"
-            "gpu = LiveServerless()\n"
+            "gpu = LiveServerless(name='gpu_worker')\n"
             "@remote(gpu, dependencies=['torch', 'transformers'])\n"
             "async def my_async_func(prompt: str) -> str:\n"
             "    return prompt\n"
@@ -183,7 +183,7 @@ class TestExtractRemoteDependencies:
         api_example = build_dir / "api_example.py"
         api_example.write_text(
             "from runpod_flash import remote, LiveServerless\n"
-            "gpu = LiveServerless()\n"
+            "gpu = LiveServerless(name='gpu_worker')\n"
             "@remote(gpu, dependencies=['transformers'])\n"
             "async def smoke(prompt: str) -> str:\n"
             "    return prompt\n"
@@ -238,7 +238,7 @@ class TestExtractRemoteDependencies:
         f1 = workers_dir / "remote_worker.py"
         f1.write_text(
             "from runpod_flash import remote, LiveServerless\n"
-            "gpu = LiveServerless()\n"
+            "gpu = LiveServerless(name='gpu_worker')\n"
             "@remote(gpu, dependencies=['torch'])\n"
             "async def train(data): return data\n"
         )
@@ -303,7 +303,7 @@ class TestRunBuildHandlerGeneration:
         worker_file = project_dir / "worker.py"
         worker_file.write_text(
             "from runpod_flash import remote, LiveServerless\n"
-            "gpu = LiveServerless()\n"
+            "gpu = LiveServerless(name='gpu_worker')\n"
             "@remote(gpu)\n"
             "def my_func(prompt: str) -> str:\n"
             "    return prompt\n"
@@ -340,7 +340,7 @@ class TestRunBuildHandlerGeneration:
         worker_file = project_dir / "worker.py"
         worker_file.write_text(
             "from runpod_flash import remote, LiveServerless\n"
-            "gpu = LiveServerless()\n"
+            "gpu = LiveServerless(name='gpu_worker')\n"
             "@remote(gpu)\n"
             "def my_func(prompt: str) -> str:\n"
             "    return prompt\n"
@@ -371,7 +371,7 @@ class TestRunBuildHandlerGeneration:
         worker_file = project_dir / "worker.py"
         worker_file.write_text(
             "from runpod_flash import remote, LiveServerless\n"
-            "gpu = LiveServerless()\n"
+            "gpu = LiveServerless(name='gpu_worker')\n"
             "@remote(gpu)\n"
             "def my_func(prompt: str) -> str:\n"
             "    return prompt\n"
@@ -511,7 +511,7 @@ class TestRunBuildBundlingFailure:
         project_dir.mkdir()
         (project_dir / "worker.py").write_text(
             "from runpod_flash import remote, LiveServerless\n"
-            "gpu = LiveServerless()\n"
+            "gpu = LiveServerless(name='gpu_worker')\n"
             "@remote(gpu)\n"
             "def my_func(prompt: str) -> str:\n"
             "    return prompt\n"
@@ -542,7 +542,7 @@ class TestRunBuildBundling:
         project_dir.mkdir()
         (project_dir / "worker.py").write_text(
             "from runpod_flash import remote, LiveServerless\n"
-            "gpu = LiveServerless()\n"
+            "gpu = LiveServerless(name='gpu_worker')\n"
             "@remote(gpu)\n"
             "def my_func(prompt: str) -> str:\n"
             "    return prompt\n"
@@ -617,7 +617,7 @@ class TestBaseImageAutoExclusion:
         project_dir.mkdir()
         (project_dir / "worker.py").write_text(
             "from runpod_flash import remote, LiveServerless\n"
-            "gpu = LiveServerless()\n"
+            "gpu = LiveServerless(name='gpu_worker')\n"
             "@remote(gpu, dependencies=['torch', 'numpy', 'requests'])\n"
             "def my_func(prompt: str) -> str:\n"
             "    return prompt\n"
@@ -649,7 +649,7 @@ class TestBaseImageAutoExclusion:
         project_dir.mkdir()
         (project_dir / "worker.py").write_text(
             "from runpod_flash import remote, LiveServerless\n"
-            "gpu = LiveServerless()\n"
+            "gpu = LiveServerless(name='gpu_worker')\n"
             "@remote(gpu, dependencies=['torch', 'numpy', 'scipy', 'pandas'])\n"
             "def my_func(prompt: str) -> str:\n"
             "    return prompt\n"
@@ -682,7 +682,7 @@ class TestBaseImageAutoExclusion:
         project_dir.mkdir()
         (project_dir / "worker.py").write_text(
             "from runpod_flash import remote, LiveServerless\n"
-            "gpu = LiveServerless()\n"
+            "gpu = LiveServerless(name='gpu_worker')\n"
             "@remote(gpu, dependencies=['requests'])\n"
             "def my_func(prompt: str) -> str:\n"
             "    return prompt\n"
@@ -708,7 +708,7 @@ class TestBaseImageAutoExclusion:
         project_dir.mkdir()
         (project_dir / "worker.py").write_text(
             "from runpod_flash import remote, LiveServerless\n"
-            "gpu = LiveServerless()\n"
+            "gpu = LiveServerless(name='gpu_worker')\n"
             "@remote(gpu, dependencies=['requests'])\n"
             "def my_func(prompt: str) -> str:\n"
             "    return prompt\n"

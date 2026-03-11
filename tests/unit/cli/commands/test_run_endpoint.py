@@ -20,7 +20,7 @@ async def process(data: dict) -> dict:
 """
             )
 
-            workers = _scan_project_workers(project_root)
+            workers, _ = _scan_project_workers(project_root)
             assert len(workers) == 1
             w = workers[0]
             assert w.worker_type == "QB"
@@ -46,7 +46,7 @@ async def compute(data: dict) -> dict:
 """
             )
 
-            workers = _scan_project_workers(project_root)
+            workers, _ = _scan_project_workers(project_root)
             assert len(workers) == 1
             w = workers[0]
             assert w.worker_type == "LB"
@@ -86,7 +86,7 @@ async def health():
 """
             )
 
-            workers = _scan_project_workers(project_root)
+            workers, _ = _scan_project_workers(project_root)
             assert len(workers) == 2
 
             qb = [w for w in workers if w.worker_type == "QB"]
@@ -114,7 +114,7 @@ class Model:
 """
             )
 
-            workers = _scan_project_workers(project_root)
+            workers, _ = _scan_project_workers(project_root)
             assert len(workers) == 1
             w = workers[0]
             assert w.worker_type == "QB"
@@ -137,7 +137,7 @@ async def process(data: dict) -> dict:
 """
             )
 
-            workers = _scan_project_workers(project_root)
+            workers, _ = _scan_project_workers(project_root)
             server_path = _generate_flash_server(project_root, workers)
 
             assert server_path.exists()
@@ -167,7 +167,7 @@ async def compute(data: dict) -> dict:
 """
             )
 
-            workers = _scan_project_workers(project_root)
+            workers, _ = _scan_project_workers(project_root)
             server_path = _generate_flash_server(project_root, workers)
 
             assert server_path.exists()
@@ -210,7 +210,7 @@ async def api_process(text: str) -> dict:
 """
             )
 
-            workers = _scan_project_workers(project_root)
+            workers, _ = _scan_project_workers(project_root)
             server_path = _generate_flash_server(project_root, workers)
 
             content = server_path.read_text()

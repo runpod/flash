@@ -5,8 +5,8 @@ Covers:
   REM-CLS-013  – extract_class_code_simple fallback when inspect.getsource fails
   RES-LS-008   – ServerlessResource.env default populated from .env file
   VOL-006      – NetworkVolume with empty name still constructs (no validator guards it)
-  SCAN-016     – RemoteDecoratorScanner handles @remote on nested class (class in function)
-  SCAN-017     – RemoteDecoratorScanner handles conditional @remote gracefully
+  SCAN-016     – RuntimeScanner handles @remote on nested class (class in function)
+  SCAN-017     – RuntimeScanner handles conditional @remote gracefully
   STUB-STACK-004 – detect_remote_dependencies terminates on circular dependency graph
   SRVGEN-008   – RemoteClassWrapper stores _class_type for Pydantic introspection
   LB-ROUTE-003 – LoadBalancer random strategy selects from endpoint pool
@@ -284,12 +284,12 @@ class TestNetworkVolumeEmptyName:
 
 
 class TestScannerNestedClass:
-    """RemoteDecoratorScanner does not crash when a class is defined inside a function."""
+    """RuntimeScanner does not crash when a class is defined inside a function."""
 
     def _make_scanner(self, tmp_path: Path):
-        from runpod_flash.cli.commands.build_utils.scanner import RemoteDecoratorScanner
+        from runpod_flash.cli.commands.build_utils.scanner import RuntimeScanner
 
-        return RemoteDecoratorScanner(tmp_path)
+        return RuntimeScanner(tmp_path)
 
     def test_nested_class_does_not_cause_scanner_error(self, tmp_path):
         """SCAN-016: Scanner processes a file containing a @remote on a nested class without error."""
@@ -342,12 +342,12 @@ def outer():
 
 
 class TestScannerConditionalRemote:
-    """RemoteDecoratorScanner handles or skips conditional decorators gracefully."""
+    """RuntimeScanner handles or skips conditional decorators gracefully."""
 
     def _make_scanner(self, tmp_path: Path):
-        from runpod_flash.cli.commands.build_utils.scanner import RemoteDecoratorScanner
+        from runpod_flash.cli.commands.build_utils.scanner import RuntimeScanner
 
-        return RemoteDecoratorScanner(tmp_path)
+        return RuntimeScanner(tmp_path)
 
     def test_conditional_decorator_does_not_crash_scanner(self, tmp_path):
         """SCAN-017: File with conditional @remote is scanned without exception."""

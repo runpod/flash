@@ -143,6 +143,8 @@ def create_resource_from_manifest(
         deployment_kwargs["scalerValue"] = resource_data["scalerValue"]
     if "instanceIds" in resource_data:
         deployment_kwargs["instanceIds"] = resource_data["instanceIds"]
+    if "idleTimeout" in resource_data:
+        deployment_kwargs["idleTimeout"] = resource_data["idleTimeout"]
 
     # Reconstruct NetworkVolume from manifest data if present
     if "networkVolume" in resource_data:

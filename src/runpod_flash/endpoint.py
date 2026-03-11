@@ -354,9 +354,11 @@ class Endpoint:
                 "id and image are mutually exclusive. id= connects to an "
                 "existing endpoint, image= deploys a new one."
             )
-        if name is None and id is None:
-            raise ValueError("name or id is required.")
+        if name is None and id is None and image is not None:
+            raise ValueError("name or id is required when image= is set.")
 
+        # name can be None here for QB decorator mode (@Endpoint(gpu=...)).
+        # it gets derived from the decorated function/class in __call__().
         self.name = name
         self.id = id
         self._gpu = _normalize_gpu(gpu)
@@ -566,6 +568,10 @@ class Endpoint:
                 "routes with .get()/.post()/etc. use one pattern or the other."
             )
 
+        # auto-derive name from the decorated function/class if not provided
+        if self.name is None:
+            self.name = func_or_class.__name__
+
         self._qb_target = func_or_class
         resource_config = self._build_resource_config()
 
@@ -583,6 +589,11 @@ class Endpoint:
 
     def _route(self, method: str, path: str):
         """register an http route on this endpoint (lb mode)."""
+        if self.name is None:
+            raise ValueError(
+                "name is required for load-balanced endpoints. "
+                "use Endpoint(name='my-api', ...) when registering routes."
+            )
         method = method.upper()
         if method not in _VALID_HTTP_METHODS:
             raise ValueError(

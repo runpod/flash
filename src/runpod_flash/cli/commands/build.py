@@ -31,7 +31,7 @@ from .build_utils.handler_generator import HandlerGenerator
 from .build_utils.lb_handler_generator import LBHandlerGenerator
 from .build_utils.manifest import ManifestBuilder
 from .build_utils.resource_config_generator import generate_all_resource_configs
-from .build_utils.scanner import RemoteDecoratorScanner
+from .build_utils.scanner import RuntimeScanner
 
 logger = logging.getLogger(__name__)
 
@@ -302,8 +302,15 @@ def run_build(
         copy_project_files(files, project_dir, build_dir)
 
         try:
-            scanner = RemoteDecoratorScanner(build_dir)
+            scanner = RuntimeScanner(build_dir)
             remote_functions = scanner.discover_remote_functions()
+
+            if scanner.import_errors:
+                console.print("\n[red bold]Failed to load:[/red bold]")
+                for filename, err in scanner.import_errors.items():
+                    console.print(f"  [red]{filename}[/red]: {err}")
+                if not remote_functions:
+                    raise typer.Exit(1)
 
             manifest_builder = ManifestBuilder(
                 app_name,
@@ -326,6 +333,8 @@ def run_build(
             deployment_manifest_path = flash_dir / "flash_manifest.json"
             shutil.copy2(manifest_path, deployment_manifest_path)
 
+        except typer.Exit:
+            raise
         except (ImportError, SyntaxError) as e:
             console.print(f"[red]Error:[/red] Code analysis failed: {e}")
             logger.exception("Code analysis failed")
@@ -534,7 +543,7 @@ def validate_project_structure(project_dir: Path) -> bool:
     Validate that directory is a Flash project.
 
     A Flash project is any directory containing Python files. The
-    RemoteDecoratorScanner validates that @remote functions exist.
+    RuntimeScanner validates that @remote functions exist.
 
     Args:
         project_dir: Directory to validate

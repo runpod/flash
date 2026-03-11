@@ -73,9 +73,7 @@ class ManifestBuilder:
     ):
         self.project_name = project_name
         self.remote_functions = remote_functions
-        self.scanner = (
-            scanner  # Optional: RemoteDecoratorScanner with resource config info
-        )
+        self.scanner = scanner  # Optional: RuntimeScanner with resource config info
         self.build_dir = build_dir
         self.python_version = (
             python_version or f"{sys.version_info.major}.{sys.version_info.minor}"
@@ -204,6 +202,12 @@ class ManifestBuilder:
 
         if hasattr(resource_config, "workersMax"):
             config["workersMax"] = resource_config.workersMax
+
+        if (
+            hasattr(resource_config, "idleTimeout")
+            and resource_config.idleTimeout is not None
+        ):
+            config["idleTimeout"] = resource_config.idleTimeout
 
         if (
             hasattr(resource_config, "scalerType")

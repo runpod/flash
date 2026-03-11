@@ -226,9 +226,9 @@ class TestScannerDocstring:
     """AST scanner extracts function docstrings."""
 
     def test_scanner_extracts_docstring(self, tmp_path):
-        """SCAN-010: RemoteDecoratorScanner extracts first line of docstring."""
+        """SCAN-010: RuntimeScanner extracts first line of docstring."""
         from runpod_flash.cli.commands.build_utils.scanner import (
-            RemoteDecoratorScanner,
+            RuntimeScanner,
         )
 
         worker_file = tmp_path / "worker.py"
@@ -241,7 +241,7 @@ class TestScannerDocstring:
             "    return x * 2\n"
         )
 
-        scanner = RemoteDecoratorScanner(tmp_path)
+        scanner = RuntimeScanner(tmp_path)
         functions = scanner.discover_remote_functions()
 
         # Scanner should find at least one function
