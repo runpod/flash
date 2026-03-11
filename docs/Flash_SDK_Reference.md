@@ -371,12 +371,12 @@ from runpod_flash import NetworkVolume, DataCenter
 vol = NetworkVolume(id="vol_abc123")
 
 # create a new volume in a specific datacenter
-vol = NetworkVolume(name="my-models", size=100, dataCenterId=DataCenter.US_GA_1)
+vol = NetworkVolume(name="my-models", size=100, datacenter=DataCenter.US_GA_1)
 
 # multiple volumes across datacenters (one per DC)
 volumes = [
-    NetworkVolume(name="models-us", size=100, dataCenterId=DataCenter.US_GA_1),
-    NetworkVolume(name="models-eu", size=100, dataCenterId=DataCenter.EU_RO_1),
+    NetworkVolume(name="models-us", size=100, datacenter=DataCenter.US_GA_1),
+    NetworkVolume(name="models-eu", size=100, datacenter=DataCenter.EU_RO_1),
 ]
 ```
 

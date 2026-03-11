@@ -6,6 +6,7 @@ from typing import Optional, Dict, Any
 from pydantic import (
     Field,
     field_serializer,
+    model_validator,
 )
 
 from ..api.runpod import RunpodRestClient
@@ -73,11 +74,23 @@ class NetworkVolume(DeployableResource):
         "name",
     }
 
+    # public alias -- users pass datacenter=, which syncs to dataCenterId for the API
+    datacenter: Optional[DataCenter] = Field(default=None, exclude=True)
     dataCenterId: DataCenter = Field(default=DataCenter.EU_RO_1)
 
     id: Optional[str] = Field(default=None)
     name: str
     size: Optional[int] = Field(default=100, gt=0)  # Size in GB
+
+    @model_validator(mode="before")
+    @classmethod
+    def sync_datacenter_alias(cls, data):
+        """Allow datacenter= as a user-friendly alias for dataCenterId."""
+        if isinstance(data, dict):
+            dc = data.pop("datacenter", None)
+            if dc is not None and "dataCenterId" not in data:
+                data["dataCenterId"] = dc
+        return data
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}:{self.id}"

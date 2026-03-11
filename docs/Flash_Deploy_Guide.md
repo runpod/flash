@@ -291,7 +291,7 @@ result = await vllm.post("/v1/completions", {"prompt": "hello"})
 ```python
 from runpod_flash import Endpoint, GpuGroup, DataCenter, NetworkVolume, PodTemplate
 
-vol = NetworkVolume(name="model-cache", size=100, dataCenterId=DataCenter.US_GA_1)
+vol = NetworkVolume(name="model-cache", size=100, datacenter=DataCenter.US_GA_1)
 
 @Endpoint(
     name="model-server",
@@ -309,8 +309,8 @@ Multiple volumes across datacenters:
 
 ```python
 volumes = [
-    NetworkVolume(name="models-us", size=100, dataCenterId=DataCenter.US_GA_1),
-    NetworkVolume(name="models-eu", size=100, dataCenterId=DataCenter.EU_RO_1),
+    NetworkVolume(name="models-us", size=100, datacenter=DataCenter.US_GA_1),
+    NetworkVolume(name="models-eu", size=100, datacenter=DataCenter.EU_RO_1),
 ]
 
 @Endpoint(

@@ -142,6 +142,19 @@ class TestNetworkVolumeIdempotent:
         )  # Only called once
         assert result1.id == result2.id == "vol-123456"
 
+    def test_datacenter_alias(self):
+        """Test that datacenter= works as an alias for dataCenterId=."""
+        volume = NetworkVolume(name="test", datacenter=DataCenter.EU_RO_1)
+        assert volume.dataCenterId == DataCenter.EU_RO_1
+
+    def test_datacenter_alias_does_not_override_explicit(self):
+        """Test that dataCenterId= takes precedence over datacenter=."""
+        volume = NetworkVolume(
+            name="test",
+            dataCenterId=DataCenter.EU_RO_1,
+        )
+        assert volume.dataCenterId == DataCenter.EU_RO_1
+
     def test_resource_id_based_on_name_and_datacenter(self):
         """Test that resource_id is based on name and datacenter for named volumes."""
         # Arrange & Act
