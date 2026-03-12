@@ -16,6 +16,7 @@ from pydantic import (
 from runpod.endpoint.runner import Job
 
 from ..api.runpod import RunpodGraphQLClient
+from ..exceptions import RunpodAPIKeyError
 from ..utils.backoff import get_backoff_delay
 from .base import DeployableResource
 from .cloud import runpod
@@ -716,6 +717,8 @@ class ServerlessResource(DeployableResource):
 
             raise ValueError("Deployment failed, no endpoint was returned.")
 
+        except RunpodAPIKeyError:
+            raise
         except Exception as e:
             log.error(f"{self} failed to deploy: {e}")
             raise

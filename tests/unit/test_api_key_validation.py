@@ -27,15 +27,15 @@ class TestRunpodAPIKeyError:
 
         assert "export RUNPOD_API_KEY" in error_message
         assert ".env" in error_message
-        assert "~/.bashrc" in error_message or "~/.zshrc" in error_message
+        assert "flash login" in error_message
 
     def test_default_error_message_explains_requirement(self):
-        """Test that error message explains why key is needed."""
+        """Test that error message explains missing API key."""
         error = RunpodAPIKeyError()
         error_message = str(error)
 
         assert "RUNPOD_API_KEY" in error_message
-        assert "required" in error_message.lower()
+        assert "No RunPod API key found" in error_message
 
     def test_custom_error_message(self):
         """Test that custom error messages can be provided."""

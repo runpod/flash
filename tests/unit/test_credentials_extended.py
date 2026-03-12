@@ -58,11 +58,11 @@ class TestRunpodAPIKeyErrorMessage:
         err = RunpodAPIKeyError()
         assert "flash login" in str(err)
 
-    def test_default_message_includes_credentials_path(self):
-        """Error message includes the credentials file path."""
+    def test_default_message_includes_docs_url(self):
+        """Error message includes the API key docs URL."""
         err = RunpodAPIKeyError()
         message = str(err)
-        assert "config.toml" in message
+        assert "https://docs.runpod.io/get-started/api-keys" in message
 
     def test_default_message_includes_env_var_instructions(self):
         """Error message includes RUNPOD_API_KEY instructions."""
