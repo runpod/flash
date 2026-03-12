@@ -167,7 +167,10 @@ class TestInitCommandOutput:
         init_command(".")
 
         # The steps table is a Rich Table passed to console.print.
-        # Check that one of the Table's column cells contains "flash login".
+        # Render it to plain text and check for "flash login".
+        from io import StringIO
+
+        from rich.console import Console as RichConsole
         from rich.table import Table
 
         tables = [
@@ -176,13 +179,11 @@ class TestInitCommandOutput:
             if call.args and isinstance(call.args[0], Table)
         ]
         assert tables, "No Rich Table was printed"
-        cells_text = " ".join(
-            str(cell)
-            for table in tables
-            for col in table.columns
-            for cell in col._cells
-        )
-        assert "flash login" in cells_text
+        buf = StringIO()
+        render_console = RichConsole(file=buf, width=120)
+        for table in tables:
+            render_console.print(table)
+        assert "flash login" in buf.getvalue()
 
     def test_status_message_for_new_directory(
         self, mock_context, tmp_path, monkeypatch

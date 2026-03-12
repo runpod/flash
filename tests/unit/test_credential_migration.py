@@ -27,8 +27,8 @@ class TestLegacyMigration:
         _write_old_xdg_creds(old_path, "legacy-key")
 
         with patch(
-            "runpod_flash.core.credentials._OLD_XDG_PATHS",
-            (old_path,),
+            "runpod_flash.core.credentials._OLD_XDG_PATH",
+            old_path,
         ):
             check_and_migrate_legacy_credentials()
 
@@ -43,8 +43,8 @@ class TestLegacyMigration:
         _write_config_toml(isolate_credentials_file, "new-key")
 
         with patch(
-            "runpod_flash.core.credentials._OLD_XDG_PATHS",
-            (old_path,),
+            "runpod_flash.core.credentials._OLD_XDG_PATH",
+            old_path,
         ):
             check_and_migrate_legacy_credentials()
 
@@ -61,8 +61,8 @@ class TestLegacyMigration:
         _write_old_xdg_creds(old_path, "  ")
 
         with patch(
-            "runpod_flash.core.credentials._OLD_XDG_PATHS",
-            (old_path,),
+            "runpod_flash.core.credentials._OLD_XDG_PATH",
+            old_path,
         ):
             check_and_migrate_legacy_credentials()
 
@@ -74,8 +74,8 @@ class TestLegacyMigration:
         old_path.write_text("not valid toml {{{{")
 
         with patch(
-            "runpod_flash.core.credentials._OLD_XDG_PATHS",
-            (old_path,),
+            "runpod_flash.core.credentials._OLD_XDG_PATH",
+            old_path,
         ):
             check_and_migrate_legacy_credentials()
 
@@ -87,8 +87,8 @@ class TestLegacyMigration:
         _write_old_xdg_creds(old_path, "legacy-key")
 
         with patch(
-            "runpod_flash.core.credentials._OLD_XDG_PATHS",
-            (old_path,),
+            "runpod_flash.core.credentials._OLD_XDG_PATH",
+            old_path,
         ):
             check_and_migrate_legacy_credentials()
 
