@@ -278,10 +278,10 @@ class TestResourceManager:
         assert result is resource
 
     @pytest.mark.asyncio
-    async def test_deploy_with_error_context_adds_resource_name(
+    async def test_deploy_with_error_context_propagates_api_key_error(
         self, mock_resource_file
     ):
-        """RunpodAPIKeyError should mention the resource name for context."""
+        """RunpodAPIKeyError should propagate unchanged (no re-wrapping)."""
         manager = ResourceManager()
         resource = ServerlessResource(name="error-test", flashboot=False)
 
@@ -293,7 +293,7 @@ class TestResourceManager:
             with pytest.raises(RunpodAPIKeyError) as excinfo:
                 await manager._deploy_with_error_context(resource)
 
-        assert "error-test" in str(excinfo.value)
+        assert str(excinfo.value) == "missing key"
 
     @pytest.mark.asyncio
     async def test_get_or_deploy_resource_updates_on_config_drift(

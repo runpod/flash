@@ -11,6 +11,7 @@ from typing import List
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
+from .exceptions import RunpodAPIKeyError
 from .resources.base import DeployableResource
 from .resources.resource_manager import ResourceManager
 
@@ -104,6 +105,11 @@ class DeploymentOrchestrator:
         if not resources:
             return []
 
+        # Fail fast if no API key, before spawning parallel tasks
+        from .validation import validate_api_key
+
+        validate_api_key()
+
         # Create semaphore for concurrency control
         semaphore = asyncio.Semaphore(self.max_concurrent)
 
@@ -181,6 +187,8 @@ class DeploymentOrchestrator:
                     endpoint_id=getattr(deployed, "id", "N/A"),
                 )
 
+            except RunpodAPIKeyError:
+                raise
             except Exception as e:
                 duration = (datetime.now() - start_time).total_seconds()
                 log.error(f"Failed to deploy {resource_name}: {e}")

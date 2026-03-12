@@ -14,6 +14,11 @@ from runpod_flash.core.resources.serverless import ServerlessResource
 class TestDeploymentOrchestrator:
     """Test DeploymentOrchestrator functionality."""
 
+    @pytest.fixture(autouse=True)
+    def _set_api_key(self, monkeypatch):
+        """Set API key so deploy_all early validation passes."""
+        monkeypatch.setenv("RUNPOD_API_KEY", "test_key")
+
     @pytest.fixture
     def mock_resources(self):
         """Create mock resources for testing."""

@@ -949,6 +949,7 @@ def _provision_resources(resources) -> None:
     import asyncio
 
     from ...core.deployment import DeploymentOrchestrator
+    from ...core.exceptions import RunpodAPIKeyError
 
     try:
         console.print(f"[bold]Provisioning {len(resources)} resource(s)...[/bold]")
@@ -958,6 +959,9 @@ def _provision_resources(resources) -> None:
         asyncio.set_event_loop(loop)
         loop.run_until_complete(orchestrator.deploy_all(resources, show_progress=True))
         loop.close()
+    except RunpodAPIKeyError as e:
+        console.print(f"\n[red]Error:[/red] {e}")
+        raise typer.Exit(1)
     except Exception as e:
         console.print(f"[yellow]Warning:[/yellow] Provisioning failed: {e}")
         console.print(
@@ -1008,6 +1012,8 @@ def run_command(
             resources = _discover_resources(project_root)
             if resources:
                 _provision_resources(resources)
+        except (typer.Exit, SystemExit, KeyboardInterrupt):
+            raise
         except Exception as e:
             logger.error("Auto-provisioning failed", exc_info=True)
             console.print(f"[yellow]Warning:[/yellow] Auto-provisioning failed: {e}")
