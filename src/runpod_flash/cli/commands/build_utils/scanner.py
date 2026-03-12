@@ -169,7 +169,12 @@ def _extract_class_info(
 
 
 def _import_module_from_file(file_path: Path, module_name: str) -> Any:
-    """import a python file as a module. returns the module or None on failure."""
+    """import a python file as a module. returns the module or None on failure.
+
+    temporarily injects into sys.modules for the duration of exec_module
+    (so relative imports within the file resolve), then restores the
+    previous entry to avoid leaking user modules into the cli process.
+    """
     spec = importlib.util.spec_from_file_location(module_name, file_path)
     if not spec or not spec.loader:
         return None
@@ -183,8 +188,9 @@ def _import_module_from_file(file_path: Path, module_name: str) -> Any:
         return module
     except Exception as e:
         logger.debug("failed to import %s: %s", file_path.name, e)
-        _restore_module(module_name, old_module)
         raise
+    finally:
+        _restore_module(module_name, old_module)
 
 
 def _restore_module(module_name: str, old_module: Any) -> None:
@@ -385,7 +391,7 @@ class RuntimeScanner:
         if added_to_path:
             sys.path.insert(0, root_str)
 
-        self._ensure_init_files(py_files)
+        created_inits = self._ensure_init_files(py_files)
 
         functions: List[RemoteFunctionMetadata] = []
         seen_functions: Set[str] = set()
@@ -398,7 +404,8 @@ class RuntimeScanner:
                     module = _import_module_from_file(py_file, module_path)
                 except Exception as e:
                     failed_files.append(py_file)
-                    self.import_errors[py_file.name] = str(e)
+                    rel_path = os.path.relpath(py_file, self.project_dir)
+                    self.import_errors[rel_path] = f"{type(e).__name__}: {e}"
                     continue
                 if module is None:
                     failed_files.append(py_file)
@@ -428,12 +435,21 @@ class RuntimeScanner:
                     sys.path.remove(root_str)
                 except ValueError:
                     pass
+            # remove __init__.py files we created so we don't dirty the project tree
+            for init_file in created_inits:
+                try:
+                    init_file.unlink()
+                except OSError:
+                    pass
 
         self._populate_resource_dicts(functions)
         return functions
 
-    def _ensure_init_files(self, py_files: List[Path]) -> None:
-        """create missing __init__.py in parent directories for package imports."""
+    def _ensure_init_files(self, py_files: List[Path]) -> List[Path]:
+        """create missing __init__.py in parent directories for package imports.
+
+        returns a list of created files so the caller can clean them up.
+        """
         dirs_needing_init: Set[Path] = set()
         for f in py_files:
             parent = f.parent
@@ -445,13 +461,16 @@ class RuntimeScanner:
                     dirs_needing_init.add(parent)
                 parent = parent.parent
 
+        created: List[Path] = []
         for d in dirs_needing_init:
             init = d / "__init__.py"
             try:
                 init.touch()
+                created.append(init)
                 logger.debug("created %s for package imports", init)
             except OSError as e:
                 logger.debug("failed to create %s: %s", init, e)
+        return created
 
     def _extract_from_module(
         self,

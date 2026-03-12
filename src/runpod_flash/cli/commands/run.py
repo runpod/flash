@@ -895,7 +895,7 @@ def _discover_resources(project_root: Path):
     from ...core.resources.base import DeployableResource
     from ...endpoint import Endpoint
 
-    from .build_utils.scanner import _import_module_from_file, file_to_module_path
+    from .build_utils.scanner import _import_module_from_file
 
     spec = load_ignore_patterns(project_root)
     all_files = get_file_tree(project_root, spec)

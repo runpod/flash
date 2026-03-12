@@ -241,6 +241,7 @@ def remote(
         # Local execution mode - execute without provisioning remote servers
         if local:
             func_or_class.__remote_config__ = routing_config
+            func_or_class.__flash_local__ = True
             return func_or_class
 
         # Determine if we should execute locally or create a stub
