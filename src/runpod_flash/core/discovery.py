@@ -12,6 +12,23 @@ from .resources.base import DeployableResource
 log = logging.getLogger(__name__)
 
 
+_SKIP_DIRS = frozenset(
+    {
+        ".venv",
+        "venv",
+        "__pycache__",
+        ".git",
+        "site-packages",
+        ".pytest_cache",
+        "build",
+        "dist",
+        ".tox",
+        "node_modules",
+        ".flash",
+    }
+)
+
+
 class ResourceDiscovery:
     """Discovers DeployableResource instances by parsing @remote decorators."""
 
@@ -26,6 +43,66 @@ class ResourceDiscovery:
         self.max_depth = max_depth
         self._cache: Dict[str, List[DeployableResource]] = {}
         self._scanned_modules: Set[str] = set()
+
+    @classmethod
+    def discover_directory(cls, project_root: Path) -> List[DeployableResource]:
+        """Discover all DeployableResource instances in a project directory.
+
+        Single-pass scan of all Python files. Unlike per-file ``discover()``,
+        this avoids redundant directory-scan fallbacks when called from an
+        outer loop that already iterates every file.
+
+        Args:
+            project_root: Root directory to scan
+
+        Returns:
+            Deduplicated list of discovered resources
+        """
+        instance = cls(str(project_root), max_depth=0)
+
+        py_files = sorted(
+            p
+            for p in project_root.rglob("*.py")
+            if not any(skip in p.parts for skip in _SKIP_DIRS)
+        )
+
+        log.debug("Scanning %d Python files in %s", len(py_files), project_root)
+
+        resources: List[DeployableResource] = []
+        seen_ids: Set[str] = set()
+
+        for file_path in py_files:
+            try:
+                content = file_path.read_text(encoding="utf-8")
+                if "@remote" not in content and "Endpoint(" not in content:
+                    continue
+
+                resource_vars = instance._find_resource_config_vars(file_path)
+                if not resource_vars:
+                    continue
+
+                module = instance._import_module(file_path)
+                if not module:
+                    continue
+
+                for var_name in resource_vars:
+                    resource = instance._resolve_resource_variable(module, var_name)
+                    if resource:
+                        rid = resource.resource_id
+                        if rid not in seen_ids:
+                            seen_ids.add(rid)
+                            resources.append(resource)
+
+            except Exception as e:
+                log.debug("Discovery failed for %s: %s", file_path, e)
+
+        log.info("[Discovery] %d resource(s) discovered", len(resources))
+        for res in resources:
+            res_name = getattr(res, "name", "Unknown")
+            res_type = res.__class__.__name__
+            log.info("[Discovery]   • %s (%s)", res_name, res_type)
+
+        return resources
 
     def discover(self) -> List[DeployableResource]:
         """Discover all DeployableResource instances in entry point and imports.
@@ -450,23 +527,7 @@ class ResourceDiscovery:
                         continue
 
                     # Skip common directories
-                    rel_path = str(file_path.relative_to(project_root))
-                    if any(
-                        skip in rel_path
-                        for skip in [
-                            ".venv/",
-                            "venv/",
-                            "__pycache__/",
-                            ".git/",
-                            "site-packages/",
-                            ".pytest_cache/",
-                            "build/",
-                            "dist/",
-                            ".tox/",
-                            "node_modules/",
-                            ".flash/",
-                        ]
-                    ):
+                    if any(skip in file_path.parts for skip in _SKIP_DIRS):
                         continue
 
                     python_files.append(file_path)

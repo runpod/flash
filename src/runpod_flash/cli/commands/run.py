@@ -890,8 +890,8 @@ def _watch_and_regenerate(project_root: Path, stop_event: threading.Event) -> No
 def _discover_resources(project_root: Path):
     """Discover deployable resources in project files.
 
-    Uses ResourceDiscovery to find all DeployableResource instances by
-    parsing @remote decorators and importing the referenced config variables.
+    Uses ResourceDiscovery.discover_directory for a single-pass scan of all
+    Python files, avoiding redundant per-file directory-scan fallbacks.
 
     Args:
         project_root: Root directory of the Flash project
@@ -901,15 +901,6 @@ def _discover_resources(project_root: Path):
     """
     from ...core.discovery import ResourceDiscovery
 
-    py_files = sorted(
-        p
-        for p in project_root.rglob("*.py")
-        if not any(
-            skip in p.parts
-            for skip in (".flash", ".venv", "venv", "__pycache__", ".git")
-        )
-    )
-
     # Add project root to sys.path so cross-module imports resolve
     # (e.g. api/routes.py doing "from longruns.stage1 import stage1_process").
     root_str = str(project_root)
@@ -917,14 +908,8 @@ def _discover_resources(project_root: Path):
     if added_to_path:
         sys.path.insert(0, root_str)
 
-    resources = []
     try:
-        for py_file in py_files:
-            try:
-                discovery = ResourceDiscovery(str(py_file), max_depth=0)
-                resources.extend(discovery.discover())
-            except Exception as e:
-                logger.debug("Discovery failed for %s: %s", py_file, e)
+        resources = ResourceDiscovery.discover_directory(project_root)
     finally:
         if added_to_path:
             sys.path.remove(root_str)

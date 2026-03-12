@@ -3,8 +3,28 @@
 import pytest
 from textwrap import dedent
 
-from runpod_flash.core.discovery import ResourceDiscovery
+from runpod_flash.core.discovery import ResourceDiscovery, _SKIP_DIRS
 from runpod_flash.core.resources.serverless import ServerlessResource
+
+
+def _worker_source(resource_name: str, var_prefix: str = "cfg") -> str:
+    """Generate a Python source file with a single @remote-decorated function."""
+    return dedent(f"""\
+        from runpod_flash.client import remote
+        from runpod_flash.core.resources.serverless import ServerlessResource
+
+        {var_prefix}_config = ServerlessResource(
+            name="{resource_name}",
+            gpuCount=1,
+            workersMax=3,
+            workersMin=0,
+            flashboot=False,
+        )
+
+        @remote(resource_config={var_prefix}_config)
+        async def {var_prefix}_task():
+            return "{resource_name}"
+    """)
 
 
 class TestResourceDiscovery:
@@ -334,3 +354,139 @@ class TestResourceDiscovery:
         # Should find resource via directory scanning
         assert len(resources) == 1
         assert resources[0].name == "test-gpu-worker"
+
+
+class TestDiscoverDirectory:
+    """Tests for ResourceDiscovery.discover_directory single-pass scanning."""
+
+    def test_single_file_with_remote(self, tmp_path):
+        """Finds a resource from a single file in the directory."""
+        (tmp_path / "worker.py").write_text(_worker_source("alpha"))
+
+        resources = ResourceDiscovery.discover_directory(tmp_path)
+
+        assert len(resources) == 1
+        assert resources[0].name == "alpha"
+
+    def test_multiple_files_different_resources(self, tmp_path):
+        """Finds distinct resources across multiple files."""
+        (tmp_path / "worker_a.py").write_text(_worker_source("alpha"))
+        (tmp_path / "worker_b.py").write_text(_worker_source("bravo"))
+
+        resources = ResourceDiscovery.discover_directory(tmp_path)
+
+        assert len(resources) == 2
+        names = {r.name for r in resources}
+        assert names == {"alpha", "bravo"}
+
+    def test_deduplicates_same_resource_across_files(self, tmp_path):
+        """Identical resource configs in two files are returned once."""
+        # Both files define a resource with the same name and fields,
+        # producing the same resource_id hash.
+        (tmp_path / "a.py").write_text(_worker_source("shared", var_prefix="a"))
+        (tmp_path / "b.py").write_text(_worker_source("shared", var_prefix="b"))
+
+        resources = ResourceDiscovery.discover_directory(tmp_path)
+
+        assert len(resources) == 1
+        assert resources[0].name == "shared"
+
+    def test_skips_files_without_decorators(self, tmp_path):
+        """Files without @remote or Endpoint( are skipped entirely."""
+        (tmp_path / "utils.py").write_text("def helper(): return 42\n")
+        (tmp_path / "worker.py").write_text(_worker_source("found"))
+
+        resources = ResourceDiscovery.discover_directory(tmp_path)
+
+        assert len(resources) == 1
+        assert resources[0].name == "found"
+
+    def test_skips_venv_and_hidden_dirs(self, tmp_path):
+        """Files inside _SKIP_DIRS are not scanned."""
+        # Resource inside .venv should be ignored
+        venv_dir = tmp_path / ".venv" / "lib"
+        venv_dir.mkdir(parents=True)
+        (venv_dir / "worker.py").write_text(_worker_source("hidden"))
+
+        # Resource in project root should be found
+        (tmp_path / "worker.py").write_text(_worker_source("visible"))
+
+        resources = ResourceDiscovery.discover_directory(tmp_path)
+
+        assert len(resources) == 1
+        assert resources[0].name == "visible"
+
+    @pytest.mark.parametrize("skip_dir", sorted(_SKIP_DIRS))
+    def test_all_skip_dirs_are_excluded(self, tmp_path, skip_dir):
+        """Every directory in _SKIP_DIRS is actually skipped."""
+        nested = tmp_path / skip_dir / "sub"
+        nested.mkdir(parents=True)
+        (nested / "worker.py").write_text(_worker_source("should-skip"))
+
+        resources = ResourceDiscovery.discover_directory(tmp_path)
+
+        assert resources == []
+
+    def test_empty_directory(self, tmp_path):
+        """Returns empty list for directory with no Python files."""
+        resources = ResourceDiscovery.discover_directory(tmp_path)
+
+        assert resources == []
+
+    def test_nested_subdirectory(self, tmp_path):
+        """Finds resources in nested subdirectories."""
+        deep = tmp_path / "pkg" / "workers"
+        deep.mkdir(parents=True)
+        (deep / "gpu.py").write_text(_worker_source("deep-worker"))
+
+        resources = ResourceDiscovery.discover_directory(tmp_path)
+
+        assert len(resources) == 1
+        assert resources[0].name == "deep-worker"
+
+    def test_syntax_error_file_skipped_gracefully(self, tmp_path):
+        """A file with a syntax error doesn't break scanning of other files."""
+        (tmp_path / "broken.py").write_text("@remote(\ndef broken(")
+        (tmp_path / "good.py").write_text(_worker_source("survivor"))
+
+        resources = ResourceDiscovery.discover_directory(tmp_path)
+
+        assert len(resources) == 1
+        assert resources[0].name == "survivor"
+
+    def test_non_deployable_resource_skipped(self, tmp_path):
+        """Variables that aren't DeployableResource instances are excluded."""
+        (tmp_path / "fake.py").write_text(
+            dedent("""\
+                from runpod_flash.client import remote
+
+                config = {"name": "not-a-resource"}
+
+                @remote(resource_config=config)
+                async def task():
+                    return "result"
+            """)
+        )
+
+        resources = ResourceDiscovery.discover_directory(tmp_path)
+
+        assert resources == []
+
+    def test_reproduces_original_bug_three_files_one_resource(self, tmp_path):
+        """Regression: project with 3 files and 1 resource returns exactly 1.
+
+        Before the fix, each file triggered an independent discovery pass,
+        and files without @remote fell back to directory scanning, causing
+        the same resource to appear once per non-remote file.
+        """
+        (tmp_path / "main.py").write_text("import importlib.util\n")
+        (tmp_path / "utils.py").write_text("def helper(): pass\n")
+
+        workers_dir = tmp_path / "workers"
+        workers_dir.mkdir()
+        (workers_dir / "gpu.py").write_text(_worker_source("the-one"))
+
+        resources = ResourceDiscovery.discover_directory(tmp_path)
+
+        assert len(resources) == 1
+        assert resources[0].name == "the-one"
