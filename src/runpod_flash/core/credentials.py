@@ -1,57 +1,123 @@
+"""Credential management for runpod_flash.
+
+Thin wrappers around runpod-python's credential functions.
+Resolution priority: RUNPOD_API_KEY env var > .env > ~/.runpod/config.toml
+"""
+
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from typing import Optional
 
-try:
-    import tomllib
-except ImportError:  # python < 3.11
-    import tomli as tomllib
+from runpod.cli.groups.config.functions import (
+    CREDENTIAL_FILE,
+    get_credentials,
+    set_credentials,
+)
+
+log = logging.getLogger(__name__)
+
+_OLD_XDG_PATHS = (
+    Path.home() / ".config" / "runpod" / "credentials.toml",
+)
 
 
 def get_credentials_path() -> Path:
-    credentials_file = os.getenv("RUNPOD_CREDENTIALS_FILE")
-    if credentials_file:
-        return Path(credentials_file).expanduser()
-
-    config_home = os.getenv("XDG_CONFIG_HOME")
-    base_dir = (
-        Path(config_home).expanduser() if config_home else Path.home() / ".config"
-    )
-    return base_dir / "runpod" / "credentials.toml"
-
-
-def _read_credentials() -> dict:
-    path = get_credentials_path()
-    if not path.exists():
-        return {}
-
-    try:
-        with path.open("rb") as handle:
-            return tomllib.load(handle)
-    except (OSError, ValueError):
-        return {}
+    """Return the path to the runpod credentials file."""
+    return Path(CREDENTIAL_FILE)
 
 
 def get_api_key() -> Optional[str]:
+    """Get API key with priority: env var > credentials file.
+
+    Returns:
+        API key string, or None if not found.
+    """
     api_key = os.getenv("RUNPOD_API_KEY")
     if api_key and api_key.strip():
         return api_key
 
-    stored = _read_credentials().get("api_key")
-    if isinstance(stored, str) and stored.strip():
-        return stored
+    creds = get_credentials()
+    if creds and isinstance(creds.get("api_key"), str) and creds["api_key"].strip():
+        return creds["api_key"]
 
     return None
 
 
 def save_api_key(api_key: str) -> Path:
+    """Save API key to ~/.runpod/config.toml via runpod-python.
+
+    Args:
+        api_key: The API key to save.
+
+    Returns:
+        Path to the credentials file.
+    """
     path = get_credentials_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(f'api_key = "{api_key}"\n', encoding="utf-8")
+    set_credentials(api_key, overwrite=True)
     try:
         os.chmod(path, 0o600)
     except OSError:
         pass
     return path
+
+
+def check_and_migrate_legacy_credentials() -> None:
+    """Check for credentials at old XDG path and offer migration.
+
+    Called during flash login before saving new credentials.
+    If old file exists and new file has no credentials, prompts user to migrate.
+    """
+    try:
+        import tomllib
+    except ImportError:
+        import tomli as tomllib
+
+    existing_creds = get_credentials()
+    if existing_creds and existing_creds.get("api_key"):
+        return
+
+    new_path = get_credentials_path()
+
+    for old_path in _OLD_XDG_PATHS:
+        if not old_path.exists():
+            continue
+
+        try:
+            with old_path.open("rb") as f:
+                old_data = tomllib.load(f)
+            old_key = old_data.get("api_key")
+            if not isinstance(old_key, str) or not old_key.strip():
+                continue
+        except (OSError, ValueError):
+            continue
+
+        log.info("Found credentials at legacy path: %s", old_path)
+
+        try:
+            from rich.console import Console
+
+            console = Console()
+            console.print(
+                f"\n[yellow]Found credentials at old location:[/yellow]"
+                f"\n  {old_path}"
+                f"\n[yellow]Migrating to:[/yellow]"
+                f"\n  {new_path}\n"
+            )
+            save_api_key(old_key)
+            old_path.unlink()
+            try:
+                old_path.parent.rmdir()
+            except OSError:
+                pass
+            console.print("[green]Migrated.[/green] Old file removed.\n")
+        except Exception:
+            log.warning(
+                "Could not migrate credentials from %s to %s. "
+                "Run 'flash login' to create new credentials.",
+                old_path,
+                new_path,
+            )
+        return
