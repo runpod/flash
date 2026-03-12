@@ -375,7 +375,9 @@ class TestGraphQLSessionWithoutApiKey:
         not leak into the session.
         """
         isolate_credentials_file.parent.mkdir(parents=True, exist_ok=True)
-        isolate_credentials_file.write_text('[default]\napi_key = "previously-saved-key"\n')
+        isolate_credentials_file.write_text(
+            '[default]\napi_key = "previously-saved-key"\n'
+        )
 
         from runpod_flash.core.api.runpod import RunpodGraphQLClient
 

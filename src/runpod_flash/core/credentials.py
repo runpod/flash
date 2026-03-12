@@ -20,9 +20,7 @@ from runpod.cli.groups.config.functions import (
 
 log = logging.getLogger(__name__)
 
-_OLD_XDG_PATHS = (
-    Path.home() / ".config" / "runpod" / "credentials.toml",
-)
+_OLD_XDG_PATHS = (Path.home() / ".config" / "runpod" / "credentials.toml",)
 
 
 def get_credentials_path() -> Path:

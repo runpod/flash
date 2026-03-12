@@ -31,7 +31,9 @@ class TestGraphQLClientNoKeyForLogin:
         self, isolate_credentials_file
     ):
         isolate_credentials_file.parent.mkdir(parents=True, exist_ok=True)
-        isolate_credentials_file.write_text('[default]\napi_key = "stale-expired-key"\n')
+        isolate_credentials_file.write_text(
+            '[default]\napi_key = "stale-expired-key"\n'
+        )
 
         from runpod_flash.core.api.runpod import RunpodGraphQLClient
 

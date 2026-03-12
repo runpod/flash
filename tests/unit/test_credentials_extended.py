@@ -40,7 +40,9 @@ class TestGetApiKeyEdgeCases:
     def test_list_stored_value(self, isolate_credentials_file):
         """Returns None when stored api_key is a list."""
         isolate_credentials_file.parent.mkdir(parents=True, exist_ok=True)
-        isolate_credentials_file.write_text('[default]\napi_key = ["not", "a", "key"]\n')
+        isolate_credentials_file.write_text(
+            '[default]\napi_key = ["not", "a", "key"]\n'
+        )
         result = get_api_key()
         assert result is None
 
@@ -129,7 +131,9 @@ class TestHttpCredentialsFallback:
     """Test that http.py helpers use credentials file when env var is unset."""
 
     @pytest.mark.asyncio
-    async def test_httpx_client_uses_credentials_file_key(self, isolate_credentials_file):
+    async def test_httpx_client_uses_credentials_file_key(
+        self, isolate_credentials_file
+    ):
         """get_authenticated_httpx_client uses credentials file for auth."""
         _write_config_toml(isolate_credentials_file, "cred-file-key")
 

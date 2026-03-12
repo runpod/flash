@@ -54,7 +54,9 @@ class TestLegacyMigration:
     def test_skips_when_no_old_file(self):
         check_and_migrate_legacy_credentials()
 
-    def test_skips_when_old_file_has_blank_key(self, tmp_path, isolate_credentials_file):
+    def test_skips_when_old_file_has_blank_key(
+        self, tmp_path, isolate_credentials_file
+    ):
         old_path = tmp_path / ".config" / "runpod" / "credentials.toml"
         _write_old_xdg_creds(old_path, "  ")
 
