@@ -12,6 +12,30 @@ from runpod_flash.core.credentials import get_api_key
 _UNSET = object()
 
 
+def _resolve_api_key(api_key_override: object) -> Optional[str]:
+    """Resolve the API key from override or default credentials.
+
+    Args:
+        api_key_override: _UNSET (use default credentials), None (no auth),
+                         or a str API key.
+
+    Returns:
+        API key string or None.
+
+    Raises:
+        TypeError: If api_key_override is not _UNSET, None, or str.
+    """
+    if api_key_override is _UNSET:
+        return get_api_key()
+    if api_key_override is None:
+        return None
+    if isinstance(api_key_override, str):
+        return api_key_override
+    raise TypeError(
+        f"api_key_override must be str or None, got {type(api_key_override).__name__}"
+    )
+
+
 def get_authenticated_httpx_client(
     timeout: Optional[float] = None,
     api_key_override: Union[Optional[str], object] = _UNSET,
@@ -52,7 +76,7 @@ def get_authenticated_httpx_client(
         "User-Agent": get_user_agent(),
         "Content-Type": "application/json",
     }
-    api_key = get_api_key() if api_key_override is _UNSET else api_key_override
+    api_key = _resolve_api_key(api_key_override)
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
@@ -100,7 +124,7 @@ def get_authenticated_requests_session(
     session.headers["User-Agent"] = get_user_agent()
     session.headers["Content-Type"] = "application/json"
 
-    api_key = get_api_key() if api_key_override is _UNSET else api_key_override
+    api_key = _resolve_api_key(api_key_override)
     if api_key:
         session.headers["Authorization"] = f"Bearer {api_key}"
 
@@ -144,7 +168,7 @@ def get_authenticated_aiohttp_session(
         "Content-Type": "application/json",
     }
 
-    api_key = get_api_key() if api_key_override is _UNSET else api_key_override
+    api_key = _resolve_api_key(api_key_override)
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 

@@ -20,7 +20,7 @@ from runpod.cli.groups.config.functions import (
 
 log = logging.getLogger(__name__)
 
-_OLD_XDG_PATHS = (Path.home() / ".config" / "runpod" / "credentials.toml",)
+_OLD_XDG_PATH = Path.home() / ".config" / "runpod" / "credentials.toml"
 
 
 def get_credentials_path() -> Path:
@@ -68,59 +68,71 @@ def save_api_key(api_key: str) -> Path:
 
 
 def check_and_migrate_legacy_credentials() -> None:
-    """Check for credentials at old XDG path and offer migration.
+    """Check for credentials at old XDG path and migrate if needed.
 
-    Called during flash login before saving new credentials.
-    If old file exists and new file has no credentials, prompts user to migrate.
+    Called during flash login on successful auth. If an old credentials file
+    exists and the new location has no credentials, automatically migrate the
+    legacy API key to the new credentials file.
     """
     try:
         import tomllib
     except ImportError:
         import tomli as tomllib
 
-    existing_creds = get_credentials()
-    if existing_creds and existing_creds.get("api_key"):
+    try:
+        existing_creds = get_credentials()
+    except Exception:
+        log.debug(
+            "Failed to read credentials file while checking for legacy migration",
+            exc_info=True,
+        )
+        existing_creds = None
+
+    if (
+        existing_creds
+        and isinstance(existing_creds.get("api_key"), str)
+        and existing_creds["api_key"].strip()
+    ):
         return
 
     new_path = get_credentials_path()
+    old_path = _OLD_XDG_PATH
 
-    for old_path in _OLD_XDG_PATHS:
-        if not old_path.exists():
-            continue
-
-        try:
-            with old_path.open("rb") as f:
-                old_data = tomllib.load(f)
-            old_key = old_data.get("api_key")
-            if not isinstance(old_key, str) or not old_key.strip():
-                continue
-        except (OSError, ValueError):
-            continue
-
-        log.info("Found credentials at legacy path: %s", old_path)
-
-        try:
-            from rich.console import Console
-
-            console = Console()
-            console.print(
-                f"\n[yellow]Found credentials at old location:[/yellow]"
-                f"\n  {old_path}"
-                f"\n[yellow]Migrating to:[/yellow]"
-                f"\n  {new_path}\n"
-            )
-            save_api_key(old_key)
-            old_path.unlink()
-            try:
-                old_path.parent.rmdir()
-            except OSError:
-                pass
-            console.print("[green]Migrated.[/green] Old file removed.\n")
-        except Exception:
-            log.warning(
-                "Could not migrate credentials from %s to %s. "
-                "Run 'flash login' to create new credentials.",
-                old_path,
-                new_path,
-            )
+    if not old_path.exists():
         return
+
+    try:
+        with old_path.open("rb") as f:
+            old_data = tomllib.load(f)
+        old_key = old_data.get("api_key")
+        if not isinstance(old_key, str) or not old_key.strip():
+            return
+    except (OSError, ValueError):
+        return
+
+    log.info("Found credentials at legacy path: %s", old_path)
+
+    try:
+        from rich.console import Console
+
+        console = Console()
+        console.print(
+            f"\n[yellow]Found credentials at old location:[/yellow]"
+            f"\n  {old_path}"
+            f"\n[yellow]Migrating to:[/yellow]"
+            f"\n  {new_path}\n"
+        )
+        save_api_key(old_key)
+        old_path.unlink()
+        try:
+            old_path.parent.rmdir()
+        except OSError:
+            pass
+        console.print("[green]Migrated.[/green] Old file removed.\n")
+    except (OSError, ValueError):
+        log.warning(
+            "Could not migrate credentials from %s to %s. "
+            "Run 'flash login' to create new credentials.",
+            old_path,
+            new_path,
+        )
