@@ -321,21 +321,24 @@ class TestGraphQLSessionWithoutApiKey:
     """Test that _get_session omits Authorization when api_key is None."""
 
     @pytest.mark.asyncio
-    async def test_session_omits_auth_header_when_no_key(self):
-        """Session created without Authorization header when api_key is None."""
-        from runpod_flash.core.api.runpod import RunpodGraphQLClient
+    async def test_fresh_user_no_key_anywhere(self, tmp_path):
+        """Fresh user: no env var, no credentials file — no auth header.
 
-        # Ensure no API key is discoverable from env or credentials file
-        with (
-            patch.dict(os.environ, {}, clear=True),
-            patch("runpod_flash.core.utils.http.get_api_key", return_value=None),
+        Uses real credential resolution (no mocks on get_api_key) to verify
+        the sentinel default works end-to-end.
+        """
+        creds = tmp_path / "nonexistent.toml"
+
+        with patch.dict(
+            os.environ, {"RUNPOD_CREDENTIALS_FILE": str(creds)}, clear=True
         ):
+            from runpod_flash.core.api.runpod import RunpodGraphQLClient
+
             client = RunpodGraphQLClient(require_api_key=False)
             assert client.api_key is None
 
             session = await client._get_session()
             try:
-                # Default headers should NOT have Authorization
                 assert "Authorization" not in session.headers
             finally:
                 await session.close()
@@ -358,13 +361,66 @@ class TestGraphQLSessionWithoutApiKey:
 
     @pytest.mark.asyncio
     async def test_no_auth_header_when_require_api_key_false_despite_env_var(self):
-        """require_api_key=False must not send auth even when RUNPOD_API_KEY is set.
+        """Re-login with RUNPOD_API_KEY env var set must not send auth.
 
         This is the exact bug scenario: flash login sets require_api_key=False
         but RUNPOD_API_KEY in the environment was leaking into the session,
         causing the server to see an authenticated user instead of a guest.
         """
         with patch.dict(os.environ, {"RUNPOD_API_KEY": "existing-key"}, clear=True):
+            from runpod_flash.core.api.runpod import RunpodGraphQLClient
+
+            client = RunpodGraphQLClient(require_api_key=False)
+            assert client.api_key is None
+
+            session = await client._get_session()
+            try:
+                assert "Authorization" not in session.headers
+            finally:
+                await session.close()
+
+    @pytest.mark.asyncio
+    async def test_no_auth_header_when_credentials_file_has_key(self, tmp_path):
+        """Re-login after prior flash login (key in credentials file) must not send auth.
+
+        A previous successful flash login writes the API key to credentials.toml.
+        Running flash login again must still act as a guest — the stored key must
+        not leak into the session.
+        """
+        creds = tmp_path / "credentials.toml"
+        creds.write_text('api_key = "previously-saved-key"\n')
+
+        with patch.dict(
+            os.environ, {"RUNPOD_CREDENTIALS_FILE": str(creds)}, clear=True
+        ):
+            from runpod_flash.core.api.runpod import RunpodGraphQLClient
+
+            client = RunpodGraphQLClient(require_api_key=False)
+            assert client.api_key is None
+
+            session = await client._get_session()
+            try:
+                assert "Authorization" not in session.headers
+            finally:
+                await session.close()
+
+    @pytest.mark.asyncio
+    async def test_no_auth_header_when_both_env_var_and_credentials_file(
+        self, tmp_path
+    ):
+        """Re-login with both env var and credentials file must not send auth.
+
+        Covers the force re-login scenario where both RUNPOD_API_KEY and a
+        credentials file with a stored key are present simultaneously.
+        """
+        creds = tmp_path / "credentials.toml"
+        creds.write_text('api_key = "file-key"\n')
+
+        with patch.dict(
+            os.environ,
+            {"RUNPOD_API_KEY": "env-key", "RUNPOD_CREDENTIALS_FILE": str(creds)},
+            clear=True,
+        ):
             from runpod_flash.core.api.runpod import RunpodGraphQLClient
 
             client = RunpodGraphQLClient(require_api_key=False)
