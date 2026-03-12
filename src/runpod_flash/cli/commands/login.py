@@ -6,7 +6,7 @@ import typer
 from rich.console import Console
 
 from runpod_flash.core.api.runpod import RunpodGraphQLClient
-from runpod_flash.core.credentials import save_api_key
+from runpod_flash.core.credentials import check_and_migrate_legacy_credentials, save_api_key
 from runpod_flash.core.resources.constants import CONSOLE_BASE_URL
 
 console = Console()
@@ -40,6 +40,9 @@ async def _login(open_browser: bool, timeout_seconds: float) -> None:
 
         if open_browser:
             typer.launch(auth_url)
+
+        # Migrate legacy credentials if present
+        check_and_migrate_legacy_credentials()
 
         expires_at = _parse_expires_at(request.get("expiresAt"))
         deadline = dt.datetime.now(dt.timezone.utc) + dt.timedelta(
