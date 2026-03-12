@@ -951,14 +951,13 @@ def _provision_resources(resources) -> None:
     from ...core.deployment import DeploymentOrchestrator
     from ...core.exceptions import RunpodAPIKeyError
 
-    try:
-        console.print(f"[bold]Provisioning {len(resources)} resource(s)...[/bold]")
-        orchestrator = DeploymentOrchestrator(max_concurrent=3)
+    console.print(f"[bold]Provisioning {len(resources)} resource(s)...[/bold]")
+    orchestrator = DeploymentOrchestrator(max_concurrent=3)
 
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
         loop.run_until_complete(orchestrator.deploy_all(resources, show_progress=True))
-        loop.close()
     except RunpodAPIKeyError as e:
         console.print(f"\n[red]Error:[/red] {e}")
         raise typer.Exit(1)
@@ -967,6 +966,8 @@ def _provision_resources(resources) -> None:
         console.print(
             "[dim]Resources will be provisioned on-demand at first request.[/dim]"
         )
+    finally:
+        loop.close()
 
 
 def run_command(
