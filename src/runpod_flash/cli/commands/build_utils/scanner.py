@@ -11,6 +11,7 @@ import inspect
 import logging
 import os
 import sys
+import types
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
@@ -391,7 +392,7 @@ class RuntimeScanner:
         if added_to_path:
             sys.path.insert(0, root_str)
 
-        created_inits = self._ensure_init_files(py_files)
+        synthetic_packages = self._register_parent_packages(py_files)
 
         functions: List[RemoteFunctionMetadata] = []
         seen_functions: Set[str] = set()
@@ -435,42 +436,36 @@ class RuntimeScanner:
                     sys.path.remove(root_str)
                 except ValueError:
                     pass
-            # remove __init__.py files we created so we don't dirty the project tree
-            for init_file in created_inits:
-                try:
-                    init_file.unlink()
-                except OSError:
-                    pass
+            for pkg_name in synthetic_packages:
+                sys.modules.pop(pkg_name, None)
 
         self._populate_resource_dicts(functions)
         return functions
 
-    def _ensure_init_files(self, py_files: List[Path]) -> List[Path]:
-        """create missing __init__.py in parent directories for package imports.
+    def _register_parent_packages(self, py_files: List[Path]) -> List[str]:
+        """register synthetic parent packages in sys.modules for dotted imports.
 
-        returns a list of created files so the caller can clean them up.
+        when a file lives in a subdirectory (e.g. workers/gpu.py), python
+        needs a 'workers' package in sys.modules for the dotted module name
+        'workers.gpu' to resolve. instead of creating __init__.py files on
+        disk, we inject empty module objects into sys.modules.
+
+        returns the list of package names that were added so the caller
+        can remove them after scanning.
         """
-        dirs_needing_init: Set[Path] = set()
+        added: List[str] = []
         for f in py_files:
-            parent = f.parent
-            while parent != self.project_dir and parent.is_relative_to(
-                self.project_dir
-            ):
-                init = parent / "__init__.py"
-                if not init.exists():
-                    dirs_needing_init.add(parent)
-                parent = parent.parent
-
-        created: List[Path] = []
-        for d in dirs_needing_init:
-            init = d / "__init__.py"
-            try:
-                init.touch()
-                created.append(init)
-                logger.debug("created %s for package imports", init)
-            except OSError as e:
-                logger.debug("failed to create %s: %s", init, e)
-        return created
+            rel = f.relative_to(self.project_dir)
+            parts = rel.parent.parts
+            for i in range(len(parts)):
+                pkg_name = ".".join(parts[: i + 1])
+                if pkg_name not in sys.modules:
+                    pkg = types.ModuleType(pkg_name)
+                    pkg.__path__ = [str(self.project_dir / Path(*parts[: i + 1]))]
+                    pkg.__package__ = pkg_name
+                    sys.modules[pkg_name] = pkg
+                    added.append(pkg_name)
+        return added
 
     def _extract_from_module(
         self,
