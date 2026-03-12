@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.1](https://github.com/runpod/flash/compare/v1.9.0...v1.9.1) (2026-03-12)
+
+
+### Bug Fixes
+
+* **auth:** clean up API key error message ([#269](https://github.com/runpod/flash/issues/269)) ([7780f28](https://github.com/runpod/flash/commit/7780f28ad11174f1dd635deb59c812649c432528))
+
 ## [1.9.0](https://github.com/runpod/flash/compare/v1.8.1...v1.9.0) (2026-03-12)
 
 
