@@ -264,7 +264,7 @@ class LoadBalancerSlsResource(ServerlessResource):
             log.debug(f"Deploying LB endpoint: {self.name}")
             deployed = await super()._do_deploy()
 
-            log.debug(f"Deployed: {self.name} ({deployed.url})")
+            log.info(f"Deployed: {self.name} ({deployed.url})")
             return deployed
 
         except Exception as e:
