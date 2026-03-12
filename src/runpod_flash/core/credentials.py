@@ -11,8 +11,9 @@ import os
 from pathlib import Path
 from typing import Optional
 
+import runpod.cli.groups.config.functions as _runpod_config
+
 from runpod.cli.groups.config.functions import (
-    CREDENTIAL_FILE,
     get_credentials,
     set_credentials,
 )
@@ -26,7 +27,7 @@ _OLD_XDG_PATHS = (
 
 def get_credentials_path() -> Path:
     """Return the path to the runpod credentials file."""
-    return Path(CREDENTIAL_FILE)
+    return Path(_runpod_config.CREDENTIAL_FILE)
 
 
 def get_api_key() -> Optional[str]:
@@ -39,7 +40,11 @@ def get_api_key() -> Optional[str]:
     if api_key and api_key.strip():
         return api_key
 
-    creds = get_credentials()
+    try:
+        creds = get_credentials()
+    except Exception:
+        log.debug("Failed to read credentials file", exc_info=True)
+        return None
     if creds and isinstance(creds.get("api_key"), str) and creds["api_key"].strip():
         return creds["api_key"]
 
