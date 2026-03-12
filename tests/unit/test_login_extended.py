@@ -355,3 +355,23 @@ class TestGraphQLSessionWithoutApiKey:
                 assert "my-key" in session.headers["Authorization"]
             finally:
                 await session.close()
+
+    @pytest.mark.asyncio
+    async def test_no_auth_header_when_require_api_key_false_despite_env_var(self):
+        """require_api_key=False must not send auth even when RUNPOD_API_KEY is set.
+
+        This is the exact bug scenario: flash login sets require_api_key=False
+        but RUNPOD_API_KEY in the environment was leaking into the session,
+        causing the server to see an authenticated user instead of a guest.
+        """
+        with patch.dict(os.environ, {"RUNPOD_API_KEY": "existing-key"}, clear=True):
+            from runpod_flash.core.api.runpod import RunpodGraphQLClient
+
+            client = RunpodGraphQLClient(require_api_key=False)
+            assert client.api_key is None
+
+            session = await client._get_session()
+            try:
+                assert "Authorization" not in session.headers
+            finally:
+                await session.close()

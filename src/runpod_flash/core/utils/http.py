@@ -1,6 +1,6 @@
 """HTTP utilities for RunPod API communication."""
 
-from typing import Optional
+from typing import Optional, Union
 
 import httpx
 import requests
@@ -9,10 +9,12 @@ from aiohttp.resolver import ThreadedResolver
 
 from runpod_flash.core.credentials import get_api_key
 
+_UNSET = object()
+
 
 def get_authenticated_httpx_client(
     timeout: Optional[float] = None,
-    api_key_override: Optional[str] = None,
+    api_key_override: Union[Optional[str], object] = _UNSET,
 ) -> httpx.AsyncClient:
     """Create httpx AsyncClient with RunPod authentication and User-Agent.
 
@@ -50,7 +52,7 @@ def get_authenticated_httpx_client(
         "User-Agent": get_user_agent(),
         "Content-Type": "application/json",
     }
-    api_key = api_key_override or get_api_key()
+    api_key = get_api_key() if api_key_override is _UNSET else api_key_override
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
@@ -59,7 +61,7 @@ def get_authenticated_httpx_client(
 
 
 def get_authenticated_requests_session(
-    api_key_override: Optional[str] = None,
+    api_key_override: Union[Optional[str], object] = _UNSET,
 ) -> requests.Session:
     """Create requests Session with RunPod authentication and User-Agent.
 
@@ -98,7 +100,7 @@ def get_authenticated_requests_session(
     session.headers["User-Agent"] = get_user_agent()
     session.headers["Content-Type"] = "application/json"
 
-    api_key = api_key_override or get_api_key()
+    api_key = get_api_key() if api_key_override is _UNSET else api_key_override
     if api_key:
         session.headers["Authorization"] = f"Bearer {api_key}"
 
@@ -107,7 +109,7 @@ def get_authenticated_requests_session(
 
 def get_authenticated_aiohttp_session(
     timeout: float = 300.0,
-    api_key_override: Optional[str] = None,
+    api_key_override: Union[Optional[str], object] = _UNSET,
     use_threaded_resolver: bool = True,
 ) -> ClientSession:
     """Create aiohttp ClientSession with RunPod authentication and User-Agent.
@@ -142,7 +144,7 @@ def get_authenticated_aiohttp_session(
         "Content-Type": "application/json",
     }
 
-    api_key = api_key_override or get_api_key()
+    api_key = get_api_key() if api_key_override is _UNSET else api_key_override
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 

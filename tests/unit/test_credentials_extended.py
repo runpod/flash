@@ -229,3 +229,35 @@ class TestHttpCredentialsFallback:
                 assert "Authorization" not in session.headers
             finally:
                 session.close()
+
+    @pytest.mark.asyncio
+    async def test_httpx_explicit_none_override_skips_env_key(self):
+        """Passing api_key_override=None explicitly must NOT fall back to env var."""
+        with patch.dict(os.environ, {"RUNPOD_API_KEY": "env-key"}, clear=True):
+            from runpod_flash.core.utils.http import get_authenticated_httpx_client
+
+            async with get_authenticated_httpx_client(api_key_override=None) as client:
+                assert "Authorization" not in client.headers
+
+    def test_requests_explicit_none_override_skips_env_key(self):
+        """Passing api_key_override=None explicitly must NOT fall back to env var."""
+        with patch.dict(os.environ, {"RUNPOD_API_KEY": "env-key"}, clear=True):
+            from runpod_flash.core.utils.http import get_authenticated_requests_session
+
+            session = get_authenticated_requests_session(api_key_override=None)
+            try:
+                assert "Authorization" not in session.headers
+            finally:
+                session.close()
+
+    @pytest.mark.asyncio
+    async def test_aiohttp_explicit_none_override_skips_env_key(self):
+        """Passing api_key_override=None explicitly must NOT fall back to env var."""
+        with patch.dict(os.environ, {"RUNPOD_API_KEY": "env-key"}, clear=True):
+            from runpod_flash.core.utils.http import get_authenticated_aiohttp_session
+
+            session = get_authenticated_aiohttp_session(api_key_override=None)
+            try:
+                assert "Authorization" not in session.headers
+            finally:
+                await session.close()
