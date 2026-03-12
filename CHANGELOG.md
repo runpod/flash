@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.9.0](https://github.com/runpod/flash/compare/v1.8.1...v1.9.0) (2026-03-12)
+
+
+### Features
+
+* refactor GpuType enum names, add B200 and RTX PRO 6000s ([#233](https://github.com/runpod/flash/issues/233)) ([b709176](https://github.com/runpod/flash/commit/b7091764ac348078b9b2d30dbc31e1316c133483))
+
+
+### Bug Fixes
+
+* **login:** prevent env var auth leak in guest sessions ([#267](https://github.com/runpod/flash/issues/267)) ([6316289](https://github.com/runpod/flash/commit/6316289fa61f6c630f07e8fb60bdbb1e0b9be351))
+
 ## [1.8.1](https://github.com/runpod/flash/compare/v1.8.0...v1.8.1) (2026-03-10)
 
 
