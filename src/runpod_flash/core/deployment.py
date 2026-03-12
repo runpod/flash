@@ -14,6 +14,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from .exceptions import RunpodAPIKeyError
 from .resources.base import DeployableResource
 from .resources.resource_manager import ResourceManager
+from .validation import validate_api_key
 
 log = logging.getLogger(__name__)
 console = Console()
@@ -106,8 +107,6 @@ class DeploymentOrchestrator:
             return []
 
         # Fail fast if no API key, before spawning parallel tasks
-        from .validation import validate_api_key
-
         validate_api_key()
 
         # Create semaphore for concurrency control
