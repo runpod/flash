@@ -27,26 +27,19 @@ class TestParseExpiresAt:
 class TestGraphQLClientNoKeyForLogin:
     """Login mutations must not send stored credentials."""
 
-    def test_require_api_key_false_does_not_load_stored_key(self, tmp_path):
-        creds = tmp_path / "credentials.toml"
-        creds.write_text('api_key = "stale-expired-key"\n')
+    def test_require_api_key_false_does_not_load_stored_key(
+        self, isolate_credentials_file
+    ):
+        isolate_credentials_file.parent.mkdir(parents=True, exist_ok=True)
+        isolate_credentials_file.write_text('[default]\napi_key = "stale-expired-key"\n')
 
-        with patch.dict(
-            os.environ,
-            {"RUNPOD_CREDENTIALS_FILE": str(creds)},
-            clear=True,
-        ):
-            from runpod_flash.core.api.runpod import RunpodGraphQLClient
+        from runpod_flash.core.api.runpod import RunpodGraphQLClient
 
-            client = RunpodGraphQLClient(require_api_key=False)
-            assert client.api_key is None
+        client = RunpodGraphQLClient(require_api_key=False)
+        assert client.api_key is None
 
     def test_require_api_key_false_does_not_load_env_var(self):
-        with patch.dict(
-            os.environ,
-            {"RUNPOD_API_KEY": "env-key"},
-            clear=True,
-        ):
+        with patch.dict(os.environ, {"RUNPOD_API_KEY": "env-key"}):
             from runpod_flash.core.api.runpod import RunpodGraphQLClient
 
             client = RunpodGraphQLClient(require_api_key=False)
@@ -59,11 +52,7 @@ class TestGraphQLClientNoKeyForLogin:
         assert client.api_key == "explicit"
 
     def test_require_api_key_true_loads_key(self):
-        with patch.dict(
-            os.environ,
-            {"RUNPOD_API_KEY": "loaded-key"},
-            clear=True,
-        ):
+        with patch.dict(os.environ, {"RUNPOD_API_KEY": "loaded-key"}):
             from runpod_flash.core.api.runpod import RunpodGraphQLClient
 
             client = RunpodGraphQLClient(require_api_key=True)
@@ -105,25 +94,17 @@ class TestLoginFlow:
             with pytest.raises(RuntimeError, match="login failed: denied"):
                 await _login(open_browser=False, timeout_seconds=5)
 
-    async def test_login_approved_saves_key(self, tmp_path):
-        creds = tmp_path / "credentials.toml"
+    async def test_login_approved_saves_key(self, isolate_credentials_file):
         mock_client = _make_mock_client(status="APPROVED", apiKey="fresh-api-key")
         _login = _get_login_fn()
 
-        with (
-            patch(
-                "runpod_flash.cli.commands.login.RunpodGraphQLClient",
-                return_value=mock_client,
-            ),
-            patch.dict(
-                os.environ,
-                {"RUNPOD_CREDENTIALS_FILE": str(creds)},
-                clear=True,
-            ),
+        with patch(
+            "runpod_flash.cli.commands.login.RunpodGraphQLClient",
+            return_value=mock_client,
         ):
             await _login(open_browser=False, timeout_seconds=5)
-            assert creds.exists()
-            assert "fresh-api-key" in creds.read_text()
+            assert isolate_credentials_file.exists()
+            assert "fresh-api-key" in isolate_credentials_file.read_text()
 
     async def test_login_expired(self):
         mock_client = _make_mock_client(status="EXPIRED", apiKey=None)

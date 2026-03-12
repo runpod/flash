@@ -45,9 +45,8 @@ class TestLoginOpenBrowser:
     """Test the open_browser=True path."""
 
     @pytest.mark.asyncio
-    async def test_open_browser_calls_typer_launch(self, tmp_path):
+    async def test_open_browser_calls_typer_launch(self, isolate_credentials_file):
         """When open_browser=True, typer.launch is called with the auth URL."""
-        creds = tmp_path / "credentials.toml"
         mock_client = _make_mock_client(status="APPROVED", apiKey="key-123")
 
         with (
@@ -58,10 +57,6 @@ class TestLoginOpenBrowser:
             patch("runpod_flash.cli.commands.login.typer.launch") as mock_launch,
             patch(
                 "runpod_flash.cli.commands.login.asyncio.sleep", new_callable=AsyncMock
-            ),
-            patch.dict(
-                os.environ,
-                {"RUNPOD_CREDENTIALS_FILE": str(creds)},
             ),
             patch("runpod_flash.cli.commands.login.console"),
         ):
@@ -77,9 +72,8 @@ class TestLoginConsumedStatus:
     """Test CONSUMED status handling."""
 
     @pytest.mark.asyncio
-    async def test_consumed_with_api_key_saves_key(self, tmp_path):
+    async def test_consumed_with_api_key_saves_key(self, isolate_credentials_file):
         """CONSUMED with a valid apiKey saves credentials and succeeds."""
-        creds = tmp_path / "credentials.toml"
         mock_client = _make_mock_client(status="CONSUMED", apiKey="consumed-key")
 
         with (
@@ -90,16 +84,12 @@ class TestLoginConsumedStatus:
             patch(
                 "runpod_flash.cli.commands.login.asyncio.sleep", new_callable=AsyncMock
             ),
-            patch.dict(
-                os.environ,
-                {"RUNPOD_CREDENTIALS_FILE": str(creds)},
-            ),
             patch("runpod_flash.cli.commands.login.console"),
         ):
             await _fresh_login_module()._login(open_browser=False, timeout_seconds=5)
 
-        assert creds.exists()
-        assert "consumed-key" in creds.read_text()
+        assert isolate_credentials_file.exists()
+        assert "consumed-key" in isolate_credentials_file.read_text()
 
     @pytest.mark.asyncio
     async def test_consumed_without_api_key_raises(self):
@@ -236,7 +226,7 @@ class TestGraphQLAuthMethods:
     @pytest.mark.asyncio
     async def test_create_flash_auth_request(self):
         """create_flash_auth_request sends mutation and returns result."""
-        with patch.dict(os.environ, {"RUNPOD_API_KEY": "test-key"}, clear=True):
+        with patch.dict(os.environ, {"RUNPOD_API_KEY": "test-key"}):
             from runpod_flash.core.api.runpod import RunpodGraphQLClient
 
             client = RunpodGraphQLClient()
@@ -263,7 +253,7 @@ class TestGraphQLAuthMethods:
     @pytest.mark.asyncio
     async def test_create_flash_auth_request_empty_response(self):
         """create_flash_auth_request returns empty dict when key missing."""
-        with patch.dict(os.environ, {"RUNPOD_API_KEY": "test-key"}, clear=True):
+        with patch.dict(os.environ, {"RUNPOD_API_KEY": "test-key"}):
             from runpod_flash.core.api.runpod import RunpodGraphQLClient
 
             client = RunpodGraphQLClient()
@@ -275,7 +265,7 @@ class TestGraphQLAuthMethods:
     @pytest.mark.asyncio
     async def test_get_flash_auth_request_status(self):
         """get_flash_auth_request_status sends query with request_id."""
-        with patch.dict(os.environ, {"RUNPOD_API_KEY": "test-key"}, clear=True):
+        with patch.dict(os.environ, {"RUNPOD_API_KEY": "test-key"}):
             from runpod_flash.core.api.runpod import RunpodGraphQLClient
 
             client = RunpodGraphQLClient()
@@ -303,7 +293,7 @@ class TestGraphQLAuthMethods:
     @pytest.mark.asyncio
     async def test_get_flash_auth_request_status_empty_response(self):
         """get_flash_auth_request_status returns empty dict when key missing."""
-        with patch.dict(os.environ, {"RUNPOD_API_KEY": "test-key"}, clear=True):
+        with patch.dict(os.environ, {"RUNPOD_API_KEY": "test-key"}):
             from runpod_flash.core.api.runpod import RunpodGraphQLClient
 
             client = RunpodGraphQLClient()
@@ -321,32 +311,27 @@ class TestGraphQLSessionWithoutApiKey:
     """Test that _get_session omits Authorization when api_key is None."""
 
     @pytest.mark.asyncio
-    async def test_fresh_user_no_key_anywhere(self, tmp_path):
-        """Fresh user: no env var, no credentials file — no auth header.
+    async def test_fresh_user_no_key_anywhere(self):
+        """Fresh user: no env var, no credentials file -- no auth header.
 
-        Uses real credential resolution (no mocks on get_api_key) to verify
-        the sentinel default works end-to-end.
+        The autouse isolate_credentials_file fixture ensures no credentials
+        file exists and RUNPOD_API_KEY is deleted from the environment.
         """
-        creds = tmp_path / "nonexistent.toml"
+        from runpod_flash.core.api.runpod import RunpodGraphQLClient
 
-        with patch.dict(
-            os.environ, {"RUNPOD_CREDENTIALS_FILE": str(creds)}, clear=True
-        ):
-            from runpod_flash.core.api.runpod import RunpodGraphQLClient
+        client = RunpodGraphQLClient(require_api_key=False)
+        assert client.api_key is None
 
-            client = RunpodGraphQLClient(require_api_key=False)
-            assert client.api_key is None
-
-            session = await client._get_session()
-            try:
-                assert "Authorization" not in session.headers
-            finally:
-                await session.close()
+        session = await client._get_session()
+        try:
+            assert "Authorization" not in session.headers
+        finally:
+            await session.close()
 
     @pytest.mark.asyncio
     async def test_session_includes_auth_header_when_key_set(self):
         """Session created with Authorization header when api_key is provided."""
-        with patch.dict(os.environ, {"RUNPOD_API_KEY": "my-key"}, clear=True):
+        with patch.dict(os.environ, {"RUNPOD_API_KEY": "my-key"}):
             from runpod_flash.core.api.runpod import RunpodGraphQLClient
 
             client = RunpodGraphQLClient()
@@ -367,7 +352,7 @@ class TestGraphQLSessionWithoutApiKey:
         but RUNPOD_API_KEY in the environment was leaking into the session,
         causing the server to see an authenticated user instead of a guest.
         """
-        with patch.dict(os.environ, {"RUNPOD_API_KEY": "existing-key"}, clear=True):
+        with patch.dict(os.environ, {"RUNPOD_API_KEY": "existing-key"}):
             from runpod_flash.core.api.runpod import RunpodGraphQLClient
 
             client = RunpodGraphQLClient(require_api_key=False)
@@ -380,47 +365,42 @@ class TestGraphQLSessionWithoutApiKey:
                 await session.close()
 
     @pytest.mark.asyncio
-    async def test_no_auth_header_when_credentials_file_has_key(self, tmp_path):
+    async def test_no_auth_header_when_credentials_file_has_key(
+        self, isolate_credentials_file
+    ):
         """Re-login after prior flash login (key in credentials file) must not send auth.
 
-        A previous successful flash login writes the API key to credentials.toml.
-        Running flash login again must still act as a guest — the stored key must
+        A previous successful flash login writes the API key to the credentials file.
+        Running flash login again must still act as a guest -- the stored key must
         not leak into the session.
         """
-        creds = tmp_path / "credentials.toml"
-        creds.write_text('api_key = "previously-saved-key"\n')
+        isolate_credentials_file.parent.mkdir(parents=True, exist_ok=True)
+        isolate_credentials_file.write_text('[default]\napi_key = "previously-saved-key"\n')
 
-        with patch.dict(
-            os.environ, {"RUNPOD_CREDENTIALS_FILE": str(creds)}, clear=True
-        ):
-            from runpod_flash.core.api.runpod import RunpodGraphQLClient
+        from runpod_flash.core.api.runpod import RunpodGraphQLClient
 
-            client = RunpodGraphQLClient(require_api_key=False)
-            assert client.api_key is None
+        client = RunpodGraphQLClient(require_api_key=False)
+        assert client.api_key is None
 
-            session = await client._get_session()
-            try:
-                assert "Authorization" not in session.headers
-            finally:
-                await session.close()
+        session = await client._get_session()
+        try:
+            assert "Authorization" not in session.headers
+        finally:
+            await session.close()
 
     @pytest.mark.asyncio
     async def test_no_auth_header_when_both_env_var_and_credentials_file(
-        self, tmp_path
+        self, isolate_credentials_file
     ):
         """Re-login with both env var and credentials file must not send auth.
 
         Covers the force re-login scenario where both RUNPOD_API_KEY and a
         credentials file with a stored key are present simultaneously.
         """
-        creds = tmp_path / "credentials.toml"
-        creds.write_text('api_key = "file-key"\n')
+        isolate_credentials_file.parent.mkdir(parents=True, exist_ok=True)
+        isolate_credentials_file.write_text('[default]\napi_key = "file-key"\n')
 
-        with patch.dict(
-            os.environ,
-            {"RUNPOD_API_KEY": "env-key", "RUNPOD_CREDENTIALS_FILE": str(creds)},
-            clear=True,
-        ):
+        with patch.dict(os.environ, {"RUNPOD_API_KEY": "env-key"}):
             from runpod_flash.core.api.runpod import RunpodGraphQLClient
 
             client = RunpodGraphQLClient(require_api_key=False)
