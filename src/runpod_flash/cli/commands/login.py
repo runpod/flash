@@ -6,7 +6,10 @@ import typer
 from rich.console import Console
 
 from runpod_flash.core.api.runpod import RunpodGraphQLClient
-from runpod_flash.core.credentials import save_api_key
+from runpod_flash.core.credentials import (
+    check_and_migrate_legacy_credentials,
+    save_api_key,
+)
 from runpod_flash.core.resources.constants import CONSOLE_BASE_URL
 
 console = Console()
@@ -55,6 +58,7 @@ async def _login(open_browser: bool, timeout_seconds: float) -> None:
                 api_key = status_payload.get("apiKey")
 
                 if api_key and status in {"APPROVED", "CONSUMED"}:
+                    check_and_migrate_legacy_credentials()
                     path = save_api_key(api_key)
                     console.print(
                         f"[green]Logged in.[/green] Credentials saved to [dim]{path}[/dim]"

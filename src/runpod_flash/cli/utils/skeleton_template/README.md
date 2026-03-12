@@ -15,7 +15,7 @@ Set up the project:
 ```bash
 uv venv && source .venv/bin/activate
 uv sync
-cp .env.example .env   # Add your RUNPOD_API_KEY
+flash login              # Authenticate with Runpod
 flash run
 ```
 
@@ -24,7 +24,7 @@ Or with pip:
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env   # Add your RUNPOD_API_KEY
+flash login              # Authenticate with Runpod
 flash run
 ```
 
@@ -33,9 +33,6 @@ Server starts at **http://localhost:8888**. Visit **http://localhost:8888/docs**
 Use `flash run --auto-provision` to pre-deploy all endpoints on startup, eliminating cold-start delays on first request. Provisioned endpoints are cached and reused across restarts.
 
 When you stop the server with Ctrl+C, all endpoints provisioned during the session are automatically cleaned up.
-
-Get your API key from [Runpod Settings](https://www.runpod.io/console/user/settings).
-Learn more about it from our [Documentation](https://docs.runpod.io/get-started/api-keys).
 
 ## Test the API
 
@@ -182,10 +179,22 @@ Pass a CPU instance type string to `cpu=`:
 
 Or use `CpuInstanceType` enum values.
 
+## Authentication
+
+Run `flash login` to authenticate via browser. This stores your API key in `~/.runpod/config.toml`.
+
+Alternatively, set the `RUNPOD_API_KEY` environment variable or add it to `.env`:
+```bash
+cp .env.example .env   # Then edit .env with your key
+```
+
+Get your API key from [Runpod Settings](https://www.runpod.io/console/user/settings).
+Learn more from our [Documentation](https://docs.runpod.io/get-started/api-keys).
+
 ## Environment Variables
 
 ```bash
-# Required
+# Authentication (optional if using flash login)
 RUNPOD_API_KEY=your_api_key
 
 # Optional

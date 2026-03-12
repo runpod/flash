@@ -38,13 +38,25 @@ Flash requires [Python 3.10+](https://www.python.org/downloads/), and is current
 
 ### Authentication
 
-Before you can use Flash, you need to authenticate with your Runpod account:
+Before you can use Flash, you need a Runpod API key. The simplest way:
 
 ```bash
 flash login
 ```
 
-This saves your API key securely and allows you to use the Flash CLI and run `@Endpoint` functions.
+This opens a browser auth flow and saves your key to `~/.runpod/config.toml`.
+
+You can also provide a key via environment variable or `.env` file:
+
+```bash
+# Environment variable
+export RUNPOD_API_KEY=your_api_key_here
+
+# Or .env file in project root
+echo "RUNPOD_API_KEY=your_api_key_here" > .env
+```
+
+Flash checks these sources in order: env var, `.env` file, then credentials file. See the [flash login docs](src/runpod_flash/cli/docs/flash-login.md) for details.
 
 ### Coding agent integration (optional)
 
