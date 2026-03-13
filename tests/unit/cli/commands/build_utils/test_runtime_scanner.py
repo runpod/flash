@@ -242,9 +242,7 @@ class TestAnalyzeCrossCallsAst:
                 helper()
             """,
         )
-        result = _analyze_cross_calls_ast(
-            p, {"caller", "helper"}, {"helper"}
-        )
+        result = _analyze_cross_calls_ast(p, {"caller", "helper"}, {"helper"})
         assert "caller" in result
         assert "helper" in result["caller"]
 
@@ -257,9 +255,7 @@ class TestAnalyzeCrossCallsAst:
                 obj.helper()
             """,
         )
-        result = _analyze_cross_calls_ast(
-            p, {"caller"}, {"helper"}
-        )
+        result = _analyze_cross_calls_ast(p, {"caller"}, {"helper"})
         assert result == {}
 
     def test_returns_empty_on_syntax_error(self, tmp_path):
@@ -284,9 +280,7 @@ class TestAnalyzeCrossCallsAst:
                 remote_fn()
             """,
         )
-        result = _analyze_cross_calls_ast(
-            p, {"caller", "remote_fn"}, {"remote_fn"}
-        )
+        result = _analyze_cross_calls_ast(p, {"caller", "remote_fn"}, {"remote_fn"})
         assert "caller" in result
         assert "remote_fn" in result["caller"]
 
@@ -303,9 +297,7 @@ class TestAnalyzeCrossCallsAst:
                     remote_fn()
             """,
         )
-        result = _analyze_cross_calls_ast(
-            p, {"MyClass", "remote_fn"}, {"remote_fn"}
-        )
+        result = _analyze_cross_calls_ast(p, {"MyClass", "remote_fn"}, {"remote_fn"})
         assert "MyClass" in result
 
     def test_no_duplicates_in_called_list(self, tmp_path):
@@ -322,9 +314,7 @@ class TestAnalyzeCrossCallsAst:
                 remote_fn()
             """,
         )
-        result = _analyze_cross_calls_ast(
-            p, {"caller", "remote_fn"}, {"remote_fn"}
-        )
+        result = _analyze_cross_calls_ast(p, {"caller", "remote_fn"}, {"remote_fn"})
         assert result["caller"] == ["remote_fn"]
 
 
