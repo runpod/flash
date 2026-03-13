@@ -1,6 +1,7 @@
 """Unit tests for run CLI command."""
 
 import pytest
+import typer
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 from typer.testing import CliRunner
@@ -12,6 +13,7 @@ from runpod_flash.cli.commands.run import (
     _has_numeric_module_segments,
     _make_import_line,
     _module_parent_subdir,
+    _provision_resources,
     _sanitize_fn_name,
 )
 
@@ -876,3 +878,36 @@ class TestFindAvailablePort:
             for s in blockers:
                 if s:
                     s.close()
+
+
+class TestProvisionResourcesApiKeyError:
+    """Test _provision_resources handles RunpodAPIKeyError cleanly."""
+
+    def test_provision_resources_exits_on_missing_api_key(self, monkeypatch):
+        """_provision_resources should raise typer.Exit(1) when API key is missing."""
+        monkeypatch.delenv("RUNPOD_API_KEY", raising=False)
+        resources = [MagicMock(name="test-resource")]
+
+        with pytest.raises(typer.Exit) as exc_info:
+            _provision_resources(resources)
+
+        assert exc_info.value.exit_code == 1
+
+    def test_run_command_does_not_swallow_exit_from_provisioning(
+        self, runner, temp_fastapi_app, monkeypatch
+    ):
+        """typer.Exit from _provision_resources must propagate, not be caught as Exception."""
+        monkeypatch.chdir(temp_fastapi_app)
+        monkeypatch.delenv("RUNPOD_API_KEY", raising=False)
+
+        with patch("runpod_flash.cli.commands.run._watch_and_regenerate"):
+            with patch(
+                "runpod_flash.cli.commands.run._find_available_port",
+                side_effect=lambda host, port: port,
+            ):
+                result = runner.invoke(app, ["run", "--auto-provision"])
+
+        assert result.exit_code != 0
+        # Should NOT contain the generic "Warning: Auto-provisioning failed" message
+        # that appeared when typer.Exit was swallowed as Exception
+        assert "Auto-provisioning failed" not in result.output

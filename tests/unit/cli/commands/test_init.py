@@ -160,16 +160,30 @@ class TestInitCommandOutput:
         )
 
     @patch("pathlib.Path.cwd")
-    def test_api_key_docs_link_displayed(self, mock_cwd, mock_context, tmp_path):
-        """Test API key documentation link is displayed."""
+    def test_flash_login_step_displayed(self, mock_cwd, mock_context, tmp_path):
+        """Test flash login is shown in the next steps table."""
         mock_cwd.return_value = tmp_path
 
         init_command(".")
 
-        # Verify console.print was called with API key link
-        assert any(
-            "runpod.io" in str(c) for c in mock_context["console"].print.call_args_list
-        )
+        # The steps table is a Rich Table passed to console.print.
+        # Render it to plain text and check for "flash login".
+        from io import StringIO
+
+        from rich.console import Console as RichConsole
+        from rich.table import Table
+
+        tables = [
+            call.args[0]
+            for call in mock_context["console"].print.call_args_list
+            if call.args and isinstance(call.args[0], Table)
+        ]
+        assert tables, "No Rich Table was printed"
+        buf = StringIO()
+        render_console = RichConsole(file=buf, width=120)
+        for table in tables:
+            render_console.print(table)
+        assert "flash login" in buf.getvalue()
 
     def test_status_message_for_new_directory(
         self, mock_context, tmp_path, monkeypatch

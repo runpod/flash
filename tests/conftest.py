@@ -185,9 +185,14 @@ def mock_logger():
 
 @pytest.fixture(autouse=True)
 def isolate_credentials_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
-    """force tests to use a temp credentials file."""
-    credentials_path = tmp_path / "credentials.toml"
-    monkeypatch.setenv("RUNPOD_CREDENTIALS_FILE", str(credentials_path))
+    """Force tests to use a temp credentials file."""
+    credentials_path = tmp_path / "config.toml"
+    monkeypatch.setattr(
+        "runpod.cli.groups.config.functions.CREDENTIAL_FILE",
+        str(credentials_path),
+    )
+    # Keep env var isolation for RUNPOD_API_KEY
+    monkeypatch.delenv("RUNPOD_API_KEY", raising=False)
     return credentials_path
 
 

@@ -18,13 +18,17 @@ cd my-project
 uv sync                          # or: pip install -r requirements.txt
 ```
 
-Authenticate with Runpod:
+Authenticate with Runpod (saves API key to `~/.runpod/config.toml`):
 ```bash
 flash login
 ```
 
-Or add your Runpod API key to `.env`:
+Alternatively, set your API key via environment variable or `.env` file:
 ```bash
+# Shell environment variable (highest priority)
+export RUNPOD_API_KEY=your_api_key_here
+
+# Or .env file in project root (second priority)
 echo "RUNPOD_API_KEY=your_api_key_here" > .env
 ```
 
