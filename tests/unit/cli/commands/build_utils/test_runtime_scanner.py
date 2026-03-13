@@ -12,8 +12,6 @@ from unittest.mock import patch
 import pytest
 
 from runpod_flash.cli.commands.build_utils.scanner import (
-    MODULE_IMPORT_TIMEOUT_SECONDS,
-    RemoteFunctionMetadata,
     RuntimeScanner,
     _analyze_cross_calls_ast,
     _find_endpoint_instances,
