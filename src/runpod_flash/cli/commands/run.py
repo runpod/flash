@@ -1041,25 +1041,26 @@ def run_command(
     # Discover @remote functions
     workers, scanner = _scan_project_workers(project_root)
 
+    if scanner.import_errors:
+        console.print("\n[red bold]Failed to load:[/red bold]")
+        for filename, err in scanner.import_errors.items():
+            console.print(f"  [red]{filename}[/red]: {err}")
+        console.print()
+        raise typer.Exit(1)
+
     if not workers:
-        if scanner.import_errors:
-            console.print("\n[red bold]Failed to load:[/red bold]")
-            for filename, err in scanner.import_errors.items():
-                console.print(f"  [red]{filename}[/red]: {err}")
-            console.print()
-        else:
-            console.print(
-                "\n[red bold]No endpoints found.[/red bold]\n"
-                "\n"
-                "  [dim]Queue-based:[/dim]\n"
-                "    @Endpoint(name='worker', gpu=GpuGroup.ANY)\n"
-                "    async def process(input_data: dict) -> dict: ...\n"
-                "\n"
-                "  [dim]Load-balanced:[/dim]\n"
-                "    api = Endpoint(name='api', cpu='cpu3g-2-8')\n"
-                "    @api.post('/compute')\n"
-                "    async def compute(data: dict) -> dict: ...\n"
-            )
+        console.print(
+            "\n[red bold]No endpoints found.[/red bold]\n"
+            "\n"
+            "  [dim]Queue-based:[/dim]\n"
+            "    @Endpoint(name='worker', gpu=GpuGroup.ANY)\n"
+            "    async def process(input_data: dict) -> dict: ...\n"
+            "\n"
+            "  [dim]Load-balanced:[/dim]\n"
+            "    api = Endpoint(name='api', cpu='cpu3g-2-8')\n"
+            "    @api.post('/compute')\n"
+            "    async def compute(data: dict) -> dict: ...\n"
+        )
         raise typer.Exit(1)
 
     # find a free port, counting up from the requested one

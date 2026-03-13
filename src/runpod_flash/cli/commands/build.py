@@ -309,8 +309,8 @@ def run_build(
                 console.print("\n[red bold]Failed to load:[/red bold]")
                 for filename, err in scanner.import_errors.items():
                     console.print(f"  [red]{filename}[/red]: {err}")
-                if not remote_functions:
-                    raise typer.Exit(1)
+                console.print()
+                raise typer.Exit(1)
 
             manifest_builder = ManifestBuilder(
                 app_name,
