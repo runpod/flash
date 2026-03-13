@@ -148,6 +148,7 @@ class CpuServerlessEndpoint(CpuEndpointMixin, ServerlessEndpoint):
             "imageName",
             "gpus",
             "networkVolume",
+            "networkVolumes",
         }
         config_dict = self.model_dump(
             exclude_none=True, include=cpu_fields, mode="json"

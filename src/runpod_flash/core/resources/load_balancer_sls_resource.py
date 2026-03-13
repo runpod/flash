@@ -402,6 +402,7 @@ class CpuLoadBalancerSlsResource(CpuEndpointMixin, LoadBalancerSlsResource):
             "flashEnvironmentId",
             "imageName",
             "networkVolume",
+            "networkVolumes",
             "instanceIds",  # CPU-specific
             "workersMin",  # Scaling
             "workersMax",

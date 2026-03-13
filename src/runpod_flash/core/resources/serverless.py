@@ -9,6 +9,7 @@ from typing import Any, ClassVar, Dict, List, Optional, Set
 from pydantic import (
     BaseModel,
     Field,
+    PrivateAttr,
     field_serializer,
     field_validator,
     model_validator,
@@ -176,6 +177,9 @@ class ServerlessResource(DeployableResource):
     workersMax: Optional[int] = DEFAULT_WORKERS_MAX
     workersMin: Optional[int] = DEFAULT_WORKERS_MIN
     workersPFBTarget: Optional[int] = 0
+
+    # === Private Attributes ===
+    _deployed_volume_ids: list[str] = PrivateAttr(default_factory=list)
 
     # === Runtime Fields ===
     activeBuildid: Optional[str] = None

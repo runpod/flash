@@ -79,7 +79,7 @@ class NetworkVolume(DeployableResource):
     dataCenterId: DataCenter = Field(default=DataCenter.EU_RO_1)
 
     id: Optional[str] = Field(default=None)
-    name: str
+    name: Optional[str] = None
     size: Optional[int] = Field(default=100, gt=0)  # Size in GB
 
     @model_validator(mode="before")
@@ -92,15 +92,24 @@ class NetworkVolume(DeployableResource):
                 data["dataCenterId"] = dc
         return data
 
+    @model_validator(mode="after")
+    def require_name_or_id(self):
+        """Either name or id must be provided."""
+        if not self.name and not self.id:
+            raise ValueError("either 'name' or 'id' must be provided")
+        return self
+
     def __str__(self) -> str:
         return f"{self.__class__.__name__}:{self.id}"
 
     @property
     def resource_id(self) -> str:
         """Unique resource ID based on name and datacenter for idempotent behavior."""
-        # Use name + datacenter to ensure idempotence
         resource_type = self.__class__.__name__
-        config_key = f"{self.name}:{self.dataCenterId.value}"
+        if self.name:
+            config_key = f"{self.name}:{self.dataCenterId.value}"
+        else:
+            config_key = f"id:{self.id}"
         hash_obj = hashlib.md5(f"{resource_type}:{config_key}".encode())
         return f"{resource_type}_{hash_obj.hexdigest()}"
 

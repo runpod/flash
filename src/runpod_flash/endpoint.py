@@ -267,7 +267,15 @@ def _normalize_volumes(
     if isinstance(volume, NetworkVolume):
         return [volume]
     if isinstance(volume, list):
-        return volume or None
+        if not volume:
+            return None
+        for idx, vol in enumerate(volume):
+            if not isinstance(vol, NetworkVolume):
+                raise ValueError(
+                    "volume list elements must be NetworkVolume; "
+                    f"element at index {idx} is {type(vol).__name__}"
+                )
+        return volume
     raise ValueError(
         f"volume must be a NetworkVolume or list of NetworkVolume, "
         f"got {type(volume).__name__}"
