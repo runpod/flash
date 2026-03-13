@@ -490,3 +490,19 @@ class TestDiscoverDirectory:
 
         assert len(resources) == 1
         assert resources[0].name == "the-one"
+
+    def test_duplicate_stems_resolved_independently(self, tmp_path):
+        """Files with the same stem in different dirs don't collide in sys.modules."""
+        pkg_a = tmp_path / "pkg_a"
+        pkg_b = tmp_path / "pkg_b"
+        pkg_a.mkdir()
+        pkg_b.mkdir()
+
+        (pkg_a / "worker.py").write_text(_worker_source("alpha", var_prefix="a"))
+        (pkg_b / "worker.py").write_text(_worker_source("bravo", var_prefix="b"))
+
+        resources = ResourceDiscovery.discover_directory(tmp_path)
+
+        assert len(resources) == 2
+        names = {r.name for r in resources}
+        assert names == {"alpha", "bravo"}

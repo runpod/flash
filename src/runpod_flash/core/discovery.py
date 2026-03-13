@@ -29,6 +29,20 @@ _SKIP_DIRS = frozenset(
 )
 
 
+def _path_to_module_name(file_path: Path, project_root: Path) -> str:
+    """Derive a unique dotted module name from a file path relative to project root.
+
+    Prevents ``sys.modules`` collisions when multiple files share the same stem
+    (e.g. ``pkg/config.py`` and ``lib/config.py`` both have stem ``config``).
+    """
+    try:
+        rel = file_path.relative_to(project_root)
+    except ValueError:
+        return file_path.stem
+    parts = rel.with_suffix("").parts
+    return ".".join(parts)
+
+
 class ResourceDiscovery:
     """Discovers DeployableResource instances by parsing @remote decorators."""
 
@@ -77,11 +91,15 @@ class ResourceDiscovery:
                 if "@remote" not in content and "Endpoint(" not in content:
                     continue
 
-                resource_vars = instance._find_resource_config_vars(file_path)
+                resource_vars = instance._find_resource_config_vars(
+                    file_path, source=content
+                )
                 if not resource_vars:
                     continue
 
-                module = instance._import_module(file_path)
+                module = instance._import_module(
+                    file_path, module_name=_path_to_module_name(file_path, project_root)
+                )
                 if not module:
                     continue
 
@@ -166,7 +184,9 @@ class ResourceDiscovery:
 
         return resources
 
-    def _find_resource_config_vars(self, file_path: Path) -> Set[str]:
+    def _find_resource_config_vars(
+        self, file_path: Path, source: str | None = None
+    ) -> Set[str]:
         """Find variable names used in @remote or @Endpoint decorators via AST parsing.
 
         Detects:
@@ -176,6 +196,8 @@ class ResourceDiscovery:
 
         Args:
             file_path: Path to Python file to parse
+            source: Pre-read file contents (avoids redundant IO when caller
+                already has the text). Read from *file_path* when ``None``.
 
         Returns:
             Set of variable names referenced in decorators
@@ -183,7 +205,9 @@ class ResourceDiscovery:
         var_names = set()
 
         try:
-            tree = ast.parse(file_path.read_text(encoding="utf-8"))
+            if source is None:
+                source = file_path.read_text(encoding="utf-8")
+            tree = ast.parse(source)
 
             # pass 1: find Endpoint variable assignments (ep = Endpoint(...))
             endpoint_vars = set()
@@ -312,18 +336,22 @@ class ResourceDiscovery:
 
         return ""
 
-    def _import_module(self, file_path: Path):
+    def _import_module(self, file_path: Path, module_name: str | None = None):
         """Import a Python module from file path.
 
         Args:
             file_path: Path to Python file
+            module_name: Explicit module name for ``sys.modules`` registration.
+                Defaults to ``file_path.stem`` for backwards compatibility,
+                but callers scanning directories should pass a path-derived
+                name to avoid collisions between files with the same stem.
 
         Returns:
             Imported module or None if import fails
         """
         try:
-            # Create module spec
-            module_name = file_path.stem
+            if module_name is None:
+                module_name = file_path.stem
             spec = importlib.util.spec_from_file_location(module_name, file_path)
 
             if not spec or not spec.loader:
