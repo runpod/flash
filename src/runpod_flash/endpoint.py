@@ -370,6 +370,7 @@ class Endpoint:
         scaler_type: Optional[ServerlessScalerType] = None,
         scaler_value: int = 4,
         template: Optional[PodTemplate] = None,
+        min_cuda_version: Optional[str] = None,
     ):
         if gpu is not None and cpu is not None:
             raise ValueError(
@@ -403,6 +404,7 @@ class Endpoint:
         self._explicit_scaler_type = scaler_type
         self.scaler_value = scaler_value
         self.template = template
+        self.min_cuda_version = min_cuda_version
 
         # if no gpu or cpu specified, default to gpu any (unless pure client mode)
         if not self._is_cpu and self._gpu is None and not self.is_client:
@@ -531,6 +533,9 @@ class Endpoint:
 
         if self.image is not None:
             kwargs["imageName"] = self.image
+
+        if self.min_cuda_version is not None:
+            kwargs["minCudaVersion"] = self.min_cuda_version
 
         # select the right class
         if is_lb and is_cpu and live:
