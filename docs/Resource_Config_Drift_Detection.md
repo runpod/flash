@@ -106,7 +106,7 @@ cpu_fields = {
 }
 ```
 
-GPU-specific fields (`gpuIds`, `gpuCount`, `allowedCudaVersions`) are excluded from the CPU hash. This prevents false drift when GPU fields are set to defaults.
+GPU-specific fields (`gpuIds`, `gpuCount`, `allowedCudaVersions`, `minCudaVersion`) are excluded from the CPU hash. This prevents false drift when GPU fields are set to defaults.
 
 ## User-Facing Example
 

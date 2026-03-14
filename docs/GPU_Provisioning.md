@@ -167,6 +167,7 @@ Internally, the `ServerlessResource` base class maintains dual fields for develo
 |----------------|-----------|---------|
 | `gpus: List[GpuGroup]` | `gpuIds: str` | GPU group selection |
 | `cudaVersions: List[CudaVersion]` | `allowedCudaVersions: str` | CUDA compatibility |
+| `min_cuda_version: str` (on `Endpoint`) | `minCudaVersion: str` | Minimum CUDA version for host selection (default: `"12.8"`) |
 
 The `_sync_input_fields_gpu()` method synchronizes between these formats. When a user sets `gpu=GpuGroup.AMPERE_80` on `Endpoint`, the value flows through:
 

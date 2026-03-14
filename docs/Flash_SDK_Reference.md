@@ -30,6 +30,7 @@ Endpoint(
     scaler_type: Optional[ServerlessScalerType] = None,
     scaler_value: int = 4,
     template: Optional[PodTemplate] = None,
+    min_cuda_version: Optional[str] = None,
 )
 ```
 
@@ -56,6 +57,7 @@ Endpoint(
 | `scaler_type` | `ServerlessScalerType` | auto | Scaling strategy. Auto-selects `QUEUE_DELAY` for QB, `REQUEST_COUNT` for LB. |
 | `scaler_value` | `int` | `4` | Scaling threshold value. |
 | `template` | `PodTemplate` | `None` | Pod template overrides (e.g., `PodTemplate(containerDiskInGb=100)`). |
+| `min_cuda_version` | `str` | `None` | Minimum CUDA version for GPU host selection. GPU endpoints default to `"12.8"` when not set. Has no effect on CPU endpoints. |
 
 **Validation rules:**
 - `gpu` and `cpu` are mutually exclusive
