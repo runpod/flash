@@ -263,6 +263,7 @@ class TestCpuEndpointMixin:
         # GPU fields should be cleared/set to default CPU values
         assert cpu_endpoint.gpuCount == 0
         assert cpu_endpoint.allowedCudaVersions == ""
+        assert cpu_endpoint.minCudaVersion is None
         assert cpu_endpoint.gpuIds == ""
 
 
@@ -358,6 +359,7 @@ class TestCpuConfigHash:
             "flashboot",
             "allowedCudaVersions",
             "cudaVersions",
+            "minCudaVersion",
             "instanceIds",
         ]
 
@@ -402,6 +404,7 @@ class TestCpuConfigHash:
         assert "gpuIds" in endpoint._input_only
         assert "gpuCount" in endpoint._input_only
         assert "allowedCudaVersions" in endpoint._input_only
+        assert "minCudaVersion" in endpoint._input_only
 
         # Create two endpoints with different GPU field values
         endpoint1 = CpuServerlessEndpoint(

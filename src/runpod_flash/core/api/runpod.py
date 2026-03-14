@@ -290,6 +290,7 @@ class RunpodGraphQLClient:
                 workersPFBTarget
                 gpuCount
                 allowedCudaVersions
+                minCudaVersion
                 executionTimeoutMs
                 instanceIds
                 activeBuildid

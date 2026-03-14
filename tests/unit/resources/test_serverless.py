@@ -549,6 +549,7 @@ class TestServerlessResourceSyncFields:
         # Check CPU mode overrides GPU fields
         assert serverless.gpuCount == 0
         assert serverless.allowedCudaVersions == ""
+        assert serverless.minCudaVersion is None
         assert serverless.gpuIds == ""
 
     def test_reverse_sync_gpuids_to_gpus(self):
@@ -671,6 +672,53 @@ class TestCpuDatacenterValidation:
             datacenter=DataCenter.US_GA_2,
         )
         assert serverless.datacenter == [DataCenter.US_GA_2]
+
+
+class TestMinCudaVersion:
+    """Test minCudaVersion field defaults and behavior."""
+
+    def test_gpu_endpoint_defaults_to_12_8(self):
+        serverless = ServerlessResource(name="test")
+        assert serverless.minCudaVersion == "12.8"
+
+    def test_gpu_endpoint_custom_min_cuda(self):
+        serverless = ServerlessResource(
+            name="test",
+            minCudaVersion=CudaVersion.V12_4.value,
+        )
+        assert serverless.minCudaVersion == "12.4"
+
+    def test_min_cuda_version_in_hashed_fields(self):
+        attr = getattr(ServerlessResource, "_hashed_fields")
+        fields = attr.default if hasattr(attr, "default") else attr
+        assert "minCudaVersion" in fields
+
+    def test_min_cuda_version_included_in_payload(self):
+        serverless = ServerlessResource(name="test")
+        assert "minCudaVersion" not in serverless._input_only
+
+    def test_cpu_endpoint_clears_min_cuda(self):
+        cpu = CpuServerlessEndpoint(
+            name="test",
+            imageName="test/image:v1",
+            instanceIds=[CpuInstanceType.CPU3G_2_8],
+        )
+        assert cpu.minCudaVersion is None
+
+    def test_min_cuda_version_affects_config_hash(self):
+        s1 = ServerlessResource(name="test", minCudaVersion="12.8")
+        s2 = ServerlessResource(name="test", minCudaVersion="12.4")
+        assert s1.config_hash != s2.config_hash
+
+    def test_min_cuda_version_structural_change(self):
+        s1 = ServerlessResource(name="test", minCudaVersion="12.8")
+        s2 = ServerlessResource(name="test", minCudaVersion="12.4")
+        assert s1._has_structural_changes(s2) is True
+
+    def test_min_cuda_version_no_structural_change(self):
+        s1 = ServerlessResource(name="test", minCudaVersion="12.8")
+        s2 = ServerlessResource(name="test", minCudaVersion="12.8")
+        assert s1._has_structural_changes(s2) is False
 
 
 class TestJobOutput:

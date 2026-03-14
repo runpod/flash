@@ -115,6 +115,7 @@ class ServerlessResource(DeployableResource):
         "executionTimeoutMs",
         "gpuCount",
         "locations",
+        "minCudaVersion",
         "name",
         "networkVolumeId",
         "networkVolumes",
@@ -166,6 +167,7 @@ class ServerlessResource(DeployableResource):
     executionTimeoutMs: Optional[int] = 0
     gpuCount: Optional[int] = 1
     idleTimeout: Optional[int] = 60
+    minCudaVersion: Optional[str] = CudaVersion.V12_8.value
     instanceIds: Optional[List[CpuInstanceType]] = None
     locations: Optional[str] = None
     name: str
@@ -979,6 +981,7 @@ class ServerlessResource(DeployableResource):
             "flashboot",
             "allowedCudaVersions",
             "cudaVersions",
+            "minCudaVersion",
             "instanceIds",
         ]
 

@@ -68,6 +68,7 @@ class TestCpuLoadBalancerGpuFieldOverride:
         # GPU fields should be overridden to CPU defaults
         assert lb.gpuCount == 0, "gpuCount should be 0 for CPU endpoints"
         assert lb.allowedCudaVersions == "", "allowedCudaVersions should be empty"
+        assert lb.minCudaVersion is None, "minCudaVersion should be None for CPU"
         assert lb.gpuIds == "", "gpuIds should be empty"
 
     def test_gpu_fields_not_hardcoded_in_constructor(self):
@@ -99,6 +100,7 @@ class TestCpuLoadBalancerInputOnlyExclusion:
         required_excludes = {
             "gpuCount",
             "allowedCudaVersions",
+            "minCudaVersion",
             "gpuIds",
             "cudaVersions",
             "gpus",
@@ -142,6 +144,9 @@ class TestCpuLoadBalancerPayloadExclusion:
         assert "gpuCount" not in payload, "gpuCount should be excluded from payload"
         assert "allowedCudaVersions" not in payload, (
             "allowedCudaVersions should be excluded"
+        )
+        assert "minCudaVersion" not in payload, (
+            "minCudaVersion should be excluded"
         )
         assert "gpuIds" not in payload, "gpuIds should be excluded"
         assert "cudaVersions" not in payload, "cudaVersions should be excluded"
@@ -226,6 +231,7 @@ class TestCpuLoadBalancerComparison:
         gpu_fields = {
             "gpuCount",
             "allowedCudaVersions",
+            "minCudaVersion",
             "gpuIds",
             "cudaVersions",
             "gpus",
@@ -254,6 +260,8 @@ class TestCpuLoadBalancerComparison:
         # Both should have identical GPU field values
         assert lb.gpuCount == serverless.gpuCount == 0
         assert lb.allowedCudaVersions == serverless.allowedCudaVersions == ""
+        assert lb.minCudaVersion is None
+        assert serverless.minCudaVersion is None
         assert lb.gpuIds == serverless.gpuIds == ""
 
 
@@ -334,7 +342,7 @@ class TestCpuLoadBalancerIntegration:
             assert field in payload, f"Required field {field} not in payload"
 
         # Verify no GPU fields
-        gpu_fields = {"gpuCount", "allowedCudaVersions", "gpuIds"}
+        gpu_fields = {"gpuCount", "allowedCudaVersions", "minCudaVersion", "gpuIds"}
         for field in gpu_fields:
             assert field not in payload, f"GPU field {field} should not be in payload"
 
