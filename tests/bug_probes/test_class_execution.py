@@ -111,3 +111,35 @@ class TestNEW1_EnsureInitializedRace:
 
             await wrapper_instance._ensure_initialized()
             mock_rm.get_or_deploy_resource.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_deploy_failure_releases_lock_and_allows_retry(
+        self, wrapper_instance
+    ):
+        """If deploy fails, the lock must be released and a subsequent call must retry."""
+        call_count = 0
+
+        async def failing_then_succeeding_deploy(config):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise ConnectionError("transient failure")
+            return MagicMock()
+
+        with (
+            patch("runpod_flash.execute_class.ResourceManager") as mock_rm_cls,
+            patch("runpod_flash.execute_class.stub_resource", return_value=MagicMock()),
+        ):
+            mock_rm = MagicMock()
+            mock_rm.get_or_deploy_resource = failing_then_succeeding_deploy
+            mock_rm_cls.return_value = mock_rm
+
+            with pytest.raises(ConnectionError, match="transient failure"):
+                await wrapper_instance._ensure_initialized()
+
+            assert not wrapper_instance._initialized
+
+            # Retry should succeed
+            await wrapper_instance._ensure_initialized()
+            assert wrapper_instance._initialized
+            assert call_count == 2
