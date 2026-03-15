@@ -1189,10 +1189,17 @@ class ServerlessResource(DeployableResource):
         if not self.id:
             raise ValueError("Serverless is not deployed")
 
+        DEFAULT_RUNSYNC_TIMEOUT_S = 60
+        timeout_s = (
+            self.executionTimeoutMs / 1000
+            if self.executionTimeoutMs
+            else DEFAULT_RUNSYNC_TIMEOUT_S
+        )
+
         def _fetch_job():
             log.info(f"{self} | API /runsync")
             return self.endpoint.rp_client.post(
-                f"{self.id}/runsync", payload, timeout=60
+                f"{self.id}/runsync", payload, timeout=timeout_s
             )
 
         try:
