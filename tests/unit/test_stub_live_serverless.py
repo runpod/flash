@@ -185,8 +185,8 @@ class TestLiveServerlessStub:
         result = stub.handle_response(response)
         assert result is None
 
-    def test_handle_response_json_result(self, stub):
-        """handle_response returns json_result when result is None but json_result is set."""
+    def test_handle_response_json_result_dict(self, stub):
+        """handle_response returns json_result dict when result is None."""
         response = FunctionResponse(
             success=True, result=None, json_result={"key": "value"}
         )
@@ -194,12 +194,23 @@ class TestLiveServerlessStub:
         result = stub.handle_response(response)
         assert result == {"key": "value"}
 
-    def test_handle_response_json_result_none_value(self, stub):
-        """handle_response returns None when json_result is explicitly None (void json function)."""
-        response = FunctionResponse(success=True, result=None, json_result=None)
+    def test_handle_response_json_result_scalar(self, stub):
+        """handle_response returns json_result scalar without deserialization."""
+        response = FunctionResponse(success=True, result=None, json_result=42)
 
         result = stub.handle_response(response)
-        assert result is None
+        assert result == 42
+
+    def test_handle_response_result_takes_priority_over_json_result(self, stub):
+        """handle_response prefers cloudpickle result over json_result when both set."""
+        result_data = "from_cloudpickle"
+        encoded = base64.b64encode(cloudpickle.dumps(result_data)).decode()
+        response = FunctionResponse(
+            success=True, result=encoded, json_result="from_json"
+        )
+
+        result = stub.handle_response(response)
+        assert result == "from_cloudpickle"
 
     def test_handle_response_prints_stdout(self, stub, capsys):
         """handle_response prints stdout lines."""
