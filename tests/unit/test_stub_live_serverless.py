@@ -178,12 +178,28 @@ class TestLiveServerlessStub:
         with pytest.raises(ValueError, match="Invalid response"):
             stub.handle_response(response)
 
-    def test_handle_response_none_result(self, stub):
-        """handle_response raises ValueError when success but result is None."""
-        response = FunctionResponse(success=True, result=None)
+    def test_handle_response_void_function_returns_none(self, stub):
+        """handle_response returns None for void functions (no result or json_result)."""
+        response = FunctionResponse(success=True, result=None, json_result=None)
 
-        with pytest.raises(ValueError, match="result is None"):
-            stub.handle_response(response)
+        result = stub.handle_response(response)
+        assert result is None
+
+    def test_handle_response_json_result(self, stub):
+        """handle_response returns json_result when result is None but json_result is set."""
+        response = FunctionResponse(
+            success=True, result=None, json_result={"key": "value"}
+        )
+
+        result = stub.handle_response(response)
+        assert result == {"key": "value"}
+
+    def test_handle_response_json_result_none_value(self, stub):
+        """handle_response returns None when json_result is explicitly None (void json function)."""
+        response = FunctionResponse(success=True, result=None, json_result=None)
+
+        result = stub.handle_response(response)
+        assert result is None
 
     def test_handle_response_prints_stdout(self, stub, capsys):
         """handle_response prints stdout lines."""
