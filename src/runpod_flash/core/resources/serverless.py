@@ -1204,9 +1204,9 @@ class ServerlessResource(DeployableResource):
         if not self.id:
             raise ValueError("Serverless is not deployed")
 
-        timeout_s = (
+        timeout_s: float = (
             self.executionTimeoutMs / 1000
-            if self.executionTimeoutMs
+            if self.executionTimeoutMs is not None and self.executionTimeoutMs > 0
             else DEFAULT_RUNSYNC_TIMEOUT_S
         )
 
