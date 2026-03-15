@@ -228,23 +228,22 @@ def create_remote_class(
             )
 
         async def _ensure_initialized(self):
-            """Ensure the remote instance is created."""
+            """Ensure the remote instance is created exactly once, even under concurrent calls."""
+            # Fast path: already initialized, no lock needed.
             if self._initialized:
                 return
 
+            # Slow path: acquire lock and re-check to prevent double deployment
+            # when multiple coroutines race past the fast-path check.
             async with self._init_lock:
                 if self._initialized:
                     return
 
-                # Get remote resource
                 resource_manager = ResourceManager()
                 remote_resource = await resource_manager.get_or_deploy_resource(
                     self._resource_config
                 )
                 self._stub = stub_resource(remote_resource, **self._extra)
-
-                # Create the remote instance by calling a method (which will trigger instance creation)
-                # We'll do this on first method call
                 self._initialized = True
 
         def __getattr__(self, name):
