@@ -37,6 +37,9 @@ from .resource_manager import ResourceManager
 # Prefix applied to endpoint names during live provisioning
 LIVE_PREFIX = "live-"
 
+# Default client-side HTTP timeout for runsync calls (seconds)
+DEFAULT_RUNSYNC_TIMEOUT_S = 60
+
 
 log = logging.getLogger(__name__)
 
@@ -1189,7 +1192,6 @@ class ServerlessResource(DeployableResource):
         if not self.id:
             raise ValueError("Serverless is not deployed")
 
-        DEFAULT_RUNSYNC_TIMEOUT_S = 60
         timeout_s = (
             self.executionTimeoutMs / 1000
             if self.executionTimeoutMs

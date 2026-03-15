@@ -1826,3 +1826,36 @@ class TestServerlessRunsyncTimeout:
         mock_rp_client.post.assert_called_once_with(
             "ep-default/runsync", {"input": "data"}, timeout=60
         )
+
+    @pytest.mark.asyncio
+    async def test_runsync_default_timeout_when_none(self):
+        """runsync should fall back to 60s when executionTimeoutMs is None."""
+        resource = ServerlessResource(
+            name="test-none",
+            executionTimeoutMs=None,
+        )
+        resource.id = "ep-none"
+
+        mock_rp_client = MagicMock()
+        mock_rp_client.post.return_value = {
+            "id": "job-3",
+            "workerId": "w-3",
+            "status": "COMPLETED",
+            "delayTime": 10,
+            "executionTime": 1000,
+            "output": None,
+        }
+
+        mock_endpoint = MagicMock()
+        mock_endpoint.rp_client = mock_rp_client
+
+        with patch.object(
+            ServerlessResource,
+            "endpoint",
+            new_callable=lambda: property(lambda self: mock_endpoint),
+        ):
+            await resource.runsync({"input": "data"})
+
+        mock_rp_client.post.assert_called_once_with(
+            "ep-none/runsync", {"input": "data"}, timeout=60
+        )
