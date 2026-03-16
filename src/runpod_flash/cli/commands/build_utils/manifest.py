@@ -254,8 +254,7 @@ class ManifestBuilder:
             ]
 
         elif (
-            hasattr(resource_config, "networkVolume")
-            and resource_config.networkVolume
+            hasattr(resource_config, "networkVolume") and resource_config.networkVolume
         ):
             config["networkVolume"] = _serialize_network_volume(
                 resource_config.networkVolume
