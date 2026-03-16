@@ -578,7 +578,7 @@ class ServerlessResource(DeployableResource):
         Sets networkVolumeId (singular) for backward compat with the first volume.
         Populates _deployed_volume_ids for multi-volume API payloads.
         """
-        self._deployed_volume_ids: list[str] = []
+        self._deployed_volume_ids = []
 
         if self.networkVolumeId:
             self._deployed_volume_ids.append(self.networkVolumeId)
