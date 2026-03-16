@@ -268,7 +268,7 @@ def _normalize_volumes(
         return [volume]
     if isinstance(volume, list):
         if not volume:
-            return None
+            raise ValueError("volume list must not be empty")
         for idx, vol in enumerate(volume):
             if not isinstance(vol, NetworkVolume):
                 raise ValueError(

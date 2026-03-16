@@ -25,6 +25,24 @@ logger = logging.getLogger(__name__)
 RESERVED_PATHS = ["/execute", "/ping"]
 
 
+def _serialize_network_volume(nv) -> dict:
+    """Serialize a NetworkVolume to a manifest-safe dict."""
+    nv_config: dict = {}
+    if nv.name is not None:
+        nv_config["name"] = nv.name
+    if getattr(nv, "id", None) is not None:
+        nv_config["id"] = nv.id
+    if nv.size is not None:
+        nv_config["size"] = nv.size
+    if hasattr(nv, "dataCenterId") and nv.dataCenterId is not None:
+        nv_config["dataCenterId"] = (
+            nv.dataCenterId.value
+            if hasattr(nv.dataCenterId, "value")
+            else nv.dataCenterId
+        )
+    return nv_config
+
+
 @dataclass
 class ManifestFunction:
     """Function entry in manifest."""
@@ -227,18 +245,21 @@ class ManifestBuilder:
             if env_dict:
                 config["env"] = env_dict
 
-        if hasattr(resource_config, "networkVolume") and resource_config.networkVolume:
-            nv = resource_config.networkVolume
-            nv_config = {"name": nv.name}
-            if nv.size is not None:
-                nv_config["size"] = nv.size
-            if hasattr(nv, "dataCenterId") and nv.dataCenterId is not None:
-                nv_config["dataCenterId"] = (
-                    nv.dataCenterId.value
-                    if hasattr(nv.dataCenterId, "value")
-                    else nv.dataCenterId
-                )
-            config["networkVolume"] = nv_config
+        if (
+            hasattr(resource_config, "networkVolumes")
+            and resource_config.networkVolumes
+        ):
+            config["networkVolumes"] = [
+                _serialize_network_volume(nv) for nv in resource_config.networkVolumes
+            ]
+
+        elif (
+            hasattr(resource_config, "networkVolume")
+            and resource_config.networkVolume
+        ):
+            config["networkVolume"] = _serialize_network_volume(
+                resource_config.networkVolume
+            )
 
         elif (
             hasattr(resource_config, "networkVolumeId")

@@ -117,6 +117,7 @@ class ServerlessResource(DeployableResource):
         "locations",
         "name",
         "networkVolumeId",
+        "networkVolumes",
         "python_version",
         "scalerType",
         "scalerValue",
@@ -382,26 +383,16 @@ class ServerlessResource(DeployableResource):
                 except ValueError:
                     self.locations = env_datacenter
             elif self.datacenter:
-                dc_list = (
-                    self.datacenter
-                    if isinstance(self.datacenter, list)
-                    else [self.datacenter]
-                )
-                self.locations = ",".join(dc.value for dc in dc_list)
+                self.locations = ",".join(dc.value for dc in self.datacenter)
 
         # validate that all network volume DCs are within the endpoint's datacenter list
         all_volumes = self.networkVolumes or (
             [self.networkVolume] if self.networkVolume else []
         )
         if all_volumes and self.datacenter:
-            dc_list = (
-                self.datacenter
-                if isinstance(self.datacenter, list)
-                else [self.datacenter]
-            )
             for vol in all_volumes:
-                if vol.dataCenterId not in dc_list:
-                    dc_values = ", ".join(dc.value for dc in dc_list)
+                if vol.dataCenterId not in self.datacenter:
+                    dc_values = ", ".join(dc.value for dc in self.datacenter)
                     raise ValueError(
                         f"Network volume datacenter ({vol.dataCenterId.value}) "
                         f"is not in the endpoint's datacenter list ({dc_values})"
@@ -423,9 +414,7 @@ class ServerlessResource(DeployableResource):
         if not self.datacenter:
             return self
 
-        dc_list = (
-            self.datacenter if isinstance(self.datacenter, list) else [self.datacenter]
-        )
+        dc_list = self.datacenter
         unsupported = [dc for dc in dc_list if dc not in CPU_DATACENTERS]
         if unsupported:
             unsupported_str = ", ".join(dc.value for dc in unsupported)

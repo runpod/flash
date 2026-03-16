@@ -206,6 +206,138 @@ class TestServerlessResourceNetworkVolume:
             mock_deploy.assert_called_once()
 
 
+class TestMultiVolumeDeployPath:
+    """Test _ensure_network_volume_deployed with multiple volumes and payload injection."""
+
+    @pytest.mark.asyncio
+    async def test_multi_volume_deploys_all_and_collects_ids(self):
+        vol_a = NetworkVolume(name="vol-a", size=50, dataCenterId=DataCenter.EU_RO_1)
+        vol_b = NetworkVolume(name="vol-b", size=50, dataCenterId=DataCenter.US_TX_1)
+
+        serverless = ServerlessResource(
+            name="test",
+            networkVolumes=[vol_a, vol_b],
+            datacenter=[DataCenter.EU_RO_1, DataCenter.US_TX_1],
+        )
+
+        async def fake_deploy(self_vol):
+            self_vol.id = {"vol-a": "vol-aaa", "vol-b": "vol-bbb"}[self_vol.name]
+            return self_vol
+
+        with patch.object(NetworkVolume, "deploy", fake_deploy):
+            await serverless._ensure_network_volume_deployed()
+
+        assert serverless._deployed_volume_ids == ["vol-aaa", "vol-bbb"]
+        assert serverless.networkVolumeId == "vol-aaa"
+
+    @pytest.mark.asyncio
+    async def test_multi_volume_skips_already_created(self):
+        vol_a = NetworkVolume(name="vol-a", size=50, dataCenterId=DataCenter.EU_RO_1)
+        vol_a.id = "vol-aaa"
+        vol_b = NetworkVolume(name="vol-b", size=50, dataCenterId=DataCenter.US_TX_1)
+
+        serverless = ServerlessResource(
+            name="test",
+            networkVolumes=[vol_a, vol_b],
+            datacenter=[DataCenter.EU_RO_1, DataCenter.US_TX_1],
+        )
+
+        deploy_calls = []
+
+        async def fake_deploy(self_vol):
+            deploy_calls.append(self_vol.name)
+            self_vol.id = "vol-bbb"
+            return self_vol
+
+        with patch.object(NetworkVolume, "deploy", fake_deploy):
+            await serverless._ensure_network_volume_deployed()
+
+        # vol_a already had an id, so deploy should only be called for vol_b
+        assert deploy_calls == ["vol-b"]
+        assert "vol-aaa" in serverless._deployed_volume_ids
+        assert "vol-bbb" in serverless._deployed_volume_ids
+
+    @pytest.mark.asyncio
+    async def test_multi_volume_dedup_with_existing_volume_id(self):
+        """Existing networkVolumeId is not duplicated in _deployed_volume_ids."""
+        vol_a = NetworkVolume(name="vol-a", size=50, dataCenterId=DataCenter.EU_RO_1)
+        vol_a.id = "vol-aaa"
+
+        serverless = ServerlessResource(
+            name="test",
+            networkVolumeId="vol-aaa",
+            networkVolumes=[vol_a],
+            datacenter=[DataCenter.EU_RO_1],
+        )
+
+        await serverless._ensure_network_volume_deployed()
+
+        assert serverless._deployed_volume_ids == ["vol-aaa"]
+
+    def test_deploy_payload_injects_network_volume_ids(self):
+        """When >1 deployed volume, payload has networkVolumeIds and no networkVolumeId."""
+        serverless = ServerlessResource(name="test")
+        serverless._deployed_volume_ids = ["vol-aaa", "vol-bbb"]
+
+        payload = serverless.model_dump(
+            exclude=serverless._payload_exclude(), exclude_none=True, mode="json"
+        )
+
+        # simulate the injection logic from _do_deploy
+        deployed_ids = serverless._deployed_volume_ids
+        if len(deployed_ids) > 1:
+            payload["networkVolumeIds"] = [
+                {"networkVolumeId": vid} for vid in deployed_ids
+            ]
+            payload.pop("networkVolumeId", None)
+
+        assert payload["networkVolumeIds"] == [
+            {"networkVolumeId": "vol-aaa"},
+            {"networkVolumeId": "vol-bbb"},
+        ]
+        assert "networkVolumeId" not in payload
+
+    def test_single_volume_payload_uses_singular_field(self):
+        """When 1 deployed volume, payload uses networkVolumeId (no networkVolumeIds)."""
+        serverless = ServerlessResource(
+            name="test",
+            networkVolumeId="vol-aaa",
+        )
+        serverless._deployed_volume_ids = ["vol-aaa"]
+
+        payload = serverless.model_dump(
+            exclude=serverless._payload_exclude(), exclude_none=True, mode="json"
+        )
+
+        deployed_ids = serverless._deployed_volume_ids
+        if len(deployed_ids) > 1:
+            payload["networkVolumeIds"] = [
+                {"networkVolumeId": vid} for vid in deployed_ids
+            ]
+            payload.pop("networkVolumeId", None)
+
+        assert payload["networkVolumeId"] == "vol-aaa"
+        assert "networkVolumeIds" not in payload
+
+    def test_multi_volume_drift_detection(self):
+        """Changing networkVolumes changes the config hash."""
+        vol_a = NetworkVolume(name="vol-a", size=50, dataCenterId=DataCenter.EU_RO_1)
+        vol_b = NetworkVolume(name="vol-b", size=50, dataCenterId=DataCenter.US_TX_1)
+
+        s1 = ServerlessResource(
+            name="test",
+            networkVolumes=[vol_a],
+            datacenter=[DataCenter.EU_RO_1],
+        )
+        s2 = ServerlessResource(
+            name="test",
+            networkVolumes=[vol_a, vol_b],
+            datacenter=[DataCenter.EU_RO_1, DataCenter.US_TX_1],
+        )
+
+        assert s1.config_hash != s2.config_hash
+
+
 class TestServerlessResourceValidation:
     """Test field validation and serialization."""
 
