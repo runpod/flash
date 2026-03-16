@@ -210,7 +210,7 @@ class TestInitCommandOutput:
     def test_flash_login_step_displayed(
         self, mock_cwd, mock_typer_ctx, mock_context, tmp_path
     ):
-        """Test flash login is shown in the next steps table.""" (fix(init): use Typer built-in help instead of hand-crafted usage panel)
+        """Test flash login is shown in the next steps table."""
         mock_cwd.return_value = tmp_path
 
         init_command(mock_typer_ctx, ".")
