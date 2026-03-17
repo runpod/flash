@@ -20,16 +20,24 @@ log = logging.getLogger(__name__)
 class DataCenter(str, Enum):
     """Enum representing available RunPod data centers."""
 
-    US_GA_1 = "US-GA-1"
-    US_KS_1 = "US-KS-1"
-    US_TX_1 = "US-TX-1"
-    US_OR_1 = "US-OR-1"
-    CA_MTL_1 = "CA-MTL-1"
-    EU_NL_1 = "EU-NL-1"
+    # north america
+    US_CA_2 = "US-CA-2"
+    US_GA_2 = "US-GA-2"
+    US_IL_1 = "US-IL-1"
+    US_KS_2 = "US-KS-2"
+    US_MD_1 = "US-MD-1"
+    US_MO_1 = "US-MO-1"
+    US_MO_2 = "US-MO-2"
+    US_NC_1 = "US-NC-1"
+    US_NC_2 = "US-NC-2"
+    US_NE_1 = "US-NE-1"
+    US_WA_1 = "US-WA-1"
+
+    # europe
     EU_CZ_1 = "EU-CZ-1"
     EU_RO_1 = "EU-RO-1"
-    EU_NO_1 = "EU-NO-1"
-    EU_SE_1 = "EU-SE-1"
+    EUR_IS_1 = "EUR-IS-1"
+    EUR_NO_1 = "EUR-NO-1"
 
     @classmethod
     def from_string(cls, value: str) -> "DataCenter":
@@ -52,8 +60,6 @@ class DataCenter(str, Enum):
 CPU_DATACENTERS: frozenset[DataCenter] = frozenset(
     {
         DataCenter.EU_RO_1,
-        DataCenter.US_TX_1,
-        DataCenter.EU_SE_1,
     }
 )
 

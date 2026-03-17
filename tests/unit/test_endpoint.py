@@ -136,7 +136,7 @@ class TestEndpointInit:
 
     def test_volume_list(self):
         v1 = NetworkVolume(name="v1", size=50, dataCenterId=DataCenter.EU_RO_1)
-        v2 = NetworkVolume(name="v2", size=50, dataCenterId=DataCenter.US_GA_1)
+        v2 = NetworkVolume(name="v2", size=50, dataCenterId=DataCenter.US_GA_2)
         ep = Endpoint(name="test", volume=[v1, v2])
         assert ep.volume == [v1, v2]
 
@@ -145,8 +145,8 @@ class TestEndpointInit:
         assert ep.volume is None
 
     def test_datacenter_single(self):
-        ep = Endpoint(name="test", datacenter=DataCenter.US_GA_1)
-        assert ep.datacenter == DataCenter.US_GA_1
+        ep = Endpoint(name="test", datacenter=DataCenter.US_GA_2)
+        assert ep.datacenter == DataCenter.US_GA_2
 
     def test_datacenter_string(self):
         ep = Endpoint(name="test", datacenter="US-GA-1")
@@ -155,9 +155,9 @@ class TestEndpointInit:
     def test_datacenter_list(self):
         ep = Endpoint(
             name="test",
-            datacenter=[DataCenter.EU_RO_1, DataCenter.US_GA_1],
+            datacenter=[DataCenter.EU_RO_1, DataCenter.US_GA_2],
         )
-        assert ep.datacenter == [DataCenter.EU_RO_1, DataCenter.US_GA_1]
+        assert ep.datacenter == [DataCenter.EU_RO_1, DataCenter.US_GA_2]
 
     def test_datacenter_none_default(self):
         ep = Endpoint(name="test")
