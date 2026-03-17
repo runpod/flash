@@ -335,20 +335,25 @@ CPU instance selection. Can also be passed as a string to `cpu=`.
 
 | Value | Location |
 |-------|----------|
-| `DataCenter.US_GA_1` | US - Georgia |
-| `DataCenter.US_KS_1` | US - Kansas |
-| `DataCenter.US_TX_1` | US - Texas |
-| `DataCenter.US_OR_1` | US - Oregon |
-| `DataCenter.CA_MTL_1` | Canada - Montreal |
-| `DataCenter.EU_NL_1` | Europe - Netherlands |
+| `DataCenter.US_CA_2` | US - California |
+| `DataCenter.US_GA_2` | US - Georgia |
+| `DataCenter.US_IL_1` | US - Illinois |
+| `DataCenter.US_KS_2` | US - Kansas |
+| `DataCenter.US_MD_1` | US - Maryland |
+| `DataCenter.US_MO_1` | US - Missouri |
+| `DataCenter.US_MO_2` | US - Missouri |
+| `DataCenter.US_NC_1` | US - North Carolina |
+| `DataCenter.US_NC_2` | US - North Carolina |
+| `DataCenter.US_NE_1` | US - Nebraska |
+| `DataCenter.US_WA_1` | US - Washington |
 | `DataCenter.EU_CZ_1` | Europe - Czech Republic |
 | `DataCenter.EU_RO_1` | Europe - Romania |
-| `DataCenter.EU_NO_1` | Europe - Norway |
-| `DataCenter.EU_SE_1` | Europe - Sweden |
+| `DataCenter.EUR_IS_1` | Europe - Iceland |
+| `DataCenter.EUR_NO_1` | Europe - Norway |
 
 When `datacenter=None` (the default), the endpoint is available in all data centers.
 
-CPU endpoints are restricted to the `CPU_DATACENTERS` subset: `EU_RO_1`, `US_TX_1`, `EU_SE_1`.
+CPU endpoints are restricted to the `CPU_DATACENTERS` subset: `EU_RO_1`.
 
 ### CudaVersion
 

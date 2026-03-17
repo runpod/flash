@@ -260,13 +260,14 @@ class ServerlessResource(DeployableResource):
         seen_dcs: dict[str, str] = {}
         for v in volumes:
             dc_id = v.dataCenterId.value
+            label = v.name or v.id or "unknown"
             if dc_id in seen_dcs:
                 raise ValueError(
                     f"Multiple volumes in datacenter {dc_id} "
-                    f"('{seen_dcs[dc_id]}' and '{v.name}'). "
+                    f"('{seen_dcs[dc_id]}' and '{label}'). "
                     f"Only one network volume is allowed per datacenter."
                 )
-            seen_dcs[dc_id] = v.name
+            seen_dcs[dc_id] = label
 
         self.networkVolumes = volumes
         # keep networkVolume pointing at the first for backward compat
@@ -621,6 +622,14 @@ class ServerlessResource(DeployableResource):
             log.debug(f"Error checking {self}: {e}")
             return False
 
+    def _inject_multi_volume_payload(self, payload: dict) -> None:
+        """Replace singular networkVolumeId with networkVolumeIds when multiple volumes are deployed."""
+        if len(self._deployed_volume_ids) > 1:
+            payload["networkVolumeIds"] = [
+                {"networkVolumeId": vid} for vid in self._deployed_volume_ids
+            ]
+            payload.pop("networkVolumeId", None)
+
     def _payload_exclude(self) -> Set[str]:
         # flashEnvironmentId is input-only but must be sent when provided
         exclude_fields = set(self._input_only or set())
@@ -806,12 +815,7 @@ class ServerlessResource(DeployableResource):
                 )
 
                 # inject multi-volume IDs if available
-                deployed_ids = getattr(self, "_deployed_volume_ids", [])
-                if len(deployed_ids) > 1:
-                    payload["networkVolumeIds"] = [
-                        {"networkVolumeId": vid} for vid in deployed_ids
-                    ]
-                    payload.pop("networkVolumeId", None)
+                self._inject_multi_volume_payload(payload)
 
                 result = await client.save_endpoint(payload)
 
@@ -870,12 +874,7 @@ class ServerlessResource(DeployableResource):
                 payload["id"] = self.id  # Critical: include ID for update
 
                 # inject multi-volume IDs if available
-                deployed_ids = getattr(new_config, "_deployed_volume_ids", [])
-                if len(deployed_ids) > 1:
-                    payload["networkVolumeIds"] = [
-                        {"networkVolumeId": vid} for vid in deployed_ids
-                    ]
-                    payload.pop("networkVolumeId", None)
+                new_config._inject_multi_volume_payload(payload)
 
                 result = await client.save_endpoint(payload)
                 resolved_template_id = (
