@@ -6,7 +6,7 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
-from ...rules.engine import generate_agent_files
+from ...rules.engine import generate_agent_files, update_dynamic_context
 
 console = Console()
 
@@ -33,6 +33,7 @@ def rules_command(
 
     version = _get_version()
     written = generate_agent_files(project_dir, version)
+    update_dynamic_context(project_dir)
 
     if written:
         console.print(f"[green]Generated {len(written)} agent file(s):[/green]")
