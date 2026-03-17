@@ -241,6 +241,16 @@ class ServerlessResource(DeployableResource):
             return None
         return value.value if isinstance(value, ServerlessType) else value
 
+    @field_serializer("datacenter")
+    def serialize_datacenter(
+        self,
+        value: Optional[List[DataCenter]],
+    ) -> Optional[List[str]]:
+        """Convert DataCenter enum list to strings."""
+        if value is None:
+            return None
+        return [dc.value if isinstance(dc, DataCenter) else str(dc) for dc in value]
+
     @model_validator(mode="after")
     def normalize_network_volumes(self):
         """Merge networkVolume (singular) into networkVolumes list.
@@ -339,6 +349,22 @@ class ServerlessResource(DeployableResource):
         config_dict = self.model_dump(
             exclude_none=True, exclude=exclude_fields, mode="json"
         )
+
+        # strip runtime-assigned IDs from nested network volumes so that
+        # pre-deploy and post-deploy hashes match
+        for key in ("networkVolume", "networkVolumes"):
+            if key not in config_dict:
+                continue
+            val = config_dict[key]
+            if isinstance(val, dict):
+                val.pop("id", None)
+            elif isinstance(val, list):
+                for entry in val:
+                    if isinstance(entry, dict):
+                        entry.pop("id", None)
+
+        # networkVolumeId is derived from volume deployment, not user config
+        config_dict.pop("networkVolumeId", None)
 
         # Convert to JSON string for hashing
         config_str = json.dumps(config_dict, sort_keys=True)

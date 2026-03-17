@@ -296,7 +296,7 @@ vol = NetworkVolume(name="model-cache", size=100, datacenter=DataCenter.US_GA_1)
 @Endpoint(
     name="model-server",
     gpu=GpuGroup.AMPERE_80,
-    datacenter=DataCenter.US_GA_1,
+    datacenter=DataCenter.US_GA_2,
     volume=vol,
     template=PodTemplate(containerDiskInGb=100),
 )

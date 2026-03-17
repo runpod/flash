@@ -337,6 +337,26 @@ class TestMultiVolumeDeployPath:
 
         assert s1.config_hash != s2.config_hash
 
+    def test_volume_id_does_not_affect_config_hash(self):
+        """Runtime-assigned volume id does not cause false drift."""
+        vol_pre = NetworkVolume(name="vol-a", size=50, dataCenterId=DataCenter.EU_RO_1)
+        vol_post = NetworkVolume(
+            name="vol-a", size=50, dataCenterId=DataCenter.EU_RO_1, id="vol-aaa"
+        )
+
+        s1 = ServerlessResource(
+            name="test",
+            networkVolumes=[vol_pre],
+            datacenter=[DataCenter.EU_RO_1],
+        )
+        s2 = ServerlessResource(
+            name="test",
+            networkVolumes=[vol_post],
+            datacenter=[DataCenter.EU_RO_1],
+        )
+
+        assert s1.config_hash == s2.config_hash
+
 
 class TestServerlessResourceValidation:
     """Test field validation and serialization."""

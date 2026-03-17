@@ -149,8 +149,8 @@ class TestEndpointInit:
         assert ep.datacenter == DataCenter.US_GA_2
 
     def test_datacenter_string(self):
-        ep = Endpoint(name="test", datacenter="US-GA-1")
-        assert ep.datacenter == "US-GA-1"
+        ep = Endpoint(name="test", datacenter="US-GA-2")
+        assert ep.datacenter == "US-GA-2"
 
     def test_datacenter_list(self):
         ep = Endpoint(
