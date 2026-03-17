@@ -1,6 +1,6 @@
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 import dateutil
 from typing import Any, List, Optional
 
@@ -23,6 +23,7 @@ class QBRequestLogBatch:
     matched_by_request_id: bool
     worker_id: Optional[str]
 
+
 class QBRequestLogFetcher:
     def __init__(
         self,
@@ -30,7 +31,7 @@ class QBRequestLogFetcher:
         max_lines: int = 25,
         fallback_tail_lines: int = 10,
         lookback_seconds: int = 5,
-        start_time: datetime = datetime.now(timezone.utc)
+        start_time: datetime = datetime.now(timezone.utc),
     ):
         self.timeout_seconds = timeout_seconds
         self.max_lines = max_lines
@@ -48,16 +49,16 @@ class QBRequestLogFetcher:
         if self.fetched_until:
             self.start_time = self.fetched_until
         fetch_until = datetime.now(timezone.utc)
-        logs_payload = await self._fetch_endpoint_logs(endpoint_id, endpoint_ai_key, fetch_until)
+        logs_payload = await self._fetch_endpoint_logs(
+            endpoint_id, endpoint_ai_key, fetch_until
+        )
         if not logs_payload:
             return
 
         lines = self._extract_lines(logs_payload, fetch_until)
         return QBRequestLogBatch(
-                lines = lines,
-                matched_by_request_id = False,
-                worker_id = None
-                )
+            lines=lines, matched_by_request_id=False, worker_id=None
+        )
 
     async def _fetch_worker_id(
         self,
@@ -89,7 +90,7 @@ class QBRequestLogFetcher:
         endpoint_id: str,
         endpoint_ai_key: str,
         end_utc: datetime,
-        start_utc: Optional[datetime] = None
+        start_utc: Optional[datetime] = None,
     ) -> Optional[dict[str, Any]]:
         """
         fetch endpoint logs for a given time range, defaulting to the fetcher
@@ -166,7 +167,7 @@ class QBRequestLogFetcher:
             if dt:
                 parsed = dateutil.parser.parse(dt)
                 if parsed.tzinfo is None:
-                    parsed = parsed.replace(tzinfo=timezone.utc)   # treat naive as UTC
+                    parsed = parsed.replace(tzinfo=timezone.utc)  # treat naive as UTC
                 else:
                     parsed = parsed.astimezone(timezone.utc)
                 max_seen_dt = max(parsed, max_seen_dt)
