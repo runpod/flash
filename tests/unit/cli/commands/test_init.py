@@ -320,6 +320,24 @@ class TestInitCommandProjectNameHandling:
         assert (tmp_path / "my_awesome_project").is_dir()
 
 
+class TestInitNoRulesFlag:
+    def test_no_rules_flag_skips_agent_files(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+
+        with (
+            patch("runpod_flash.cli.commands.init.generate_agent_files") as mock_gen,
+            patch("runpod_flash.cli.commands.init._get_version", return_value="1.9.1"),
+            patch("runpod_flash.cli.commands.init.create_project_skeleton"),
+            patch(
+                "runpod_flash.cli.commands.init.detect_file_conflicts", return_value=[]
+            ),
+            patch("runpod_flash.cli.commands.init.console"),
+        ):
+            init_command("test_project", no_rules=True)
+
+        mock_gen.assert_not_called()
+
+
 class TestInitGeneratesAgentFiles:
     def test_init_calls_generate_agent_files(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)

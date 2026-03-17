@@ -28,6 +28,9 @@ def init_command(
         None, help="Project name, or '.' to initialize in current directory"
     ),
     force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing files"),
+    no_rules: bool = typer.Option(
+        False, "--no-rules", help="Skip AI agent rules generation"
+    ),
 ):
     """Create new Flash project with Flash Server and GPU workers."""
 
@@ -86,8 +89,9 @@ def init_command(
     with console.status(status_msg):
         create_project_skeleton(project_dir, should_overwrite)
         # Generate AI agent context files
-        version = _get_version()
-        generate_agent_files(project_dir, version)
+        if no_rules is not True:
+            version = _get_version()
+            generate_agent_files(project_dir, version)
 
     # Success output
     if is_current_dir:
