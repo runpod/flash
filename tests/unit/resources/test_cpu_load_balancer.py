@@ -145,9 +145,7 @@ class TestCpuLoadBalancerPayloadExclusion:
         assert "allowedCudaVersions" not in payload, (
             "allowedCudaVersions should be excluded"
         )
-        assert "minCudaVersion" not in payload, (
-            "minCudaVersion should be excluded"
-        )
+        assert "minCudaVersion" not in payload, "minCudaVersion should be excluded"
         assert "gpuIds" not in payload, "gpuIds should be excluded"
         assert "cudaVersions" not in payload, "cudaVersions should be excluded"
         assert "gpus" not in payload, "gpus should be excluded"

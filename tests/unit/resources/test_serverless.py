@@ -720,6 +720,14 @@ class TestMinCudaVersion:
         s2 = ServerlessResource(name="test", minCudaVersion="12.8")
         assert s1._has_structural_changes(s2) is False
 
+    def test_invalid_min_cuda_version_raises(self):
+        with pytest.raises(ValueError, match="Invalid minCudaVersion"):
+            ServerlessResource(name="test", minCudaVersion="99.9")
+
+    def test_invalid_min_cuda_version_string_raises(self):
+        with pytest.raises(ValueError, match="Invalid minCudaVersion"):
+            ServerlessResource(name="test", minCudaVersion="not-a-version")
+
 
 class TestJobOutput:
     """Test JobOutput model."""

@@ -312,6 +312,20 @@ class ServerlessResource(DeployableResource):
             return result
         raise ValueError(f"Invalid datacenter value: {value!r}")
 
+    @field_validator("minCudaVersion")
+    @classmethod
+    def validate_min_cuda_version(cls, value: Optional[str]) -> Optional[str]:
+        """Validate minCudaVersion is a known CudaVersion value."""
+        if value is None:
+            return value
+        valid = {v.value for v in CudaVersion}
+        if value not in valid:
+            raise ValueError(
+                f"Invalid minCudaVersion '{value}'. "
+                f"Valid values: {', '.join(sorted(valid))}"
+            )
+        return value
+
     @field_validator("gpus")
     @classmethod
     def validate_gpus(cls, value: List[GpuGroup | GpuType]) -> List[GpuGroup | GpuType]:
