@@ -320,7 +320,10 @@ def run_build(
             flash_dir = project_dir / ".flash"
             deployment_manifest_path = flash_dir / "flash_manifest.json"
             shutil.copy2(manifest_path, deployment_manifest_path)
-            update_dynamic_context(Path.cwd())
+            try:
+                update_dynamic_context(Path.cwd())
+            except Exception:
+                logger.warning("Failed to update agent dynamic context", exc_info=True)
 
         except typer.Exit:
             raise
