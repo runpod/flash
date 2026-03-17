@@ -1,5 +1,6 @@
 """Project initialization command."""
 
+from importlib import metadata as importlib_metadata
 from pathlib import Path
 from typing import Optional
 
@@ -9,8 +10,16 @@ from rich.panel import Panel
 from rich.table import Table
 
 from ..utils.skeleton import create_project_skeleton, detect_file_conflicts
+from ...rules.engine import generate_agent_files
 
 console = Console()
+
+
+def _get_version() -> str:
+    try:
+        return importlib_metadata.version("runpod-flash")
+    except importlib_metadata.PackageNotFoundError:
+        return "unknown"
 
 
 def init_command(
@@ -76,6 +85,9 @@ def init_command(
     )
     with console.status(status_msg):
         create_project_skeleton(project_dir, should_overwrite)
+        # Generate AI agent context files
+        version = _get_version()
+        generate_agent_files(project_dir, version)
 
     # Success output
     if is_current_dir:
@@ -93,6 +105,8 @@ def init_command(
     panel_content += "  ├── pyproject.toml\n"
     panel_content += "  ├── .env.example\n"
     panel_content += "  ├── requirements.txt\n"
+    panel_content += "  ├── CLAUDE.md             # AI agent rules (auto-generated)\n"
+    panel_content += "  ├── AGENTS.md             # AI agent rules (auto-generated)\n"
     panel_content += "  └── README.md\n"
 
     title = "Project Initialized" if is_current_dir else "Project Created"
