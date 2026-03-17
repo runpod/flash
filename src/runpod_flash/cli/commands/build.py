@@ -26,6 +26,7 @@ from runpod_flash.core.resources.constants import (
     validate_python_version,
 )
 
+from ...rules.engine import update_dynamic_context
 from ..utils.ignore import get_file_tree, load_ignore_patterns
 from .build_utils.handler_generator import HandlerGenerator
 from .build_utils.lb_handler_generator import LBHandlerGenerator
@@ -332,6 +333,7 @@ def run_build(
             flash_dir = project_dir / ".flash"
             deployment_manifest_path = flash_dir / "flash_manifest.json"
             shutil.copy2(manifest_path, deployment_manifest_path)
+            update_dynamic_context(Path.cwd())
 
         except typer.Exit:
             raise

@@ -32,9 +32,9 @@ except ModuleNotFoundError:
             pass
 
 
-from ..utils.ignore import get_file_tree, load_ignore_patterns
+from ...rules.engine import update_dynamic_context
 from .build_utils.scanner import (
-    RuntimeScanner,
+    RemoteDecoratorScanner,
     file_to_module_path,
     file_to_resource_name,
     file_to_url_prefix,
@@ -93,14 +93,23 @@ class WorkerInfo:
     )  # fn_or_method_name -> first line of docstring
 
 
-def _scan_project_workers(
-    project_root: Path,
-) -> tuple[List[WorkerInfo], RuntimeScanner]:
-    """scan the project for all @remote decorated functions.
+def _scan_project_workers(project_root: Path) -> List[WorkerInfo]:
+    """Scan the project for all @remote decorated functions.
 
-    returns (workers, scanner) so callers can inspect import_errors.
+    Walks all .py files (excluding .flash/, __pycache__, __init__.py) and
+    builds WorkerInfo for each file that contains @remote functions.
+
+    Files with QB functions produce one WorkerInfo per file (QB type).
+    Files with LB functions produce one WorkerInfo per file (LB type).
+    A file can have both QB and LB functions (unusual but supported).
+
+    Args:
+        project_root: Root directory of the Flash project
+
+    Returns:
+        List of WorkerInfo, one entry per discovered source file
     """
-    scanner = RuntimeScanner(project_root)
+    scanner = RemoteDecoratorScanner(project_root)
     remote_functions = scanner.discover_remote_functions()
 
     # Group by file path
@@ -181,7 +190,7 @@ def _scan_project_workers(
                 )
             )
 
-    return workers, scanner
+    return workers
 
 
 def _ensure_gitignore(project_root: Path) -> None:
@@ -376,17 +385,6 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
     else:
         lines += [
             "from fastapi import FastAPI",
-            "",
-        ]
-
-    # Purge user modules from sys.modules so uvicorn hot-reload reimports them
-    # with current code and config values (e.g. updated env dicts).
-    user_modules = sorted({w.module_path for w in workers})
-    if user_modules:
-        module_list = ", ".join(f'"{m}"' for m in user_modules)
-        lines += [
-            f"for _mod in [{module_list}]:",
-            "    sys.modules.pop(_mod, None)",
             "",
         ]
 
@@ -878,7 +876,7 @@ def _watch_and_regenerate(project_root: Path, stop_event: threading.Event) -> No
             if not py_changed:
                 continue
             try:
-                workers, _ = _scan_project_workers(project_root)
+                workers = _scan_project_workers(project_root)
                 _generate_flash_server(project_root, workers)
                 logger.debug("server.py regenerated (%d changed)", len(py_changed))
             except Exception as e:
@@ -893,9 +891,8 @@ def _watch_and_regenerate(project_root: Path, stop_event: threading.Event) -> No
 def _discover_resources(project_root: Path):
     """Discover deployable resources in project files.
 
-    Imports each python file and inspects module-level objects for
-    DeployableResource instances and Endpoint facades. Endpoint facades
-    are unwrapped via _build_resource_config() to get the inner resource.
+    Uses ResourceDiscovery to find all DeployableResource instances by
+    parsing @remote decorators and importing the referenced config variables.
 
     Args:
         project_root: Root directory of the Flash project
@@ -903,65 +900,35 @@ def _discover_resources(project_root: Path):
     Returns:
         List of discovered DeployableResource instances
     """
-    from ...core.resources.base import DeployableResource
-    from ...endpoint import Endpoint
+    from ...core.discovery import ResourceDiscovery
 
-    from .build_utils.scanner import _import_module_from_file
-
-    spec = load_ignore_patterns(project_root)
-    all_files = get_file_tree(project_root, spec)
     py_files = sorted(
-        f for f in all_files if f.suffix == ".py" and f.name != "__init__.py"
+        p
+        for p in project_root.rglob("*.py")
+        if not any(
+            skip in p.parts
+            for skip in (".flash", ".venv", "venv", "__pycache__", ".git")
+        )
     )
 
+    # Add project root to sys.path so cross-module imports resolve
+    # (e.g. api/routes.py doing "from longruns.stage1 import stage1_process").
     root_str = str(project_root)
     added_to_path = root_str not in sys.path
     if added_to_path:
         sys.path.insert(0, root_str)
 
     resources = []
-    seen_names: set[str] = set()
     try:
         for py_file in py_files:
             try:
-                module_path = file_to_module_path(py_file, project_root)
-                module = _import_module_from_file(py_file, module_path)
-                if module is None:
-                    continue
-
-                for name in dir(module):
-                    try:
-                        obj = getattr(module, name)
-                    except Exception:
-                        continue
-
-                    resource = None
-                    if isinstance(obj, DeployableResource):
-                        resource = obj
-                    elif isinstance(obj, Endpoint) and not obj.is_client:
-                        resource = obj._build_resource_config()
-                    elif hasattr(obj, "__remote_config__"):
-                        cfg = getattr(obj, "__remote_config__", {})
-                        rc = cfg.get("resource_config")
-                        if isinstance(rc, Endpoint) and not rc.is_client:
-                            resource = rc._build_resource_config()
-                        elif isinstance(rc, DeployableResource):
-                            resource = rc
-
-                    if resource is not None:
-                        res_name = getattr(resource, "name", None) or name
-                        if res_name not in seen_names:
-                            seen_names.add(res_name)
-                            resources.append(resource)
-
+                discovery = ResourceDiscovery(str(py_file), max_depth=0)
+                resources.extend(discovery.discover())
             except Exception as e:
                 logger.debug("Discovery failed for %s: %s", py_file, e)
     finally:
         if added_to_path:
-            try:
-                sys.path.remove(root_str)
-            except ValueError:
-                pass
+            sys.path.remove(root_str)
 
     if resources:
         console.print(f"\n[dim]Discovered {len(resources)} resource(s):[/dim]")
@@ -1057,27 +1024,26 @@ def run_command(
             )
 
     # Discover @remote functions
-    workers, scanner = _scan_project_workers(project_root)
-
-    if scanner.import_errors:
-        console.print("\n[red bold]Failed to load:[/red bold]")
-        for filename, err in scanner.import_errors.items():
-            console.print(f"  [red]{filename}[/red]: {err}")
-        console.print()
-        raise typer.Exit(1)
+    workers = _scan_project_workers(project_root)
 
     if not workers:
+        console.print("[red]Error:[/red] No endpoints found.")
+        console.print("Decorate your functions with @Endpoint to get started.")
+        console.print("\nQueue-based (one function per endpoint):")
         console.print(
-            "\n[red bold]No endpoints found.[/red bold]\n"
+            "  from runpod_flash import Endpoint, GpuGroup\n"
             "\n"
-            "  [dim]Queue-based:[/dim]\n"
-            "    @Endpoint(name='worker', gpu=GpuGroup.ANY)\n"
-            "    async def process(input_data: dict) -> dict: ...\n"
+            "  @Endpoint(name='my-worker', gpu=GpuGroup.ANY)\n"
+            "  async def process(input_data: dict) -> dict:\n"
+            "      return {'result': input_data}"
+        )
+        console.print("\nLoad-balanced (multiple routes, shared workers):")
+        console.print(
+            "  api = Endpoint(name='my-api', cpu='cpu3g-2-8', workers=(1, 3))\n"
             "\n"
-            "  [dim]Load-balanced:[/dim]\n"
-            "    api = Endpoint(name='api', cpu='cpu3g-2-8')\n"
-            "    @api.post('/compute')\n"
-            "    async def compute(data: dict) -> dict: ...\n"
+            "  @api.post('/compute')\n"
+            "  async def compute(data: dict) -> dict:\n"
+            "      return {'result': data}"
         )
         raise typer.Exit(1)
 
@@ -1091,6 +1057,8 @@ def run_command(
 
     # Generate .flash/server.py
     _generate_flash_server(project_root, workers)
+
+    update_dynamic_context(Path.cwd())
 
     _print_startup_table(workers, host, port)
 
