@@ -463,3 +463,52 @@ class TestCreateResourceFromManifest:
             assert resource.networkVolume is not None
             assert isinstance(resource.networkVolume, NetworkVolume)
             assert resource.networkVolume.name == "my-volume"
+
+    def test_create_resource_reconstructs_multi_network_volumes(self):
+        """Multiple NetworkVolumes are reconstructed from manifest data."""
+        from runpod_flash.core.resources.network_volume import NetworkVolume
+
+        resource_name = "gpu_worker"
+        resource_data = {
+            "resource_type": "LiveServerless",
+            "imageName": "runpod/flash:latest",
+            "networkVolumes": [
+                {"name": "vol-eu", "size": 100, "dataCenterId": "EU-RO-1"},
+                {"name": "vol-us", "size": 200, "dataCenterId": "US-GA-2"},
+            ],
+        }
+
+        with patch.dict(os.environ, {"RUNPOD_ENDPOINT_ID": "endpoint-123"}):
+            resource = create_resource_from_manifest(resource_name, resource_data)
+
+            assert resource.networkVolumes is not None
+            assert len(resource.networkVolumes) == 2
+            assert all(isinstance(v, NetworkVolume) for v in resource.networkVolumes)
+            assert resource.networkVolumes[0].name == "vol-eu"
+            assert resource.networkVolumes[0].dataCenterId.value == "EU-RO-1"
+            assert resource.networkVolumes[1].name == "vol-us"
+            assert resource.networkVolumes[1].size == 200
+            assert resource.networkVolumes[1].dataCenterId.value == "US-GA-2"
+
+    def test_create_resource_multi_volumes_takes_precedence_over_singular(self):
+        """networkVolumes takes precedence over networkVolume when both present."""
+        resource_name = "gpu_worker"
+        resource_data = {
+            "resource_type": "LiveServerless",
+            "imageName": "runpod/flash:latest",
+            "networkVolumes": [
+                {"name": "vol-eu", "size": 100, "dataCenterId": "EU-RO-1"},
+            ],
+            "networkVolume": {
+                "name": "should-be-ignored",
+                "size": 50,
+                "dataCenterId": "EU-RO-1",
+            },
+        }
+
+        with patch.dict(os.environ, {"RUNPOD_ENDPOINT_ID": "endpoint-123"}):
+            resource = create_resource_from_manifest(resource_name, resource_data)
+
+            assert resource.networkVolumes is not None
+            assert len(resource.networkVolumes) == 1
+            assert resource.networkVolumes[0].name == "vol-eu"

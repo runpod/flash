@@ -123,11 +123,45 @@ class TestEndpointInit:
         assert ep.dependencies == ["torch"]
         assert ep.system_dependencies == ["ffmpeg"]
         assert ep.accelerate_downloads is False
-        assert ep.volume is vol
+        assert ep.volume == [vol]
         assert ep.env == {"MY_VAR": "value"}
         assert ep.gpu_count == 2
         assert ep.execution_timeout_ms == 5000
         assert ep.flashboot is False
+
+    def test_volume_single(self):
+        vol = NetworkVolume(name="v1", size=50)
+        ep = Endpoint(name="test", volume=vol)
+        assert ep.volume == [vol]
+
+    def test_volume_list(self):
+        v1 = NetworkVolume(name="v1", size=50, dataCenterId=DataCenter.EU_RO_1)
+        v2 = NetworkVolume(name="v2", size=50, dataCenterId=DataCenter.US_GA_2)
+        ep = Endpoint(name="test", volume=[v1, v2])
+        assert ep.volume == [v1, v2]
+
+    def test_volume_none(self):
+        ep = Endpoint(name="test")
+        assert ep.volume is None
+
+    def test_datacenter_single(self):
+        ep = Endpoint(name="test", datacenter=DataCenter.US_GA_2)
+        assert ep.datacenter == DataCenter.US_GA_2
+
+    def test_datacenter_string(self):
+        ep = Endpoint(name="test", datacenter="US-GA-2")
+        assert ep.datacenter == "US-GA-2"
+
+    def test_datacenter_list(self):
+        ep = Endpoint(
+            name="test",
+            datacenter=[DataCenter.EU_RO_1, DataCenter.US_GA_2],
+        )
+        assert ep.datacenter == [DataCenter.EU_RO_1, DataCenter.US_GA_2]
+
+    def test_datacenter_none_default(self):
+        ep = Endpoint(name="test")
+        assert ep.datacenter is None
 
     def test_scaler_type_defaults(self):
         ep = Endpoint(name="test")

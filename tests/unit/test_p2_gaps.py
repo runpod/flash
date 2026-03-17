@@ -303,14 +303,22 @@ class TestRunpodDefaultLocations:
 
     @patch.dict(os.environ, {}, clear=True)
     def test_no_default_locations_uses_resource_default(self):
-        """Without env var, resource uses its own default."""
+        """Without env var or datacenter, locations is None (all DCs)."""
         from runpod_flash.core.resources import LiveServerless
 
         resource = LiveServerless(name="loc-test")
-        # Without the env var, locations uses the default datacenter from the model
-        assert isinstance(resource.locations, str)
-        # Verify it's the model default, not an env var override
-        assert resource.locations == resource.datacenter.value
+        # no datacenter specified means no location restriction
+        assert resource.locations is None
+        assert resource.datacenter is None
+
+    @patch.dict(os.environ, {}, clear=True)
+    def test_datacenter_syncs_to_locations(self):
+        """When datacenter is set, locations is synced from it."""
+        from runpod_flash.core.resources import LiveServerless
+        from runpod_flash.core.resources.network_volume import DataCenter
+
+        resource = LiveServerless(name="loc-test", datacenter=DataCenter.EU_RO_1)
+        assert resource.locations == "EU-RO-1"
 
 
 # ---------------------------------------------------------------------------

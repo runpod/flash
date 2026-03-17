@@ -342,6 +342,7 @@ class CpuLoadBalancerSlsResource(CpuEndpointMixin, LoadBalancerSlsResource):
         "allowedCudaVersions",
         "imageName",
         "networkVolume",
+        "networkVolumes",
         "python_version",
     }
 
@@ -401,6 +402,7 @@ class CpuLoadBalancerSlsResource(CpuEndpointMixin, LoadBalancerSlsResource):
             "flashEnvironmentId",
             "imageName",
             "networkVolume",
+            "networkVolumes",
             "instanceIds",  # CPU-specific
             "workersMin",  # Scaling
             "workersMax",

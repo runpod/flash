@@ -9,6 +9,7 @@ from typing import Any, ClassVar, Dict, List, Optional, Set
 from pydantic import (
     BaseModel,
     Field,
+    PrivateAttr,
     field_serializer,
     field_validator,
     model_validator,
@@ -29,7 +30,7 @@ from .constants import (
 from .environment import EnvironmentVars
 from .cpu import CpuInstanceType
 from .gpu import GpuGroup, GpuType
-from .network_volume import NetworkVolume, DataCenter
+from .network_volume import NetworkVolume, DataCenter, CPU_DATACENTERS
 from .template import KeyValuePair, PodTemplate
 from .resource_manager import ResourceManager
 
@@ -51,14 +52,6 @@ def get_env_vars() -> Dict[str, str]:
 
 
 log = logging.getLogger(__name__)
-
-
-def _is_prod_environment() -> bool:
-    env = os.getenv("RUNPOD_ENV")
-    if env:
-        return env.lower() == "prod"
-    api_base = os.getenv("RUNPOD_API_BASE_URL", "https://api.runpod.io")
-    return "api.runpod.io" in api_base or "api.runpod.ai" in api_base
 
 
 class ServerlessScalerType(Enum):
@@ -111,6 +104,7 @@ class ServerlessResource(DeployableResource):
         "flashEnvironmentId",
         "imageName",
         "networkVolume",
+        "networkVolumes",
         "python_version",
     }
 
@@ -123,6 +117,7 @@ class ServerlessResource(DeployableResource):
         "locations",
         "name",
         "networkVolumeId",
+        "networkVolumes",
         "python_version",
         "scalerType",
         "scalerValue",
@@ -159,7 +154,9 @@ class ServerlessResource(DeployableResource):
     gpus: Optional[List[GpuGroup | GpuType]] = [GpuGroup.ANY]  # for gpuIds
     imageName: Optional[str] = ""  # for template.imageName
     networkVolume: Optional[NetworkVolume] = None
-    datacenter: DataCenter = Field(default=DataCenter.EU_RO_1)
+    networkVolumes: Optional[List[NetworkVolume]] = None
+    # accepts a single DataCenter or a list for multi-dc deployments
+    datacenter: Optional[List[DataCenter] | DataCenter] = Field(default=None)
     python_version: Optional[str] = Field(
         default=None,
         description="Python version for runtime image selection. Defaults to the local interpreter version at build time.",
@@ -181,6 +178,9 @@ class ServerlessResource(DeployableResource):
     workersMax: Optional[int] = DEFAULT_WORKERS_MAX
     workersMin: Optional[int] = DEFAULT_WORKERS_MIN
     workersPFBTarget: Optional[int] = 0
+
+    # === Private Attributes ===
+    _deployed_volume_ids: list[str] = PrivateAttr(default_factory=list)
 
     # === Runtime Fields ===
     activeBuildid: Optional[str] = None
@@ -241,6 +241,75 @@ class ServerlessResource(DeployableResource):
             return None
         return value.value if isinstance(value, ServerlessType) else value
 
+    @field_serializer("datacenter")
+    def serialize_datacenter(
+        self,
+        value: Optional[List[DataCenter]],
+    ) -> Optional[List[str]]:
+        """Convert DataCenter enum list to strings."""
+        if value is None:
+            return None
+        return [dc.value if isinstance(dc, DataCenter) else str(dc) for dc in value]
+
+    @model_validator(mode="after")
+    def normalize_network_volumes(self):
+        """Merge networkVolume (singular) into networkVolumes list.
+
+        Validates that no two volumes share the same datacenter.
+        """
+        volumes: list[NetworkVolume] = []
+        if self.networkVolumes:
+            volumes.extend(self.networkVolumes)
+        if self.networkVolume and self.networkVolume not in volumes:
+            volumes.append(self.networkVolume)
+
+        if not volumes:
+            return self
+
+        # validate one volume per datacenter
+        seen_dcs: dict[str, str] = {}
+        for v in volumes:
+            dc_id = v.dataCenterId.value
+            label = v.name or v.id or "unknown"
+            if dc_id in seen_dcs:
+                raise ValueError(
+                    f"Multiple volumes in datacenter {dc_id} "
+                    f"('{seen_dcs[dc_id]}' and '{label}'). "
+                    f"Only one network volume is allowed per datacenter."
+                )
+            seen_dcs[dc_id] = label
+
+        self.networkVolumes = volumes
+        # keep networkVolume pointing at the first for backward compat
+        self.networkVolume = volumes[0] if volumes else None
+
+        return self
+
+    @field_validator("datacenter", mode="before")
+    @classmethod
+    def normalize_datacenter(cls, value):
+        """Normalize datacenter to a list of DataCenter enums.
+
+        Accepts a single DataCenter, a string, a list of either, or None.
+        """
+        if value is None:
+            return None
+        if isinstance(value, DataCenter):
+            return [value]
+        if isinstance(value, str):
+            return [DataCenter.from_string(value)]
+        if isinstance(value, list):
+            result = []
+            for item in value:
+                if isinstance(item, DataCenter):
+                    result.append(item)
+                elif isinstance(item, str):
+                    result.append(DataCenter.from_string(item))
+                else:
+                    raise ValueError(f"Invalid datacenter value: {item!r}")
+            return result
+        raise ValueError(f"Invalid datacenter value: {value!r}")
+
     @field_validator("gpus")
     @classmethod
     def validate_gpus(cls, value: List[GpuGroup | GpuType]) -> List[GpuGroup | GpuType]:
@@ -281,6 +350,22 @@ class ServerlessResource(DeployableResource):
             exclude_none=True, exclude=exclude_fields, mode="json"
         )
 
+        # strip runtime-assigned IDs from nested network volumes so that
+        # pre-deploy and post-deploy hashes match
+        for key in ("networkVolume", "networkVolumes"):
+            if key not in config_dict:
+                continue
+            val = config_dict[key]
+            if isinstance(val, dict):
+                val.pop("id", None)
+            elif isinstance(val, list):
+                for entry in val:
+                    if isinstance(entry, dict):
+                        entry.pop("id", None)
+
+        # networkVolumeId is derived from volume deployment, not user config
+        config_dict.pop("networkVolumeId", None)
+
         # Convert to JSON string for hashing
         config_str = json.dumps(config_dict, sort_keys=True)
         hash_obj = hashlib.md5(f"{resource_type}:{config_str}".encode())
@@ -313,8 +398,7 @@ class ServerlessResource(DeployableResource):
                 self.name = self.name[:-3]
             self.name += "-fb"
 
-        # Sync datacenter to locations field for API (only if not already set)
-        # Allow overrides in non-prod via env
+        # sync datacenter list to locations field for API
         env_locations = os.getenv("RUNPOD_DEFAULT_LOCATIONS")
         env_datacenter = os.getenv("RUNPOD_DEFAULT_DATACENTER")
         if env_locations:
@@ -325,22 +409,49 @@ class ServerlessResource(DeployableResource):
                     self.locations = DataCenter(env_datacenter).value
                 except ValueError:
                     self.locations = env_datacenter
-            elif _is_prod_environment():
-                self.locations = self.datacenter.value
+            elif self.datacenter:
+                self.locations = ",".join(dc.value for dc in self.datacenter)
 
-        # Validate datacenter consistency between endpoint and network volume
-        if self.networkVolume and self.networkVolume.dataCenterId != self.datacenter:
-            raise ValueError(
-                f"Network volume datacenter ({self.networkVolume.dataCenterId.value}) "
-                f"must match endpoint datacenter ({self.datacenter.value})"
-            )
+        # validate that all network volume DCs are within the endpoint's datacenter list
+        all_volumes = self.networkVolumes or (
+            [self.networkVolume] if self.networkVolume else []
+        )
+        if all_volumes and self.datacenter:
+            for vol in all_volumes:
+                if vol.dataCenterId not in self.datacenter:
+                    dc_values = ", ".join(dc.value for dc in self.datacenter)
+                    raise ValueError(
+                        f"Network volume datacenter ({vol.dataCenterId.value}) "
+                        f"is not in the endpoint's datacenter list ({dc_values})"
+                    )
 
+        # backward compat: sync single volume ID for legacy code paths
         if self.networkVolume and self.networkVolume.is_created:
-            # Volume already exists, use its ID
             self.networkVolumeId = self.networkVolume.id
 
         self._sync_input_fields_gpu()
 
+        return self
+
+    @model_validator(mode="after")
+    def validate_cpu_datacenters(self):
+        """Ensure CPU endpoints only target data centers that support CPU."""
+        if not self._has_cpu_instances():
+            return self
+        if not self.datacenter:
+            return self
+
+        dc_list = self.datacenter
+        unsupported = [dc for dc in dc_list if dc not in CPU_DATACENTERS]
+        if unsupported:
+            unsupported_str = ", ".join(dc.value for dc in unsupported)
+            supported_str = ", ".join(
+                dc.value for dc in sorted(CPU_DATACENTERS, key=lambda d: d.value)
+            )
+            raise ValueError(
+                f"CPU endpoints are not available in: {unsupported_str}. "
+                f"Supported CPU data centers: {supported_str}"
+            )
         return self
 
     @model_validator(mode="after")
@@ -488,16 +599,32 @@ class ServerlessResource(DeployableResource):
         return self
 
     async def _ensure_network_volume_deployed(self) -> None:
-        """
-        Ensures network volume is deployed and ready if one is specified.
-        Updates networkVolumeId with the deployed volume ID.
-        """
-        if self.networkVolumeId:
-            return
+        """Ensures all network volumes are deployed.
 
-        if self.networkVolume:
-            deployedNetworkVolume = await self.networkVolume.deploy()
-            self.networkVolumeId = deployedNetworkVolume.id
+        Deploys each volume in networkVolumes and collects their IDs.
+        Sets networkVolumeId (singular) for backward compat with the first volume.
+        Populates _deployed_volume_ids for multi-volume API payloads.
+        """
+        self._deployed_volume_ids = []
+
+        if self.networkVolumeId:
+            self._deployed_volume_ids.append(self.networkVolumeId)
+
+        volumes = self.networkVolumes or (
+            [self.networkVolume] if self.networkVolume else []
+        )
+        for vol in volumes:
+            if vol.is_created and vol.id:
+                if vol.id not in self._deployed_volume_ids:
+                    self._deployed_volume_ids.append(vol.id)
+            else:
+                deployed = await vol.deploy()
+                if deployed.id and deployed.id not in self._deployed_volume_ids:
+                    self._deployed_volume_ids.append(deployed.id)
+
+        # backward compat: set singular field from first volume
+        if self._deployed_volume_ids and not self.networkVolumeId:
+            self.networkVolumeId = self._deployed_volume_ids[0]
 
     async def is_deployed(self) -> bool:
         """
@@ -520,6 +647,14 @@ class ServerlessResource(DeployableResource):
         except Exception as e:
             log.debug(f"Error checking {self}: {e}")
             return False
+
+    def _inject_multi_volume_payload(self, payload: dict) -> None:
+        """Replace singular networkVolumeId with networkVolumeIds when multiple volumes are deployed."""
+        if len(self._deployed_volume_ids) > 1:
+            payload["networkVolumeIds"] = [
+                {"networkVolumeId": vid} for vid in self._deployed_volume_ids
+            ]
+            payload.pop("networkVolumeId", None)
 
     def _payload_exclude(self) -> Set[str]:
         # flashEnvironmentId is input-only but must be sent when provided
@@ -697,13 +832,17 @@ class ServerlessResource(DeployableResource):
 
                 self.env = env_dict
 
-            # Ensure network volume is deployed first
+            # Ensure network volumes are deployed first
             await self._ensure_network_volume_deployed()
 
             async with RunpodGraphQLClient() as client:
                 payload = self.model_dump(
                     exclude=self._payload_exclude(), exclude_none=True, mode="json"
                 )
+
+                # inject multi-volume IDs if available
+                self._inject_multi_volume_payload(payload)
+
                 result = await client.save_endpoint(payload)
 
             if endpoint := self.__class__(**result):
@@ -748,7 +887,7 @@ class ServerlessResource(DeployableResource):
             if not self._has_structural_changes(new_config):
                 log.info(f"Updating endpoint '{self.name}' (ID: {self.id})")
 
-            # Ensure network volume is deployed if specified
+            # Ensure network volumes are deployed if specified
             await new_config._ensure_network_volume_deployed()
 
             async with RunpodGraphQLClient() as client:
@@ -759,6 +898,9 @@ class ServerlessResource(DeployableResource):
                     mode="json",
                 )
                 payload["id"] = self.id  # Critical: include ID for update
+
+                # inject multi-volume IDs if available
+                new_config._inject_multi_volume_payload(payload)
 
                 result = await client.save_endpoint(payload)
                 resolved_template_id = (
