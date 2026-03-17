@@ -1058,7 +1058,10 @@ def run_command(
     # Generate .flash/server.py
     _generate_flash_server(project_root, workers)
 
-    update_dynamic_context(Path.cwd())
+    try:
+        update_dynamic_context(Path.cwd())
+    except Exception:
+        logger.warning("Failed to update agent dynamic context", exc_info=True)
 
     _print_startup_table(workers, host, port)
 
