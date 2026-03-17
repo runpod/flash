@@ -182,6 +182,14 @@ class ManifestBuilder:
                 if resource_config is None:
                     return config
 
+                # Extract max_concurrency from Endpoint facade before unwrapping.
+                # max_concurrency is a Flash concept that lives on Endpoint,
+                # not on the internal resource config (LiveServerless, etc.).
+                if hasattr(resource_config, "_max_concurrency"):
+                    mc = resource_config._max_concurrency
+                    if mc > 1:
+                        config["max_concurrency"] = mc
+
                 # unwrap Endpoint facade to the internal resource config
                 if hasattr(resource_config, "_build_resource_config"):
                     resource_config = resource_config._build_resource_config()
@@ -440,6 +448,19 @@ class ManifestBuilder:
                 "target_python_version": target_python_version,
                 **deployment_config,  # Include imageName, templateId, gpuIds, workers config
             }
+
+            # max_concurrency is QB-only; warn and remove for LB endpoints
+            if (
+                is_load_balanced
+                and resources_dict[resource_name].get("max_concurrency", 1) > 1
+            ):
+                logger.warning(
+                    "max_concurrency=%d on LB endpoint '%s' is ignored. "
+                    "LB endpoints handle concurrency via uvicorn.",
+                    resources_dict[resource_name]["max_concurrency"],
+                    resource_name,
+                )
+                resources_dict[resource_name].pop("max_concurrency", None)
 
             if not is_load_balanced:
                 resources_dict[resource_name]["handler_file"] = (
