@@ -569,6 +569,9 @@ class ServerlessResource(DeployableResource):
         return returned_endpoint
 
     def _sync_input_fields_gpu(self):
+        if self.gpuIds:
+            self.gpuIds = GpuGroup.normalize_gpu_ids_str(self.gpuIds)
+
         # GPU-specific fields (idempotent - only set if not already set)
         if self.gpus and not self.gpuIds:
             # Convert gpus list to gpuIds string

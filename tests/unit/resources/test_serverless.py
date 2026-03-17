@@ -563,6 +563,14 @@ class TestServerlessResourceSyncFields:
         assert GpuGroup.AMPERE_48 in serverless.gpus
         assert GpuGroup.AMPERE_24 in serverless.gpus
 
+    def test_sync_input_fields_normalizes_gpuids_order(self):
+        serverless = ServerlessResource(
+            name="test",
+            gpuIds="-NVIDIA GeForce RTX 3090,AMPERE_24,NVIDIA L4",
+        )
+
+        assert serverless.gpuIds == "AMPERE_24,NVIDIA L4,-NVIDIA GeForce RTX 3090"
+
     def test_reverse_sync_cuda_versions(self):
         """Test reverse sync from allowedCudaVersions string to cudaVersions list."""
         serverless = ServerlessResource(

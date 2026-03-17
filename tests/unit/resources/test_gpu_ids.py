@@ -52,6 +52,19 @@ class TestGpuIdsBehavior:
         parsed = GpuGroup.from_gpu_ids_str(gpu_ids)
         assert parsed == [GpuGroup.BLACKWELL_180]
 
+    def test_to_gpu_ids_str_is_order_stable(self):
+        first = GpuGroup.to_gpu_ids_str([GpuGroup.AMPERE_24, GpuType.NVIDIA_RTX_A5000])
+        second = GpuGroup.to_gpu_ids_str([GpuType.NVIDIA_RTX_A5000, GpuGroup.AMPERE_24])
+
+        assert first == second
+
+    def test_normalize_gpu_ids_str_sorts_and_deduplicates_tokens(self):
+        normalized = GpuGroup.normalize_gpu_ids_str(
+            "-NVIDIA GeForce RTX 3090,AMPERE_24,AMPERE_24,NVIDIA L4"
+        )
+
+        assert normalized == "AMPERE_24,NVIDIA L4,-NVIDIA GeForce RTX 3090"
+
     def test_rtx_pro_6000_type_maps_to_blackwell_96(self):
         gpu_ids = GpuGroup.to_gpu_ids_str(
             [GpuType.NVIDIA_RTX_PRO_6000_BLACKWELL_SERVER_EDITION]
