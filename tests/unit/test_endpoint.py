@@ -1018,3 +1018,21 @@ class TestIsLiveProvisioning:
         from runpod_flash.endpoint import _is_live_provisioning
 
         assert _is_live_provisioning() is False
+
+
+class TestMaxConcurrency:
+    def test_default_is_one(self):
+        ep = Endpoint(name="test")
+        assert ep._max_concurrency == 1
+
+    def test_explicit_value(self):
+        ep = Endpoint(name="test", max_concurrency=5)
+        assert ep._max_concurrency == 5
+
+    def test_rejects_zero(self):
+        with pytest.raises(ValueError, match="max_concurrency must be >= 1"):
+            Endpoint(name="test", max_concurrency=0)
+
+    def test_rejects_negative(self):
+        with pytest.raises(ValueError, match="max_concurrency must be >= 1"):
+            Endpoint(name="test", max_concurrency=-1)
