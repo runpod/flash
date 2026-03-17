@@ -52,7 +52,7 @@ class MockDeployableResource(DeployableResource):
     def url(self) -> str:
         return f"https://mock.example.com/{self.name}"
 
-    def is_deployed(self) -> bool:
+    async def is_deployed(self) -> bool:
         return self._deployed
 
     async def _do_deploy(self) -> "DeployableResource":
@@ -209,7 +209,8 @@ class TestResourceManagerConcurrency:
         print(f"Maximum deploy count: {max_deploy_count}")
 
         # For now, just verify that deployments happened
-        assert all(result.is_deployed() for result in results)
+        deployed_checks = [await result.is_deployed() for result in results]
+        assert all(deployed_checks)
 
         # The race condition means we might get multiple deployments
         # In the fixed version, this should be 1

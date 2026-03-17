@@ -15,7 +15,7 @@ Set up the project:
 ```bash
 uv venv && source .venv/bin/activate
 uv sync
-cp .env.example .env   # Add your RUNPOD_API_KEY
+flash login              # Authenticate with Runpod
 flash run
 ```
 
@@ -24,7 +24,7 @@ Or with pip:
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env   # Add your RUNPOD_API_KEY
+flash login              # Authenticate with Runpod
 flash run
 ```
 
@@ -34,26 +34,23 @@ Use `flash run --auto-provision` to pre-deploy all endpoints on startup, elimina
 
 When you stop the server with Ctrl+C, all endpoints provisioned during the session are automatically cleaned up.
 
-Get your API key from [Runpod Settings](https://www.runpod.io/console/user/settings).
-Learn more about it from our [Documentation](https://docs.runpod.io/get-started/api-keys).
-
 ## Test the API
 
 ```bash
 # Queue-based GPU worker
 curl -X POST http://localhost:8888/gpu_worker/runsync \
   -H "Content-Type: application/json" \
-  -d '{"message": "Hello GPU!"}'
+  -d '{"input": {"input_data": {"message": "Hello GPU!"}}}'
 
 # Queue-based CPU worker
 curl -X POST http://localhost:8888/cpu_worker/runsync \
   -H "Content-Type: application/json" \
-  -d '{"message": "Hello CPU!"}'
+  -d '{"input": {"input_data": {"message": "Hello CPU!"}}}'
 
 # Load-balanced HTTP endpoint
 curl -X POST http://localhost:8888/lb_worker/process \
   -H "Content-Type: application/json" \
-  -d '{"input": "test"}'
+  -d '{"input_data": {"message": "Hello from LB!"}}'
 
 # Load-balanced health check
 curl http://localhost:8888/lb_worker/health
@@ -79,6 +76,7 @@ QB workers process jobs from a queue. Each call to `/runsync` sends a job and wa
 for the result. Use QB for compute-heavy tasks that may take seconds to minutes.
 
 **gpu_worker.py** — GPU serverless function:
+
 ```python
 from runpod_flash import Endpoint, GpuType
 
@@ -90,6 +88,7 @@ async def gpu_hello(input_data: dict) -> dict:
 ```
 
 **cpu_worker.py** — CPU serverless function:
+
 ```python
 from runpod_flash import Endpoint
 
@@ -104,6 +103,7 @@ LB workers expose standard HTTP endpoints (GET, POST, etc.) behind a load balanc
 Use LB for low-latency API endpoints that need horizontal scaling.
 
 **lb_worker.py** — HTTP endpoints on a load-balanced container:
+
 ```python
 from runpod_flash import Endpoint
 
@@ -156,17 +156,18 @@ Then run `flash run` -- the new worker appears automatically.
 
 ## GPU Types
 
-| Config | Hardware | VRAM |
-|--------|----------|------|
-| `GpuType.ANY` | Any available GPU | varies |
-| `GpuType.NVIDIA_GEFORCE_RTX_4090` | RTX 4090 | 24 GB |
-| `GpuType.NVIDIA_GEFORCE_RTX_5090` | RTX 5090 | 32 GB |
-| `GpuType.NVIDIA_RTX_6000_ADA_GENERATION` | RTX 6000 Ada | 48 GB |
-| `GpuType.NVIDIA_L4` | L4 | 24 GB |
-| `GpuType.NVIDIA_A100_80GB_PCIe` | A100 PCIe | 80 GB |
-| `GpuType.NVIDIA_A100_SXM4_80GB` | A100 SXM4 | 80 GB |
-| `GpuType.NVIDIA_H100_80GB_HBM3` | H100 | 80 GB |
-| `GpuType.NVIDIA_H200` | H200 | 141 GB |
+| Config                                    | Hardware          | VRAM   |
+| ----------------------------------------- | ----------------- | ------ |
+| `GpuType.ANY`                             | Any available GPU | varies |
+| `GpuType.NVIDIA_GEFORCE_RTX_4090`         | RTX 4090          | 24 GB  |
+| `GpuType.NVIDIA_GEFORCE_RTX_5090`         | RTX 5090          | 32 GB  |
+| `GpuType.NVIDIA_RTX_6000_ADA_GENERATION`  | RTX 6000 Ada      | 48 GB  |
+| `GpuType.NVIDIA_L4`                       | L4                | 24 GB  |
+| `GpuType.NVIDIA_A100_80GB_PCIe`           | A100 PCIe         | 80 GB  |
+| `GpuType.NVIDIA_A100_SXM4_80GB`           | A100 SXM4         | 80 GB  |
+| `GpuType.NVIDIA_H100_80GB_HBM3`           | H100              | 80 GB  |
+| `GpuType.NVIDIA_H200`                     | H200              | 141 GB |
+| `GpuType.NVIDIA_B200`                     | B200              | 180 GB |
 
 ## CPU Types
 
@@ -178,10 +179,22 @@ Pass a CPU instance type string to `cpu=`:
 
 Or use `CpuInstanceType` enum values.
 
+## Authentication
+
+Run `flash login` to authenticate via browser. This stores your API key in `~/.runpod/config.toml`.
+
+Alternatively, set the `RUNPOD_API_KEY` environment variable or add it to `.env`:
+```bash
+cp .env.example .env   # Then edit .env with your key
+```
+
+Get your API key from [Runpod Settings](https://www.runpod.io/console/user/settings).
+Learn more from our [Documentation](https://docs.runpod.io/get-started/api-keys).
+
 ## Environment Variables
 
 ```bash
-# Required
+# Authentication (optional if using flash login)
 RUNPOD_API_KEY=your_api_key
 
 # Optional

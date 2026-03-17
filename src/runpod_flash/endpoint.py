@@ -10,6 +10,7 @@ import logging
 import os
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from .core.resources.constants import DEFAULT_WORKERS_MAX, DEFAULT_WORKERS_MIN
 from .core.resources.cpu import CpuInstanceType
 from .core.resources.gpu import GpuGroup, GpuType
 from .core.resources.network_volume import DataCenter, NetworkVolume
@@ -173,14 +174,14 @@ def _normalize_workers(
     """convert workers param to (min, max) tuple.
 
     accepts:
-      - int: shorthand for (0, n)
+      - int: shorthand for (DEFAULT_WORKERS_MIN, n)
       - (min, max): explicit tuple
-      - None: defaults to (0, 1)
+      - None: defaults to (DEFAULT_WORKERS_MIN, DEFAULT_WORKERS_MAX)
     """
     if workers is None:
-        return (0, 1)
+        return (DEFAULT_WORKERS_MIN, DEFAULT_WORKERS_MAX)
     if isinstance(workers, int):
-        min_w, max_w = 0, workers
+        min_w, max_w = DEFAULT_WORKERS_MIN, workers
     elif isinstance(workers, (tuple, list)) and len(workers) == 2:
         min_w, max_w = int(workers[0]), int(workers[1])
     else:
@@ -254,6 +255,30 @@ def _normalize_cpu(
         return [CpuInstanceType(c) if isinstance(c, str) else c for c in cpu]
     raise ValueError(
         f"cpu must be a CpuInstanceType, string, or list, got {type(cpu).__name__}"
+    )
+
+
+def _normalize_volumes(
+    volume: Optional[Union[NetworkVolume, List[NetworkVolume]]],
+) -> Optional[List[NetworkVolume]]:
+    """Normalize volume parameter to a list of NetworkVolume."""
+    if volume is None:
+        return None
+    if isinstance(volume, NetworkVolume):
+        return [volume]
+    if isinstance(volume, list):
+        if not volume:
+            raise ValueError("volume list must not be empty")
+        for idx, vol in enumerate(volume):
+            if not isinstance(vol, NetworkVolume):
+                raise ValueError(
+                    "volume list elements must be NetworkVolume; "
+                    f"element at index {idx} is {type(vol).__name__}"
+                )
+        return volume
+    raise ValueError(
+        f"volume must be a NetworkVolume or list of NetworkVolume, "
+        f"got {type(volume).__name__}"
     )
 
 
@@ -333,8 +358,10 @@ class Endpoint:
         dependencies: Optional[List[str]] = None,
         system_dependencies: Optional[List[str]] = None,
         accelerate_downloads: bool = True,
-        volume: Optional[NetworkVolume] = None,
-        datacenter: DataCenter = DataCenter.EU_RO_1,
+        volume: Optional[Union[NetworkVolume, List[NetworkVolume]]] = None,
+        datacenter: Optional[
+            Union[DataCenter, List[DataCenter], str, List[str]]
+        ] = None,
         env: Optional[Dict[str, str]] = None,
         gpu_count: int = 1,
         execution_timeout_ms: int = 0,
@@ -366,7 +393,7 @@ class Endpoint:
         self.dependencies = dependencies
         self.system_dependencies = system_dependencies
         self.accelerate_downloads = accelerate_downloads
-        self.volume = volume
+        self.volume = _normalize_volumes(volume)
         self.datacenter = datacenter
         self.env = env
         self.gpu_count = gpu_count
@@ -466,9 +493,7 @@ class Endpoint:
             "idleTimeout": self.idle_timeout,
             "executionTimeoutMs": self.execution_timeout_ms,
             "flashboot": self.flashboot,
-            "datacenter": self.datacenter.value
-            if hasattr(self.datacenter, "value")
-            else self.datacenter,
+            "datacenter": self.datacenter,
             "scalerType": self.scaler_type.value
             if hasattr(self.scaler_type, "value")
             else self.scaler_type,
@@ -481,9 +506,13 @@ class Endpoint:
             kwargs["template"] = self.template.model_dump(exclude_none=True)
 
         if self.volume is not None:
-            # serialize to dict to avoid pydantic model identity issues
+            # serialize to dicts to avoid pydantic model identity issues
             # when modules get re-imported across different test/import contexts
-            kwargs["networkVolume"] = self.volume.model_dump(exclude_none=True)
+            volumes_dicts = [v.model_dump(exclude_none=True) for v in self.volume]
+            if len(volumes_dicts) == 1:
+                kwargs["networkVolume"] = volumes_dicts[0]
+            else:
+                kwargs["networkVolumes"] = volumes_dicts
 
         if self.env is not None:
             kwargs["env"] = self.env

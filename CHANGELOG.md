@@ -1,5 +1,73 @@
 # Changelog
 
+## [1.10.0](https://github.com/runpod/flash/compare/v1.9.1...v1.10.0) (2026-03-17)
+
+
+### Features
+
+* enable multi-datacenter support ([#266](https://github.com/runpod/flash/issues/266)) ([5631c32](https://github.com/runpod/flash/commit/5631c322be301ab06a4dded60aed1b9026c1c1f2))
+
+## [1.9.1](https://github.com/runpod/flash/compare/v1.9.0...v1.9.1) (2026-03-12)
+
+
+### Bug Fixes
+
+* **auth:** clean up API key error message ([#269](https://github.com/runpod/flash/issues/269)) ([7780f28](https://github.com/runpod/flash/commit/7780f28ad11174f1dd635deb59c812649c432528))
+
+## [1.9.0](https://github.com/runpod/flash/compare/v1.8.1...v1.9.0) (2026-03-12)
+
+
+### Features
+
+* refactor GpuType enum names, add B200 and RTX PRO 6000s ([#233](https://github.com/runpod/flash/issues/233)) ([b709176](https://github.com/runpod/flash/commit/b7091764ac348078b9b2d30dbc31e1316c133483))
+
+
+### Bug Fixes
+
+* **login:** prevent env var auth leak in guest sessions ([#267](https://github.com/runpod/flash/issues/267)) ([6316289](https://github.com/runpod/flash/commit/6316289fa61f6c630f07e8fb60bdbb1e0b9be351))
+
+## [1.8.1](https://github.com/runpod/flash/compare/v1.8.0...v1.8.1) (2026-03-10)
+
+
+### Bug Fixes
+
+* **build:** remove numpy from dependency blacklist, rename to SIZE_PROHIBITIVE_PACKAGES ([#263](https://github.com/runpod/flash/issues/263)) ([65fde9d](https://github.com/runpod/flash/commit/65fde9da8bfaef0cb7db7b8bbe1b11d271448c94))
+
+## [1.8.0](https://github.com/runpod/flash/compare/v1.7.0...v1.8.0) (2026-03-09)
+
+
+### Features
+
+* Python version-aware Docker image selection ([#261](https://github.com/runpod/flash/issues/261)) ([e10c18e](https://github.com/runpod/flash/commit/e10c18e7f2ec9b245e6c69e12dcbc68ec32d510e))
+
+## [1.7.0](https://github.com/runpod/flash/compare/v1.6.1...v1.7.0) (2026-03-05)
+
+
+### Features
+
+* AE-2276: retryable graphql queries ([#239](https://github.com/runpod/flash/issues/239)) ([05a5149](https://github.com/runpod/flash/commit/05a51494e2454595effc9c7b8a0c76614f011edf))
+* auto-select next available port when default is in use ([#249](https://github.com/runpod/flash/issues/249)) ([90276aa](https://github.com/runpod/flash/commit/90276aaba937aab09efa460b39c0f325ef2aefb7))
+
+
+### Bug Fixes
+
+* auto-create app on deploy when app does not exist ([#253](https://github.com/runpod/flash/issues/253)) ([0413e8a](https://github.com/runpod/flash/commit/0413e8a1467917c991199342f316649bef8e12d1))
+* CPU instance type not passed through manifest during deploy ([#250](https://github.com/runpod/flash/issues/250)) ([8998123](https://github.com/runpod/flash/commit/899812339558b9357ca5b001cc66e4e189be6bc5))
+* extract dependencies from Endpoint() patterns during build ([#252](https://github.com/runpod/flash/issues/252)) ([3f136bd](https://github.com/runpod/flash/commit/3f136bdbbb3b58d3a68681cc6f4ecc1bc6e421c2))
+* LB endpoint redeployment desync on second deploy ([#251](https://github.com/runpod/flash/issues/251)) ([6aa3696](https://github.com/runpod/flash/commit/6aa3696ffd20cceba1fd79969bcdf4e53198f1c2))
+
+## [1.6.1](https://github.com/runpod/flash/compare/v1.6.0...v1.6.1) (2026-03-05)
+
+
+### Bug Fixes
+
+* **env:** handle app-not-found gracefully in flash env list ([#243](https://github.com/runpod/flash/issues/243)) ([97608e7](https://github.com/runpod/flash/commit/97608e7a043d33fb11534489f99d6b43d3b13020))
+
+
+### Code Refactoring
+
+* Endpoint class as a single entrypoint uniting `[@remote](https://github.com/remote)` and ServerlessResource-based classes ([#223](https://github.com/runpod/flash/issues/223)) ([5c3f3a6](https://github.com/runpod/flash/commit/5c3f3a6cf6583396da2868896e56a39dce37781b))
+
 ## [1.6.0](https://github.com/runpod/flash/compare/v1.5.0...v1.6.0) (2026-03-04)
 
 

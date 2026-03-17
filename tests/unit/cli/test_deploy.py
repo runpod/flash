@@ -7,6 +7,7 @@ import pytest
 from typer.testing import CliRunner
 
 from runpod_flash.cli.main import app
+from runpod_flash.core.exceptions import RunpodAPIKeyError
 
 
 @pytest.fixture
@@ -202,7 +203,9 @@ class TestDeployCommand:
         mock_discover.return_value = (Path("/tmp/project"), "my-app")
         mock_build.return_value = Path("/tmp/project/.flash/artifact.tar.gz")
         mock_deploy.return_value = {"success": True}
-        mock_from_name.side_effect = Exception("GraphQL errors: app not found")
+        from runpod_flash.core.resources.app import FlashAppNotFoundError
+
+        mock_from_name.side_effect = FlashAppNotFoundError("my-app")
 
         created_app = _make_flash_app()
         mock_create.return_value = (created_app, {"id": "env-1", "name": "production"})
@@ -668,3 +671,36 @@ class TestDisplayPostDeploymentGuidance:
         assert "Useful commands:" in output
         assert "Load-balanced endpoints:" not in output
         assert "Queue-based endpoints:" not in output
+
+
+class TestDeployCommandApiKeyError:
+    """Test deploy_command handles RunpodAPIKeyError cleanly."""
+
+    @patch("runpod_flash.cli.commands.deploy.run_build")
+    @patch("runpod_flash.cli.commands.deploy.discover_flash_project")
+    def test_deploy_api_key_error_exits_cleanly(
+        self,
+        mock_discover,
+        mock_build,
+        runner,
+        mock_asyncio_run_coro,
+    ):
+        """deploy_command should print clean error and exit 1 on RunpodAPIKeyError."""
+        mock_discover.return_value = (Path("/tmp/project"), "my-app")
+        mock_build.return_value = Path("/tmp/project/.flash/artifact.tar.gz")
+
+        with patch(
+            "runpod_flash.cli.commands.deploy.asyncio.run",
+            side_effect=mock_asyncio_run_coro,
+        ):
+            with patch(
+                "runpod_flash.cli.commands.deploy._resolve_and_deploy",
+                new_callable=AsyncMock,
+                side_effect=RunpodAPIKeyError(),
+            ):
+                result = runner.invoke(app, ["deploy"])
+
+        assert result.exit_code == 1
+        assert "No RunPod API key found" in result.output
+        # Should NOT show "Deploy failed:" prefix (that's the generic handler)
+        assert "Deploy failed:" not in result.output

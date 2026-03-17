@@ -5,7 +5,6 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple
 from pathlib import Path
 
-from ..exceptions import RunpodAPIKeyError
 from ..utils.singleton import SingletonMixin
 from ..utils.file_lock import file_lock, FileLockError
 
@@ -183,7 +182,7 @@ class ResourceManager(SingletonMixin):
     async def _deploy_with_error_context(
         self, config: DeployableResource
     ) -> DeployableResource:
-        """Deploy resource with enhanced error context for RunpodAPIKeyError.
+        """Deploy resource, letting RunpodAPIKeyError propagate unchanged.
 
         Args:
             config: Resource configuration to deploy.
@@ -192,13 +191,9 @@ class ResourceManager(SingletonMixin):
             Deployed resource instance.
 
         Raises:
-            RunpodAPIKeyError: If deployment fails due to missing API key, with resource context.
+            RunpodAPIKeyError: If API key is missing.
         """
-        try:
-            return await config._do_deploy()
-        except RunpodAPIKeyError as e:
-            error_msg = f"Cannot deploy resource '{config.name}': {str(e)}"
-            raise RunpodAPIKeyError(error_msg) from e
+        return await config._do_deploy()
 
     async def get_resource_from_store(self, uid: str):
         return self._resources.get(uid)
@@ -238,7 +233,7 @@ class ResourceManager(SingletonMixin):
 
             if existing:
                 # Resource exists - check if still valid
-                if not existing.is_deployed():
+                if not await existing.is_deployed():
                     log.warning(f"{existing} is no longer valid, redeploying.")
                     self._remove_resource(resource_key)
                     try:

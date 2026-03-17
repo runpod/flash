@@ -208,6 +208,158 @@ class TestServerlessResourceNetworkVolume:
             mock_deploy.assert_called_once()
 
 
+class TestMultiVolumeDeployPath:
+    """Test _ensure_network_volume_deployed with multiple volumes and payload injection."""
+
+    @pytest.mark.asyncio
+    async def test_multi_volume_deploys_all_and_collects_ids(self):
+        vol_a = NetworkVolume(name="vol-a", size=50, dataCenterId=DataCenter.EU_RO_1)
+        vol_b = NetworkVolume(name="vol-b", size=50, dataCenterId=DataCenter.US_GA_2)
+
+        serverless = ServerlessResource(
+            name="test",
+            networkVolumes=[vol_a, vol_b],
+            datacenter=[DataCenter.EU_RO_1, DataCenter.US_GA_2],
+        )
+
+        async def fake_deploy(self_vol):
+            self_vol.id = {"vol-a": "vol-aaa", "vol-b": "vol-bbb"}[self_vol.name]
+            return self_vol
+
+        with patch.object(NetworkVolume, "deploy", fake_deploy):
+            await serverless._ensure_network_volume_deployed()
+
+        assert serverless._deployed_volume_ids == ["vol-aaa", "vol-bbb"]
+        assert serverless.networkVolumeId == "vol-aaa"
+
+    @pytest.mark.asyncio
+    async def test_multi_volume_skips_already_created(self):
+        vol_a = NetworkVolume(name="vol-a", size=50, dataCenterId=DataCenter.EU_RO_1)
+        vol_a.id = "vol-aaa"
+        vol_b = NetworkVolume(name="vol-b", size=50, dataCenterId=DataCenter.US_GA_2)
+
+        serverless = ServerlessResource(
+            name="test",
+            networkVolumes=[vol_a, vol_b],
+            datacenter=[DataCenter.EU_RO_1, DataCenter.US_GA_2],
+        )
+
+        deploy_calls = []
+
+        async def fake_deploy(self_vol):
+            deploy_calls.append(self_vol.name)
+            self_vol.id = "vol-bbb"
+            return self_vol
+
+        with patch.object(NetworkVolume, "deploy", fake_deploy):
+            await serverless._ensure_network_volume_deployed()
+
+        # vol_a already had an id, so deploy should only be called for vol_b
+        assert deploy_calls == ["vol-b"]
+        assert "vol-aaa" in serverless._deployed_volume_ids
+        assert "vol-bbb" in serverless._deployed_volume_ids
+
+    @pytest.mark.asyncio
+    async def test_multi_volume_dedup_with_existing_volume_id(self):
+        """Existing networkVolumeId is not duplicated in _deployed_volume_ids."""
+        vol_a = NetworkVolume(name="vol-a", size=50, dataCenterId=DataCenter.EU_RO_1)
+        vol_a.id = "vol-aaa"
+
+        serverless = ServerlessResource(
+            name="test",
+            networkVolumeId="vol-aaa",
+            networkVolumes=[vol_a],
+            datacenter=[DataCenter.EU_RO_1],
+        )
+
+        await serverless._ensure_network_volume_deployed()
+
+        assert serverless._deployed_volume_ids == ["vol-aaa"]
+
+    def test_deploy_payload_injects_network_volume_ids(self):
+        """When >1 deployed volume, payload has networkVolumeIds and no networkVolumeId."""
+        serverless = ServerlessResource(name="test")
+        serverless._deployed_volume_ids = ["vol-aaa", "vol-bbb"]
+
+        payload = serverless.model_dump(
+            exclude=serverless._payload_exclude(), exclude_none=True, mode="json"
+        )
+
+        # simulate the injection logic from _do_deploy
+        deployed_ids = serverless._deployed_volume_ids
+        if len(deployed_ids) > 1:
+            payload["networkVolumeIds"] = [
+                {"networkVolumeId": vid} for vid in deployed_ids
+            ]
+            payload.pop("networkVolumeId", None)
+
+        assert payload["networkVolumeIds"] == [
+            {"networkVolumeId": "vol-aaa"},
+            {"networkVolumeId": "vol-bbb"},
+        ]
+        assert "networkVolumeId" not in payload
+
+    def test_single_volume_payload_uses_singular_field(self):
+        """When 1 deployed volume, payload uses networkVolumeId (no networkVolumeIds)."""
+        serverless = ServerlessResource(
+            name="test",
+            networkVolumeId="vol-aaa",
+        )
+        serverless._deployed_volume_ids = ["vol-aaa"]
+
+        payload = serverless.model_dump(
+            exclude=serverless._payload_exclude(), exclude_none=True, mode="json"
+        )
+
+        deployed_ids = serverless._deployed_volume_ids
+        if len(deployed_ids) > 1:
+            payload["networkVolumeIds"] = [
+                {"networkVolumeId": vid} for vid in deployed_ids
+            ]
+            payload.pop("networkVolumeId", None)
+
+        assert payload["networkVolumeId"] == "vol-aaa"
+        assert "networkVolumeIds" not in payload
+
+    def test_multi_volume_drift_detection(self):
+        """Changing networkVolumes changes the config hash."""
+        vol_a = NetworkVolume(name="vol-a", size=50, dataCenterId=DataCenter.EU_RO_1)
+        vol_b = NetworkVolume(name="vol-b", size=50, dataCenterId=DataCenter.US_GA_2)
+
+        s1 = ServerlessResource(
+            name="test",
+            networkVolumes=[vol_a],
+            datacenter=[DataCenter.EU_RO_1],
+        )
+        s2 = ServerlessResource(
+            name="test",
+            networkVolumes=[vol_a, vol_b],
+            datacenter=[DataCenter.EU_RO_1, DataCenter.US_GA_2],
+        )
+
+        assert s1.config_hash != s2.config_hash
+
+    def test_volume_id_does_not_affect_config_hash(self):
+        """Runtime-assigned volume id does not cause false drift."""
+        vol_pre = NetworkVolume(name="vol-a", size=50, dataCenterId=DataCenter.EU_RO_1)
+        vol_post = NetworkVolume(
+            name="vol-a", size=50, dataCenterId=DataCenter.EU_RO_1, id="vol-aaa"
+        )
+
+        s1 = ServerlessResource(
+            name="test",
+            networkVolumes=[vol_pre],
+            datacenter=[DataCenter.EU_RO_1],
+        )
+        s2 = ServerlessResource(
+            name="test",
+            networkVolumes=[vol_post],
+            datacenter=[DataCenter.EU_RO_1],
+        )
+
+        assert s1.config_hash == s2.config_hash
+
+
 class TestServerlessResourceValidation:
     """Test field validation and serialization."""
 
@@ -273,33 +425,64 @@ class TestServerlessResourceValidation:
 
         assert serverless.name == "test-serverless-fb"
 
-    def test_datacenter_defaults_to_eu_ro_1(self):
-        """Test datacenter defaults to EU_RO_1."""
+    def test_datacenter_defaults_to_none(self):
+        """Test datacenter defaults to None (all datacenters)."""
         serverless = ServerlessResource(name="test")
 
-        assert serverless.datacenter == DataCenter.EU_RO_1
+        assert serverless.datacenter is None
 
-    def test_datacenter_can_be_overridden(self):
-        """Test datacenter can be overridden by user."""
-        # This would work if we had other datacenters defined
+    def test_datacenter_single_value(self):
+        """Test datacenter accepts a single DataCenter and normalizes to list."""
         serverless = ServerlessResource(name="test", datacenter=DataCenter.EU_RO_1)
 
-        assert serverless.datacenter == DataCenter.EU_RO_1
+        assert serverless.datacenter == [DataCenter.EU_RO_1]
 
-    def test_locations_synced_from_datacenter(self, monkeypatch):
-        """Test locations field gets synced from datacenter in prod."""
-        monkeypatch.setenv("RUNPOD_ENV", "prod")
-        serverless = ServerlessResource(name="test")
+    def test_datacenter_multiple_values(self):
+        """Test datacenter accepts a list of DataCenter values."""
+        serverless = ServerlessResource(
+            name="test",
+            datacenter=[DataCenter.EU_RO_1, DataCenter.US_GA_2],
+        )
+        assert serverless.datacenter == [DataCenter.EU_RO_1, DataCenter.US_GA_2]
 
-        # Should automatically set locations from datacenter in prod
+    def test_datacenter_string_value(self):
+        """Test datacenter accepts string values."""
+        serverless = ServerlessResource(name="test", datacenter="EU-RO-1")
+        assert serverless.datacenter == [DataCenter.EU_RO_1]
+
+    def test_datacenter_string_list(self):
+        """Test datacenter accepts list of strings."""
+        serverless = ServerlessResource(name="test", datacenter=["EU-RO-1", "US-GA-2"])
+        assert serverless.datacenter == [DataCenter.EU_RO_1, DataCenter.US_GA_2]
+
+    def test_datacenter_invalid_string_raises(self):
+        """Test that an invalid datacenter string raises ValueError."""
+        with pytest.raises(ValueError, match="Unknown datacenter"):
+            ServerlessResource(name="test", datacenter="INVALID-DC")
+
+    def test_locations_synced_from_datacenter(self):
+        """Test locations field gets synced from datacenter."""
+        serverless = ServerlessResource(name="test", datacenter=DataCenter.EU_RO_1)
         assert serverless.locations == "EU-RO-1"
+
+    def test_locations_synced_from_multi_datacenter(self):
+        """Test locations field gets synced from multiple datacenters."""
+        serverless = ServerlessResource(
+            name="test",
+            datacenter=[DataCenter.EU_RO_1, DataCenter.US_GA_2],
+        )
+        assert serverless.locations == "EU-RO-1,US-GA-2"
+
+    def test_no_datacenter_no_locations(self):
+        """Test that no datacenter means no locations restriction."""
+        serverless = ServerlessResource(name="test")
+        assert serverless.locations is None
 
     def test_explicit_locations_not_overridden(self):
         """Test explicit locations field is not overridden."""
-        serverless = ServerlessResource(name="test", locations="US-WEST-1")
+        serverless = ServerlessResource(name="test", locations="US-GA-2")
 
-        # Explicit locations should not be overridden
-        assert serverless.locations == "US-WEST-1"
+        assert serverless.locations == "US-GA-2"
 
     def test_datacenter_validation_matching_datacenters(self):
         """Test that matching datacenters between endpoint and volume work."""
@@ -308,36 +491,25 @@ class TestServerlessResourceValidation:
             name="test", datacenter=DataCenter.EU_RO_1, networkVolume=volume
         )
 
-        # Should not raise any validation error
-        assert serverless.datacenter == DataCenter.EU_RO_1
+        assert serverless.datacenter == [DataCenter.EU_RO_1]
         assert serverless.networkVolume.dataCenterId == DataCenter.EU_RO_1
 
-    def test_datacenter_validation_logic_exists(self):
-        """Test that datacenter validation logic exists in sync_input_fields."""
-        # Test by examining the validation code directly
-        # Since we can't easily mock frozen fields, we'll test the logic exists
-        volume = NetworkVolume(name="test-volume", dataCenterId=DataCenter.EU_RO_1)
-        _ = ServerlessResource(
-            name="test", datacenter=DataCenter.EU_RO_1, networkVolume=volume
-        )
-
-        # Create a mock volume with mismatched datacenter for direct validation test
-        mock_volume = MagicMock()
-        mock_volume.dataCenterId.value = "US-WEST-1"
-        mock_datacenter = MagicMock()
-        mock_datacenter.value = "EU-RO-1"
-
-        # Test the validation logic directly
+    def test_datacenter_validation_volume_not_in_dc_list(self):
+        """Test that a volume DC not in endpoint's DC list raises an error."""
+        volume = NetworkVolume(name="test-volume", dataCenterId=DataCenter.US_GA_2)
         with pytest.raises(
             ValueError,
-            match="Network volume datacenter.*must match endpoint datacenter",
+            match="Network volume datacenter.*is not in the endpoint's datacenter list",
         ):
-            # Simulate the validation check
-            if mock_volume.dataCenterId != mock_datacenter:
-                raise ValueError(
-                    f"Network volume datacenter ({mock_volume.dataCenterId.value}) "
-                    f"must match endpoint datacenter ({mock_datacenter.value})"
-                )
+            ServerlessResource(
+                name="test", datacenter=DataCenter.EU_RO_1, networkVolume=volume
+            )
+
+    def test_volume_dc_allowed_when_no_datacenter_set(self):
+        """Test that any volume DC is allowed when no datacenter restriction is set."""
+        volume = NetworkVolume(name="test-volume", dataCenterId=DataCenter.US_GA_2)
+        serverless = ServerlessResource(name="test", networkVolume=volume)
+        assert serverless.networkVolume.dataCenterId == DataCenter.US_GA_2
 
     def test_no_flashboot_keeps_name(self):
         """Test flashboot=False keeps original name."""
@@ -406,6 +578,103 @@ class TestServerlessResourceSyncFields:
         assert CudaVersion.V11_8 in serverless.cudaVersions
 
 
+class TestMultiVolumeValidation:
+    """Test multiple network volume support."""
+
+    def test_single_volume_compat(self):
+        """Test single networkVolume still works."""
+        vol = NetworkVolume(name="v1", dataCenterId=DataCenter.EU_RO_1)
+        s = ServerlessResource(name="test", networkVolume=vol)
+        assert s.networkVolume is vol
+        assert s.networkVolumes == [vol]
+
+    def test_multiple_volumes_via_list(self):
+        """Test networkVolumes accepts multiple volumes."""
+        v1 = NetworkVolume(name="v1", dataCenterId=DataCenter.EU_RO_1)
+        v2 = NetworkVolume(name="v2", dataCenterId=DataCenter.US_GA_2)
+        s = ServerlessResource(name="test", networkVolumes=[v1, v2])
+        assert len(s.networkVolumes) == 2
+        assert s.networkVolume is v1
+
+    def test_duplicate_dc_raises(self):
+        """Test two volumes in the same DC raises."""
+        v1 = NetworkVolume(name="v1", dataCenterId=DataCenter.EU_RO_1)
+        v2 = NetworkVolume(name="v2", dataCenterId=DataCenter.EU_RO_1)
+        with pytest.raises(ValueError, match="Multiple volumes in datacenter EU-RO-1"):
+            ServerlessResource(name="test", networkVolumes=[v1, v2])
+
+    def test_volumes_dc_outside_endpoint_dc_raises(self):
+        """Test volume DC not in endpoint's DC list raises."""
+        vol = NetworkVolume(name="v1", dataCenterId=DataCenter.US_GA_2)
+        with pytest.raises(
+            ValueError,
+            match="is not in the endpoint's datacenter list",
+        ):
+            ServerlessResource(
+                name="test",
+                datacenter=DataCenter.EU_RO_1,
+                networkVolumes=[vol],
+            )
+
+    def test_volumes_dc_within_endpoint_dc_list(self):
+        """Test volume DCs all within endpoint DC list works."""
+        v1 = NetworkVolume(name="v1", dataCenterId=DataCenter.EU_RO_1)
+        v2 = NetworkVolume(name="v2", dataCenterId=DataCenter.US_GA_2)
+        s = ServerlessResource(
+            name="test",
+            datacenter=[DataCenter.EU_RO_1, DataCenter.US_GA_2],
+            networkVolumes=[v1, v2],
+        )
+        assert len(s.networkVolumes) == 2
+
+
+class TestCpuDatacenterValidation:
+    """Test CPU datacenter validation."""
+
+    def test_cpu_endpoint_in_supported_dc(self):
+        """Test CPU endpoint in supported datacenter works."""
+        endpoint = CpuServerlessEndpoint(
+            name="test-cpu",
+            imageName="test/cpu:latest",
+            datacenter=DataCenter.EU_RO_1,
+        )
+        assert endpoint.datacenter == [DataCenter.EU_RO_1]
+
+    def test_cpu_endpoint_in_unsupported_dc_raises(self):
+        """Test CPU endpoint in unsupported datacenter raises."""
+        with pytest.raises(ValueError, match="CPU endpoints are not available in"):
+            CpuServerlessEndpoint(
+                name="test-cpu",
+                imageName="test/cpu:latest",
+                datacenter=DataCenter.US_GA_2,
+            )
+
+    def test_cpu_endpoint_mixed_dcs_raises(self):
+        """Test CPU endpoint with mix of supported/unsupported DCs raises."""
+        with pytest.raises(ValueError, match="CPU endpoints are not available in"):
+            CpuServerlessEndpoint(
+                name="test-cpu",
+                imageName="test/cpu:latest",
+                datacenter=[DataCenter.EU_RO_1, DataCenter.US_GA_2],
+            )
+
+    def test_cpu_endpoint_no_datacenter_ok(self):
+        """Test CPU endpoint with no datacenter (all DCs) is allowed."""
+        endpoint = CpuServerlessEndpoint(
+            name="test-cpu",
+            imageName="test/cpu:latest",
+        )
+        assert endpoint.datacenter is None
+
+    def test_gpu_endpoint_any_dc_ok(self):
+        """Test GPU endpoint in any datacenter is allowed."""
+        serverless = ServerlessResource(
+            name="test-gpu",
+            datacenter=DataCenter.US_GA_2,
+        )
+        assert serverless.datacenter == [DataCenter.US_GA_2]
+
+
 class TestJobOutput:
     """Test JobOutput model."""
 
@@ -471,22 +740,28 @@ class TestServerlessResourceDeployment:
             "networkVolumeId": "vol-456",
         }
 
-    def test_is_deployed_false_when_no_id(self):
+    @pytest.mark.asyncio
+    async def test_is_deployed_false_when_no_id(self):
         """Test is_deployed returns False when no ID is set."""
         serverless = ServerlessResource(name="test")
 
-        assert serverless.is_deployed() is False
+        assert await serverless.is_deployed() is False
 
-    def test_is_deployed_skips_health_check_during_live_provisioning(self, monkeypatch):
+    @pytest.mark.asyncio
+    async def test_is_deployed_skips_health_check_during_live_provisioning(
+        self, monkeypatch
+    ):
         """During flash run, is_deployed returns True based on ID alone."""
         monkeypatch.setenv("FLASH_IS_LIVE_PROVISIONING", "true")
         serverless = ServerlessResource(name="test")
         serverless.id = "ep-live-123"
 
-        # health() must NOT be called — no mock needed, any call would raise
-        assert serverless.is_deployed() is True
+        assert await serverless.is_deployed() is True
 
-    def test_is_deployed_uses_health_check_outside_live_provisioning(self, monkeypatch):
+    @pytest.mark.asyncio
+    async def test_is_deployed_uses_health_check_outside_live_provisioning(
+        self, monkeypatch
+    ):
         """Outside flash run, is_deployed falls back to health check."""
         monkeypatch.delenv("FLASH_IS_LIVE_PROVISIONING", raising=False)
         serverless = ServerlessResource(name="test")
@@ -500,7 +775,7 @@ class TestServerlessResourceDeployment:
             "endpoint",
             new_callable=lambda: property(lambda self: mock_endpoint),
         ):
-            assert serverless.is_deployed() is True
+            assert await serverless.is_deployed() is True
             mock_endpoint.health.assert_called_once()
 
     @pytest.mark.asyncio
@@ -509,21 +784,23 @@ class TestServerlessResourceDeployment:
         serverless = ServerlessResource(name="test")
         serverless.id = "existing-123"
 
-        with patch.object(ServerlessResource, "is_deployed", return_value=True):
+        with patch.object(
+            ServerlessResource, "is_deployed", new_callable=AsyncMock, return_value=True
+        ):
             result = await serverless.deploy()
 
             assert result == serverless
 
     @pytest.mark.asyncio
     async def test_deploy_success_with_network_volume(
-        self, mock_runpod_client, deployment_response, monkeypatch
+        self, mock_runpod_client, deployment_response
     ):
         """Test successful deployment with network volume integration."""
-        monkeypatch.setenv("RUNPOD_ENV", "prod")
         serverless = ServerlessResource(
             name="test-serverless",
             gpus=[GpuGroup.AMPERE_48],
             cudaVersions=[CudaVersion.V12_1],
+            datacenter=DataCenter.EU_RO_1,
         )
 
         mock_runpod_client.save_endpoint.return_value = deployment_response
@@ -538,7 +815,10 @@ class TestServerlessResourceDeployment:
                 ServerlessResource, "_ensure_network_volume_deployed"
             ) as mock_ensure_volume:
                 with patch.object(
-                    ServerlessResource, "is_deployed", return_value=False
+                    ServerlessResource,
+                    "is_deployed",
+                    new_callable=AsyncMock,
+                    return_value=False,
                 ):
                     result = await serverless.deploy()
 
@@ -588,7 +868,10 @@ class TestServerlessResourceDeployment:
                 new=AsyncMock(),
             ):
                 with patch.object(
-                    ServerlessResource, "is_deployed", return_value=False
+                    ServerlessResource,
+                    "is_deployed",
+                    new_callable=AsyncMock,
+                    return_value=False,
                 ):
                     result = await serverless._do_deploy()
 
@@ -617,7 +900,12 @@ class TestServerlessResourceDeployment:
             mock_client_class.return_value.__aenter__.return_value = mock_runpod_client
             mock_client_class.return_value.__aexit__.return_value = None
 
-            with patch.object(ServerlessResource, "is_deployed", return_value=False):
+            with patch.object(
+                ServerlessResource,
+                "is_deployed",
+                new_callable=AsyncMock,
+                return_value=False,
+            ):
                 with patch.object(
                     ServerlessResource,
                     "_ensure_network_volume_deployed",
@@ -740,7 +1028,12 @@ class TestServerlessResourceDeployment:
             mock_client_class.return_value.__aenter__.return_value = mock_runpod_client
             mock_client_class.return_value.__aexit__.return_value = None
 
-            with patch.object(ServerlessResource, "is_deployed", return_value=False):
+            with patch.object(
+                ServerlessResource,
+                "is_deployed",
+                new_callable=AsyncMock,
+                return_value=False,
+            ):
                 with patch.object(
                     ServerlessResource, "_ensure_network_volume_deployed"
                 ):
@@ -1052,7 +1345,8 @@ class TestCpuServerlessEndpoint:
 class TestServerlessResourceEdgeCases:
     """Test edge cases and error scenarios."""
 
-    def test_is_deployed_with_exception(self):
+    @pytest.mark.asyncio
+    async def test_is_deployed_with_exception(self):
         """Test is_deployed handles endpoint exceptions."""
         serverless = ServerlessResource(name="test")
         serverless.id = "test-id-123"
@@ -1065,7 +1359,7 @@ class TestServerlessResourceEdgeCases:
             "endpoint",
             new_callable=lambda: property(lambda self: mock_endpoint),
         ):
-            result = serverless.is_deployed()
+            result = await serverless.is_deployed()
 
             assert result is False
 
@@ -1446,3 +1740,49 @@ class TestHealthModels:
         health = ServerlessHealth(workers=workers_health, jobs=jobs_health)
 
         assert health.is_ready is False
+
+
+class TestServerlessResourcePythonVersion:
+    """Tests for python_version field on ServerlessResource."""
+
+    def _get_class_set(self, attr_name: str) -> set:
+        """Extract set from class attribute, handling ModelPrivateAttr wrapping."""
+        attr = getattr(ServerlessEndpoint, attr_name, None)
+        if isinstance(attr, (set, frozenset)):
+            return attr
+        if hasattr(attr, "default") and isinstance(attr.default, (set, frozenset)):
+            return attr.default
+        raise TypeError(f"Cannot extract set from {attr_name}: {type(attr)}")
+
+    def test_python_version_defaults_to_none(self):
+        endpoint = ServerlessEndpoint(name="test", imageName="test:latest")
+        assert endpoint.python_version is None
+
+    def test_python_version_accepts_valid_values(self):
+        from runpod_flash.core.resources.constants import SUPPORTED_PYTHON_VERSIONS
+
+        for version in SUPPORTED_PYTHON_VERSIONS:
+            endpoint = ServerlessEndpoint(
+                name="test", imageName="test:latest", python_version=version
+            )
+            assert endpoint.python_version == version
+
+    def test_python_version_rejects_invalid(self):
+        with pytest.raises(ValueError, match="not supported"):
+            ServerlessEndpoint(
+                name="test", imageName="test:latest", python_version="3.13"
+            )
+
+    def test_python_version_rejects_3_9(self):
+        with pytest.raises(ValueError, match="not supported"):
+            ServerlessEndpoint(
+                name="test", imageName="test:latest", python_version="3.9"
+            )
+
+    def test_python_version_in_hashed_fields(self):
+        hashed = self._get_class_set("_hashed_fields")
+        assert "python_version" in hashed
+
+    def test_python_version_in_input_only(self):
+        input_only = self._get_class_set("_input_only")
+        assert "python_version" in input_only

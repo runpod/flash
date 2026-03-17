@@ -8,11 +8,17 @@ from runpod_flash.core.deployment import (
     DeploymentOrchestrator,
     DeploymentStatus,
 )
+from runpod_flash.core.exceptions import RunpodAPIKeyError
 from runpod_flash.core.resources.serverless import ServerlessResource
 
 
 class TestDeploymentOrchestrator:
     """Test DeploymentOrchestrator functionality."""
+
+    @pytest.fixture(autouse=True)
+    def _set_api_key(self, monkeypatch):
+        """Set API key so deploy_all early validation passes."""
+        monkeypatch.setenv("RUNPOD_API_KEY", "test_key")
 
     @pytest.fixture
     def mock_resources(self):
@@ -20,17 +26,17 @@ class TestDeploymentOrchestrator:
         resource1 = MagicMock(spec=ServerlessResource)
         resource1.name = "gpu-endpoint-1"
         resource1.id = "endpoint-1"
-        resource1.is_deployed.return_value = False
+        resource1.is_deployed = AsyncMock(return_value=False)
 
         resource2 = MagicMock(spec=ServerlessResource)
         resource2.name = "gpu-endpoint-2"
         resource2.id = "endpoint-2"
-        resource2.is_deployed.return_value = False
+        resource2.is_deployed = AsyncMock(return_value=False)
 
         resource3 = MagicMock(spec=ServerlessResource)
         resource3.name = "cpu-endpoint-1"
         resource3.id = "endpoint-3"
-        resource3.is_deployed.return_value = False
+        resource3.is_deployed = AsyncMock(return_value=False)
 
         return [resource1, resource2, resource3]
 
@@ -40,7 +46,7 @@ class TestDeploymentOrchestrator:
         resource = MagicMock(spec=ServerlessResource)
         resource.name = "cached-endpoint"
         resource.id = "cached-1"
-        resource.is_deployed.return_value = True
+        resource.is_deployed = AsyncMock(return_value=True)
         return resource
 
     @pytest.mark.asyncio
@@ -209,3 +215,19 @@ class TestDeploymentOrchestrator:
 
         # Should handle gracefully
         orchestrator.deploy_all_background([])
+
+    @pytest.mark.asyncio
+    async def test_deploy_all_raises_api_key_error_before_deploying(
+        self, monkeypatch, mock_resources
+    ):
+        """deploy_all should fail fast with RunpodAPIKeyError before spawning tasks."""
+        monkeypatch.delenv("RUNPOD_API_KEY", raising=False)
+        orchestrator = DeploymentOrchestrator()
+
+        with patch.object(
+            orchestrator.manager, "get_or_deploy_resource", new_callable=AsyncMock
+        ) as mock_deploy:
+            with pytest.raises(RunpodAPIKeyError):
+                await orchestrator.deploy_all(mock_resources)
+
+            mock_deploy.assert_not_called()

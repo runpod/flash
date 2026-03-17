@@ -3,8 +3,6 @@
 Provides clear, actionable error messages for common failure scenarios.
 """
 
-from runpod_flash.core.credentials import get_credentials_path
-
 
 class RunpodAPIKeyError(Exception):
     """Raised when RUNPOD_API_KEY environment variable is missing or invalid.
@@ -30,30 +28,14 @@ class RunpodAPIKeyError(Exception):
         Returns:
             Formatted error message with actionable steps.
         """
-        credentials_path = get_credentials_path()
-        return f"""RUNPOD_API_KEY environment variable is required but not set.
-
-To use Flash remote execution features, you need a Runpod API key.
-
-Get your API key:
-  https://docs.runpod.io/get-started/api-keys
-
-Set your API key using one of these methods:
-
-  1. Environment variable:
-     export RUNPOD_API_KEY=your_api_key_here
-
-  2. In your project's .env file:
-     echo "RUNPOD_API_KEY=your_api_key_here" >> .env
-
-  3. In your shell profile (~/.bashrc, ~/.zshrc):
-     echo 'export RUNPOD_API_KEY=your_api_key_here' >> ~/.bashrc
-
-  4. Use the flash login flow:
-     flash login
-
-  5. Save directly to credentials file:
-     {credentials_path}
-
-Note: If you created a .env file, make sure it's in your current directory
-or project root where Flash can find it."""
+        return (
+            "No RunPod API key found. Set one with:\n"
+            "\n"
+            "  flash login                              # interactive setup\n"
+            "                 or\n"
+            "  export RUNPOD_API_KEY=<your-api-key>     # environment variable\n"
+            "                 or\n"
+            "  echo 'RUNPOD_API_KEY=<your-api-key>' >> .env\n"
+            "\n"
+            "Get a key: https://docs.runpod.io/get-started/api-keys"
+        )

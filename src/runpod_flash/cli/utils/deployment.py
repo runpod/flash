@@ -111,10 +111,12 @@ async def provision_resources_for_build(
     resources_to_provision = []
 
     # Create resource configs from manifest
+    manifest_python_version = manifest.get("python_version")
     for resource_name, resource_config in manifest["resources"].items():
         resource = create_resource_from_manifest(
             resource_name,
             resource_config,
+            python_version=manifest_python_version,
         )
         resources_to_provision.append((resource_name, resource))
 
@@ -252,6 +254,7 @@ async def reconcile_and_provision_resources(
     # Create resource manager
     manager = ResourceManager()
     actions = []
+    manifest_python_version = local_manifest.get("python_version")
 
     # Provision new resources
     for resource_name in sorted(to_provision):
@@ -260,6 +263,7 @@ async def reconcile_and_provision_resources(
             resource_name,
             resource_config,
             flash_environment_id=environment_id,
+            python_version=manifest_python_version,
         )
         actions.append(
             ("provision", resource_name, manager.get_or_deploy_resource(resource))
@@ -283,6 +287,7 @@ async def reconcile_and_provision_resources(
                 resource_name,
                 local_config,
                 flash_environment_id=environment_id,
+                python_version=manifest_python_version,
             )
             actions.append(
                 ("update", resource_name, manager.get_or_deploy_resource(resource))

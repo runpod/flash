@@ -163,7 +163,7 @@ class DeployableResource(BaseResource, ABC):
         raise NotImplementedError("Subclasses should implement this method.")
 
     @abstractmethod
-    def is_deployed(self) -> bool:
+    async def is_deployed(self) -> bool:
         """Check the resource if it's still valid or available."""
         raise NotImplementedError("Subclasses should implement this method.")
 

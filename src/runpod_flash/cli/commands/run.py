@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -43,6 +44,30 @@ console = Console()
 
 # Resource state file written by ResourceManager in the uvicorn subprocess.
 _RESOURCE_STATE_FILE = Path(".runpod") / "resources.pkl"
+
+_MAX_PORT_ATTEMPTS = 20
+
+
+def _find_available_port(host: str, start_port: int) -> int:
+    """Find the first available port starting from start_port.
+
+    Tries up to _MAX_PORT_ATTEMPTS consecutive ports. Raises typer.Exit
+    if no port is available.
+    """
+    for offset in range(_MAX_PORT_ATTEMPTS):
+        port = start_port + offset
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind((host, port))
+                return port
+        except OSError:
+            continue
+
+    console.print(
+        f"[red]Error:[/red] No available port found in range "
+        f"{start_port}-{start_port + _MAX_PORT_ATTEMPTS - 1}."
+    )
+    raise typer.Exit(1)
 
 
 @dataclass
@@ -217,7 +242,7 @@ def _module_parent_subdir(module_path: str) -> str | None:
     return parts[0].replace(".", "/")
 
 
-def _make_import_line(module_path: str, name: str) -> str:
+def _make_import_line(module_path: str, name: str, alias: str | None = None) -> str:
     """Build an import statement for *name* from *module_path*.
 
     Uses a regular ``from … import …`` when the module path is a valid
@@ -225,12 +250,22 @@ def _make_import_line(module_path: str, name: str) -> str:
     helper in server.py) when any segment starts with a digit. The helper
     temporarily scopes ``sys.path`` so sibling imports in the target module
     resolve to the correct directory.
+
+    Args:
+        module_path: Dotted module path to import from.
+        name: Symbol name to import.
+        alias: If provided, assign the import to this variable name instead
+            of *name*. Prevents collisions when multiple modules export the
+            same symbol (e.g. multiple files exporting ``api``).
     """
+    target = alias or name
     if _has_numeric_module_segments(module_path):
         subdir = _module_parent_subdir(module_path)
         if subdir:
-            return f'{name} = _flash_import("{module_path}", "{name}", "{subdir}")'
-        return f'{name} = _flash_import("{module_path}", "{name}")'
+            return f'{target} = _flash_import("{module_path}", "{name}", "{subdir}")'
+        return f'{target} = _flash_import("{module_path}", "{name}")'
+    if alias:
+        return f"from {module_path} import {name} as {alias}"
     return f"from {module_path} import {name}"
 
 
@@ -365,13 +400,22 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
                 )
         elif worker.worker_type == "LB":
             # Import the resource config variable (e.g. "api" from api = LiveLoadBalancer(...))
+            # Use aliased names to prevent collisions when multiple files export
+            # the same variable name (e.g. multiple files exporting "api").
             config_vars = {
                 r["config_variable"]
                 for r in worker.lb_routes
                 if r.get("config_variable")
             }
             for var in sorted(config_vars):
-                all_imports.append(_make_import_line(worker.module_path, var))
+                alias = f"_cfg_{_sanitize_fn_name(worker.resource_name)}"
+                all_imports.append(
+                    _make_import_line(worker.module_path, var, alias=alias)
+                )
+                # Store the alias so route codegen can reference it
+                for r in worker.lb_routes:
+                    if r.get("config_variable") == var:
+                        r["_config_alias"] = alias
             for fn_name in worker.functions:
                 all_imports.append(_make_import_line(worker.module_path, fn_name))
 
@@ -536,7 +580,7 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
                 method = route["method"].lower()
                 sub_path = route["path"].lstrip("/")
                 fn_name = route["fn_name"]
-                config_var = route["config_variable"]
+                config_var = route.get("_config_alias") or route["config_variable"]
                 full_path = f"{worker.url_prefix}/{sub_path}"
                 handler_name = _sanitize_fn_name(
                     f"_route_{worker.resource_name}_{fn_name}"
@@ -905,20 +949,25 @@ def _provision_resources(resources) -> None:
     import asyncio
 
     from ...core.deployment import DeploymentOrchestrator
+    from ...core.exceptions import RunpodAPIKeyError
 
+    console.print(f"[bold]Provisioning {len(resources)} resource(s)...[/bold]")
+    orchestrator = DeploymentOrchestrator(max_concurrent=3)
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     try:
-        console.print(f"[bold]Provisioning {len(resources)} resource(s)...[/bold]")
-        orchestrator = DeploymentOrchestrator(max_concurrent=3)
-
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
         loop.run_until_complete(orchestrator.deploy_all(resources, show_progress=True))
-        loop.close()
+    except RunpodAPIKeyError as e:
+        console.print(f"\n[red]Error:[/red] {e}")
+        raise typer.Exit(1)
     except Exception as e:
         console.print(f"[yellow]Warning:[/yellow] Provisioning failed: {e}")
         console.print(
             "[dim]Resources will be provisioned on-demand at first request.[/dim]"
         )
+    finally:
+        loop.close()
 
 
 def run_command(
@@ -964,6 +1013,8 @@ def run_command(
             resources = _discover_resources(project_root)
             if resources:
                 _provision_resources(resources)
+        except (typer.Exit, SystemExit, KeyboardInterrupt):
+            raise
         except Exception as e:
             logger.error("Auto-provisioning failed", exc_info=True)
             console.print(f"[yellow]Warning:[/yellow] Auto-provisioning failed: {e}")
@@ -994,6 +1045,14 @@ def run_command(
             "      return {'result': data}"
         )
         raise typer.Exit(1)
+
+    # find a free port, counting up from the requested one
+    actual_port = _find_available_port(host, port)
+    if actual_port != port:
+        console.print(
+            f"[yellow]Port {port} is in use, using {actual_port} instead.[/yellow]"
+        )
+    port = actual_port
 
     # Generate .flash/server.py
     _generate_flash_server(project_root, workers)

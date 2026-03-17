@@ -5,6 +5,10 @@ from unittest.mock import patch
 
 import pytest
 
+from runpod_flash.core.resources.constants import (
+    DEFAULT_WORKERS_MAX,
+    DEFAULT_WORKERS_MIN,
+)
 from runpod_flash.endpoint import Endpoint, _normalize_workers
 from runpod_flash.core.resources.cpu import CpuInstanceType
 from runpod_flash.core.resources.gpu import GpuGroup, GpuType
@@ -18,10 +22,10 @@ from runpod_flash.core.resources.template import PodTemplate
 
 class TestNormalizeWorkers:
     def test_none_defaults(self):
-        assert _normalize_workers(None) == (0, 1)
+        assert _normalize_workers(None) == (DEFAULT_WORKERS_MIN, DEFAULT_WORKERS_MAX)
 
     def test_int_shorthand(self):
-        assert _normalize_workers(3) == (0, 3)
+        assert _normalize_workers(3) == (DEFAULT_WORKERS_MIN, 3)
 
     def test_tuple(self):
         assert _normalize_workers((1, 5)) == (1, 5)
@@ -81,7 +85,7 @@ class TestEndpointInit:
 
     def test_workers_int(self):
         ep = Endpoint(name="test", workers=5)
-        assert ep.workers_min == 0
+        assert ep.workers_min == DEFAULT_WORKERS_MIN
         assert ep.workers_max == 5
 
     def test_workers_tuple(self):
@@ -91,8 +95,8 @@ class TestEndpointInit:
 
     def test_workers_default(self):
         ep = Endpoint(name="test")
-        assert ep.workers_min == 0
-        assert ep.workers_max == 1
+        assert ep.workers_min == DEFAULT_WORKERS_MIN
+        assert ep.workers_max == DEFAULT_WORKERS_MAX
 
     def test_all_params(self):
         vol = NetworkVolume(name="test-vol", size=50)
@@ -119,11 +123,45 @@ class TestEndpointInit:
         assert ep.dependencies == ["torch"]
         assert ep.system_dependencies == ["ffmpeg"]
         assert ep.accelerate_downloads is False
-        assert ep.volume is vol
+        assert ep.volume == [vol]
         assert ep.env == {"MY_VAR": "value"}
         assert ep.gpu_count == 2
         assert ep.execution_timeout_ms == 5000
         assert ep.flashboot is False
+
+    def test_volume_single(self):
+        vol = NetworkVolume(name="v1", size=50)
+        ep = Endpoint(name="test", volume=vol)
+        assert ep.volume == [vol]
+
+    def test_volume_list(self):
+        v1 = NetworkVolume(name="v1", size=50, dataCenterId=DataCenter.EU_RO_1)
+        v2 = NetworkVolume(name="v2", size=50, dataCenterId=DataCenter.US_GA_2)
+        ep = Endpoint(name="test", volume=[v1, v2])
+        assert ep.volume == [v1, v2]
+
+    def test_volume_none(self):
+        ep = Endpoint(name="test")
+        assert ep.volume is None
+
+    def test_datacenter_single(self):
+        ep = Endpoint(name="test", datacenter=DataCenter.US_GA_2)
+        assert ep.datacenter == DataCenter.US_GA_2
+
+    def test_datacenter_string(self):
+        ep = Endpoint(name="test", datacenter="US-GA-2")
+        assert ep.datacenter == "US-GA-2"
+
+    def test_datacenter_list(self):
+        ep = Endpoint(
+            name="test",
+            datacenter=[DataCenter.EU_RO_1, DataCenter.US_GA_2],
+        )
+        assert ep.datacenter == [DataCenter.EU_RO_1, DataCenter.US_GA_2]
+
+    def test_datacenter_none_default(self):
+        ep = Endpoint(name="test")
+        assert ep.datacenter is None
 
     def test_scaler_type_defaults(self):
         ep = Endpoint(name="test")

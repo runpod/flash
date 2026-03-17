@@ -64,6 +64,12 @@ class GpuGroup(Enum):
     HOPPER_141 = "HOPPER_141"
     """NVIDIA H200"""
 
+    BLACKWELL_96 = "BLACKWELL_96"
+    """NVIDIA RTX PRO 6000 Blackwell Server Edition, NVIDIA RTX PRO 6000 Blackwell Workstation Edition, NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition"""
+
+    BLACKWELL_180 = "BLACKWELL_180"
+    """NVIDIA B200"""
+
     @classmethod
     def all(cls) -> List["GpuGroup"]:
         """Returns all GPU groups."""
@@ -163,6 +169,15 @@ class GpuType(Enum):
     NVIDIA_GEFORCE_RTX_4090 = "NVIDIA GeForce RTX 4090"
     NVIDIA_GEFORCE_RTX_5090 = "NVIDIA GeForce RTX 5090"
     NVIDIA_RTX_6000_ADA_GENERATION = "NVIDIA RTX 6000 Ada Generation"
+    NVIDIA_RTX_PRO_6000_BLACKWELL_SERVER_EDITION = (
+        "NVIDIA RTX PRO 6000 Blackwell Server Edition"
+    )
+    NVIDIA_RTX_PRO_6000_BLACKWELL_WORKSTATION_EDITION = (
+        "NVIDIA RTX PRO 6000 Blackwell Workstation Edition"
+    )
+    NVIDIA_RTX_PRO_6000_BLACKWELL_MAX_Q_WORKSTATION_EDITION = (
+        "NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition"
+    )
     NVIDIA_H100_80GB_HBM3 = "NVIDIA H100 80GB HBM3"
     NVIDIA_RTX_A4000 = "NVIDIA RTX A4000"
     NVIDIA_RTX_A4500 = "NVIDIA RTX A4500"
@@ -176,6 +191,7 @@ class GpuType(Enum):
     NVIDIA_A100_80GB_PCIe = "NVIDIA A100 80GB PCIe"
     NVIDIA_A100_SXM4_80GB = "NVIDIA A100-SXM4-80GB"
     NVIDIA_H200 = "NVIDIA H200"
+    NVIDIA_B200 = "NVIDIA B200"
 
     @classmethod
     def all(cls) -> List["GpuType"]:
@@ -185,9 +201,11 @@ class GpuType(Enum):
     @classmethod
     def is_gpu_type(cls, gpu_type: str) -> bool:
         """
-        Check if a string is a valid GPU type.
+        Check if a string is a valid GPU type, excluding ANY.
+        Uses all() to avoid matching the "any" value, which should be
+        treated as a GpuGroup in from_gpu_ids_str.
         """
-        return gpu_type in {m.value for m in cls}
+        return gpu_type in {m.value for m in cls.all()}
 
 
 POOLS_TO_TYPES = {
@@ -209,10 +227,16 @@ POOLS_TO_TYPES = {
     GpuGroup.AMPERE_48: [GpuType.NVIDIA_A40, GpuType.NVIDIA_RTX_A6000],
     GpuGroup.AMPERE_80: [GpuType.NVIDIA_A100_80GB_PCIe, GpuType.NVIDIA_A100_SXM4_80GB],
     GpuGroup.HOPPER_141: [GpuType.NVIDIA_H200],
+    GpuGroup.BLACKWELL_96: [
+        GpuType.NVIDIA_RTX_PRO_6000_BLACKWELL_SERVER_EDITION,
+        GpuType.NVIDIA_RTX_PRO_6000_BLACKWELL_WORKSTATION_EDITION,
+        GpuType.NVIDIA_RTX_PRO_6000_BLACKWELL_MAX_Q_WORKSTATION_EDITION,
+    ],
+    GpuGroup.BLACKWELL_180: [GpuType.NVIDIA_B200],
 }
 
 
-def _pool_from_gpu_type(gpu_type: GpuType) -> str:
+def _pool_from_gpu_type(gpu_type: GpuType) -> Optional[GpuGroup]:
     for group, types in POOLS_TO_TYPES.items():
         if gpu_type in types:
             return group

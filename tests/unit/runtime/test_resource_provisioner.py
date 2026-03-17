@@ -320,6 +320,33 @@ class TestCreateResourceFromManifest:
         )
         assert isinstance(resource, CpuLiveLoadBalancer)
 
+    def test_endpoint_cpu_lb_passes_instance_ids(self):
+        """Test instanceIds from manifest is passed to CpuLiveLoadBalancer."""
+        from runpod_flash.core.resources.cpu import CpuInstanceType
+
+        resource = create_resource_from_manifest(
+            "cpu-api",
+            {
+                "resource_type": "Endpoint",
+                "is_load_balanced": True,
+                "instanceIds": ["cpu3c-1-2"],
+            },
+        )
+        assert resource.instanceIds == [CpuInstanceType.CPU3C_1_2]
+
+    def test_endpoint_cpu_qb_passes_instance_ids(self):
+        """Test instanceIds from manifest is passed to CpuLiveServerless."""
+        from runpod_flash.core.resources.cpu import CpuInstanceType
+
+        resource = create_resource_from_manifest(
+            "cpu-worker",
+            {
+                "resource_type": "Endpoint",
+                "instanceIds": ["cpu5c-4-8"],
+            },
+        )
+        assert resource.instanceIds == [CpuInstanceType.CPU5C_4_8]
+
     def test_create_resource_skips_api_key_when_not_set(self):
         """Test RUNPOD_API_KEY NOT injected when env var is not set."""
         resource_name = "caller_worker"
@@ -436,3 +463,52 @@ class TestCreateResourceFromManifest:
             assert resource.networkVolume is not None
             assert isinstance(resource.networkVolume, NetworkVolume)
             assert resource.networkVolume.name == "my-volume"
+
+    def test_create_resource_reconstructs_multi_network_volumes(self):
+        """Multiple NetworkVolumes are reconstructed from manifest data."""
+        from runpod_flash.core.resources.network_volume import NetworkVolume
+
+        resource_name = "gpu_worker"
+        resource_data = {
+            "resource_type": "LiveServerless",
+            "imageName": "runpod/flash:latest",
+            "networkVolumes": [
+                {"name": "vol-eu", "size": 100, "dataCenterId": "EU-RO-1"},
+                {"name": "vol-us", "size": 200, "dataCenterId": "US-GA-2"},
+            ],
+        }
+
+        with patch.dict(os.environ, {"RUNPOD_ENDPOINT_ID": "endpoint-123"}):
+            resource = create_resource_from_manifest(resource_name, resource_data)
+
+            assert resource.networkVolumes is not None
+            assert len(resource.networkVolumes) == 2
+            assert all(isinstance(v, NetworkVolume) for v in resource.networkVolumes)
+            assert resource.networkVolumes[0].name == "vol-eu"
+            assert resource.networkVolumes[0].dataCenterId.value == "EU-RO-1"
+            assert resource.networkVolumes[1].name == "vol-us"
+            assert resource.networkVolumes[1].size == 200
+            assert resource.networkVolumes[1].dataCenterId.value == "US-GA-2"
+
+    def test_create_resource_multi_volumes_takes_precedence_over_singular(self):
+        """networkVolumes takes precedence over networkVolume when both present."""
+        resource_name = "gpu_worker"
+        resource_data = {
+            "resource_type": "LiveServerless",
+            "imageName": "runpod/flash:latest",
+            "networkVolumes": [
+                {"name": "vol-eu", "size": 100, "dataCenterId": "EU-RO-1"},
+            ],
+            "networkVolume": {
+                "name": "should-be-ignored",
+                "size": 50,
+                "dataCenterId": "EU-RO-1",
+            },
+        }
+
+        with patch.dict(os.environ, {"RUNPOD_ENDPOINT_ID": "endpoint-123"}):
+            resource = create_resource_from_manifest(resource_name, resource_data)
+
+            assert resource.networkVolumes is not None
+            assert len(resource.networkVolumes) == 1
+            assert resource.networkVolumes[0].name == "vol-eu"

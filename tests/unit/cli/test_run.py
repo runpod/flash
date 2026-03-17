@@ -1,6 +1,7 @@
 """Unit tests for run CLI command."""
 
 import pytest
+import typer
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 from typer.testing import CliRunner
@@ -12,6 +13,7 @@ from runpod_flash.cli.commands.run import (
     _has_numeric_module_segments,
     _make_import_line,
     _module_parent_subdir,
+    _provision_resources,
     _sanitize_fn_name,
 )
 
@@ -41,9 +43,13 @@ class TestRunCommandEnvironmentVariables:
 
     @pytest.fixture(autouse=True)
     def patch_watcher(self):
-        """Prevent the background watcher thread from blocking tests."""
+        """Prevent the background watcher thread and port probing from affecting tests."""
         with patch("runpod_flash.cli.commands.run._watch_and_regenerate"):
-            yield
+            with patch(
+                "runpod_flash.cli.commands.run._find_available_port",
+                side_effect=lambda host, port: port,
+            ):
+                yield
 
     def test_port_from_environment_variable(
         self, runner, temp_fastapi_app, monkeypatch
@@ -243,9 +249,13 @@ class TestRunCommandHotReload:
 
     @pytest.fixture(autouse=True)
     def patch_watcher(self):
-        """Prevent the background watcher thread from blocking tests."""
+        """Prevent the background watcher thread and port probing from affecting tests."""
         with patch("runpod_flash.cli.commands.run._watch_and_regenerate"):
-            yield
+            with patch(
+                "runpod_flash.cli.commands.run._find_available_port",
+                side_effect=lambda host, port: port,
+            ):
+                yield
 
     def _invoke_run(self, runner, monkeypatch, temp_fastapi_app, extra_args=None):
         """Helper: invoke flash run and return the Popen call args."""
@@ -461,7 +471,7 @@ class TestGenerateFlashServer:
             worker = self._make_lb_worker(tmp_path, method)
             content = _generate_flash_server(tmp_path, [worker]).read_text()
             assert "body: _api_list_routes_Input" in content
-            assert "_lb_execute(api_config, list_routes, _to_dict(body))" in content
+            assert "_lb_execute(_cfg_api, list_routes, _to_dict(body))" in content
 
     def test_get_lb_route_uses_query_params(self, tmp_path):
         """GET LB routes pass query params as a dict."""
@@ -469,15 +479,14 @@ class TestGenerateFlashServer:
         content = _generate_flash_server(tmp_path, [worker]).read_text()
         assert "async def _route_api_list_routes(request: Request):" in content
         assert (
-            "_lb_execute(api_config, list_routes, dict(request.query_params))"
-            in content
+            "_lb_execute(_cfg_api, list_routes, dict(request.query_params))" in content
         )
 
     def test_lb_config_var_and_function_imported(self, tmp_path):
         """LB config vars and functions are both imported for remote dispatch."""
         worker = self._make_lb_worker(tmp_path)
         content = _generate_flash_server(tmp_path, [worker]).read_text()
-        assert "from api import api_config" in content
+        assert "from api import api_config as _cfg_api" in content
         assert "from api import list_routes" in content
 
     def test_lb_execute_import_present_when_lb_routes_exist(self, tmp_path):
@@ -804,3 +813,100 @@ class TestMapBodyToParams:
 
         result = _map_body_to_params(run_pipeline, {})
         assert result == {}
+
+
+class TestFindAvailablePort:
+    def test_returns_start_port_when_free(self):
+        from runpod_flash.cli.commands.run import _find_available_port
+
+        import socket
+
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("localhost", 0))
+            free_port = s.getsockname()[1]
+
+        assert _find_available_port("localhost", free_port) == free_port
+
+    def test_skips_occupied_port(self):
+        from runpod_flash.cli.commands.run import _find_available_port
+
+        import socket
+
+        blocker = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        blocker.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        blocker.bind(("localhost", 0))
+        occupied_port = blocker.getsockname()[1]
+        blocker.listen(1)
+
+        try:
+            result = _find_available_port("localhost", occupied_port)
+            assert result > occupied_port
+        finally:
+            blocker.close()
+
+    def test_exits_when_no_port_available(self):
+        from runpod_flash.cli.commands.run import (
+            _find_available_port,
+            _MAX_PORT_ATTEMPTS,
+        )
+
+        import socket
+
+        blockers = []
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("127.0.0.1", 0))
+            start = s.getsockname()[1]
+
+        for i in range(_MAX_PORT_ATTEMPTS):
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                s.bind(("127.0.0.1", start + i))
+                s.listen(1)
+                blockers.append(s)
+            except OSError:
+                s.close()
+                blockers.append(None)
+
+        try:
+            from click.exceptions import Exit as ClickExit
+
+            with pytest.raises((SystemExit, ClickExit)):
+                _find_available_port("127.0.0.1", start)
+        finally:
+            for s in blockers:
+                if s:
+                    s.close()
+
+
+class TestProvisionResourcesApiKeyError:
+    """Test _provision_resources handles RunpodAPIKeyError cleanly."""
+
+    def test_provision_resources_exits_on_missing_api_key(self, monkeypatch):
+        """_provision_resources should raise typer.Exit(1) when API key is missing."""
+        monkeypatch.delenv("RUNPOD_API_KEY", raising=False)
+        resources = [MagicMock(name="test-resource")]
+
+        with pytest.raises(typer.Exit) as exc_info:
+            _provision_resources(resources)
+
+        assert exc_info.value.exit_code == 1
+
+    def test_run_command_does_not_swallow_exit_from_provisioning(
+        self, runner, temp_fastapi_app, monkeypatch
+    ):
+        """typer.Exit from _provision_resources must propagate, not be caught as Exception."""
+        monkeypatch.chdir(temp_fastapi_app)
+        monkeypatch.delenv("RUNPOD_API_KEY", raising=False)
+
+        with patch("runpod_flash.cli.commands.run._watch_and_regenerate"):
+            with patch(
+                "runpod_flash.cli.commands.run._find_available_port",
+                side_effect=lambda host, port: port,
+            ):
+                result = runner.invoke(app, ["run", "--auto-provision"])
+
+        assert result.exit_code != 0
+        # Should NOT contain the generic "Warning: Auto-provisioning failed" message
+        # that appeared when typer.Exit was swallowed as Exception
+        assert "Auto-provisioning failed" not in result.output

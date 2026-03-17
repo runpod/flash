@@ -16,7 +16,7 @@ Covers:
 import logging
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -331,7 +331,7 @@ class TestUndeployListCommand:
         mock_resource = MagicMock(spec=ServerlessResource)
         mock_resource.name = "my-worker"
         mock_resource.id = "ep-abc123"
-        mock_resource.is_deployed.return_value = True
+        mock_resource.is_deployed = AsyncMock(return_value=True)
 
         mock_manager = MagicMock()
         mock_manager.list_all_resources.return_value = {

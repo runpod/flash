@@ -1,7 +1,7 @@
 """Unit tests for undeploy CLI command."""
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from typer.testing import CliRunner
 
 from runpod_flash.cli.main import app
@@ -82,12 +82,12 @@ class TestUndeployList:
         mock_resource1 = MagicMock(spec=ServerlessResource)
         mock_resource1.name = "test-api-1"
         mock_resource1.id = "endpoint-id-1"
-        mock_resource1.is_deployed.return_value = True
+        mock_resource1.is_deployed = AsyncMock(return_value=True)
 
         mock_resource2 = MagicMock(spec=ServerlessResource)
         mock_resource2.name = "test-api-2"
         mock_resource2.id = "endpoint-id-2"
-        mock_resource2.is_deployed.return_value = True
+        mock_resource2.is_deployed = AsyncMock(return_value=True)
 
         mock_resources = {
             "resource-id-1": mock_resource1,
@@ -120,18 +120,18 @@ class TestUndeployList:
         mock_serverless1 = MagicMock(spec=ServerlessResource)
         mock_serverless1.name = "serverless-api-1"
         mock_serverless1.id = "serverless-id-1"
-        mock_serverless1.is_deployed.return_value = True
+        mock_serverless1.is_deployed = AsyncMock(return_value=True)
 
         mock_serverless2 = MagicMock(spec=ServerlessResource)
         mock_serverless2.name = "serverless-api-2"
         mock_serverless2.id = "serverless-id-2"
-        mock_serverless2.is_deployed.return_value = True
+        mock_serverless2.is_deployed = AsyncMock(return_value=True)
 
         # Create mock NetworkVolume instance (should be filtered out)
         mock_network_volume = MagicMock(spec=NetworkVolume)
         mock_network_volume.name = "storage-volume"
         mock_network_volume.id = "volume-id"
-        mock_network_volume.is_deployed.return_value = True
+        mock_network_volume.is_deployed = AsyncMock(return_value=True)
 
         # Mix of resource types
         mock_resources = {
@@ -338,7 +338,7 @@ class TestResourceStatusHelpers:
         from runpod_flash.cli.commands.undeploy import _get_resource_status
 
         mock_resource = MagicMock()
-        mock_resource.is_deployed.return_value = True
+        mock_resource.is_deployed = AsyncMock(return_value=True)
 
         color, text = _get_resource_status(mock_resource)
 
@@ -350,7 +350,7 @@ class TestResourceStatusHelpers:
         from runpod_flash.cli.commands.undeploy import _get_resource_status
 
         mock_resource = MagicMock()
-        mock_resource.is_deployed.return_value = False
+        mock_resource.is_deployed = AsyncMock(return_value=False)
 
         color, text = _get_resource_status(mock_resource)
 
@@ -362,7 +362,7 @@ class TestResourceStatusHelpers:
         from runpod_flash.cli.commands.undeploy import _get_resource_status
 
         mock_resource = MagicMock()
-        mock_resource.is_deployed.side_effect = Exception("API Error")
+        mock_resource.is_deployed = AsyncMock(side_effect=Exception("API Error"))
 
         color, text = _get_resource_status(mock_resource)
 

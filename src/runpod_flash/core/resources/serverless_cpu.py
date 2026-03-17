@@ -123,6 +123,8 @@ class CpuServerlessEndpoint(CpuEndpointMixin, ServerlessEndpoint):
         "flashEnvironmentId",
         "imageName",
         "networkVolume",
+        "networkVolumes",
+        "python_version",
     }
 
     # Override GPU field from parent to None for CPU endpoints
@@ -146,6 +148,7 @@ class CpuServerlessEndpoint(CpuEndpointMixin, ServerlessEndpoint):
             "imageName",
             "gpus",
             "networkVolume",
+            "networkVolumes",
         }
         config_dict = self.model_dump(
             exclude_none=True, include=cpu_fields, mode="json"

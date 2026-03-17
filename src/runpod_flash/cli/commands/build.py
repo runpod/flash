@@ -20,7 +20,11 @@ try:
 except ImportError:
     import tomli as tomllib  # Python 3.9-3.10
 
-from runpod_flash.core.resources.constants import MAX_TARBALL_SIZE_MB
+from runpod_flash.core.resources.constants import (
+    MAX_TARBALL_SIZE_MB,
+    SUPPORTED_PYTHON_VERSIONS,
+    validate_python_version,
+)
 
 from ..utils.ignore import get_file_tree, load_ignore_patterns
 from .build_utils.handler_generator import HandlerGenerator
@@ -54,6 +58,22 @@ RUNPOD_PYTHON_IMPL = "cp"  # CPython implementation
 # Pip command identifiers
 UV_COMMAND = "uv"
 PIP_MODULE = "pip"
+
+
+# These are CUDA/GPU-oriented packages whose large CUDA builds are already
+# provided by the GPU base images (runpod/pytorch:*) and therefore should
+# not be bundled into the tarball.
+# Do NOT add packages here just because the GPU image ships them (e.g. numpy).
+# The blacklist is defined strictly by size constraints, not by whether a
+# package happens to be present in a particular base image.
+SIZE_PROHIBITIVE_PACKAGES: frozenset[str] = frozenset(
+    {
+        "torch",  # ~500 MB
+        "torchvision",  # ~50 MB, requires torch
+        "torchaudio",  # ~30 MB, requires torch
+        "triton",  # ~150 MB, CUDA compiler
+    }
+)
 
 
 def _find_runpod_flash(project_dir: Optional[Path] = None) -> Optional[Path]:
@@ -165,6 +185,11 @@ def _extract_runpod_flash_dependencies(flash_pkg_dir: Path) -> list[str]:
         return []
 
 
+def _normalize_package_name(name: str) -> str:
+    """Normalize a package name for comparison (PEP 503: lowercase, hyphens to underscores)."""
+    return name.lower().replace("-", "_")
+
+
 def _remove_runpod_flash_from_requirements(build_dir: Path) -> None:
     """Remove runpod_flash from requirements.txt and clean up dist-info since we bundled source."""
     req_file = build_dir / "requirements.txt"
@@ -187,6 +212,27 @@ def _remove_runpod_flash_from_requirements(build_dir: Path) -> None:
     for dist_info in build_dir.glob("runpod_flash-*.dist-info"):
         if dist_info.is_dir():
             shutil.rmtree(dist_info)
+
+
+def _resolve_pip_python_version(manifest: dict) -> str | None:
+    """Determine the target Python version for pip from the manifest.
+
+    One tarball serves all resources, so all must share the same ABI.
+    Returns the highest version found (GPU base image dictates the floor).
+
+    Returns:
+        The target Python version string, or None if not available.
+    """
+    versions = set()
+    for resource in manifest.get("resources", {}).values():
+        version = resource.get("target_python_version")
+        if version:
+            versions.add(version)
+    if not versions:
+        return None
+    # All resources should agree, but if they differ, use the highest
+    # (GPU base image pins the minimum, and one tarball must work everywhere)
+    return max(versions)
 
 
 def run_build(
@@ -225,13 +271,32 @@ def run_build(
     # Create build directory first to ensure clean state before collecting files
     build_dir = create_build_directory(project_dir, app_name)
 
-    # Parse exclusions
-    excluded_packages = []
+    # Parse exclusions: merge user-specified with always-excluded size-prohibitive packages
+    user_excluded = []
     if exclude:
-        excluded_packages = [pkg.strip().lower() for pkg in exclude.split(",")]
+        user_excluded = [pkg.strip().lower() for pkg in exclude.split(",")]
+    excluded_packages = list(set(user_excluded) | SIZE_PROHIBITIVE_PACKAGES)
 
     spec = load_ignore_patterns(project_dir)
     files = get_file_tree(project_dir, spec)
+
+    # Validate Python version unconditionally — even projects with no dependencies
+    # must build on a supported Python to avoid runtime ABI mismatches.
+    python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
+    try:
+        validate_python_version(python_version)
+    except ValueError:
+        console.print(
+            f"\n[red]Python {python_version} is not supported for Flash deployment.[/red]"
+        )
+        console.print(
+            f"[yellow]Supported versions: {', '.join(SUPPORTED_PYTHON_VERSIONS)}[/yellow]"
+        )
+        console.print(
+            "[yellow]Please switch your local Python interpreter to a supported "
+            "version, or build inside a virtual environment that uses one.[/yellow]"
+        )
+        raise typer.Exit(1)
 
     try:
         copy_project_files(files, project_dir, build_dir)
@@ -241,7 +306,11 @@ def run_build(
             remote_functions = scanner.discover_remote_functions()
 
             manifest_builder = ManifestBuilder(
-                app_name, remote_functions, scanner, build_dir=build_dir
+                app_name,
+                remote_functions,
+                scanner,
+                build_dir=build_dir,
+                python_version=python_version,
             )
             manifest = manifest_builder.build()
             manifest_path = build_dir / "flash_manifest.json"
@@ -280,34 +349,57 @@ def run_build(
         logger.exception("Build failed")
         raise typer.Exit(1)
 
+    # Resolve target Python version from manifest for pip wheel selection
+    target_python_version = None
+    manifest_json_path = build_dir / "flash_manifest.json"
+    if manifest_json_path.exists():
+        target_python_version = _resolve_pip_python_version(
+            json.loads(manifest_json_path.read_text())
+        )
+
     # install dependencies
     requirements = collect_requirements(project_dir, build_dir)
 
-    # filter out excluded packages
+    # filter out excluded packages (auto + user-specified)
     if excluded_packages:
-        matched_exclusions = set()
+        auto_matched = set()
+        user_matched = set()
         filtered_requirements = []
 
         for req in requirements:
             if should_exclude_package(req, excluded_packages):
                 pkg_name = extract_package_name(req)
-                if pkg_name in excluded_packages:
-                    matched_exclusions.add(pkg_name)
+                if pkg_name in SIZE_PROHIBITIVE_PACKAGES:
+                    auto_matched.add(pkg_name)
+                if pkg_name in user_excluded:
+                    user_matched.add(pkg_name)
             else:
                 filtered_requirements.append(req)
 
         requirements = filtered_requirements
 
-        unmatched = set(excluded_packages) - matched_exclusions
-        if unmatched:
+        if auto_matched:
+            console.print(
+                f"[dim]Auto-excluded size-prohibitive packages: "
+                f"{', '.join(sorted(auto_matched))}[/dim]"
+            )
+
+        # Only warn about unmatched user-specified packages (not auto-excludes)
+        user_unmatched = set(user_excluded) - user_matched - SIZE_PROHIBITIVE_PACKAGES
+        if user_unmatched:
             console.print(
                 f"[yellow]Warning:[/yellow] No packages matched exclusions: "
-                f"{', '.join(sorted(unmatched))}"
+                f"{', '.join(sorted(user_unmatched))}"
             )
 
     if requirements:
         with console.status(f"Installing {len(requirements)} packages..."):
-            success = install_dependencies(build_dir, requirements, no_deps)
+            success = install_dependencies(
+                build_dir,
+                requirements,
+                no_deps,
+                target_python_version=target_python_version,
+            )
 
         if not success:
             console.print("[red]Error:[/red] Failed to install dependencies")
@@ -338,7 +430,9 @@ def run_build(
     archive_path = project_dir / ".flash" / archive_name
 
     with console.status("Creating archive..."):
-        create_tarball(build_dir, archive_path, app_name)
+        create_tarball(
+            build_dir, archive_path, app_name, excluded_packages=excluded_packages
+        )
 
     size_mb = archive_path.stat().st_size / (1024 * 1024)
 
@@ -350,8 +444,8 @@ def run_build(
             f"({size_mb:.1f} MB / {MAX_TARBALL_SIZE_MB} MB)"
         )
         console.print(
-            "  Use --exclude to skip packages in base image: "
-            "[dim]flash deploy --exclude torch,torchvision,torchaudio[/dim]"
+            "  Torch packages are auto-excluded. Use --exclude for other large packages: "
+            "[dim]flash deploy --exclude transformers,scipy[/dim]"
         )
 
         if archive_path.exists():
@@ -379,7 +473,7 @@ def build_command(
     exclude: str | None = typer.Option(
         None,
         "--exclude",
-        help="Comma-separated packages to exclude (e.g., 'torch,torchvision')",
+        help="Comma-separated additional packages to exclude (torch packages are auto-excluded)",
     ),
 ):
     """
@@ -392,7 +486,7 @@ def build_command(
       flash build                              # Build with all dependencies
       flash build --no-deps                    # Skip transitive dependencies
       flash build -o my-app.tar.gz             # Custom archive name
-      flash build --exclude torch,torchvision  # Exclude large packages (assume in base image)
+      flash build --exclude transformers       # Exclude additional large packages
     """
     try:
         project_dir, app_name = discover_flash_project()
@@ -618,9 +712,24 @@ def should_exclude_package(requirement: str, exclusions: list[str]) -> bool:
     return package_name in exclusions
 
 
+def _extract_deps_from_call(call_node: ast.Call) -> list[str]:
+    """Extract the dependencies=[...] keyword value from an ast.Call node."""
+    deps = []
+    for keyword in call_node.keywords:
+        if keyword.arg == "dependencies" and isinstance(keyword.value, ast.List):
+            for elt in keyword.value.elts:
+                if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
+                    deps.append(elt.value)
+    return deps
+
+
 def extract_remote_dependencies(source_dir: Path) -> list[str]:
-    """
-    Extract dependencies from @remote decorators in Python source files.
+    """Extract dependencies from @remote and Endpoint(...) in Python source files.
+
+    Scans for three patterns:
+    - @remote(dependencies=[...]) on functions/classes
+    - @Endpoint(dependencies=[...]) on functions/classes (QB decorator)
+    - ep = Endpoint(dependencies=[...]) variable assignments (LB pattern)
 
     Args:
         source_dir: Path to directory containing Python source files
@@ -638,6 +747,8 @@ def extract_remote_dependencies(source_dir: Path) -> list[str]:
             tree = ast.parse(py_file.read_text(encoding="utf-8"))
 
             for node in ast.walk(tree):
+                # @remote(dependencies=[...]) or @Endpoint(dependencies=[...])
+                # on function/class definitions
                 if isinstance(
                     node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
                 ):
@@ -649,14 +760,18 @@ def extract_remote_dependencies(source_dir: Path) -> list[str]:
                             elif isinstance(decorator.func, ast.Attribute):
                                 func_name = decorator.func.attr
 
-                            if func_name == "remote":
-                                # Extract dependencies keyword argument
-                                for keyword in decorator.keywords:
-                                    if keyword.arg == "dependencies":
-                                        if isinstance(keyword.value, ast.List):
-                                            for elt in keyword.value.elts:
-                                                if isinstance(elt, ast.Constant):
-                                                    dependencies.append(elt.value)
+                            if func_name in ("remote", "Endpoint"):
+                                dependencies.extend(_extract_deps_from_call(decorator))
+
+                # ep = Endpoint(dependencies=[...]) variable assignments
+                if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call):
+                    call_name = None
+                    if isinstance(node.value.func, ast.Name):
+                        call_name = node.value.func.id
+                    elif isinstance(node.value.func, ast.Attribute):
+                        call_name = node.value.func.attr
+                    if call_name == "Endpoint":
+                        dependencies.extend(_extract_deps_from_call(node.value))
 
         except Exception as e:
             console.print(
@@ -667,7 +782,10 @@ def extract_remote_dependencies(source_dir: Path) -> list[str]:
 
 
 def install_dependencies(
-    build_dir: Path, requirements: list[str], no_deps: bool
+    build_dir: Path,
+    requirements: list[str],
+    no_deps: bool,
+    target_python_version: str | None = None,
 ) -> bool:
     """
     Install dependencies to build directory using pip or uv pip.
@@ -685,6 +803,9 @@ def install_dependencies(
         build_dir: Build directory (pip --target)
         requirements: List of requirements to install
         no_deps: If True, skip transitive dependencies
+        target_python_version: Python version for wheel ABI selection (e.g. "3.12").
+            When set, pip downloads wheels for this version instead of the build
+            machine's Python. Used to match the container runtime Python.
 
     Returns:
         True if successful
@@ -771,11 +892,16 @@ def install_dependencies(
         console.print(f"  • {UV_COMMAND} {PIP_MODULE} install {PIP_MODULE}")
         return False
 
-    # Get current Python version for compatibility
-    python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
-
     # Determine if using uv pip or standard pip (different flag formats)
     is_uv_pip = pip_cmd[0] == UV_COMMAND
+
+    # Use container Python version for wheel selection, not build machine's
+    local_version = f"{sys.version_info.major}.{sys.version_info.minor}"
+    pip_python_version = target_python_version or local_version
+    if target_python_version and target_python_version != local_version:
+        console.print(
+            f"[dim]Downloading wheels for Python {target_python_version} (container runtime)[/dim]"
+        )
 
     # Build pip command with platform-specific flags for RunPod serverless
     cmd = pip_cmd + [
@@ -783,7 +909,7 @@ def install_dependencies(
         "--target",
         str(build_dir),
         "--python-version",
-        python_version,
+        pip_python_version,
         "--upgrade",
     ]
 
@@ -821,7 +947,7 @@ def install_dependencies(
         platform_str = "x86_64-unknown-linux-gnu"
     else:
         platform_str = f"{len(RUNPOD_PLATFORMS)} manylinux variants"
-    logger.debug(f"Installing for: {platform_str}, Python {python_version}")
+    logger.debug(f"Installing for: {platform_str}, Python {pip_python_version}")
 
     try:
         result = subprocess.run(
@@ -847,22 +973,66 @@ def install_dependencies(
         return False
 
 
-def create_tarball(build_dir: Path, output_path: Path, app_name: str) -> None:
+def create_tarball(
+    build_dir: Path,
+    output_path: Path,
+    app_name: str,
+    excluded_packages: list[str] | None = None,
+) -> None:
     """
-    Create gzipped tarball of build directory.
+    Create gzipped tarball of build directory, excluding size-prohibitive packages.
+
+    Filters at tarball creation time rather than constraining pip resolution,
+    because pip constraints (`<0.0.0a0`) break resolution for any package that
+    transitively depends on excluded packages (ResolutionImpossible).
 
     Args:
         build_dir: Build directory to archive
         output_path: Output archive path
         app_name: Application name (unused, for compatibility)
+        excluded_packages: Package names to exclude from the archive
     """
+    # Build set of normalized names for fast lookup
+    excluded_normalized: set[str] = set()
+    if excluded_packages:
+        excluded_normalized = {_normalize_package_name(p) for p in excluded_packages}
+
+    def _is_excluded_top_dir(top_dir: str) -> bool:
+        """Check if a top-level directory should be excluded from the tarball."""
+        # Check package directories (e.g. "numpy", "torch")
+        if _normalize_package_name(top_dir) in excluded_normalized:
+            return True
+
+        # Check dist-info directories (e.g. "numpy-1.24.0.dist-info")
+        if top_dir.endswith(".dist-info"):
+            # dist-info format: "package_name-version.dist-info"
+            # Strip suffix, then split package name from version at first digit segment
+            stem = top_dir.removesuffix(".dist-info")
+            # Find the last hyphen followed by a digit (version separator)
+            match = re.search(r"-\d", stem)
+            dist_name = stem[: match.start()] if match else stem
+            if _normalize_package_name(dist_name) in excluded_normalized:
+                return True
+
+        return False
+
     # Remove existing archive
     if output_path.exists():
         output_path.unlink()
 
-    # Create tarball with build directory contents at root level
+    # Create tarball with build directory contents at root level.
+    # Walk manually instead of tar.add(recursive=True) so we can skip entire
+    # excluded directory trees without relying on filter= behavior across
+    # Python versions.
     with tarfile.open(output_path, "w:gz") as tar:
-        tar.add(build_dir, arcname=".")
+        tar.add(build_dir, arcname=".", recursive=False)
+        for item in sorted(build_dir.iterdir()):
+            rel = item.relative_to(build_dir)
+            top_dir = rel.parts[0]
+            if excluded_normalized and _is_excluded_top_dir(top_dir):
+                continue
+            arcname = f"./{rel}"
+            tar.add(str(item), arcname=arcname)
 
 
 def cleanup_build_directory(build_base: Path) -> None:

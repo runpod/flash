@@ -9,6 +9,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from runpod_flash.core.resources.constants import (
+    DEFAULT_PYTHON_VERSION,
+    GPU_BASE_IMAGE_PYTHON_VERSION,
+)
+
 from .scanner import (
     RemoteFunctionMetadata,
     file_to_module_path,
@@ -18,6 +23,24 @@ from .scanner import (
 logger = logging.getLogger(__name__)
 
 RESERVED_PATHS = ["/execute", "/ping"]
+
+
+def _serialize_network_volume(nv) -> dict:
+    """Serialize a NetworkVolume to a manifest-safe dict."""
+    nv_config: dict = {}
+    if nv.name is not None:
+        nv_config["name"] = nv.name
+    if getattr(nv, "id", None) is not None:
+        nv_config["id"] = nv.id
+    if nv.size is not None:
+        nv_config["size"] = nv.size
+    if hasattr(nv, "dataCenterId") and nv.dataCenterId is not None:
+        nv_config["dataCenterId"] = (
+            nv.dataCenterId.value
+            if hasattr(nv.dataCenterId, "value")
+            else nv.dataCenterId
+        )
+    return nv_config
 
 
 @dataclass
@@ -64,6 +87,7 @@ class ManifestBuilder:
         remote_functions: List[RemoteFunctionMetadata],
         scanner=None,
         build_dir: Optional[Path] = None,
+        python_version: Optional[str] = None,
     ):
         self.project_name = project_name
         self.remote_functions = remote_functions
@@ -71,177 +95,196 @@ class ManifestBuilder:
             scanner  # Optional: RemoteDecoratorScanner with resource config info
         )
         self.build_dir = build_dir
+        self.python_version = (
+            python_version or f"{sys.version_info.major}.{sys.version_info.minor}"
+        )
+
+    def _import_module(self, file_path: Path):
+        """Import a module from file path, returning (module, cleanup_fn).
+
+        Caller must invoke cleanup_fn when done with the module.
+        Returns (None, noop) if the module cannot be loaded or executed.
+        """
+        noop = lambda: None  # noqa: E731
+        spec = importlib.util.spec_from_file_location(file_path.stem, file_path)
+        if not spec or not spec.loader:
+            return None, noop
+
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+
+        parent_dir = str(file_path.parent)
+        added_to_path = parent_dir not in sys.path
+        if added_to_path:
+            sys.path.insert(0, parent_dir)
+
+        def cleanup():
+            if spec.name in sys.modules:
+                del sys.modules[spec.name]
+            if added_to_path:
+                try:
+                    sys.path.remove(parent_dir)
+                except ValueError:
+                    pass
+
+        try:
+            spec.loader.exec_module(module)
+        except Exception:
+            cleanup()
+            return None, noop
+
+        return module, cleanup
 
     def _extract_deployment_config(
         self, resource_name: str, config_variable: Optional[str], resource_type: str
     ) -> Dict[str, Any]:
-        """Extract deployment config (imageName, templateId, etc.) from resource object.
+        """Extract deployment config by importing the source module.
 
-        Args:
-            resource_name: Name of the resource
-            config_variable: Variable name of the resource config (e.g., "gpu_config")
-            resource_type: Type of the resource (e.g., "LiveServerless")
-
-        Returns:
-            Dictionary with deployment config (may be empty if resource not found)
+        Finds the source file by matching ``resource_config_name``, imports it,
+        then reads the resource config object. For resources with a
+        ``config_variable`` (e.g. ``gpu_config = LiveServerless(...)``), reads
+        the named module attribute. For inline ``@Endpoint(...)`` decorators
+        (no config_variable), reads ``__remote_config__`` from the decorated
+        function. Both paths produce a fully-resolved config object with enum
+        expansion and validation already applied.
         """
-        config = {}
+        config: Dict[str, Any] = {}
 
-        # If no scanner or config variable, can't extract deployment config
-        if not self.scanner or not config_variable:
+        # find the source file by resource name, not config_variable,
+        # to avoid collisions when multiple files use the same variable name
+        func_meta = None
+        for func in self.remote_functions:
+            if func.resource_config_name == resource_name:
+                func_meta = func
+                break
+
+        if func_meta is None or not func_meta.file_path:
+            return config
+        if not func_meta.file_path.exists():
             return config
 
         try:
-            # Get the module where this resource is defined
-            # Try to find it in the scanner's discovered files
-            resource_file = None
-            for func in self.remote_functions:
-                if func.config_variable == config_variable:
-                    resource_file = func.file_path
-                    break
-
-            if not resource_file or not resource_file.exists():
+            module, cleanup = self._import_module(func_meta.file_path)
+            if module is None:
                 return config
-
-            # Dynamically import the module and extract the resource config
-            spec = importlib.util.spec_from_file_location(
-                resource_file.stem, resource_file
-            )
-            if not spec or not spec.loader:
-                return config
-
-            module = importlib.util.module_from_spec(spec)
-            # Add module to sys.modules temporarily to allow relative imports
-            sys.modules[spec.name] = module
-
-            # Add parent directory to sys.path so sibling imports resolve
-            parent_dir = str(resource_file.parent)
-            added_to_path = parent_dir not in sys.path
-            if added_to_path:
-                sys.path.insert(0, parent_dir)
 
             try:
-                spec.loader.exec_module(module)
+                resource_config = None
 
-                # Get the resource config object
-                if hasattr(module, config_variable):
+                if config_variable and hasattr(module, config_variable):
                     resource_config = getattr(module, config_variable)
+                else:
+                    # inline @Endpoint() -- read __remote_config__ from the function
+                    fn = getattr(module, func_meta.function_name, None)
+                    if fn is not None:
+                        remote_cfg = getattr(fn, "__remote_config__", None)
+                        if isinstance(remote_cfg, dict):
+                            resource_config = remote_cfg.get("resource_config")
 
-                    # if the config is an Endpoint facade, unwrap to the
-                    # internal resource config for property extraction
-                    if hasattr(resource_config, "_build_resource_config"):
-                        resource_config = resource_config._build_resource_config()
+                if resource_config is None:
+                    return config
 
-                    # Extract deployment config properties
-                    if (
-                        hasattr(resource_config, "imageName")
-                        and resource_config.imageName
-                    ):
-                        config["imageName"] = resource_config.imageName
+                # unwrap Endpoint facade to the internal resource config
+                if hasattr(resource_config, "_build_resource_config"):
+                    resource_config = resource_config._build_resource_config()
 
-                    if (
-                        hasattr(resource_config, "templateId")
-                        and resource_config.templateId
-                    ):
-                        config["templateId"] = resource_config.templateId
-
-                    if hasattr(resource_config, "gpuIds") and resource_config.gpuIds:
-                        config["gpuIds"] = resource_config.gpuIds
-
-                    if hasattr(resource_config, "workersMin"):
-                        config["workersMin"] = resource_config.workersMin
-
-                    if hasattr(resource_config, "workersMax"):
-                        config["workersMax"] = resource_config.workersMax
-
-                    if (
-                        hasattr(resource_config, "scalerType")
-                        and resource_config.scalerType is not None
-                    ):
-                        val = resource_config.scalerType
-                        config["scalerType"] = (
-                            val.value if hasattr(val, "value") else val
-                        )
-
-                    if (
-                        hasattr(resource_config, "scalerValue")
-                        and resource_config.scalerValue is not None
-                    ):
-                        config["scalerValue"] = resource_config.scalerValue
-
-                    if hasattr(resource_config, "env") and resource_config.env:
-                        env_dict = dict(resource_config.env)
-                        env_dict.pop("RUNPOD_API_KEY", None)
-                        if env_dict:
-                            config["env"] = env_dict
-
-                    # Extract networkVolume configuration if present
-                    if (
-                        hasattr(resource_config, "networkVolume")
-                        and resource_config.networkVolume
-                    ):
-                        nv = resource_config.networkVolume
-                        nv_config = {"name": nv.name}
-                        if nv.size is not None:
-                            nv_config["size"] = nv.size
-                        if hasattr(nv, "dataCenterId") and nv.dataCenterId is not None:
-                            nv_config["dataCenterId"] = (
-                                nv.dataCenterId.value
-                                if hasattr(nv.dataCenterId, "value")
-                                else nv.dataCenterId
-                            )
-                        config["networkVolume"] = nv_config
-
-                    elif (
-                        hasattr(resource_config, "networkVolumeId")
-                        and resource_config.networkVolumeId
-                    ):
-                        config["networkVolumeId"] = resource_config.networkVolumeId
-
-                    # Extract template configuration if present
-                    if (
-                        hasattr(resource_config, "template")
-                        and resource_config.template
-                    ):
-                        template_obj = resource_config.template
-                        template_config = {}
-
-                        # Extract only the configurable template fields
-                        if hasattr(template_obj, "containerDiskInGb"):
-                            template_config["containerDiskInGb"] = (
-                                template_obj.containerDiskInGb
-                            )
-                        if hasattr(template_obj, "dockerArgs"):
-                            template_config["dockerArgs"] = template_obj.dockerArgs
-                        if hasattr(template_obj, "startScript"):
-                            template_config["startScript"] = template_obj.startScript
-                        if hasattr(template_obj, "advancedStart"):
-                            template_config["advancedStart"] = (
-                                template_obj.advancedStart
-                            )
-                        if hasattr(template_obj, "containerRegistryAuthId"):
-                            template_config["containerRegistryAuthId"] = (
-                                template_obj.containerRegistryAuthId
-                            )
-
-                        if template_config:
-                            config["template"] = template_config
-
+                self._extract_config_properties(config, resource_config)
             finally:
-                # Clean up module from sys.modules to avoid conflicts
-                if spec.name in sys.modules:
-                    del sys.modules[spec.name]
-                if added_to_path:
-                    try:
-                        sys.path.remove(parent_dir)
-                    except ValueError:
-                        pass
+                cleanup()
 
         except Exception as e:
-            # Log warning but don't fail - deployment config is optional
             logger.debug(
                 f"Failed to extract deployment config for {resource_name}: {e}"
             )
+
+        return config
+
+    @staticmethod
+    def _extract_config_properties(config: Dict[str, Any], resource_config) -> None:
+        """Read deployment properties from a resource config object into config dict."""
+        if hasattr(resource_config, "imageName") and resource_config.imageName:
+            config["imageName"] = resource_config.imageName
+
+        if hasattr(resource_config, "templateId") and resource_config.templateId:
+            config["templateId"] = resource_config.templateId
+
+        if hasattr(resource_config, "gpuIds") and resource_config.gpuIds:
+            config["gpuIds"] = resource_config.gpuIds
+
+        if hasattr(resource_config, "instanceIds") and resource_config.instanceIds:
+            config["instanceIds"] = [
+                i.value if hasattr(i, "value") else str(i)
+                for i in resource_config.instanceIds
+            ]
+
+        if hasattr(resource_config, "workersMin"):
+            config["workersMin"] = resource_config.workersMin
+
+        if hasattr(resource_config, "workersMax"):
+            config["workersMax"] = resource_config.workersMax
+
+        if (
+            hasattr(resource_config, "scalerType")
+            and resource_config.scalerType is not None
+        ):
+            val = resource_config.scalerType
+            config["scalerType"] = val.value if hasattr(val, "value") else val
+
+        if (
+            hasattr(resource_config, "scalerValue")
+            and resource_config.scalerValue is not None
+        ):
+            config["scalerValue"] = resource_config.scalerValue
+
+        if hasattr(resource_config, "locations") and resource_config.locations:
+            config["locations"] = resource_config.locations
+
+        if hasattr(resource_config, "env") and resource_config.env:
+            env_dict = dict(resource_config.env)
+            env_dict.pop("RUNPOD_API_KEY", None)
+            if env_dict:
+                config["env"] = env_dict
+
+        if (
+            hasattr(resource_config, "networkVolumes")
+            and resource_config.networkVolumes
+        ):
+            config["networkVolumes"] = [
+                _serialize_network_volume(nv) for nv in resource_config.networkVolumes
+            ]
+
+        elif (
+            hasattr(resource_config, "networkVolume") and resource_config.networkVolume
+        ):
+            config["networkVolume"] = _serialize_network_volume(
+                resource_config.networkVolume
+            )
+
+        elif (
+            hasattr(resource_config, "networkVolumeId")
+            and resource_config.networkVolumeId
+        ):
+            config["networkVolumeId"] = resource_config.networkVolumeId
+
+        if hasattr(resource_config, "template") and resource_config.template:
+            template_obj = resource_config.template
+            template_config = {}
+
+            if hasattr(template_obj, "containerDiskInGb"):
+                template_config["containerDiskInGb"] = template_obj.containerDiskInGb
+            if hasattr(template_obj, "dockerArgs"):
+                template_config["dockerArgs"] = template_obj.dockerArgs
+            if hasattr(template_obj, "startScript"):
+                template_config["startScript"] = template_obj.startScript
+            if hasattr(template_obj, "advancedStart"):
+                template_config["advancedStart"] = template_obj.advancedStart
+            if hasattr(template_obj, "containerRegistryAuthId"):
+                template_config["containerRegistryAuthId"] = (
+                    template_obj.containerRegistryAuthId
+                )
+
+            if template_config:
+                config["template"] = template_config
 
         return config
 
@@ -362,6 +405,20 @@ class ManifestBuilder:
             # Determine if this resource makes remote calls
             makes_remote_calls = any(func.calls_remote_functions for func in functions)
 
+            # One tarball serves all resources, so target_python_version must agree.
+            # GPU resources are pinned to the base image's Python; CPU resources
+            # use DEFAULT_PYTHON_VERSION (aligned to GPU to avoid ABI mismatch).
+            _GPU_RESOURCE_TYPES = {
+                "LiveServerless",
+                "LiveLoadBalancer",
+                "LoadBalancerSlsResource",
+                "ServerlessEndpoint",
+            }
+            if resource_type in _GPU_RESOURCE_TYPES:
+                target_python_version = GPU_BASE_IMAGE_PYTHON_VERSION
+            else:
+                target_python_version = DEFAULT_PYTHON_VERSION
+
             resources_dict[resource_name] = {
                 "resource_type": resource_type,
                 "file_path": file_path_str,
@@ -372,6 +429,7 @@ class ManifestBuilder:
                 "is_live_resource": is_live_resource,
                 "config_variable": config_variable,
                 "makes_remote_calls": makes_remote_calls,
+                "target_python_version": target_python_version,
                 **deployment_config,  # Include imageName, templateId, gpuIds, workers config
             }
 
@@ -395,6 +453,7 @@ class ManifestBuilder:
 
         manifest = {
             "version": "1.0",
+            "python_version": self.python_version,
             "generated_at": datetime.now(timezone.utc)
             .isoformat()
             .replace("+00:00", "Z"),

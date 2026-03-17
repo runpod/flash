@@ -1,6 +1,6 @@
 [project]
 name = "runpod-flash"
-version = "1.6.0"
+version = "1.10.0"
 description = "A Python library for distributed inference and serving of machine learning models"
 authors = [
     { name = "Runpod", email = "engineer@runpod.io" },
@@ -8,12 +8,12 @@ authors = [
 readme = "README.md"
 license = { text = "MIT" }
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
-requires-python = ">=3.10,<3.15"
+requires-python = ">=3.10,<3.13"
 
 dependencies = [
     "cloudpickle>=3.1.1",
