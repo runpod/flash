@@ -20,6 +20,7 @@ _DEPRECATED_CLASSES = [
 _NON_DEPRECATED = [
     "Endpoint",
     "EndpointJob",
+    "CPU_DATACENTERS",
     "CpuInstanceType",
     "CudaVersion",
     "DataCenter",

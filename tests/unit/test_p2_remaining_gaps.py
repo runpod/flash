@@ -234,16 +234,26 @@ class TestServerlessResourceEnvLoading:
 
 
 class TestNetworkVolumeEmptyName:
-    """NetworkVolume behaviour when name is the empty string."""
+    """NetworkVolume behaviour when name is empty or missing."""
 
-    def test_network_volume_with_empty_name_does_not_raise(self):
-        """VOL-006: Pydantic model accepts empty name= (no validator rejects it)."""
+    def test_network_volume_with_empty_name_and_no_id_raises(self):
+        """VOL-006: empty name with no id raises ValidationError."""
+        from pydantic import ValidationError
+
         from runpod_flash.core.resources.network_volume import NetworkVolume
 
-        # According to the source, name: str with no empty-string validator.
-        # Construction should succeed.
-        vol = NetworkVolume(name="")
-        assert vol.name == ""
+        with pytest.raises(
+            ValidationError, match="either 'name' or 'id' must be provided"
+        ):
+            NetworkVolume(name="")
+
+    def test_network_volume_with_id_only(self):
+        """VOL-006: id-only construction succeeds without name."""
+        from runpod_flash.core.resources.network_volume import NetworkVolume
+
+        vol = NetworkVolume(id="vol_abc123")
+        assert vol.id == "vol_abc123"
+        assert vol.name is None
 
     def test_network_volume_non_empty_name_works(self):
         """VOL-006 (positive): Non-empty name constructs fine."""
@@ -267,14 +277,12 @@ class TestNetworkVolumeEmptyName:
         """VOL-006: _find_existing_volume returns None immediately when name is empty."""
         from runpod_flash.core.resources.network_volume import NetworkVolume
 
-        vol = NetworkVolume(name="")
+        vol = NetworkVolume(id="vol_abc123")
 
-        # _find_existing_volume is an async method; we run it with a mock client.
         mock_client = MagicMock()
 
         result = await vol._find_existing_volume(mock_client)
         assert result is None
-        # list_network_volumes should NOT have been called.
         mock_client.list_network_volumes.assert_not_called()
 
 

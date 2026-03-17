@@ -145,9 +145,17 @@ def create_resource_from_manifest(
         deployment_kwargs["instanceIds"] = resource_data["instanceIds"]
     if "idleTimeout" in resource_data:
         deployment_kwargs["idleTimeout"] = resource_data["idleTimeout"]
+    if "locations" in resource_data:
+        deployment_kwargs["locations"] = resource_data["locations"]
 
-    # Reconstruct NetworkVolume from manifest data if present
-    if "networkVolume" in resource_data:
+    # Reconstruct NetworkVolume(s) from manifest data if present
+    if "networkVolumes" in resource_data:
+        from runpod_flash.core.resources.network_volume import NetworkVolume
+
+        deployment_kwargs["networkVolumes"] = [
+            NetworkVolume(**nv) for nv in resource_data["networkVolumes"]
+        ]
+    elif "networkVolume" in resource_data:
         from runpod_flash.core.resources.network_volume import NetworkVolume
 
         nv_data = resource_data["networkVolume"]

@@ -621,6 +621,99 @@ def test_extract_deployment_config_network_volume_minimal():
         assert config["networkVolume"]["dataCenterId"] == "EU-RO-1"
 
 
+def test_extract_deployment_config_includes_network_volumes():
+    """networkVolumes list is extracted from resource config."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project_dir = Path(tmpdir)
+
+        resource_py = project_dir / "resource.py"
+        resource_py.write_text(
+            "from runpod_flash import NetworkVolume\n"
+            "from runpod_flash.core.resources.network_volume import DataCenter\n"
+            "\n"
+            "class gpu_config:\n"
+            '    imageName = "test-image"\n'
+            "    networkVolumes = [\n"
+            "        NetworkVolume(\n"
+            '            name="vol-eu",\n'
+            "            size=100,\n"
+            "            dataCenterId=DataCenter.EU_RO_1,\n"
+            "        ),\n"
+            "        NetworkVolume(\n"
+            '            name="vol-us",\n'
+            "            size=200,\n"
+            "            dataCenterId=DataCenter.US_GA_2,\n"
+            "        ),\n"
+            "    ]\n"
+        )
+
+        functions = [
+            RemoteFunctionMetadata(
+                function_name="my_func",
+                module_path="resource",
+                resource_config_name="gpu_config",
+                resource_type="LiveServerless",
+                is_async=False,
+                is_class=False,
+                file_path=resource_py,
+                config_variable="gpu_config",
+            )
+        ]
+
+        scanner = MagicMock()
+        builder = ManifestBuilder("test_app", functions, scanner=scanner)
+        config = builder._extract_deployment_config(
+            "gpu_config", "gpu_config", "LiveServerless"
+        )
+
+        assert "networkVolumes" in config
+        assert len(config["networkVolumes"]) == 2
+        assert config["networkVolumes"][0]["name"] == "vol-eu"
+        assert config["networkVolumes"][0]["dataCenterId"] == "EU-RO-1"
+        assert config["networkVolumes"][1]["name"] == "vol-us"
+        assert config["networkVolumes"][1]["size"] == 200
+        assert config["networkVolumes"][1]["dataCenterId"] == "US-GA-2"
+        assert "networkVolume" not in config
+
+
+def test_extract_deployment_config_network_volumes_id_only():
+    """networkVolumes with id-only volumes are serialized correctly."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project_dir = Path(tmpdir)
+
+        resource_py = project_dir / "resource.py"
+        resource_py.write_text(
+            "from runpod_flash import NetworkVolume\n"
+            "\n"
+            "class gpu_config:\n"
+            '    imageName = "test-image"\n'
+            '    networkVolumes = [NetworkVolume(id="vol_abc123")]\n'
+        )
+
+        functions = [
+            RemoteFunctionMetadata(
+                function_name="my_func",
+                module_path="resource",
+                resource_config_name="gpu_config",
+                resource_type="LiveServerless",
+                is_async=False,
+                is_class=False,
+                file_path=resource_py,
+                config_variable="gpu_config",
+            )
+        ]
+
+        scanner = MagicMock()
+        builder = ManifestBuilder("test_app", functions, scanner=scanner)
+        config = builder._extract_deployment_config(
+            "gpu_config", "gpu_config", "LiveServerless"
+        )
+
+        assert "networkVolumes" in config
+        assert len(config["networkVolumes"]) == 1
+        assert config["networkVolumes"][0]["id"] == "vol_abc123"
+
+
 # --- Tests for inline @Endpoint() deployment config extraction ---
 
 

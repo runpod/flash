@@ -1,4 +1,4 @@
-__version__ = "1.9.1"  # x-release-please-version
+__version__ = "1.10.0"  # x-release-please-version
 
 # Load .env vars from file before everything else
 from dotenv import load_dotenv
@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from .client import remote
     from .endpoint import Endpoint, EndpointJob
     from .core.resources import (
+        CPU_DATACENTERS,
         CpuInstanceType,
         CpuLiveLoadBalancer,
         CpuLiveServerless,
@@ -58,6 +59,7 @@ _DEPRECATED_RESOURCE_CLASSES = frozenset(
 
 _RESOURCE_NAMES = frozenset(
     {
+        "CPU_DATACENTERS",
         "CpuInstanceType",
         "CpuLiveLoadBalancer",
         "CpuLiveServerless",
@@ -104,6 +106,7 @@ def __getattr__(name):
         return remote
     elif name in _RESOURCE_NAMES:
         from .core.resources import (
+            CPU_DATACENTERS,
             CpuInstanceType,
             CpuLiveLoadBalancer,
             CpuLiveServerless,
@@ -126,6 +129,7 @@ def __getattr__(name):
         )
 
         attrs = {
+            "CPU_DATACENTERS": CPU_DATACENTERS,
             "CpuInstanceType": CpuInstanceType,
             "CpuLiveLoadBalancer": CpuLiveLoadBalancer,
             "CpuLiveServerless": CpuLiveServerless,
@@ -173,6 +177,7 @@ __all__ = [
     "Endpoint",
     "EndpointJob",
     "remote",
+    "CPU_DATACENTERS",
     "CpuInstanceType",
     "CpuLiveLoadBalancer",
     "CpuLiveServerless",
