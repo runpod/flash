@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from importlib import resources
 from pathlib import Path
+
+from .context import render_dynamic_context
 
 logger = logging.getLogger(__name__)
 
@@ -113,3 +116,31 @@ def generate_agent_files(project_dir: Path, version: str) -> list[str]:
         written.append(".flash/context.md")
 
     return written
+
+
+def _find_manifest(project_dir: Path) -> Path | None:
+    """Find flash_manifest.json in known locations."""
+    candidates = [
+        project_dir / "flash_manifest.json",
+        project_dir / ".flash" / "flash_manifest.json",
+    ]
+    for path in candidates:
+        if path.exists():
+            return path
+    return None
+
+
+def update_dynamic_context(project_dir: Path) -> None:
+    """Update .flash/context.md from the project manifest."""
+    manifest_path = _find_manifest(project_dir)
+    context_dir = project_dir / ".flash"
+    context_dir.mkdir(parents=True, exist_ok=True)
+    context_file = context_dir / "context.md"
+
+    if manifest_path is not None:
+        manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        content = render_dynamic_context(manifest_data)
+        context_file.write_text(content, encoding="utf-8")
+    else:
+        if not context_file.exists():
+            context_file.write_text(CONTEXT_PLACEHOLDER, encoding="utf-8")
