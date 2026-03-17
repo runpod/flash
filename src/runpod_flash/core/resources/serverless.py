@@ -24,6 +24,7 @@ from .environment import EnvironmentVars
 from .cpu import CpuInstanceType
 from .gpu import GpuGroup, GpuType
 from .network_volume import NetworkVolume, DataCenter
+from .request_logs import QBRequestLogFetcher
 from .template import KeyValuePair, PodTemplate
 from .resource_manager import ResourceManager
 
@@ -204,6 +205,27 @@ class ServerlessResource(DeployableResource):
     def endpoint_url(self) -> str:
         base_url = self.endpoint.rp_client.endpoint_url_base
         return f"{base_url}/{self.id}"
+
+    async def _emit_endpoint_logs(
+        self,
+        fetcher: QBRequestLogFetcher,
+    ):
+        if self.type != ServerlessType.QB:
+            return
+
+        if not self.id or not self.aiKey:
+            return
+
+        batch = await fetcher.fetch_logs(
+            endpoint_id=self.id,
+            endpoint_ai_key=self.aiKey,
+        )
+        if not batch:
+            return False
+
+        if batch.lines:
+            for line in batch.lines:
+                print(f"worker log: {line}")
 
     @field_serializer("scalerType")
     def serialize_scaler_type(
@@ -930,8 +952,6 @@ class ServerlessResource(DeployableResource):
         job: Optional[Job] = None
 
         try:
-            # log.debug(f"[{self}] Payload: {payload}")
-
             # Create a job using the endpoint
             log.info(f"{self} | API /run")
             job = await asyncio.to_thread(self.endpoint.run, request_input=payload)
@@ -944,6 +964,7 @@ class ServerlessResource(DeployableResource):
             attempt = 0
             job_status = Status.UNKNOWN
             last_status = job_status
+            fetcher = QBRequestLogFetcher()
 
             # Poll for job status
             while True:
@@ -963,13 +984,30 @@ class ServerlessResource(DeployableResource):
                     log.info(f"{log_subgroup} | Status: {job_status}")
                     attempt = 0
 
+                await self._emit_endpoint_logs(
+                    fetcher=fetcher,
+                )
+
                 last_status = job_status
 
                 # Adjust polling pace appropriately
-                current_pace = get_backoff_delay(attempt)
+                current_pace = get_backoff_delay(attempt, max_seconds=5)
 
                 if job_status in ("COMPLETED", "FAILED", "CANCELLED"):
                     response = await asyncio.to_thread(job._fetch_job)
+                    output = response.get("output")
+                    if isinstance(output, dict):
+                        stdout = output.get("stdout")
+                        if isinstance(stdout, str):
+                            kept = []
+                            for raw in stdout.splitlines():
+                                raw = raw.strip()
+                                if not raw:
+                                    continue
+                                if raw in fetcher.seen:
+                                    continue
+                                kept.append(raw)
+                            output["stdout"] = "\n".join(kept)
                     return JobOutput(**response)
 
         except Exception as e:
