@@ -1,5 +1,6 @@
 """Tests for flash init command."""
 
+from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -317,3 +318,25 @@ class TestInitCommandProjectNameHandling:
         assert (tmp_path / "my_awesome_project").exists()
         # Verify it's a directory
         assert (tmp_path / "my_awesome_project").is_dir()
+
+
+class TestInitGeneratesAgentFiles:
+    def test_init_calls_generate_agent_files(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+
+        with (
+            patch("runpod_flash.cli.commands.init.generate_agent_files") as mock_gen,
+            patch("runpod_flash.cli.commands.init._get_version", return_value="1.9.1"),
+            patch("runpod_flash.cli.commands.init.create_project_skeleton"),
+            patch(
+                "runpod_flash.cli.commands.init.detect_file_conflicts", return_value=[]
+            ),
+            patch("runpod_flash.cli.commands.init.console"),
+        ):
+            init_command("test_project")
+
+        # init_command uses Path(project_name) which is relative
+        mock_gen.assert_called_once()
+        call_args = mock_gen.call_args[0]
+        assert call_args[0] == Path("test_project")
+        assert call_args[1] == "1.9.1"
