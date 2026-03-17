@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.10.0](https://github.com/runpod/flash/compare/v1.9.1...v1.10.0) (2026-03-17)
+
+
+### Features
+
+* enable multi-datacenter support ([#266](https://github.com/runpod/flash/issues/266)) ([5631c32](https://github.com/runpod/flash/commit/5631c322be301ab06a4dded60aed1b9026c1c1f2))
+
 ## [1.9.1](https://github.com/runpod/flash/compare/v1.9.0...v1.9.1) (2026-03-12)
 
 
