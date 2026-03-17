@@ -1,5 +1,6 @@
 """Tests for the rules engine — reading and marker injection logic."""
 
+import json
 from pathlib import Path
 
 from runpod_flash.rules.engine import (
@@ -7,6 +8,7 @@ from runpod_flash.rules.engine import (
     generate_agent_files,
     inject_rules_section,
     read_static_rules,
+    update_dynamic_context,
 )
 
 
@@ -135,6 +137,73 @@ class TestGenerateAgentFiles:
 
     def test_generates_placeholder_context_file(self, tmp_path: Path):
         generate_agent_files(tmp_path, "1.9.1")
+        context_file = tmp_path / ".flash" / "context.md"
+        assert context_file.exists()
+        content = context_file.read_text()
+        assert "flash run" in content or "flash build" in content
+
+
+class TestUpdateDynamicContext:
+    def test_writes_context_file_from_manifest(self, tmp_path: Path):
+        manifest_data = {
+            "version": "1.0",
+            "resources": {
+                "worker": {
+                    "resource_type": "LiveServerless",
+                    "file_path": "worker.py",
+                    "functions": [
+                        {
+                            "name": "run",
+                            "module": "worker",
+                            "is_async": True,
+                            "is_class": False,
+                        }
+                    ],
+                    "is_load_balanced": False,
+                    "makes_remote_calls": False,
+                }
+            },
+            "function_registry": {"run": "worker"},
+        }
+        # Test root-level manifest location
+        manifest_path = tmp_path / "flash_manifest.json"
+        manifest_path.write_text(json.dumps(manifest_data))
+
+        update_dynamic_context(tmp_path)
+
+        context_file = tmp_path / ".flash" / "context.md"
+        assert context_file.exists()
+        content = context_file.read_text()
+        assert "worker" in content
+        assert "Auto-generated" in content
+
+    def test_finds_manifest_in_dot_flash(self, tmp_path: Path):
+        manifest_data = {
+            "version": "1.0",
+            "resources": {
+                "gpu": {
+                    "resource_type": "LiveServerless",
+                    "file_path": "gpu.py",
+                    "functions": [],
+                    "is_load_balanced": False,
+                    "makes_remote_calls": False,
+                }
+            },
+            "function_registry": {},
+        }
+        manifest_path = tmp_path / ".flash" / "flash_manifest.json"
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text(json.dumps(manifest_data))
+
+        update_dynamic_context(tmp_path)
+
+        context_file = tmp_path / ".flash" / "context.md"
+        assert context_file.exists()
+        assert "gpu" in context_file.read_text()
+
+    def test_no_manifest_writes_placeholder(self, tmp_path: Path):
+        update_dynamic_context(tmp_path)
+
         context_file = tmp_path / ".flash" / "context.md"
         assert context_file.exists()
         content = context_file.read_text()
