@@ -351,7 +351,7 @@ class TestInitGeneratesAgentFiles:
             ),
             patch("runpod_flash.cli.commands.init.console"),
         ):
-            init_command("test_project")
+            init_command("test_project", no_rules=False)
 
         # init_command uses Path(project_name) which is relative
         mock_gen.assert_called_once()

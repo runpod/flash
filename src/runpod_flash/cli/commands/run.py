@@ -1056,6 +1056,10 @@ def run_command(
 
     set_name_width([w.resource_name for w in workers])
     update_dynamic_context(Path.cwd())
+    try:
+        update_dynamic_context(Path.cwd())
+    except Exception:
+        logger.warning("Failed to update agent dynamic context", exc_info=True)
 
     _print_startup_table(workers, host, port)
 
