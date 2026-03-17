@@ -175,7 +175,8 @@ cython_debug/
 .pypirc
 .DS_Store
 
-# Flash state
+# Runpod Flash state
+.runpod/
 .flash/
 
 # Code intelligence
