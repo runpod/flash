@@ -116,13 +116,28 @@ class TestInitCommandNoArgs:
         with pytest.raises(typer.Exit):
             init_command(mock_typer_ctx, None)
 
-        # Verify console.print was called with help text and markup disabled
+        # Verify ctx.get_help() was called and passed to console.print
+        mock_typer_ctx.get_help.assert_called_once()
         mock_context["console"].print.assert_called_once()
         help_arg = mock_context["console"].print.call_args[0][0]
         assert "flash init" in help_arg
         kwargs = mock_context["console"].print.call_args[1]
         assert kwargs.get("markup") is False
         assert kwargs.get("highlight") is False
+
+
+class TestInitCommandCliRunner:
+    """CLI-level test to verify Typer context injection works end-to-end."""
+
+    def test_no_args_via_cli(self):
+        """flash init with no args should show help and exit 0 via CLI."""
+        from typer.testing import CliRunner
+
+        from runpod_flash.cli.main import app
+
+        result = CliRunner().invoke(app, ["init"])
+        assert result.exit_code == 0
+        assert "flash init" in result.output.lower()
 
 
 class TestInitCommandCurrentDirectory:
