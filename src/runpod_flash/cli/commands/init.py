@@ -24,7 +24,7 @@ def init_command(
 
     # No argument provided — show usage and exit
     if project_name is None:
-        console.print(ctx.get_help())
+        console.print(ctx.get_help(), markup=False, highlight=False)
         raise typer.Exit(0)
 
     # Determine target directory and initialization mode

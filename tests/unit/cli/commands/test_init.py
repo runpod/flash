@@ -116,10 +116,13 @@ class TestInitCommandNoArgs:
         with pytest.raises(typer.Exit):
             init_command(mock_typer_ctx, None)
 
-        # Verify console.print was called with help text
+        # Verify console.print was called with help text and markup disabled
         mock_context["console"].print.assert_called_once()
         help_arg = mock_context["console"].print.call_args[0][0]
         assert "flash init" in help_arg
+        kwargs = mock_context["console"].print.call_args[1]
+        assert kwargs.get("markup") is False
+        assert kwargs.get("highlight") is False
 
 
 class TestInitCommandCurrentDirectory:
