@@ -152,5 +152,11 @@ MAX_TARBALL_SIZE_MB = 1500  # Maximum tarball size in megabytes
 VALID_TARBALL_EXTENSIONS = (".tar.gz", ".tgz")  # Valid tarball file extensions
 GZIP_MAGIC_BYTES = (0x1F, 0x8B)  # Magic bytes for gzip files
 
+# tarball upload retry/timeout settings
+UPLOAD_TIMEOUT_SECONDS = 600  # 10 minutes per attempt
+UPLOAD_MAX_RETRIES = 3
+UPLOAD_BACKOFF_BASE_SECONDS = 2.0
+UPLOAD_BACKOFF_MAX_SECONDS = 30.0
+
 # Load balancer stub timeout (seconds)
 DEFAULT_LB_STUB_TIMEOUT = 60.0
