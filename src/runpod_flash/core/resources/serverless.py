@@ -945,8 +945,11 @@ class ServerlessResource(DeployableResource):
                         # caller provided explicit template env entries, those
                         # must not be silently dropped.
                         env_unchanged = self.env == new_config.env
+                        template_fields_set = getattr(
+                            new_config.template, "__pydantic_fields_set__", set()
+                        )
                         has_explicit_template_env = (
-                            not new_config.env and new_config.template.env is not None
+                            not new_config.env and "env" in template_fields_set
                         )
                         skip_env = env_unchanged and not has_explicit_template_env
 

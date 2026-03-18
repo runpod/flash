@@ -2211,3 +2211,62 @@ class TestBuildTemplateUpdatePayload:
         env_entries = template_payload["env"]
         explicit = [e for e in env_entries if e["key"] == "EXPLICIT_VAR"]
         assert len(explicit) == 1
+
+    @pytest.mark.asyncio
+    async def test_update_skips_env_for_default_template_env(self):
+        """update() skips env when template.env is the default empty list, not explicitly set.
+
+        PodTemplate.env defaults to []. Without __pydantic_fields_set__ checking,
+        `is not None` would always be True for the default, incorrectly forcing
+        skip_env=False and causing unnecessary rolling releases.
+        """
+        old_resource = ServerlessEndpoint(
+            name="update-default-tpl",
+            imageName="test:latest",
+            env={},
+            flashboot=False,
+        )
+        old_resource.id = "ep-default-tpl"
+        old_resource.templateId = "tpl-default-tpl"
+
+        # template with default env (not explicitly set)
+        new_resource = ServerlessEndpoint(
+            name="update-default-tpl",
+            imageName="test:latest",
+            env={},
+            flashboot=False,
+            template=PodTemplate(
+                name="default-tpl",
+                imageName="test:latest",
+            ),
+        )
+
+        mock_client = AsyncMock()
+        mock_client.save_endpoint = AsyncMock(
+            return_value={
+                "id": "ep-default-tpl",
+                "name": "update-default-tpl",
+                "templateId": "tpl-default-tpl",
+                "gpuIds": "AMPERE_48",
+                "allowedCudaVersions": "",
+            }
+        )
+        mock_client.update_template = AsyncMock(return_value={})
+
+        with patch(
+            "runpod_flash.core.resources.serverless.RunpodGraphQLClient"
+        ) as mock_client_class:
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+            mock_client_class.return_value.__aexit__.return_value = None
+
+            with patch.object(
+                ServerlessResource,
+                "_ensure_network_volume_deployed",
+                new=AsyncMock(),
+            ):
+                await old_resource.update(new_resource)
+
+        # env should be omitted (skip_env=True) because template.env was not
+        # explicitly set — it's just the default empty list.
+        template_payload = mock_client.update_template.call_args.args[0]
+        assert "env" not in template_payload
