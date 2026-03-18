@@ -24,7 +24,7 @@ def init_command(
 
     # No argument provided — show usage and exit
     if project_name is None:
-        console.print(Panel(ctx.get_help(), title="flash init", expand=False))
+        console.print(ctx.get_help())
         raise typer.Exit(0)
 
     # Determine target directory and initialization mode

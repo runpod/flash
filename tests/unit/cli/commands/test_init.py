@@ -4,7 +4,6 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 import typer
-from rich.panel import Panel
 
 from runpod_flash.cli.commands.init import init_command
 
@@ -117,11 +116,10 @@ class TestInitCommandNoArgs:
         with pytest.raises(typer.Exit):
             init_command(mock_typer_ctx, None)
 
-        # Verify console.print was called with a Panel containing usage info
+        # Verify console.print was called with help text
         mock_context["console"].print.assert_called_once()
-        panel_arg = mock_context["console"].print.call_args[0][0]
-        assert isinstance(panel_arg, Panel)
-        assert "flash init" in panel_arg.title
+        help_arg = mock_context["console"].print.call_args[0][0]
+        assert "flash init" in help_arg
 
 
 class TestInitCommandCurrentDirectory:
