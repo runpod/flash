@@ -261,7 +261,7 @@ def run_build(
         Path to the created artifact archive
 
     Raises:
-        typer.Exit: On build failure (including when archive exceeds 500 MB)
+        typer.Exit: On build failure (including when archive exceeds 1500 MB)
     """
     if not validate_project_structure(project_dir):
         console.print("[red]Error:[/red] Not a valid Flash project")
