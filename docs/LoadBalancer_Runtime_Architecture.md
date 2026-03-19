@@ -26,7 +26,7 @@ graph TD
 - Entrypoint: Loads manifest and starts FastAPI server on port 8000
 - Runpod exposes this via HTTPS endpoint URL
 - Health check: Runpod polls `/ping` every 30 seconds
-- Environment: `FLASH_MODULE_PATH` injected automatically, plus any explicit `env={}` vars
+- Environment: `FLASH_MODULE_PATH` injected automatically, `RUNPOD_API_KEY` injected when `makes_remote_calls=True`, plus any explicit `env={}` vars
 
 ### What Gets Deployed
 

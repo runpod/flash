@@ -1,7 +1,5 @@
 # Env Separation Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
-
 **Goal:** Stop auto-carrying `.env` file contents to deployed endpoints; make resource `env={}` the sole source of user-declared deploy-time env vars.
 
 **Architecture:** Remove `EnvironmentVars` class and `get_env_vars()`. Change `ServerlessResource.env` default to `None`. Add deploy-time env preview table with secret masking. Update docs and examples.

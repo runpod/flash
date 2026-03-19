@@ -239,7 +239,7 @@ class ManifestBuilder:
         if hasattr(resource_config, "locations") and resource_config.locations:
             config["locations"] = resource_config.locations
 
-        if hasattr(resource_config, "env") and resource_config.env:
+        if hasattr(resource_config, "env") and resource_config.env is not None:
             config["env"] = dict(resource_config.env)
 
         if (
