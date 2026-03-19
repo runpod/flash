@@ -5,10 +5,14 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from requests.exceptions import ConnectionError as RequestsConnectionError
+from requests.exceptions import SSLError, Timeout
 
 from runpod_flash.core.resources.app import (
     FlashApp,
     FlashEnvironmentNotFoundError,
+    _is_cert_verification_error,
+    _upload_tarball,
     _validate_exclusive_params,
     _validate_tarball_file,
 )
@@ -482,3 +486,166 @@ class TestFlashAppEnvironment:
 
             result = await app.create_environment("production")
             assert result["id"] == "env-new"
+
+
+class TestIsCertVerificationError:
+    """Test _is_cert_verification_error classifier."""
+
+    def test_detects_cert_verify_failed(self):
+        exc = SSLError(
+            "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: "
+            "unable to get local issuer certificate"
+        )
+        assert _is_cert_verification_error(exc) is True
+
+    def test_ignores_bad_record_mac(self):
+        exc = SSLError("[SSL: SSLV3_ALERT_BAD_RECORD_MAC] ssl/tls alert bad record mac")
+        assert _is_cert_verification_error(exc) is False
+
+    def test_ignores_generic_ssl_error(self):
+        exc = SSLError("connection reset by peer")
+        assert _is_cert_verification_error(exc) is False
+
+
+class TestUploadTarball:
+    """Test _upload_tarball retry and error handling."""
+
+    def _make_tarball(self, tmp_path: Path) -> Path:
+        tar_path = tmp_path / "build.tar.gz"
+        with gzip.open(tar_path, "wb") as f:
+            f.write(b"tarball content")
+        return tar_path
+
+    @patch("runpod_flash.core.resources.app.UPLOAD_MAX_RETRIES", 3)
+    def test_success_on_first_attempt(self, tmp_path):
+        tar_path = self._make_tarball(tmp_path)
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.close = MagicMock()
+
+        with patch("requests.put", return_value=mock_resp) as mock_put:
+            _upload_tarball(tar_path, "https://example.com/upload", 100)
+
+        mock_put.assert_called_once()
+        mock_resp.raise_for_status.assert_called_once()
+
+    @patch("runpod_flash.core.resources.app.UPLOAD_MAX_RETRIES", 3)
+    def test_retries_on_ssl_error_then_succeeds(self, tmp_path):
+        tar_path = self._make_tarball(tmp_path)
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.close = MagicMock()
+
+        ssl_exc = SSLError("[SSL: SSLV3_ALERT_BAD_RECORD_MAC] bad record mac")
+
+        with (
+            patch("requests.put", side_effect=[ssl_exc, mock_resp]) as mock_put,
+            patch("time.sleep") as mock_sleep,
+        ):
+            _upload_tarball(tar_path, "https://example.com/upload", 100)
+
+        assert mock_put.call_count == 2
+        mock_sleep.assert_called_once()
+
+    @patch("runpod_flash.core.resources.app.UPLOAD_MAX_RETRIES", 3)
+    def test_retries_on_connection_error(self, tmp_path):
+        tar_path = self._make_tarball(tmp_path)
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.close = MagicMock()
+
+        conn_exc = RequestsConnectionError("Connection reset by peer")
+
+        with (
+            patch("requests.put", side_effect=[conn_exc, mock_resp]) as mock_put,
+            patch("time.sleep"),
+        ):
+            _upload_tarball(tar_path, "https://example.com/upload", 100)
+
+        assert mock_put.call_count == 2
+
+    @patch("runpod_flash.core.resources.app.UPLOAD_MAX_RETRIES", 3)
+    def test_retries_on_timeout(self, tmp_path):
+        tar_path = self._make_tarball(tmp_path)
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.close = MagicMock()
+
+        timeout_exc = Timeout("Read timed out")
+
+        with (
+            patch("requests.put", side_effect=[timeout_exc, mock_resp]) as mock_put,
+            patch("time.sleep"),
+        ):
+            _upload_tarball(tar_path, "https://example.com/upload", 100)
+
+        assert mock_put.call_count == 2
+
+    @patch("runpod_flash.core.resources.app.UPLOAD_MAX_RETRIES", 2)
+    def test_raises_after_exhausting_retries(self, tmp_path):
+        tar_path = self._make_tarball(tmp_path)
+        ssl_exc = SSLError("[SSL: SSLV3_ALERT_BAD_RECORD_MAC] bad record mac")
+
+        with (
+            patch("requests.put", side_effect=ssl_exc) as mock_put,
+            patch("time.sleep"),
+            pytest.raises(SSLError, match="bad record mac"),
+        ):
+            _upload_tarball(tar_path, "https://example.com/upload", 100)
+
+        assert mock_put.call_count == 2
+
+    @patch("runpod_flash.core.resources.app.UPLOAD_MAX_RETRIES", 3)
+    def test_cert_verification_error_not_retried(self, tmp_path):
+        tar_path = self._make_tarball(tmp_path)
+        cert_exc = SSLError(
+            "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed"
+        )
+
+        with (
+            patch("requests.put", side_effect=cert_exc) as mock_put,
+            pytest.raises(SSLError, match="CA certificates"),
+        ):
+            _upload_tarball(tar_path, "https://example.com/upload", 100)
+
+        # no retry, fails immediately
+        mock_put.assert_called_once()
+
+    @patch("runpod_flash.core.resources.app.UPLOAD_MAX_RETRIES", 3)
+    def test_sends_content_length_header(self, tmp_path):
+        tar_path = self._make_tarball(tmp_path)
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.close = MagicMock()
+
+        with patch("requests.put", return_value=mock_resp) as mock_put:
+            _upload_tarball(tar_path, "https://example.com/upload", 12345)
+
+        _, kwargs = mock_put.call_args
+        assert kwargs["headers"]["Content-Length"] == "12345"
+
+    @patch("runpod_flash.core.resources.app.UPLOAD_MAX_RETRIES", 3)
+    def test_sets_timeout(self, tmp_path):
+        tar_path = self._make_tarball(tmp_path)
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.close = MagicMock()
+
+        with patch("requests.put", return_value=mock_resp) as mock_put:
+            _upload_tarball(tar_path, "https://example.com/upload", 100)
+
+        _, kwargs = mock_put.call_args
+        assert kwargs["timeout"] == 600
+
+    @patch("runpod_flash.core.resources.app.UPLOAD_MAX_RETRIES", 3)
+    def test_no_authorization_header(self, tmp_path):
+        tar_path = self._make_tarball(tmp_path)
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.close = MagicMock()
+
+        with patch("requests.put", return_value=mock_resp) as mock_put:
+            _upload_tarball(tar_path, "https://example.com/upload", 100)
+
+        _, kwargs = mock_put.call_args
+        assert "Authorization" not in kwargs["headers"]

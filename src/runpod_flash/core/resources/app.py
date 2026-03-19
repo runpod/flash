@@ -12,6 +12,10 @@ from ..resources.constants import (
     MAX_TARBALL_SIZE_MB,
     VALID_TARBALL_EXTENSIONS,
     GZIP_MAGIC_BYTES,
+    UPLOAD_TIMEOUT_SECONDS,
+    UPLOAD_MAX_RETRIES,
+    UPLOAD_BACKOFF_BASE_SECONDS,
+    UPLOAD_BACKOFF_MAX_SECONDS,
 )
 
 if TYPE_CHECKING:
@@ -110,6 +114,98 @@ def _validate_tarball_file(tar_path: Path) -> None:
             f"Tarball exceeds maximum size. "
             f"File size: {size_mb:.2f}MB, Max: {MAX_TARBALL_SIZE_MB}MB"
         )
+
+
+def _is_cert_verification_error(exc: Exception) -> bool:
+    """Check if an SSL error is a certificate verification failure.
+
+    Cert verification errors are not retryable because they indicate a
+    system configuration problem, not a transient network issue.
+    """
+    msg = str(exc).lower()
+    return "certificate_verify_failed" in msg or "certificate verify failed" in msg
+
+
+def _upload_tarball(tar_path: Path, url: str, tarball_size: int) -> None:
+    """Upload a tarball to a presigned URL with retry on transient errors.
+
+    Retries on SSL record errors, connection resets, and timeouts.
+    Does not retry on certificate verification failures (those indicate
+    a system configuration problem).
+
+    Args:
+        tar_path: path to the tarball file
+        url: presigned upload URL (auth is in query params)
+        tarball_size: file size in bytes, sent as Content-Length
+
+    Raises:
+        requests.SSLError: on cert verification failure (with guidance)
+        requests.ConnectionError: after exhausting retries
+        requests.Timeout: after exhausting retries
+        requests.HTTPError: on non-retryable HTTP status
+    """
+    import time
+
+    import requests as _requests
+    from requests.exceptions import ConnectionError, SSLError, Timeout
+
+    from runpod_flash.core.utils.backoff import get_backoff_delay
+    from runpod_flash.core.utils.user_agent import get_user_agent
+
+    # presigned URLs already carry auth in query params, so an
+    # Authorization header causes R2/S3 to reject the request.
+    upload_headers = {
+        "User-Agent": get_user_agent(),
+        "Content-Type": TARBALL_CONTENT_TYPE,
+        "Content-Length": str(tarball_size),
+    }
+
+    last_exc: Optional[Exception] = None
+
+    for attempt in range(UPLOAD_MAX_RETRIES):
+        try:
+            with tar_path.open("rb") as fh:
+                resp = _requests.put(
+                    url,
+                    data=fh,
+                    headers=upload_headers,
+                    timeout=UPLOAD_TIMEOUT_SECONDS,
+                )
+            resp.raise_for_status()
+            resp.close()
+            return
+        except SSLError as exc:
+            if _is_cert_verification_error(exc):
+                raise SSLError(
+                    "SSL certificate verification failed. This usually means "
+                    "Python cannot find your system's CA certificates.\n\n"
+                    "Try one of:\n"
+                    "  export REQUESTS_CA_BUNDLE="
+                    '$(python -c "import certifi; print(certifi.where())")\n'
+                    "  pip install certifi\n"
+                    "  # macOS: run 'Install Certificates.command' from your "
+                    "Python installation folder\n"
+                ) from exc
+            last_exc = exc
+        except (ConnectionError, Timeout) as exc:
+            last_exc = exc
+
+        if attempt < UPLOAD_MAX_RETRIES - 1:
+            delay = get_backoff_delay(
+                attempt,
+                base=UPLOAD_BACKOFF_BASE_SECONDS,
+                max_seconds=UPLOAD_BACKOFF_MAX_SECONDS,
+            )
+            log.warning(
+                "Upload attempt %d/%d failed: %s. Retrying in %.1fs...",
+                attempt + 1,
+                UPLOAD_MAX_RETRIES,
+                last_exc,
+                delay,
+            )
+            time.sleep(delay)
+
+    raise last_exc  # type: ignore[misc]
 
 
 class FlashApp:
@@ -427,6 +523,8 @@ class FlashApp:
         Manifest is read from .flash/flash_manifest.json during deployment, not extracted
         from tarball.
 
+        Retries on transient SSL/connection errors with exponential backoff.
+
         Args:
             tar_path: Path to the tarball file (string or Path object)
                      Must be .tar.gz or .tgz, under 1500MB
@@ -438,13 +536,8 @@ class FlashApp:
             RuntimeError: If app is not hydrated (no ID available)
             FileNotFoundError: If tar_path does not exist
             ValueError: If file is invalid (extension, magic bytes, or size)
-            requests.HTTPError: If upload fails
-
-        TODO: Add integration tests for tarball upload flow including:
-              - Network failures and retry behavior
-              - Large file uploads (edge cases near size limit)
-              - Corrupted tarball handling
-              - Pre-signed URL expiration scenarios
+            requests.HTTPError: If upload fails after all retries
+            requests.SSLError: If SSL certificate verification fails (non-retryable)
         """
         # Convert to Path and validate before hydrating
         if isinstance(tar_path, str):
@@ -470,24 +563,8 @@ class FlashApp:
         url = result["uploadUrl"]
         object_key = result["objectKey"]
 
-        # presigned URLs already carry auth in query params, so an
-        # Authorization header causes R2/S3 to reject the request.
-        import requests as _requests
+        _upload_tarball(tar_path, url, tarball_size)
 
-        from runpod_flash.core.utils.user_agent import get_user_agent
-
-        upload_headers = {
-            "User-Agent": get_user_agent(),
-            "Content-Type": TARBALL_CONTENT_TYPE,
-        }
-
-        with tar_path.open("rb") as fh:
-            resp = _requests.put(url, data=fh, headers=upload_headers)
-
-        try:
-            resp.raise_for_status()
-        finally:
-            resp.close()
         resp = await self._finalize_upload_build(object_key, manifest)
         return resp
 
