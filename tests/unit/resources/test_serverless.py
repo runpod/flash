@@ -2216,7 +2216,7 @@ class TestBuildTemplateUpdatePayload:
     async def test_update_skips_env_for_default_template_env(self):
         """update() skips env when template.env is the default empty list, not explicitly set.
 
-        PodTemplate.env defaults to []. Without __pydantic_fields_set__ checking,
+        PodTemplate.env defaults to []. Without model_fields_set checking,
         `is not None` would always be True for the default, incorrectly forcing
         skip_env=False and causing unnecessary rolling releases.
         """
