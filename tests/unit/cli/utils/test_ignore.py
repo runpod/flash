@@ -101,6 +101,14 @@ class TestLoadIgnorePatterns:
         assert spec.match_file(".venv/lib/python3.11")
         assert spec.match_file("build.tar.gz")
 
+    def test_always_ignores_dotenv_files(self, tmp_path):
+        """Always excludes .env files from deploy artifacts."""
+        spec = load_ignore_patterns(tmp_path)
+        assert spec.match_file(".env")
+        assert spec.match_file(".env.local")
+        assert spec.match_file(".env.production")
+        assert spec.match_file("subdir/.env")
+
     def test_no_ignore_files(self, tmp_path):
         """Works when no ignore files exist."""
         spec = load_ignore_patterns(tmp_path)
@@ -185,6 +193,19 @@ class TestGetFileTree:
         with patch.object(Path, "iterdir", side_effect=PermissionError("denied")):
             files = get_file_tree(tmp_path, spec)
         assert files == []
+
+    def test_excludes_dotenv_from_file_tree(self, tmp_path):
+        """Excludes .env files from deploy artifact file tree."""
+        (tmp_path / "main.py").write_text("code")
+        (tmp_path / ".env").write_text("SECRET=value")
+        (tmp_path / ".env.local").write_text("LOCAL_SECRET=value")
+
+        spec = load_ignore_patterns(tmp_path)
+        files = get_file_tree(tmp_path, spec)
+        filenames = [f.name for f in files]
+        assert "main.py" in filenames
+        assert ".env" not in filenames
+        assert ".env.local" not in filenames
 
     def test_skips_ignored_directories(self, tmp_path):
         """Skips entire ignored directories."""
