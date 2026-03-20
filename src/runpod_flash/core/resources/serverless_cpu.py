@@ -176,8 +176,12 @@ class CpuServerlessEndpoint(CpuEndpointMixin, ServerlessEndpoint):
 
         if self.imageName:
             self.template.imageName = self.imageName
-        if self.env:
-            self.template.env = KeyValuePair.from_dict(self.env)
+        if self.env is not None:
+            has_explicit_template_env = "env" in getattr(
+                self.template, "model_fields_set", set()
+            )
+            if self.env or not has_explicit_template_env:
+                self.template.env = KeyValuePair.from_dict(self.env)
 
         # Apply CPU-specific disk sizing
         self._apply_cpu_disk_sizing(self.template)

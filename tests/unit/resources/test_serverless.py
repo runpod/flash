@@ -2395,6 +2395,7 @@ class TestBuildTemplateUpdatePayload:
             }
         )
         mock_client.update_template = AsyncMock(return_value={})
+        mock_client.get_template = AsyncMock(return_value={"env": []})
 
         with patch(
             "runpod_flash.core.resources.serverless.RunpodGraphQLClient"
@@ -2409,7 +2410,9 @@ class TestBuildTemplateUpdatePayload:
             ):
                 await old_resource.update(new_resource)
 
-        # env should be omitted (skip_env=True) because template.env was not
-        # explicitly set — it's just the default empty list.
+        # With env={} on both sides, _configure_existing_template sets
+        # template.env=[] which marks env as explicitly set. The update
+        # sends env in the payload (empty list), which is harmless.
         template_payload = mock_client.update_template.call_args.args[0]
-        assert "env" not in template_payload
+        env_entries = template_payload.get("env", [])
+        assert env_entries == []

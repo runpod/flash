@@ -97,3 +97,38 @@ class TestConfigureExistingTemplateEnv:
         assert len(resource.template.env) == 1
         assert resource.template.env[0].key == "NEW_VAR"
         assert resource.template.env[0].value == "new"
+
+    def test_empty_env_dict_clears_default_template_env(self):
+        """When resource env={} and template has no explicit env, template env is cleared."""
+
+        template = PodTemplate()
+        # Simulate env set by deployment infra, not by user constructor
+        template.env = [KeyValuePair(key="OLD_VAR", value="old")]
+        # Reset model_fields_set to not include env (infra-set, not user-set)
+        template.model_fields_set.discard("env")
+
+        resource = LiveServerless(
+            name="test-gpu",
+            template=template,
+            env={},
+        )
+
+        resource._configure_existing_template()
+        assert resource.template.env == []
+
+    def test_empty_env_dict_does_not_clobber_explicit_template_env(self):
+        """When resource env={} but template has explicit env, template env wins."""
+
+        template = PodTemplate(
+            env=[KeyValuePair(key="TPL_VAR", value="from_template")],
+        )
+
+        resource = LiveServerless(
+            name="test-gpu",
+            template=template,
+            env={},
+        )
+
+        resource._configure_existing_template()
+        assert len(resource.template.env) == 1
+        assert resource.template.env[0].key == "TPL_VAR"
