@@ -44,7 +44,7 @@ test = [
 ]
 
 [project.scripts]
-flash = "runpod_flash.cli.main:app"
+flash = "runpod_flash.cli.entrypoint:main"
 
 [build-system]
 requires = ["setuptools>=42", "wheel"]
