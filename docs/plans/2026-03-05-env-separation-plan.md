@@ -10,7 +10,7 @@
 
 **Working directory:** `$REPO_ROOT`
 
-**Test command:** `make format && make lint-fix && make quality-check` (then `git commit --no-verify`)
+**Test command:** `make format && make lint-fix && make quality-check`
 
 ---
 

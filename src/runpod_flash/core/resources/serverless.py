@@ -834,6 +834,7 @@ class ServerlessResource(DeployableResource):
         self,
         client: "RunpodGraphQLClient",
         template_id: str,
+        old_env: Optional[Dict[str, str]] = None,
     ) -> None:
         """Read current template env and re-add platform-injected vars.
 
@@ -841,10 +842,10 @@ class ServerlessResource(DeployableResource):
         initial deploy and does not re-inject them on saveTemplate.  When
         we send a full env replacement we must carry those vars forward.
 
-        Platform vars are identified as any key present in the live
-        template env that is NOT in the new template env we are about
-        to send.  This is safe because _inject_runtime_template_vars
-        has already added flash-managed vars before this method runs.
+        A live template key is considered platform-injected only if it
+        was NOT in the previous user config (old_env).  Keys that were
+        in old_env but are absent from the new config were intentionally
+        removed by the user and must not be resurrected.
         """
         if self.template is None:
             return
@@ -863,14 +864,20 @@ class ServerlessResource(DeployableResource):
             return
 
         new_keys = {kv.key for kv in (self.template.env or [])}
+        old_keys = set(old_env or {})
         for entry in live_env:
             key = entry.get("key", "")
-            if key and key not in new_keys:
-                self.template.env = self.template.env or []
-                self.template.env.append(
-                    KeyValuePair(key=key, value=entry.get("value", ""))
-                )
-                log.debug(f"{self.name}: Preserved platform env var '{key}'")
+            if not key or key in new_keys:
+                continue
+            # Key was in old user config — user intentionally removed it
+            if key in old_keys:
+                log.debug(f"{self.name}: User removed env var '{key}', not preserving")
+                continue
+            self.template.env = self.template.env or []
+            self.template.env.append(
+                KeyValuePair(key=key, value=entry.get("value", ""))
+            )
+            log.debug(f"{self.name}: Preserved platform env var '{key}'")
 
     async def _do_deploy(self) -> "DeployableResource":
         """
@@ -992,7 +999,7 @@ class ServerlessResource(DeployableResource):
                             # PORT_HEALTH) that the platform sets once at initial
                             # deploy and does not re-inject on template updates.
                             await new_config._preserve_platform_env(
-                                client, resolved_template_id
+                                client, resolved_template_id, self.env
                             )
 
                         template_payload = self._build_template_update_payload(

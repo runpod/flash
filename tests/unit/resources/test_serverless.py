@@ -2289,6 +2289,73 @@ class TestBuildTemplateUpdatePayload:
         assert "PORT_HEALTH" in env_keys
 
     @pytest.mark.asyncio
+    async def test_update_does_not_resurrect_user_removed_env_vars(self):
+        """update() does not bring back env vars the user intentionally removed.
+
+        If old config had env={"A": "1", "B": "2"} and new config has
+        env={"A": "1"}, key B was in the old user config so it was
+        intentionally removed. It must not be preserved even though it
+        exists in the live template.
+        """
+        old_resource = ServerlessEndpoint(
+            name="update-no-resurrect",
+            imageName="test:latest",
+            env={"KEEP": "yes", "REMOVE_ME": "gone"},
+            flashboot=False,
+        )
+        old_resource.id = "ep-resurrect"
+        old_resource.templateId = "tpl-resurrect"
+
+        new_resource = ServerlessEndpoint(
+            name="update-no-resurrect",
+            imageName="test:latest",
+            env={"KEEP": "yes"},
+            flashboot=False,
+        )
+
+        mock_client = AsyncMock()
+        mock_client.save_endpoint = AsyncMock(
+            return_value={
+                "id": "ep-resurrect",
+                "name": "update-no-resurrect",
+                "templateId": "tpl-resurrect",
+                "gpuIds": "AMPERE_48",
+                "allowedCudaVersions": "",
+            }
+        )
+        mock_client.update_template = AsyncMock(return_value={})
+        mock_client.get_template = AsyncMock(
+            return_value={
+                "env": [
+                    {"key": "KEEP", "value": "yes"},
+                    {"key": "REMOVE_ME", "value": "gone"},
+                    {"key": "PORT", "value": "8080"},
+                ]
+            }
+        )
+
+        with patch(
+            "runpod_flash.core.resources.serverless.RunpodGraphQLClient"
+        ) as mock_client_class:
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+            mock_client_class.return_value.__aexit__.return_value = None
+
+            with patch.object(
+                ServerlessResource,
+                "_ensure_network_volume_deployed",
+                new=AsyncMock(),
+            ):
+                await old_resource.update(new_resource)
+
+        template_payload = mock_client.update_template.call_args.args[0]
+        env_entries = template_payload["env"]
+        env_keys = {e["key"] for e in env_entries}
+
+        assert "KEEP" in env_keys
+        assert "PORT" in env_keys  # platform var preserved
+        assert "REMOVE_ME" not in env_keys  # user-removed var NOT resurrected
+
+    @pytest.mark.asyncio
     async def test_update_skips_env_for_default_template_env(self):
         """update() skips env when template.env is the default empty list, not explicitly set.
 

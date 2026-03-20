@@ -82,12 +82,12 @@ Changes to these `Endpoint` parameters trigger drift detection and endpoint upda
 | `flashboot=` | `flashboot` | Yes |
 | `volume=` | `networkVolume` | Yes |
 | `template=` | `template` | Partially (template is a runtime field for some resource types) |
-| `env=` | `env` | **Conditionally** -- included when non-None for base `ServerlessResource` (via `exclude_none`); explicitly excluded for `CpuServerlessEndpoint` |
+| `env=` | `env` | **Conditionally** -- included when non-None for both `ServerlessResource` and `CpuServerlessEndpoint` (via `exclude_none`) |
 | `name=` | `name` | **No** (identity only) |
 
 ### How env Affects the Hash
 
-For the base `ServerlessResource`, `env` defaults to `None` and is excluded via `exclude_none=True`. When a user sets `env={"HF_TOKEN": "..."}`, it IS included in the hash and triggers drift detection. `CpuServerlessEndpoint` explicitly excludes `env` from its hash by only hashing a fixed set of CPU-relevant fields.
+For both `ServerlessResource` and `CpuServerlessEndpoint`, `env` defaults to `None` and is excluded via `exclude_none=True`. When a user sets `env={"HF_TOKEN": "..."}`, it IS included in the hash and triggers drift detection.
 
 `.env` files only populate `os.environ` for CLI and local dev; they are not carried to deployed endpoints.
 
