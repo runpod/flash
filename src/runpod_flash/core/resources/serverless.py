@@ -979,16 +979,14 @@ class ServerlessResource(DeployableResource):
                         # Also check template.env: if env is empty but the
                         # caller provided explicit template env entries, those
                         # must not be silently dropped.
-                        env_unchanged = self.env == new_config.env
+                        env_changed = self.env != new_config.env
                         template_fields_set = getattr(
                             new_config.template, "model_fields_set", set()
                         )
                         has_explicit_template_env = (
                             not new_config.env and "env" in template_fields_set
                         )
-                        env_needs_update = (
-                            not env_unchanged or has_explicit_template_env
-                        )
+                        env_needs_update = env_changed or has_explicit_template_env
 
                         if env_needs_update:
                             # Inject runtime vars (RUNPOD_API_KEY, FLASH_MODULE_PATH)
@@ -1016,10 +1014,12 @@ class ServerlessResource(DeployableResource):
                                     for entry in live_env
                                 ]
                             except Exception:
-                                log.debug(
-                                    f"{self.name}: Could not fetch live template env, "
-                                    f"sending current template env as-is"
+                                log.warning(
+                                    f"{self.name}: Could not fetch live template env; "
+                                    f"cannot guarantee platform-injected vars "
+                                    f"(PORT, PORT_HEALTH) are preserved"
                                 )
+                                raise
 
                         template_payload = self._build_template_update_payload(
                             new_config.template,

@@ -991,6 +991,7 @@ class TestServerlessResourceDeployment:
                 "imageName": "image:v2",
             }
         )
+        mock_runpod_client.get_template = AsyncMock(return_value={"env": []})
 
         with patch(
             "runpod_flash.core.resources.serverless.RunpodGraphQLClient"
@@ -1991,6 +1992,64 @@ class TestBuildTemplateUpdatePayload:
         env_keys = {e["key"] for e in template_payload["env"]}
         assert "LOG_LEVEL" in env_keys
         assert "PORT" in env_keys
+
+    @pytest.mark.asyncio
+    async def test_update_raises_when_get_template_fails_env_unchanged(self):
+        """update() raises when get_template fails and env is unchanged.
+
+        If we cannot fetch the live template env, proceeding would risk
+        wiping platform-injected vars (PORT, PORT_HEALTH).  The deploy
+        must fail loudly rather than send a destructive payload.
+        """
+        env = {"LOG_LEVEL": "INFO"}
+        old_resource = ServerlessEndpoint(
+            name="update-test",
+            imageName="test:latest",
+            env=env,
+            flashboot=False,
+        )
+        old_resource.id = "ep-123"
+        old_resource.templateId = "tpl-123"
+
+        new_resource = ServerlessEndpoint(
+            name="update-test",
+            imageName="test:latest",
+            env=env,
+            flashboot=False,
+            workersMax=5,
+        )
+
+        mock_client = AsyncMock()
+        mock_client.save_endpoint = AsyncMock(
+            return_value={
+                "id": "ep-123",
+                "name": "update-test",
+                "templateId": "tpl-123",
+                "gpuIds": "AMPERE_48",
+                "allowedCudaVersions": "",
+            }
+        )
+        mock_client.update_template = AsyncMock(return_value={})
+        mock_client.get_template = AsyncMock(
+            side_effect=RuntimeError("API unavailable")
+        )
+
+        with patch(
+            "runpod_flash.core.resources.serverless.RunpodGraphQLClient"
+        ) as mock_client_class:
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+            mock_client_class.return_value.__aexit__.return_value = None
+
+            with patch.object(
+                ServerlessResource,
+                "_ensure_network_volume_deployed",
+                new=AsyncMock(),
+            ):
+                with pytest.raises(RuntimeError, match="API unavailable"):
+                    await old_resource.update(new_resource)
+
+        # update_template should NOT have been called since we raised
+        mock_client.update_template.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_update_includes_env_when_changed(self):
