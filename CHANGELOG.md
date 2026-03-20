@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.10.1](https://github.com/runpod/flash/compare/v1.10.0...v1.10.1) (2026-03-20)
+
+
+### Features
+
+* bump max flash tarball size ([#258](https://github.com/runpod/flash/issues/258)) ([4c58a3e](https://github.com/runpod/flash/commit/4c58a3e63bd323b1e16740323bea2f410a3fc8bb))
+* **cli:** add flash update command with passive update check ([#237](https://github.com/runpod/flash/issues/237)) ([5464ce0](https://github.com/runpod/flash/commit/5464ce0a3c741bf88d6f0b53933574fcbfdb8c1f))
+
+
+### Bug Fixes
+
+* **init:** `flash init` show usage menu when called without arguments ([#235](https://github.com/runpod/flash/issues/235)) ([3144d0c](https://github.com/runpod/flash/commit/3144d0cb7abf10566aa9a67b8793d8a116b9da46))
+* resolve .env from CWD and stop _do_deploy env mutation ([#236](https://github.com/runpod/flash/issues/236)) ([583efae](https://github.com/runpod/flash/commit/583efae06b2923ef8da825cd20a8d89af68c2be3))
+* retry tarball upload on transient SSL and connection errors ([#279](https://github.com/runpod/flash/issues/279)) ([564f51e](https://github.com/runpod/flash/commit/564f51e80f0340f7f4b0163780896efa337686f4))
+
+
+### Code Refactoring
+
+* separate .env from deployed endpoint env vars ([#257](https://github.com/runpod/flash/issues/257)) ([ee26c43](https://github.com/runpod/flash/commit/ee26c43267dabb042cdc455e691b7dfaf65686d9))
+
 ## [1.10.0](https://github.com/runpod/flash/compare/v1.9.1...v1.10.0) (2026-03-17)
 
 
