@@ -220,6 +220,36 @@ class RunpodGraphQLClient:
                 )
                 await asyncio.sleep(delay)
 
+    async def get_template(self, template_id: str) -> Dict[str, Any]:
+        """Fetch a template by ID, returning its current env and config."""
+        query = """
+        query getTemplate($id: String!) {
+            podTemplate(id: $id) {
+                id
+                containerDiskInGb
+                dockerArgs
+                env {
+                    key
+                    value
+                }
+                imageName
+                name
+                readme
+            }
+        }
+        """
+
+        variables = {"id": template_id}
+        log.debug(f"Fetching template: {template_id}")
+
+        result = await self._execute_graphql(query, variables)
+        template_data = result.get("podTemplate")
+
+        if not template_data:
+            raise Exception(f"Template '{template_id}' not found or not accessible")
+
+        return template_data
+
     async def update_template(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         mutation = """
         mutation saveTemplate($input: SaveTemplateInput) {

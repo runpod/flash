@@ -476,8 +476,8 @@ class TestCpuEndpointConfigHash:
         ResourceManager._resources_initialized = False
         ResourceManager._lock_initialized = False
 
-    def test_cpu_config_hash_excludes_env(self):
-        """Test that CPU endpoint config_hash excludes env to prevent drift."""
+    def test_cpu_config_hash_includes_env(self):
+        """Test that CPU endpoint config_hash includes env for drift detection."""
         from runpod_flash.core.resources.serverless_cpu import CpuServerlessEndpoint
 
         config1 = CpuServerlessEndpoint(
@@ -497,5 +497,5 @@ class TestCpuEndpointConfigHash:
             env={"DIFFERENT_ENV": "value"},
         )
 
-        # Hashes should be the same (env excluded from CPU hash too)
-        assert config1.config_hash == config2.config_hash
+        # Hashes should differ (env is included in CPU hash for drift detection)
+        assert config1.config_hash != config2.config_hash

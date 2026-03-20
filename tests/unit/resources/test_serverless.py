@@ -2015,6 +2015,7 @@ class TestBuildTemplateUpdatePayload:
             }
         )
         mock_client.update_template = AsyncMock(return_value={})
+        mock_client.get_template = AsyncMock(return_value={"env": []})
 
         with patch(
             "runpod_flash.core.resources.serverless.RunpodGraphQLClient"
@@ -2068,6 +2069,7 @@ class TestBuildTemplateUpdatePayload:
             }
         )
         mock_client.update_template = AsyncMock(return_value={})
+        mock_client.get_template = AsyncMock(return_value={"env": []})
 
         with patch(
             "runpod_flash.core.resources.serverless.RunpodGraphQLClient"
@@ -2192,6 +2194,7 @@ class TestBuildTemplateUpdatePayload:
             }
         )
         mock_client.update_template = AsyncMock(return_value={})
+        mock_client.get_template = AsyncMock(return_value={"env": []})
 
         with patch(
             "runpod_flash.core.resources.serverless.RunpodGraphQLClient"
@@ -2211,6 +2214,79 @@ class TestBuildTemplateUpdatePayload:
         env_entries = template_payload["env"]
         explicit = [e for e in env_entries if e["key"] == "EXPLICIT_VAR"]
         assert len(explicit) == 1
+
+    @pytest.mark.asyncio
+    async def test_update_preserves_platform_injected_env_vars(self):
+        """update() preserves platform-injected env vars (e.g. PORT) on env change.
+
+        The platform injects vars like PORT and PORT_HEALTH once at initial
+        deploy and does not re-inject on saveTemplate.  When the user changes
+        env, the update must read the live template, identify vars not managed
+        by user or flash, and carry them forward in the payload.
+        """
+        old_resource = ServerlessEndpoint(
+            name="update-platform-env",
+            imageName="test:latest",
+            env={"HF_TOKEN": "old-token"},
+            flashboot=False,
+        )
+        old_resource.id = "ep-platform"
+        old_resource.templateId = "tpl-platform"
+
+        new_resource = ServerlessEndpoint(
+            name="update-platform-env",
+            imageName="test:latest",
+            env={"HF_TOKEN": "new-token"},
+            flashboot=False,
+        )
+
+        mock_client = AsyncMock()
+        mock_client.save_endpoint = AsyncMock(
+            return_value={
+                "id": "ep-platform",
+                "name": "update-platform-env",
+                "templateId": "tpl-platform",
+                "gpuIds": "AMPERE_48",
+                "allowedCudaVersions": "",
+            }
+        )
+        mock_client.update_template = AsyncMock(return_value={})
+        mock_client.get_template = AsyncMock(
+            return_value={
+                "env": [
+                    {"key": "HF_TOKEN", "value": "old-token"},
+                    {"key": "PORT", "value": "8080"},
+                    {"key": "PORT_HEALTH", "value": "8081"},
+                ]
+            }
+        )
+
+        with patch(
+            "runpod_flash.core.resources.serverless.RunpodGraphQLClient"
+        ) as mock_client_class:
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+            mock_client_class.return_value.__aexit__.return_value = None
+
+            with patch.object(
+                ServerlessResource,
+                "_ensure_network_volume_deployed",
+                new=AsyncMock(),
+            ):
+                await old_resource.update(new_resource)
+
+        template_payload = mock_client.update_template.call_args.args[0]
+        assert "env" in template_payload
+        env_entries = template_payload["env"]
+        env_keys = {e["key"] for e in env_entries}
+
+        # User env updated
+        hf = [e for e in env_entries if e["key"] == "HF_TOKEN"]
+        assert len(hf) == 1
+        assert hf[0]["value"] == "new-token"
+
+        # Platform vars preserved
+        assert "PORT" in env_keys
+        assert "PORT_HEALTH" in env_keys
 
     @pytest.mark.asyncio
     async def test_update_skips_env_for_default_template_env(self):

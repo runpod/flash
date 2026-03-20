@@ -139,10 +139,9 @@ class CpuServerlessEndpoint(CpuEndpointMixin, ServerlessEndpoint):
         but these fields should not be included in config_hash to avoid false drift
         detection. This override computes the hash using only CPU-relevant fields.
         """
-        # CPU-relevant fields for config hash, excluding 'env' to keep
-        # env-only changes from triggering endpoint redeployment
         cpu_fields = {
             "datacenter",
+            "env",
             "flashboot",
             "flashEnvironmentId",
             "imageName",
@@ -177,7 +176,7 @@ class CpuServerlessEndpoint(CpuEndpointMixin, ServerlessEndpoint):
 
         if self.imageName:
             self.template.imageName = self.imageName
-        if self.env is not None:
+        if self.env:
             self.template.env = KeyValuePair.from_dict(self.env)
 
         # Apply CPU-specific disk sizing

@@ -551,7 +551,7 @@ class ServerlessResource(DeployableResource):
 
         if self.imageName:
             self.template.imageName = self.imageName
-        if self.env is not None:
+        if self.env:
             self.template.env = KeyValuePair.from_dict(self.env)
 
     async def _sync_graphql_object_with_inputs(
@@ -830,6 +830,48 @@ class ServerlessResource(DeployableResource):
                 self._inject_template_env("FLASH_MODULE_PATH", module_path)
                 log.debug(f"{self.name}: Injected FLASH_MODULE_PATH={module_path}")
 
+    async def _preserve_platform_env(
+        self,
+        client: "RunpodGraphQLClient",
+        template_id: str,
+    ) -> None:
+        """Read current template env and re-add platform-injected vars.
+
+        The platform injects env vars (e.g. PORT, PORT_HEALTH) once at
+        initial deploy and does not re-inject them on saveTemplate.  When
+        we send a full env replacement we must carry those vars forward.
+
+        Platform vars are identified as any key present in the live
+        template env that is NOT in the new template env we are about
+        to send.  This is safe because _inject_runtime_template_vars
+        has already added flash-managed vars before this method runs.
+        """
+        if self.template is None:
+            return
+
+        try:
+            live = await client.get_template(template_id)
+        except Exception:
+            log.debug(
+                f"{self.name}: Could not fetch template '{template_id}', "
+                f"skipping platform env preservation"
+            )
+            return
+
+        live_env = live.get("env") or []
+        if not live_env:
+            return
+
+        new_keys = {kv.key for kv in (self.template.env or [])}
+        for entry in live_env:
+            key = entry.get("key", "")
+            if key and key not in new_keys:
+                self.template.env = self.template.env or []
+                self.template.env.append(
+                    KeyValuePair(key=key, value=entry.get("value", ""))
+                )
+                log.debug(f"{self.name}: Preserved platform env var '{key}'")
+
     async def _do_deploy(self) -> "DeployableResource":
         """
         Deploys the serverless resource using the provided configuration.
@@ -945,6 +987,13 @@ class ServerlessResource(DeployableResource):
                             # Inject runtime vars (RUNPOD_API_KEY, FLASH_MODULE_PATH)
                             # so they survive the template env overwrite.
                             new_config._inject_runtime_template_vars()
+
+                            # Preserve platform-injected env vars (e.g. PORT,
+                            # PORT_HEALTH) that the platform sets once at initial
+                            # deploy and does not re-inject on template updates.
+                            await new_config._preserve_platform_env(
+                                client, resolved_template_id
+                            )
 
                         template_payload = self._build_template_update_payload(
                             new_config.template,
