@@ -14,10 +14,17 @@ def main() -> None:
     try:
         from runpod_flash.cli.main import app
     except ValueError as exc:
-        # tomli.TOMLDecodeError is a ValueError subclass.
-        # The runpod package calls toml.load() at import time; a corrupted
+        # TOML decode errors from toml/tomli/tomllib are ValueError subclasses.
+        # The runpod package calls a TOML loader at import time; a corrupted
         # ~/.runpod/config.toml triggers this before Flash code executes.
-        if "toml" in type(exc).__module__.lower() or "toml" in str(exc).lower():
+        exc_type = type(exc)
+        exc_module = getattr(exc_type, "__module__", "").lower()
+        is_toml_decode_error = exc_type.__name__ == "TOMLDecodeError" and (
+            exc_module.startswith("toml")
+            or exc_module.startswith("tomli")
+            or exc_module.startswith("tomllib")
+        )
+        if is_toml_decode_error:
             print(
                 "Error: ~/.runpod/config.toml is corrupted and cannot be parsed.\n"
                 "Run 'flash login' to re-authenticate, or delete the file and retry.",
