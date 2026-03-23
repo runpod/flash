@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import shutil
+from pathlib import Path
 from typing import Any
 
 import typer
@@ -12,6 +13,16 @@ from rich.console import Console
 
 from runpod_flash.core.exceptions import RunpodAPIKeyError
 from runpod_flash.core.resources.app import FlashApp
+
+from runpod_flash.core.api.pod_client import PodApiClient
+from runpod_flash.core.credentials import get_api_key
+from runpod_flash.core.pod_scanner import PodScanner
+from runpod_flash.core.resources.pod import Pod, PodState
+from runpod_flash.core.resources.pod_lifecycle import (
+    PodLifecycleManager,
+    PodTracker,
+    detect_pod_drift,
+)
 
 from ..utils.app import discover_flash_project
 from ..utils.deployment import deploy_from_uploaded_build, validate_local_manifest
@@ -42,6 +53,11 @@ def deploy_command(
         "--preview",
         help="Build and launch local preview environment instead of deploying",
     ),
+    only: str | None = typer.Option(
+        None,
+        "--only",
+        help="Deploy only 'pods' or 'endpoints' (default: both)",
+    ),
 ):
     """
     Build and deploy Flash application.
@@ -69,6 +85,14 @@ def deploy_command(
             exclude=exclude,
         )
 
+        # Deploy pods if requested
+        if only != "endpoints":
+            _deploy_pods_if_any(project_dir)
+
+        if only == "pods":
+            console.print("[green]Pod deployment complete.[/green]")
+            return
+
         if preview:
             _launch_preview(project_dir)
             return
@@ -89,6 +113,79 @@ def deploy_command(
         raise typer.Exit(1)
     except Exception as e:
         _handle_deploy_error(e)
+
+
+def _deploy_pods_if_any(project_dir: Path) -> None:
+    """Discover and deploy pods with drift detection."""
+    import importlib.util
+    import os
+    import sys
+
+    scanner = PodScanner()
+    pods: list[Pod] = []
+
+    sys.path.insert(0, str(project_dir))
+    for py_file in project_dir.rglob("*.py"):
+        if any(part.startswith((".", "__")) for part in py_file.parts):
+            continue
+        if py_file.name.startswith("__"):
+            continue
+        rel = py_file.relative_to(project_dir)
+        module_name = str(rel.with_suffix("")).replace(os.sep, ".")
+        try:
+            spec = importlib.util.spec_from_file_location(module_name, py_file)
+            if spec and spec.loader:
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+                pods.extend(scanner.scan(mod))
+        except Exception:  # noqa: BLE001
+            continue
+
+    if not pods:
+        return
+
+    api_key = get_api_key()
+    if not api_key:
+        console.print("[yellow]Warning: No API key. Skipping pod deployment.[/yellow]")
+        return
+
+    flash_dir = project_dir / ".flash"
+    flash_dir.mkdir(exist_ok=True)
+    api_client = PodApiClient(api_key=api_key)
+    tracker = PodTracker(flash_dir)
+    lifecycle = PodLifecycleManager(api_client, tracker)
+
+    console.print(f"Deploying {len(pods)} pod(s)...")
+
+    for pod in pods:
+        entry = tracker.load(pod.name)
+        if not entry:
+            console.print(f"  Creating pod '{pod.name}'...")
+            asyncio.run(lifecycle.provision(pod))
+            console.print(f"  Pod '{pod.name}' running at {pod._address or 'pending'}")
+            continue
+
+        drift = detect_pod_drift(pod, entry)
+        if not drift:
+            console.print(f"  Pod '{pod.name}' unchanged, syncing state...")
+            pod._pod_id = entry.pod_id
+            pod._state = PodState(entry.state)
+            asyncio.run(lifecycle.sync_state(pod))
+            continue
+
+        if drift.requires_rebuild:
+            console.print(f"  Pod '{pod.name}' image/GPU changed, recreating...")
+        else:
+            console.print(f"  Pod '{pod.name}' config changed, updating...")
+
+        # Terminate old pod and provision new one
+        old_pod = Pod(entry.name, image=entry.image)
+        old_pod._pod_id = entry.pod_id
+        old_pod._state = PodState(entry.state)
+        if old_pod._state not in (PodState.TERMINATED, PodState.DEFINED):
+            asyncio.run(lifecycle.terminate(old_pod))
+        asyncio.run(lifecycle.provision(pod))
+        console.print(f"  Pod '{pod.name}' running at {pod._address or 'pending'}")
 
 
 def _handle_deploy_error(exc: Exception) -> None:
