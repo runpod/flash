@@ -1,5 +1,7 @@
 """Run Flash development server."""
 
+import asyncio
+import importlib.util
 import logging
 import os
 import re
@@ -39,6 +41,12 @@ from .build_utils.scanner import (
     file_to_resource_name,
     file_to_url_prefix,
 )
+from runpod_flash.core.api.pod_client import PodApiClient
+from runpod_flash.core.credentials import get_api_key
+from runpod_flash.core.pod_scanner import PodScanner
+from runpod_flash.core.resources.pod import Pod, PodState
+from runpod_flash.core.resources.pod_lifecycle import PodLifecycleManager, PodTracker
+from runpod_flash.runtime.pod_registry import PodRegistry
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -1004,6 +1012,110 @@ def _provision_resources(resources) -> None:
         loop.close()
 
 
+def _discover_and_start_pods(
+    project_root: Path,
+) -> tuple[list[Pod], PodLifecycleManager | None, PodRegistry | None]:
+    """Discover Pod definitions and start/resume them for dev session."""
+    try:
+        sys.path.insert(0, str(project_root))
+        scanner = PodScanner()
+
+        pods: list[Pod] = []
+        for py_file in project_root.rglob("*.py"):
+            if any(part.startswith((".", "__")) for part in py_file.parts):
+                continue
+            if py_file.name.startswith("__"):
+                continue
+            rel = py_file.relative_to(project_root)
+            module_name = str(rel.with_suffix("")).replace(os.sep, ".")
+            try:
+                spec = importlib.util.spec_from_file_location(module_name, py_file)
+                if spec and spec.loader:
+                    mod = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(mod)
+                    pods.extend(scanner.scan(mod))
+            except Exception:
+                continue
+
+        if not pods:
+            return [], None, None
+
+        api_key = get_api_key()
+        if not api_key:
+            console.print(
+                "[yellow]Warning: No API key found. Skipping pod management.[/yellow]"
+            )
+            return [], None, None
+
+        flash_dir = project_root / ".flash"
+        flash_dir.mkdir(exist_ok=True)
+        api_client = PodApiClient(api_key=api_key)
+        tracker = PodTracker(flash_dir)
+        lifecycle = PodLifecycleManager(api_client, tracker)
+        registry = PodRegistry(tracker, api_client)
+
+        started_pods: list[Pod] = []
+        for pod in pods:
+            entry = tracker.load(pod.name)
+            try:
+                if entry and entry.state == "stopped":
+                    console.print(f"Resuming pod '{pod.name}'...")
+                    pod._pod_id = entry.pod_id
+                    pod._state = PodState.STOPPED
+                    pod = asyncio.run(lifecycle.resume(pod))
+                    console.print(
+                        f"  Pod '{pod.name}' running at {pod._address or 'pending'}"
+                    )
+                elif entry and entry.state == "running":
+                    pod._pod_id = entry.pod_id
+                    pod._state = PodState.RUNNING
+                    pod._address = entry.address
+                    pod = asyncio.run(lifecycle.sync_state(pod))
+                    console.print(
+                        f"  Pod '{pod.name}' already running at"
+                        f" {pod._address or 'pending'}"
+                    )
+                else:
+                    console.print(f"Creating pod '{pod.name}'...")
+                    pod = asyncio.run(lifecycle.provision(pod))
+                    console.print(
+                        f"  Pod '{pod.name}' running at {pod._address or 'pending'}"
+                    )
+                pod._bind_registry(registry)
+                started_pods.append(pod)
+            except Exception as e:
+                console.print(
+                    f"[yellow]Warning: Failed to start pod '{pod.name}': {e}[/yellow]"
+                )
+
+        return started_pods, lifecycle, registry
+    except Exception as e:
+        logger.debug(f"Pod discovery failed: {e}")
+        return [], None, None
+
+
+def _stop_pods(pods: list[Pod], lifecycle: PodLifecycleManager) -> None:
+    """Stop all running pods on shutdown."""
+    for pod in pods:
+        if pod._state == PodState.RUNNING:
+            try:
+                console.print(f"Stopping pod '{pod.name}'...")
+                asyncio.run(lifecycle.stop(pod))
+                console.print(
+                    f"  Pod '{pod.name}' stopped. Will resume on next flash run."
+                )
+            except Exception as e:
+                console.print(
+                    f"[yellow]Warning: Failed to stop pod '{pod.name}': {e}[/yellow]"
+                )
+
+    if pods:
+        console.print(
+            f"\n{len(pods)} pod(s) stopped. "
+            f"Run 'flash run' to resume, or 'flash pod terminate <name>' to delete."
+        )
+
+
 def run_command(
     host: str = typer.Option(
         "localhost",
@@ -1065,6 +1177,9 @@ def run_command(
             console.print(f"  [red]{filename}[/red]: {err}")
         console.print()
         raise typer.Exit(1)
+
+    # Discover and start pods
+    running_pods, pod_lifecycle, pod_registry = _discover_and_start_pods(project_root)
 
     if not workers:
         console.print(
@@ -1145,6 +1260,10 @@ def run_command(
 
     except KeyboardInterrupt:
         console.print("\n[yellow]Stopping server and cleaning up...[/yellow]")
+
+        # Stop pods before shutting down server
+        if running_pods and pod_lifecycle:
+            _stop_pods(running_pods, pod_lifecycle)
 
         stop_event.set()
         if watcher_thread is not None and watcher_thread.is_alive():
