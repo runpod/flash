@@ -56,6 +56,7 @@ class ManifestFunction:
     is_load_balanced: bool = False  # Determined by isinstance() at scan time
     is_live_resource: bool = False  # LiveLoadBalancer vs LoadBalancerSlsResource
     config_variable: Optional[str] = None  # Variable name like "gpu_config"
+    pod_dependencies: Optional[List[str]] = None
 
 
 @dataclass
@@ -76,6 +77,8 @@ class ManifestResource:
     gpuIds: Optional[list] = None  # GPU types/IDs for auto-provisioning
     workersMin: Optional[int] = None  # Min worker count for auto-provisioning
     workersMax: Optional[int] = None  # Max worker count for auto-provisioning
+    pod_id: Optional[str] = None
+    pod_ports: Optional[list] = None
 
 
 class ManifestBuilder:
