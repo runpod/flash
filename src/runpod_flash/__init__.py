@@ -44,6 +44,7 @@ if TYPE_CHECKING:
         DEFAULT_WORKERS_MAX,
         DEFAULT_WORKERS_MIN,
     )
+    from .core.resources.pod import Pod, PodConfig
 
 
 _DEPRECATED_RESOURCE_CLASSES = frozenset(
@@ -172,6 +173,10 @@ def __getattr__(name):
             "DEFAULT_WORKERS_MAX": DEFAULT_WORKERS_MAX,
         }
         return attrs[name]
+    elif name in ("Pod", "PodConfig"):
+        from .core.resources.pod import Pod, PodConfig
+
+        return {"Pod": Pod, "PodConfig": PodConfig}[name]
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -201,4 +206,6 @@ __all__ = [
     "FlashApp",
     "DEFAULT_WORKERS_MIN",
     "DEFAULT_WORKERS_MAX",
+    "Pod",
+    "PodConfig",
 ]
