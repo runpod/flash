@@ -233,7 +233,7 @@ If a package doesn't have pre-built Linux x86_64 wheels:
 
 ### Size Limits
 
-Runpod Serverless enforces a **500MB limit** on deployment archives. Exceeding this will cause your deployment to fail.
+Runpod Serverless enforces a **1.5GB limit** on deployment archives. Exceeding this will cause your deployment to fail.
 
 ### Excluding Base Image Packages
 

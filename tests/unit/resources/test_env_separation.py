@@ -1,0 +1,134 @@
+"""
+Tests for env separation: ServerlessResource.env defaults to None,
+not the contents of .env file. Only explicitly declared env vars
+should be carried to deployed endpoints.
+"""
+
+from runpod_flash.core.resources.live_serverless import (
+    CpuLiveServerless,
+    LiveServerless,
+)
+from runpod_flash.core.resources.template import KeyValuePair, PodTemplate
+
+
+class TestEnvDefaultsToNone:
+    """ServerlessResource.env should default to None, not .env file contents."""
+
+    def test_serverless_resource_env_defaults_to_none(self):
+        """LiveServerless with no env kwarg should have env=None."""
+        resource = LiveServerless(name="test-gpu")
+        assert resource.env is None
+
+    def test_serverless_resource_env_explicit_dict_preserved(self):
+        """Explicit env={"HF_TOKEN": "x"} should be preserved as-is."""
+        resource = LiveServerless(name="test-gpu", env={"HF_TOKEN": "x"})
+        assert resource.env == {"HF_TOKEN": "x"}
+
+    def test_serverless_resource_env_explicit_empty_dict_preserved(self):
+        """Explicit env={} should be preserved as empty dict, not replaced with None."""
+        resource = LiveServerless(name="test-gpu", env={})
+        assert resource.env == {}
+
+    def test_cpu_serverless_resource_env_defaults_to_none(self):
+        """CpuLiveServerless with no env kwarg should have env=None."""
+        resource = CpuLiveServerless(name="test-cpu")
+        assert resource.env is None
+
+
+class TestCreateNewTemplateEnv:
+    """_create_new_template should use empty list when env is None."""
+
+    def test_create_new_template_with_no_env(self):
+        """When resource env is None, template.env should be empty list."""
+        resource = LiveServerless(name="test-gpu")
+        assert resource.env is None
+
+        template = resource._create_new_template()
+        assert template.env == []
+
+    def test_create_new_template_with_explicit_env(self):
+        """When resource env has values, template.env should contain only those."""
+        resource = LiveServerless(name="test-gpu", env={"HF_TOKEN": "secret"})
+
+        template = resource._create_new_template()
+        assert len(template.env) == 1
+        assert template.env[0].key == "HF_TOKEN"
+        assert template.env[0].value == "secret"
+
+    def test_cpu_create_new_template_with_no_env(self):
+        """CPU: when resource env is None, template.env should be empty list."""
+        resource = CpuLiveServerless(name="test-cpu")
+        assert resource.env is None
+
+        template = resource._create_new_template()
+        assert template.env == []
+
+
+class TestConfigureExistingTemplateEnv:
+    """_configure_existing_template should not overwrite template env when resource.env is None."""
+
+    def test_existing_template_env_preserved_when_resource_env_is_none(self):
+        """When resource env is None, existing template env should not be touched."""
+
+        existing_env = [KeyValuePair(key="EXISTING_VAR", value="keep_me")]
+        template = PodTemplate(env=existing_env)
+
+        resource = LiveServerless(name="test-gpu", template=template)
+        assert resource.env is None
+
+        resource._configure_existing_template()
+        assert len(resource.template.env) == 1
+        assert resource.template.env[0].key == "EXISTING_VAR"
+        assert resource.template.env[0].value == "keep_me"
+
+    def test_existing_template_env_overwritten_when_resource_env_is_set(self):
+        """When resource env is explicitly set, template env should be updated."""
+
+        existing_env = [KeyValuePair(key="OLD_VAR", value="old")]
+        template = PodTemplate(env=existing_env)
+
+        resource = LiveServerless(
+            name="test-gpu",
+            template=template,
+            env={"NEW_VAR": "new"},
+        )
+
+        resource._configure_existing_template()
+        assert len(resource.template.env) == 1
+        assert resource.template.env[0].key == "NEW_VAR"
+        assert resource.template.env[0].value == "new"
+
+    def test_empty_env_dict_clears_default_template_env(self):
+        """When resource env={} and template has no explicit env, template env is cleared."""
+
+        template = PodTemplate()
+        # Simulate env set by deployment infra, not by user constructor
+        template.env = [KeyValuePair(key="OLD_VAR", value="old")]
+        # Reset model_fields_set to not include env (infra-set, not user-set)
+        template.model_fields_set.discard("env")
+
+        resource = LiveServerless(
+            name="test-gpu",
+            template=template,
+            env={},
+        )
+
+        resource._configure_existing_template()
+        assert resource.template.env == []
+
+    def test_empty_env_dict_does_not_clobber_explicit_template_env(self):
+        """When resource env={} but template has explicit env, template env wins."""
+
+        template = PodTemplate(
+            env=[KeyValuePair(key="TPL_VAR", value="from_template")],
+        )
+
+        resource = LiveServerless(
+            name="test-gpu",
+            template=template,
+            env={},
+        )
+
+        resource._configure_existing_template()
+        assert len(resource.template.env) == 1
+        assert resource.template.env[0].key == "TPL_VAR"

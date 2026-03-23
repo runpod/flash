@@ -174,7 +174,7 @@ Each deployed function is wrapped with a production wrapper that:
 
 Cross-endpoint calls require authentication. Flash handles this automatically:
 
-1. The deploying environment sets `RUNPOD_API_KEY` as an env var on each endpoint
+1. Flash injects `RUNPOD_API_KEY` as an env var on endpoints where `makes_remote_calls=True`
 2. At runtime, the wrapper reads `RUNPOD_API_KEY` from the environment
 3. All outbound calls to sibling endpoints include the API key
 

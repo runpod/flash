@@ -182,50 +182,24 @@ class TestExtractClassCodeFallback:
 
 
 class TestServerlessResourceEnvLoading:
-    """ServerlessResource.env default is populated by get_env_vars() / EnvironmentVars."""
+    """ServerlessResource.env defaults to None (no implicit .env carryover)."""
 
-    def test_env_loaded_from_dotenv_file(self, tmp_path):
-        """RES-LS-008: env field is populated from a .env file when it exists."""
-
-        # Write a temporary .env file.
-        env_file = tmp_path / ".env"
-        env_file.write_text("FLASH_TEST_SECRET=hunter2\nFLASH_TEST_FOO=bar\n")
-
-        # patch dotenv_values to return our custom file's content.
-        with patch(
-            "runpod_flash.core.resources.environment.dotenv_values",
-            return_value={"FLASH_TEST_SECRET": "hunter2", "FLASH_TEST_FOO": "bar"},
-        ):
-            from runpod_flash.core.resources.serverless import get_env_vars
-
-            env = get_env_vars()
-
-        assert env.get("FLASH_TEST_SECRET") == "hunter2"
-        assert env.get("FLASH_TEST_FOO") == "bar"
-
-    def test_env_field_on_serverless_resource_is_dict(self, monkeypatch):
-        """RES-LS-008: ServerlessResource.env is a dict (not None) after construction."""
-        # Patch get_env_vars so we don't need a real .env.
-        monkeypatch.setattr(
-            "runpod_flash.core.resources.serverless.get_env_vars",
-            lambda: {"INJECTED": "yes"},
-        )
+    def test_env_defaults_to_none_without_explicit_env(self):
+        """RES-LS-008: env field is None when not explicitly provided."""
         from runpod_flash.core.resources import LiveServerless
 
         resource = LiveServerless(name="env-test-resource")
-        assert isinstance(resource.env, dict)
+        assert resource.env is None
 
-    def test_env_vars_empty_dict_when_no_dotenv(self):
-        """RES-LS-008: get_env_vars returns an empty dict when .env has no content."""
-        with patch(
-            "runpod_flash.core.resources.environment.dotenv_values",
-            return_value={},
-        ):
-            from runpod_flash.core.resources.serverless import get_env_vars
+    def test_env_preserves_explicit_dict(self):
+        """RES-LS-008: env field preserves explicitly provided dict."""
+        from runpod_flash.core.resources import LiveServerless
 
-            env = get_env_vars()
-
-        assert env == {}
+        resource = LiveServerless(
+            name="env-test-resource",
+            env={"FLASH_TEST_SECRET": "hunter2"},
+        )
+        assert resource.env == {"FLASH_TEST_SECRET": "hunter2"}
 
 
 # ---------------------------------------------------------------------------
