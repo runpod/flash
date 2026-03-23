@@ -669,10 +669,9 @@ class ServerlessResource(DeployableResource):
         Keep this to fields supported by saveTemplate to avoid passing endpoint-only
         fields to the template mutation.
 
-        The ``env`` field is always included because the saveTemplate
-        GraphQL mutation declares ``env: [EnvironmentVariableInput]!``
-        (non-nullable).  Callers must set ``template.env`` to the
-        desired value before calling this method.
+        Args:
+            template: Template model with desired configuration.
+            template_id: ID of the template to update.
         """
         template_data = template.model_dump(exclude_none=True, mode="json")
         allowed_fields = {
