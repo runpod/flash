@@ -15,6 +15,7 @@ class FunctionMetadata:
     is_class: bool = False
     http_method: Optional[str] = None
     http_path: Optional[str] = None
+    pod_dependencies: Optional[List[str]] = None
 
 
 @dataclass
@@ -28,6 +29,8 @@ class ResourceConfig:
         False  # LB endpoint (LoadBalancerSlsResource or LiveLoadBalancer)
     )
     is_live_resource: bool = False  # LiveLoadBalancer/LiveServerless (local dev only)
+    pod_id: Optional[str] = None
+    pod_ports: Optional[List[str]] = None
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "ResourceConfig":
@@ -43,6 +46,8 @@ class ResourceConfig:
             makes_remote_calls=data.get("makes_remote_calls", True),
             is_load_balanced=data.get("is_load_balanced", False),
             is_live_resource=data.get("is_live_resource", False),
+            pod_id=data.get("pod_id"),
+            pod_ports=data.get("pod_ports"),
         )
 
 
