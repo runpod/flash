@@ -15,6 +15,7 @@ class FunctionMetadata:
     is_class: bool = False
     http_method: Optional[str] = None
     http_path: Optional[str] = None
+    pod_dependencies: Optional[List[str]] = None
 
 
 @dataclass
@@ -29,6 +30,8 @@ class ResourceConfig:
     )
     is_live_resource: bool = False  # LiveLoadBalancer/LiveServerless (local dev only)
     max_concurrency: int = 1  # Concurrent jobs per worker (QB only)
+    pod_id: Optional[str] = None
+    pod_ports: Optional[List[str]] = None
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "ResourceConfig":
@@ -45,6 +48,8 @@ class ResourceConfig:
             is_load_balanced=data.get("is_load_balanced", False),
             is_live_resource=data.get("is_live_resource", False),
             max_concurrency=data.get("max_concurrency", 1),
+            pod_id=data.get("pod_id"),
+            pod_ports=data.get("pod_ports"),
         )
 
 

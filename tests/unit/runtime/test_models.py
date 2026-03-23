@@ -121,6 +121,71 @@ class TestResourceConfigFields:
         assert config.is_load_balanced is True
         assert config.is_live_resource is True
 
+    def test_from_dict_parses_pod_id(self):
+        """from_dict sets pod_id when present."""
+        config = ResourceConfig.from_dict(
+            {"resource_type": "Pod", "pod_id": "pod-abc123"}
+        )
+        assert config.pod_id == "pod-abc123"
+
+    def test_from_dict_defaults_pod_id_none(self):
+        """from_dict defaults pod_id to None."""
+        config = ResourceConfig.from_dict({"resource_type": "Serverless"})
+        assert config.pod_id is None
+
+    def test_from_dict_parses_pod_ports(self):
+        """from_dict sets pod_ports when present."""
+        config = ResourceConfig.from_dict(
+            {"resource_type": "Pod", "pod_ports": ["8080/http", "22/tcp"]}
+        )
+        assert config.pod_ports == ["8080/http", "22/tcp"]
+
+    def test_from_dict_defaults_pod_ports_none(self):
+        """from_dict defaults pod_ports to None."""
+        config = ResourceConfig.from_dict({"resource_type": "Serverless"})
+        assert config.pod_ports is None
+
+    def test_from_dict_pod_fields_roundtrip(self):
+        """Manifest roundtrip preserves pod_id and pod_ports."""
+        data = _make_manifest_dict(
+            resources={
+                "pod_res": {
+                    "resource_type": "Pod",
+                    "functions": [],
+                    "makes_remote_calls": False,
+                    "pod_id": "pod-xyz",
+                    "pod_ports": ["8080/http"],
+                }
+            }
+        )
+        manifest = Manifest.from_dict(data)
+        rc = manifest.resources["pod_res"]
+        assert rc.pod_id == "pod-xyz"
+        assert rc.pod_ports == ["8080/http"]
+
+        roundtrip = Manifest.from_dict(manifest.to_dict())
+        rc2 = roundtrip.resources["pod_res"]
+        assert rc2.pod_id == "pod-xyz"
+        assert rc2.pod_ports == ["8080/http"]
+
+    def test_from_dict_parses_pod_dependencies_on_function(self):
+        """from_dict parses pod_dependencies on FunctionMetadata."""
+        config = ResourceConfig.from_dict(
+            {
+                "resource_type": "LiveServerless",
+                "functions": [
+                    {
+                        "name": "predict",
+                        "module": "app",
+                        "is_async": False,
+                        "is_class": False,
+                        "pod_dependencies": ["redis-pod", "db-pod"],
+                    }
+                ],
+            }
+        )
+        assert config.functions[0].pod_dependencies == ["redis-pod", "db-pod"]
+
     def test_from_dict_ignores_extra_function_fields(self):
         """from_dict filters unknown keys from function dicts."""
         config = ResourceConfig.from_dict(
