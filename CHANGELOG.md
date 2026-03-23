@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.10.2](https://github.com/runpod/flash/compare/v1.10.1...v1.10.2) (2026-03-23)
+
+
+### Bug Fixes
+
+* **deploy:** always include env in saveTemplate payload ([#281](https://github.com/runpod/flash/issues/281)) ([69ecac2](https://github.com/runpod/flash/commit/69ecac28d5757ed3cf15ac694b235808e4f98ac7))
+* exclude .env files from deploy artifact by default ([#280](https://github.com/runpod/flash/issues/280)) ([92d0e3e](https://github.com/runpod/flash/commit/92d0e3e9a8b176807a09a791ecaf8a03e300d3cc))
+
 ## [1.10.1](https://github.com/runpod/flash/compare/v1.10.0...v1.10.1) (2026-03-20)
 
 
