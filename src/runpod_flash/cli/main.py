@@ -15,6 +15,7 @@ from .commands import (
     undeploy,
     login,
     update,
+    pod,
 )
 from .update_checker import start_background_check
 
@@ -61,6 +62,7 @@ env_app.command("delete")(env.delete_command)
 
 app.add_typer(env_app, name="env")
 app.add_typer(apps.apps_app)
+app.add_typer(pod.pod_app, name="pod")
 
 
 # command: flash undeploy
