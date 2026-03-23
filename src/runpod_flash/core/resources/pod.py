@@ -12,6 +12,10 @@ from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import Any
 
+import httpx
+
+from runpod_flash.core.exceptions import PodRequestError
+
 
 class PodState(str, Enum):
     """Lifecycle states for a Runpod pod."""
@@ -43,6 +47,29 @@ API_STATUS_MAP: dict[str, PodState] = {
     "TERMINATED": PodState.TERMINATED,
     "CREATED": PodState.PROVISIONING,
 }
+
+
+@dataclass(frozen=True, slots=True)
+class PodResponse:
+    """Immutable response from a Pod HTTP request.
+
+    Wraps raw HTTP response data with convenience accessors.
+    """
+
+    status_code: int
+    headers: dict[str, str]
+    body: bytes
+    json_data: Any | None
+
+    @property
+    def ok(self) -> bool:
+        """True when status code indicates success (2xx)."""
+        return 200 <= self.status_code < 300
+
+    def raise_for_status(self) -> None:
+        """Raise PodRequestError if the response status is not 2xx."""
+        if not self.ok:
+            raise PodRequestError(self.status_code, self.body)
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,3 +164,67 @@ class Pod:
             sort_keys=True,
         )
         return hashlib.md5(payload.encode()).hexdigest()  # noqa: S324
+
+    # -- Registry binding for address resolution --
+
+    def _bind_registry(self, registry: Any) -> None:
+        """Inject PodRegistry for address resolution. Called by Flash runtime."""
+        self._registry = registry
+
+    # -- HTTP convenience methods --
+
+    async def get(self, path: str, **kwargs: Any) -> PodResponse:
+        """Send a GET request to the pod."""
+        return await self._request("GET", path, **kwargs)
+
+    async def post(self, path: str, **kwargs: Any) -> PodResponse:
+        """Send a POST request to the pod."""
+        return await self._request("POST", path, **kwargs)
+
+    async def put(self, path: str, **kwargs: Any) -> PodResponse:
+        """Send a PUT request to the pod."""
+        return await self._request("PUT", path, **kwargs)
+
+    async def delete(self, path: str, **kwargs: Any) -> PodResponse:
+        """Send a DELETE request to the pod."""
+        return await self._request("DELETE", path, **kwargs)
+
+    async def _request(self, method: str, path: str, **kwargs: Any) -> PodResponse:
+        """Send an HTTP request to the pod via registry-resolved address.
+
+        Args:
+            method: HTTP method (GET, POST, PUT, DELETE).
+            path: URL path relative to the pod's base address.
+            **kwargs: Forwarded to httpx.AsyncClient.request.
+
+        Returns:
+            PodResponse with status, headers, body, and parsed JSON (if applicable).
+
+        Raises:
+            RuntimeError: If no registry is bound to this pod.
+        """
+        if not hasattr(self, "_registry") or self._registry is None:
+            raise RuntimeError(
+                f"Pod '{self.name}' has no registry bound. "
+                "Ensure the pod is used within a Flash runtime context."
+            )
+        base_url = await self._registry.resolve(self.name)
+        url = f"{base_url.rstrip('/')}/{path.lstrip('/')}"
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.request(method, url, **kwargs)
+
+        content_type = response.headers.get("content-type", "")
+        json_data = None
+        if "application/json" in content_type:
+            try:
+                json_data = response.json()
+            except Exception:  # noqa: BLE001
+                pass
+
+        return PodResponse(
+            status_code=response.status_code,
+            headers=dict(response.headers),
+            body=response.content,
+            json_data=json_data,
+        )
