@@ -48,7 +48,7 @@ Endpoint(
 | `accelerate_downloads` | `bool` | `True` | Enable accelerated downloads. |
 | `volume` | `NetworkVolume` or list | `None` | Network volume(s) for persistent storage. One volume per datacenter. |
 | `datacenter` | `DataCenter`, list, `str`, or `None` | `None` | Datacenter(s) to deploy into. `None` means all available DCs. Accepts a single value, a list, or string DC IDs. CPU endpoints must use DCs in `CPU_DATACENTERS`. |
-| `env` | `dict[str, str]` | `None` | Environment variables for the endpoint. |
+| `env` | `dict[str, str]` | `None` | Environment variables for the deployed endpoint. This is the only way to pass env vars to deployed workers; `.env` files are not carried to endpoints. |
 | `gpu_count` | `int` | `1` | GPUs per worker. |
 | `execution_timeout_ms` | `int` | `0` | Max execution time in ms. 0 = no limit. |
 | `flashboot` | `bool` | `True` | Enable Flashboot fast startup. |

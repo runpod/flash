@@ -64,7 +64,7 @@ def load_ignore_patterns(project_dir: Path) -> pathspec.PathSpec:
         patterns.extend(git_patterns)
         log.debug(f"Loaded {len(git_patterns)} patterns from .gitignore")
 
-    # Always exclude build artifacts, virtual environments, and Python bytecode
+    # Always exclude build artifacts, virtual environments, Python bytecode, and secrets
     always_ignore = [
         ".build/",
         ".flash/",
@@ -77,6 +77,8 @@ def load_ignore_patterns(project_dir: Path) -> pathspec.PathSpec:
         "*.pyc",
         "*.pyo",
         "*.pyd",
+        ".env",
+        ".env.*",
     ]
     patterns.extend(always_ignore)
 

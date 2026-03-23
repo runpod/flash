@@ -379,6 +379,17 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
             "",
         ]
 
+    # Purge user modules from sys.modules so uvicorn hot-reload reimports them
+    # with current code and config values (e.g. updated env dicts).
+    user_modules = sorted({w.module_path for w in workers})
+    if user_modules:
+        module_list = ", ".join(f'"{m}"' for m in user_modules)
+        lines += [
+            f"for _mod in [{module_list}]:",
+            "    sys.modules.pop(_mod, None)",
+            "",
+        ]
+
     # Collect imports — QB functions are called directly, LB config variables and
     # functions are passed to lb_execute for dispatch via LoadBalancerSlsStub.
     all_imports: List[str] = []
