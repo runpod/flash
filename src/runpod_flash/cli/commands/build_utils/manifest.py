@@ -41,6 +41,44 @@ def _serialize_network_volume(nv) -> dict:
     return nv_config
 
 
+@dataclass
+class ManifestFunction:
+    """Function entry in manifest."""
+
+    name: str
+    module: str
+    is_async: bool
+    is_class: bool
+    http_method: Optional[str] = None  # HTTP method for LB endpoints (GET, POST, etc.)
+    http_path: Optional[str] = None  # HTTP path for LB endpoints (/api/process)
+    is_load_balanced: bool = False  # Determined by isinstance() at scan time
+    is_live_resource: bool = False  # LiveLoadBalancer vs LoadBalancerSlsResource
+    config_variable: Optional[str] = None  # Variable name like "gpu_config"
+    pod_dependencies: Optional[List[str]] = None
+
+
+@dataclass
+class ManifestResource:
+    """Resource config entry in manifest."""
+
+    resource_type: str
+    functions: List[ManifestFunction]
+    is_load_balanced: bool = False  # Determined by isinstance() at scan time
+    is_live_resource: bool = False  # LiveLoadBalancer vs LoadBalancerSlsResource
+    config_variable: Optional[str] = None  # Variable name for config discovery
+    is_load_balanced_endpoint: bool = False  # Flag for load-balanced endpoint
+    is_explicit: bool = False  # Flag indicating explicit load balancer configuration
+    main_file: Optional[str] = None  # Filename of main entry point
+    app_variable: Optional[str] = None  # Variable name of FastAPI app
+    imageName: Optional[str] = None  # Docker image name for auto-provisioning
+    templateId: Optional[str] = None  # RunPod template ID for auto-provisioning
+    gpuIds: Optional[list] = None  # GPU types/IDs for auto-provisioning
+    workersMin: Optional[int] = None  # Min worker count for auto-provisioning
+    workersMax: Optional[int] = None  # Max worker count for auto-provisioning
+    pod_id: Optional[str] = None
+    pod_ports: Optional[list] = None
+
+
 class ManifestBuilder:
     """Builds flash_manifest.json from discovered remote functions."""
 
