@@ -247,7 +247,8 @@ class ManifestBuilder:
             hasattr(resource_config, "minCudaVersion")
             and resource_config.minCudaVersion is not None
         ):
-            config["minCudaVersion"] = resource_config.minCudaVersion
+            v = resource_config.minCudaVersion
+            config["minCudaVersion"] = v.value if hasattr(v, "value") else v
 
         if hasattr(resource_config, "env") and resource_config.env is not None:
             config["env"] = dict(resource_config.env)
