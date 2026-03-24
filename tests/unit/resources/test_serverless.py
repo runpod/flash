@@ -679,14 +679,14 @@ class TestMinCudaVersion:
 
     def test_gpu_endpoint_defaults_to_12_8(self):
         serverless = ServerlessResource(name="test")
-        assert serverless.minCudaVersion == "12.8"
+        assert serverless.minCudaVersion == CudaVersion.V12_8
 
     def test_gpu_endpoint_custom_min_cuda(self):
         serverless = ServerlessResource(
             name="test",
             minCudaVersion=CudaVersion.V12_4.value,
         )
-        assert serverless.minCudaVersion == "12.4"
+        assert serverless.minCudaVersion == CudaVersion.V12_4
 
     def test_min_cuda_version_in_hashed_fields(self):
         attr = getattr(ServerlessResource, "_hashed_fields")
@@ -721,11 +721,11 @@ class TestMinCudaVersion:
         assert s1._has_structural_changes(s2) is False
 
     def test_invalid_min_cuda_version_raises(self):
-        with pytest.raises(ValueError, match="Invalid minCudaVersion"):
+        with pytest.raises(ValueError, match="is not a valid CudaVersion"):
             ServerlessResource(name="test", minCudaVersion="99.9")
 
     def test_invalid_min_cuda_version_string_raises(self):
-        with pytest.raises(ValueError, match="Invalid minCudaVersion"):
+        with pytest.raises(ValueError, match="is not a valid CudaVersion"):
             ServerlessResource(name="test", minCudaVersion="not-a-version")
 
 
