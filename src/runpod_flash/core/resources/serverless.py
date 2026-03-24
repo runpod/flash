@@ -74,6 +74,8 @@ class CudaVersion(Enum):
     V12_6 = "12.6"
     V12_7 = "12.7"
     V12_8 = "12.8"
+    V12_9 = "12.9"
+    V13_0 = "13.0"
 
 
 class ServerlessResource(DeployableResource):
@@ -154,7 +156,7 @@ class ServerlessResource(DeployableResource):
     executionTimeoutMs: Optional[int] = 0
     gpuCount: Optional[int] = 1
     idleTimeout: Optional[int] = 60
-    minCudaVersion: Optional[str] = CudaVersion.V12_8.value
+    minCudaVersion: Optional[CudaVersion | str] = CudaVersion.V12_8
     instanceIds: Optional[List[CpuInstanceType]] = None
     locations: Optional[str] = None
     name: str
@@ -301,17 +303,13 @@ class ServerlessResource(DeployableResource):
 
     @field_validator("minCudaVersion")
     @classmethod
-    def validate_min_cuda_version(cls, value: Optional[str]) -> Optional[str]:
+    def validate_min_cuda_version(
+        cls, value: Optional[CudaVersion | str]
+    ) -> Optional[CudaVersion]:
         """Validate minCudaVersion is a known CudaVersion value."""
-        if value is None:
+        if value is None or isinstance(value, CudaVersion):
             return value
-        valid = {v.value for v in CudaVersion}
-        if value not in valid:
-            raise ValueError(
-                f"Invalid minCudaVersion '{value}'. "
-                f"Valid values: {', '.join(sorted(valid))}"
-            )
-        return value
+        return CudaVersion(value)
 
     @field_validator("gpus")
     @classmethod
