@@ -391,7 +391,8 @@ class TestWatchAndRegenerate:
         stop = threading.Event()
 
         with patch(
-            "runpod_flash.cli.commands.run._scan_project_workers", return_value=[]
+            "runpod_flash.cli.commands.run._scan_project_workers",
+            return_value=([], None),
         ) as mock_scan:
             with patch(
                 "runpod_flash.cli.commands.run._generate_flash_server"

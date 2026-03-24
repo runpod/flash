@@ -704,9 +704,14 @@ class TestEndpointId:
         with pytest.raises(ValueError, match="id and image are mutually exclusive"):
             Endpoint(name="test", id="abc123", image="img:latest")
 
-    def test_name_or_id_required(self):
+    def test_name_or_id_required_for_image_mode(self):
         with pytest.raises(ValueError, match="name or id is required"):
-            Endpoint()
+            Endpoint(image="my-image:latest")
+
+    def test_nameless_decorator_mode_allowed(self):
+        """Endpoint() without name is valid for QB decorator mode."""
+        ep = Endpoint(gpu=GpuGroup.ANY)
+        assert ep.name is None
 
     def test_id_no_default_gpu(self):
         """client-only endpoints dont default to GPU ANY."""

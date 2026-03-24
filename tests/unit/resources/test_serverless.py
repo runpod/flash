@@ -1047,6 +1047,7 @@ class TestServerlessResourceDeployment:
                 "imageName": "image:v2",
             }
         )
+        mock_runpod_client.get_template = AsyncMock(return_value={"env": []})
 
         with patch(
             "runpod_flash.core.resources.serverless.RunpodGraphQLClient"
@@ -1958,10 +1959,10 @@ class TestInjectTemplateEnv:
 
 
 class TestBuildTemplateUpdatePayload:
-    """Test _build_template_update_payload skip_env behavior."""
+    """Test _build_template_update_payload always includes env."""
 
-    def test_payload_includes_env_by_default(self):
-        """Template update payload includes env when skip_env is False."""
+    def test_payload_includes_env(self):
+        """Template update payload always includes env (non-nullable in saveTemplate)."""
         template = PodTemplate(
             name="test-template",
             imageName="test:latest",
@@ -1971,28 +1972,91 @@ class TestBuildTemplateUpdatePayload:
         assert "env" in payload
         assert payload["env"] == [{"key": "MY_VAR", "value": "my_val"}]
 
-    def test_payload_excludes_env_when_skip_env_true(self):
-        """Template update payload omits env when skip_env is True.
-
-        This preserves platform-injected vars (e.g. PORT, PORT_HEALTH)
-        on the existing template.
-        """
+    def test_payload_defaults_env_to_empty_list(self):
+        """Template update payload defaults env to [] when template has no env."""
         template = PodTemplate(
             name="test-template",
             imageName="test:latest",
-            env=[KeyValuePair(key="MY_VAR", value="my_val")],
         )
-        payload = ServerlessResource._build_template_update_payload(
-            template, "tpl-123", skip_env=True
-        )
-        assert "env" not in payload
-        # Other fields should still be present
+        # env defaults to [] on PodTemplate, but exclude_none=True in model_dump
+        # might drop it — payload.setdefault ensures it's always present.
+        payload = ServerlessResource._build_template_update_payload(template, "tpl-123")
+        assert "env" in payload
         assert payload["imageName"] == "test:latest"
         assert payload["id"] == "tpl-123"
 
     @pytest.mark.asyncio
-    async def test_update_skips_env_when_unchanged(self):
-        """update() omits env from template payload when env hasn't changed."""
+    async def test_update_echoes_live_env_when_unchanged(self):
+        """update() fetches live template env when user env hasn't changed.
+
+        saveTemplate requires env (non-nullable), so even when the user's env
+        is unchanged we must send the field.  The live env is echoed back to
+        preserve platform-injected vars (PORT, PORT_HEALTH).
+        """
+        env = {"LOG_LEVEL": "INFO"}
+        old_resource = ServerlessEndpoint(
+            name="update-test",
+            imageName="test:latest",
+            env=env,
+            flashboot=False,
+        )
+        old_resource.id = "ep-123"
+        old_resource.templateId = "tpl-123"
+
+        new_resource = ServerlessEndpoint(
+            name="update-test",
+            imageName="test:latest",
+            env=env,
+            flashboot=False,
+            workersMax=5,
+        )
+
+        live_env = [
+            {"key": "LOG_LEVEL", "value": "INFO"},
+            {"key": "PORT", "value": "8080"},
+        ]
+        mock_client = AsyncMock()
+        mock_client.save_endpoint = AsyncMock(
+            return_value={
+                "id": "ep-123",
+                "name": "update-test",
+                "templateId": "tpl-123",
+                "gpuIds": "AMPERE_48",
+                "allowedCudaVersions": "",
+            }
+        )
+        mock_client.update_template = AsyncMock(return_value={})
+        mock_client.get_template = AsyncMock(return_value={"env": live_env})
+
+        with patch(
+            "runpod_flash.core.resources.serverless.RunpodGraphQLClient"
+        ) as mock_client_class:
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+            mock_client_class.return_value.__aexit__.return_value = None
+
+            with patch.object(
+                ServerlessResource,
+                "_ensure_network_volume_deployed",
+                new=AsyncMock(),
+            ):
+                await old_resource.update(new_resource)
+
+        # env IS in the payload — echoed from the live template
+        assert mock_client.update_template.called
+        template_payload = mock_client.update_template.call_args.args[0]
+        assert "env" in template_payload
+        env_keys = {e["key"] for e in template_payload["env"]}
+        assert "LOG_LEVEL" in env_keys
+        assert "PORT" in env_keys
+
+    @pytest.mark.asyncio
+    async def test_update_raises_when_get_template_fails_env_unchanged(self):
+        """update() raises when get_template fails and env is unchanged.
+
+        If we cannot fetch the live template env, proceeding would risk
+        wiping platform-injected vars (PORT, PORT_HEALTH).  The deploy
+        must fail loudly rather than send a destructive payload.
+        """
         env = {"LOG_LEVEL": "INFO"}
         old_resource = ServerlessEndpoint(
             name="update-test",
@@ -2022,6 +2086,9 @@ class TestBuildTemplateUpdatePayload:
             }
         )
         mock_client.update_template = AsyncMock(return_value={})
+        mock_client.get_template = AsyncMock(
+            side_effect=RuntimeError("API unavailable")
+        )
 
         with patch(
             "runpod_flash.core.resources.serverless.RunpodGraphQLClient"
@@ -2034,12 +2101,11 @@ class TestBuildTemplateUpdatePayload:
                 "_ensure_network_volume_deployed",
                 new=AsyncMock(),
             ):
-                await old_resource.update(new_resource)
+                with pytest.raises(RuntimeError, match="API unavailable"):
+                    await old_resource.update(new_resource)
 
-        # update_template was called, but env should NOT be in the payload
-        assert mock_client.update_template.called
-        template_payload = mock_client.update_template.call_args.args[0]
-        assert "env" not in template_payload
+        # update_template should NOT have been called since we raised
+        mock_client.update_template.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_update_includes_env_when_changed(self):
@@ -2156,8 +2222,9 @@ class TestBuildTemplateUpdatePayload:
     async def test_update_skips_runtime_injection_when_env_unchanged(self):
         """update() does not inject runtime vars when env is unchanged.
 
-        When skip_env=True, the template env payload is omitted entirely,
-        so runtime vars already on the platform are preserved as-is.
+        When env is unchanged, the live template env is echoed back
+        (preserving platform-injected vars) without re-injecting
+        RUNPOD_API_KEY or other runtime vars.
         """
         env = {"LOG_LEVEL": "INFO"}
         old_resource = ServerlessEndpoint(
@@ -2176,6 +2243,7 @@ class TestBuildTemplateUpdatePayload:
             flashboot=False,
         )
 
+        live_env = [{"key": "LOG_LEVEL", "value": "INFO"}]
         mock_client = AsyncMock()
         mock_client.save_endpoint = AsyncMock(
             return_value={
@@ -2187,6 +2255,7 @@ class TestBuildTemplateUpdatePayload:
             }
         )
         mock_client.update_template = AsyncMock(return_value={})
+        mock_client.get_template = AsyncMock(return_value={"env": live_env})
 
         with patch(
             "runpod_flash.core.resources.serverless.RunpodGraphQLClient"
@@ -2207,9 +2276,12 @@ class TestBuildTemplateUpdatePayload:
                     with patch.dict(os.environ, {"RUNPOD_API_KEY": "inject-key"}):
                         await old_resource.update(new_resource)
 
-        # env should be omitted from template payload (skip_env=True)
+        # env IS in the payload (echoed from live), but RUNPOD_API_KEY
+        # should NOT be injected since env was unchanged
         template_payload = mock_client.update_template.call_args.args[0]
-        assert "env" not in template_payload
+        assert "env" in template_payload
+        env_keys = {e["key"] for e in template_payload["env"]}
+        assert "RUNPOD_API_KEY" not in env_keys
 
     @pytest.mark.asyncio
     async def test_update_includes_env_for_explicit_template_env(self):
@@ -2412,12 +2484,13 @@ class TestBuildTemplateUpdatePayload:
         assert "REMOVE_ME" not in env_keys  # user-removed var NOT resurrected
 
     @pytest.mark.asyncio
-    async def test_update_skips_env_for_default_template_env(self):
-        """update() skips env when template.env is the default empty list, not explicitly set.
+    async def test_update_echoes_empty_env_for_default_template_env(self):
+        """update() sends empty env when template.env is default and live env is empty.
 
-        PodTemplate.env defaults to []. Without model_fields_set checking,
-        `is not None` would always be True for the default, incorrectly forcing
-        skip_env=False and causing unnecessary rolling releases.
+        PodTemplate.env defaults to []. When env is unchanged, the live
+        template env is echoed back.  With an empty live env, the payload
+        contains ``env: []`` which satisfies saveTemplate's non-nullable
+        requirement without triggering a rolling release.
         """
         old_resource = ServerlessEndpoint(
             name="update-default-tpl",

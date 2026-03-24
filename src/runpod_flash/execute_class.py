@@ -202,6 +202,9 @@ def create_remote_class(
         raise ValueError("Class must have a __name__ attribute")
 
     class RemoteClassWrapper:
+        # store a reference to the original class for introspection
+        _wrapped_class = cls
+
         def __init__(self, *args, **kwargs):
             self._class_type = cls
             self._resource_config = resource_config

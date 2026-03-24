@@ -677,8 +677,6 @@ class ServerlessResource(DeployableResource):
     def _build_template_update_payload(
         template: PodTemplate,
         template_id: str,
-        *,
-        skip_env: bool = False,
     ) -> Dict[str, Any]:
         """Build saveTemplate payload from template model.
 
@@ -688,11 +686,6 @@ class ServerlessResource(DeployableResource):
         Args:
             template: Template model with desired configuration.
             template_id: ID of the template to update.
-            skip_env: When True, omit ``env`` from the payload so
-                saveTemplate preserves the existing template env vars.
-                This prevents removing platform-injected vars (e.g.
-                PORT, PORT_HEALTH on LB endpoints) when the user's
-                env hasn't actually changed.
         """
         template_data = template.model_dump(exclude_none=True, mode="json")
         allowed_fields = {
@@ -703,11 +696,11 @@ class ServerlessResource(DeployableResource):
             "env",
             "readme",
         }
-        if skip_env:
-            allowed_fields.discard("env")
         payload = {
             key: value for key, value in template_data.items() if key in allowed_fields
         }
+        # saveTemplate requires env (non-nullable) — default to empty list
+        payload.setdefault("env", [])
         # savetemplate mutation requires volumeInGb, but for sls this is always 0
         payload["volumeInGb"] = 0
         payload["id"] = template_id
@@ -999,16 +992,16 @@ class ServerlessResource(DeployableResource):
                         # Also check template.env: if env is empty but the
                         # caller provided explicit template env entries, those
                         # must not be silently dropped.
-                        env_unchanged = self.env == new_config.env
+                        env_changed = self.env != new_config.env
                         template_fields_set = getattr(
                             new_config.template, "model_fields_set", set()
                         )
                         has_explicit_template_env = (
                             not new_config.env and "env" in template_fields_set
                         )
-                        skip_env = env_unchanged and not has_explicit_template_env
+                        env_needs_update = env_changed or has_explicit_template_env
 
-                        if not skip_env:
+                        if env_needs_update:
                             # Inject runtime vars (RUNPOD_API_KEY, FLASH_MODULE_PATH)
                             # so they survive the template env overwrite.
                             new_config._inject_runtime_template_vars()
@@ -1019,11 +1012,31 @@ class ServerlessResource(DeployableResource):
                             await new_config._preserve_platform_env(
                                 client, resolved_template_id, self.env
                             )
+                        else:
+                            # Env unchanged — echo back the live template env so
+                            # platform-injected vars (PORT, PORT_HEALTH) are
+                            # preserved.  saveTemplate requires env (non-nullable),
+                            # so we cannot omit the field.
+                            try:
+                                live = await client.get_template(resolved_template_id)
+                                live_env = live.get("env") or []
+                                new_config.template.env = [
+                                    KeyValuePair(
+                                        key=entry["key"], value=entry.get("value", "")
+                                    )
+                                    for entry in live_env
+                                ]
+                            except Exception:
+                                log.warning(
+                                    f"{self.name}: Could not fetch live template env; "
+                                    f"cannot guarantee platform-injected vars "
+                                    f"(PORT, PORT_HEALTH) are preserved"
+                                )
+                                raise
 
                         template_payload = self._build_template_update_payload(
                             new_config.template,
                             resolved_template_id,
-                            skip_env=skip_env,
                         )
                         await client.update_template(template_payload)
                         log.debug(
