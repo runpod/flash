@@ -58,7 +58,7 @@ def validate_python_version(version: str) -> str:
     """Validate that a Python version string is supported.
 
     Args:
-        version: Python version string (e.g. "3.11").
+        version: Python version string (e.g. "3.12").
 
     Returns:
         The validated version string.
@@ -84,15 +84,14 @@ def get_image_name(
 
     Args:
         image_type: One of 'gpu', 'cpu', 'lb', 'lb-cpu'.
-        python_version: Python version string (e.g. "3.11", "3.12").
+        python_version: Python version string (e.g. "3.12").
         tag: Image tag suffix. Defaults to FLASH_IMAGE_TAG env var or "latest".
 
     Returns:
         Fully qualified image name, e.g. "runpod/flash:py3.12-latest".
 
     Raises:
-        ValueError: If image_type is unknown, python_version is unsupported,
-            or a GPU image type is requested with a CPU-only Python version.
+        ValueError: If image_type is unknown or python_version is unsupported.
     """
     if image_type not in _IMAGE_REPOS:
         raise ValueError(
