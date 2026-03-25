@@ -366,3 +366,33 @@ def test_create_handler_with_return_none():
     assert response["success"] is True
     result = cloudpickle.loads(base64.b64decode(response["result"]))
     assert result is None
+
+
+def test_create_handler_input_none():
+    """Test handler returns error when job input is None instead of crashing."""
+
+    def dummy():
+        return "dummy"
+
+    handler = create_handler({"dummy": dummy})
+
+    job = {"input": None}
+
+    response = handler(job)
+    assert response["success"] is False
+    assert "error" in response
+
+
+def test_create_handler_input_missing():
+    """Test handler returns error when job has no input key."""
+
+    def dummy():
+        return "dummy"
+
+    handler = create_handler({"dummy": dummy})
+
+    job = {}
+
+    response = handler(job)
+    assert response["success"] is False
+    assert "error" in response

@@ -166,7 +166,7 @@ def create_handler(function_registry: Dict[str, Callable]) -> Callable:
         Returns:
             Response dict with 'success', 'result'/'error' keys
         """
-        job_input = job.get("input", {})
+        job_input = job.get("input") or {}
         function_name = job_input.get("function_name")
         execution_type = job_input.get("execution_type", "function")
 
@@ -227,7 +227,7 @@ def create_deployed_handler(func: Callable) -> Callable:
     """
 
     def handler(job: Dict[str, Any]) -> Any:
-        job_input = job.get("input", {})
+        job_input = job.get("input") or {}
         try:
             result = func(**job_input)
             if inspect.iscoroutine(result):
