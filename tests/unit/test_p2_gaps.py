@@ -106,7 +106,7 @@ class TestQBResourceMethodPathWarning:
 
 
 # ---------------------------------------------------------------------------
-# VOL-005: Volume size=0 raises validation error
+# VOL-005: Volume size below minimum raises validation error
 # VOL-006: Volume name empty
 # VOL-007: Undeploy raises NotImplementedError
 # ---------------------------------------------------------------------------
@@ -114,17 +114,17 @@ class TestNetworkVolumeValidation:
     """Network volume validation edge cases."""
 
     def test_volume_size_zero_raises(self):
-        """VOL-005: size=0 raises validation error (gt=0 constraint)."""
+        """VOL-005: size=0 raises validation error (min 10GB)."""
         from runpod_flash.core.resources.network_volume import NetworkVolume
 
-        with pytest.raises(ValidationError, match="greater than 0"):
+        with pytest.raises(ValidationError, match="greater than or equal to 10"):
             NetworkVolume(name="test-vol", size=0)
 
     def test_volume_size_negative_raises(self):
         """VOL-005: Negative size also rejected."""
         from runpod_flash.core.resources.network_volume import NetworkVolume
 
-        with pytest.raises(ValidationError, match="greater than 0"):
+        with pytest.raises(ValidationError, match="greater than or equal to 10"):
             NetworkVolume(name="test-vol", size=-10)
 
     @pytest.mark.asyncio
@@ -138,11 +138,11 @@ class TestNetworkVolumeValidation:
             await vol.undeploy()
 
     def test_volume_default_size(self):
-        """Default volume size is 100GB."""
+        """Default volume size is 20GB."""
         from runpod_flash.core.resources.network_volume import NetworkVolume
 
         vol = NetworkVolume(name="test-vol")
-        assert vol.size == 100
+        assert vol.size == 20
 
 
 # ---------------------------------------------------------------------------

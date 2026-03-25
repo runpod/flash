@@ -187,6 +187,11 @@ class TestNetworkVolumeIdempotent:
         with pytest.raises(ValidationError, match="less than or equal to 4096"):
             NetworkVolume(name="too-large", size=4097)
 
+    def test_size_below_min_rejected(self):
+        """Size below 10GB should fail validation."""
+        with pytest.raises(ValidationError, match="greater than or equal to 10"):
+            NetworkVolume(name="too-small", size=5)
+
     def test_unknown_field_rejected(self):
         """Unknown fields should raise validation errors."""
         with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
