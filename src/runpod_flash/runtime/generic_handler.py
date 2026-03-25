@@ -166,7 +166,17 @@ def create_handler(function_registry: Dict[str, Callable]) -> Callable:
         Returns:
             Response dict with 'success', 'result'/'error' keys
         """
-        job_input = job.get("input") or {}
+        raw_input = job.get("input")
+        if raw_input is None:
+            job_input = {}
+        elif not isinstance(raw_input, dict):
+            return {
+                "success": False,
+                "error": f"Invalid job input type: expected dict, got {type(raw_input).__name__}",
+                "traceback": "",
+            }
+        else:
+            job_input = raw_input
         function_name = job_input.get("function_name")
         execution_type = job_input.get("execution_type", "function")
 
@@ -227,7 +237,14 @@ def create_deployed_handler(func: Callable) -> Callable:
     """
 
     def handler(job: Dict[str, Any]) -> Any:
-        job_input = job.get("input") or {}
+        if "input" not in job or job.get("input") is None:
+            job_input = {}
+        else:
+            job_input = job.get("input")
+            if not isinstance(job_input, dict):
+                return {
+                    "error": f"Malformed input: expected dict, got {type(job_input).__name__}",
+                }
         try:
             result = func(**job_input)
             if inspect.iscoroutine(result):
