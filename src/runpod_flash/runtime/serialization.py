@@ -7,7 +7,11 @@ from typing import Any, Dict, List
 import cloudpickle
 
 from .config import DESERIALIZE_TIMEOUT_SECONDS, MAX_PAYLOAD_SIZE
-from .exceptions import DeserializeTimeoutError, PayloadTooLargeError, SerializationError
+from .exceptions import (
+    DeserializeTimeoutError,
+    PayloadTooLargeError,
+    SerializationError,
+)
 
 
 def serialize_arg(arg: Any) -> str:
@@ -102,9 +106,7 @@ def _unpickle_with_timeout(data: bytes, timeout: int) -> Any:
             return future.result(timeout=timeout)
         except concurrent.futures.TimeoutError:
             future.cancel()
-            raise DeserializeTimeoutError(
-                f"Deserialization timed out after {timeout}s"
-            )
+            raise DeserializeTimeoutError(f"Deserialization timed out after {timeout}s")
 
 
 def deserialize_arg(arg_b64: str) -> Any:
