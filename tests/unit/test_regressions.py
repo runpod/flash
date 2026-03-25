@@ -207,19 +207,32 @@ class TestREG006WorkerQuotaError:
 # REG-007: Large base64 payload (>10MB) handling
 # ---------------------------------------------------------------------------
 class TestREG007LargePayload:
-    """Large serialized payloads should serialize without silent corruption."""
+    """Large serialized payloads should round-trip without silent corruption,
+    and payloads exceeding MAX_PAYLOAD_SIZE are rejected before decoding."""
 
     def test_large_payload_roundtrip(self):
-        """10MB+ payload survives serialize → deserialize without corruption."""
+        """Payload near the size limit survives serialize -> deserialize without corruption."""
         from runpod_flash.runtime.serialization import deserialize_arg, serialize_arg
 
-        # Create a ~10MB payload
-        large_data = b"x" * (10 * 1024 * 1024)
+        # ~7 MB raw -> ~9.3 MB base64, stays under the 10 MB limit
+        large_data = b"x" * (7 * 1024 * 1024)
         serialized = serialize_arg(large_data)
         restored = deserialize_arg(serialized)
 
         assert restored == large_data
         assert len(restored) == len(large_data)
+
+    def test_oversized_payload_rejected(self):
+        """Payloads exceeding MAX_PAYLOAD_SIZE raise PayloadTooLargeError."""
+        from runpod_flash.runtime.exceptions import PayloadTooLargeError
+        from runpod_flash.runtime.serialization import deserialize_arg, serialize_arg
+
+        # 10 MB raw -> ~13.3 MB base64, exceeds the 10 MB limit
+        large_data = b"x" * (10 * 1024 * 1024)
+        serialized = serialize_arg(large_data)
+
+        with pytest.raises(PayloadTooLargeError):
+            deserialize_arg(serialized)
 
 
 # ---------------------------------------------------------------------------
