@@ -19,24 +19,19 @@ def _endpoint_domain_from_base_url(base_url: str) -> str:
 ENDPOINT_DOMAIN = _endpoint_domain_from_base_url(runpod.endpoint_url_base)
 
 
-# Python version support
-SUPPORTED_PYTHON_VERSIONS: tuple[str, ...] = ("3.10", "3.11", "3.12")
+# all flash workers run Python 3.12. one tarball serves every resource type
+# (GPU and CPU), so packages, images, and the runtime must all target 3.12.
+SUPPORTED_PYTHON_VERSIONS: tuple[str, ...] = ("3.12",)
 GPU_PYTHON_VERSIONS: tuple[str, ...] = ("3.12",)
-CPU_PYTHON_VERSIONS: tuple[str, ...] = ("3.10", "3.11", "3.12")
+CPU_PYTHON_VERSIONS: tuple[str, ...] = ("3.12",)
 
-# GPU base image (runpod/pytorch:1.0.3-cu1281-torch291-ubuntu2204) ships Python 3.12.
-# This is a fact of the Docker image, not configurable at build time.
 GPU_BASE_IMAGE_PYTHON_VERSION: str = "3.12"
-
-# Default must match GPU to avoid ABI mismatch (one tarball serves all resources)
 DEFAULT_PYTHON_VERSION: str = "3.12"
 
 
 def local_python_version() -> str:
-    """Return the running interpreter's major.minor version string."""
-    import sys
-
-    return f"{sys.version_info.major}.{sys.version_info.minor}"
+    """Return the Python version used by flash workers (always 3.12)."""
+    return DEFAULT_PYTHON_VERSION
 
 
 # Image type to repository mapping

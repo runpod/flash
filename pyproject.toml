@@ -13,7 +13,7 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.12,<3.13"
 
 dependencies = [
     "cloudpickle>=3.1.1",
@@ -24,7 +24,6 @@ dependencies = [
     "typer>=0.12.0",
     "questionary>=2.0.0",
     "pathspec>=0.11.0",
-    "tomli>=2.0.0; python_version < '3.11'",
 ]
 
 [dependency-groups]
@@ -89,7 +88,7 @@ filterwarnings = [
 
 [tool.mypy]
 # Basic configuration
-python_version = "3.10"
+python_version = "3.12"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false  # Start lenient, can be stricter later
@@ -150,7 +149,7 @@ source = [
 ]
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py312"
 line-length = 88
 exclude = [
     ".venv",

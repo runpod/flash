@@ -15,12 +15,10 @@ from typing import Optional
 import typer
 from rich.console import Console
 
-try:
-    import tomllib  # Python 3.11+
-except ImportError:
-    import tomli as tomllib  # Python 3.9-3.10
+import tomllib
 
 from runpod_flash.core.resources.constants import (
+    DEFAULT_PYTHON_VERSION,
     MAX_TARBALL_SIZE_MB,
     SUPPORTED_PYTHON_VERSIONS,
     validate_python_version,
@@ -280,7 +278,7 @@ def run_build(
     spec = load_ignore_patterns(project_dir)
     files = get_file_tree(project_dir, spec)
 
-    # Validate Python version unconditionally — even projects with no dependencies
+    # Validate Python version unconditionally -- even projects with no dependencies
     # must build on a supported Python to avoid runtime ABI mismatches.
     python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
     try:
@@ -297,6 +295,9 @@ def run_build(
             "version, or build inside a virtual environment that uses one.[/yellow]"
         )
         raise typer.Exit(1)
+
+    # all packaging and image selection targets 3.12 regardless of local python
+    python_version = DEFAULT_PYTHON_VERSION
 
     try:
         copy_project_files(files, project_dir, build_dir)

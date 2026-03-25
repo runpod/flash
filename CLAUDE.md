@@ -4,7 +4,7 @@
 
 ## Project Overview
 
-runpod-flash (v1.3.0, PyPI: `runpod-flash`, MIT, Python >=3.10 <3.15). Python SDK for distributed inference and serving on RunPod serverless. Provides `@remote` decorator, CLI (`flash init/run/build/deploy`), runtime for serialization, endpoint provisioning, cross-endpoint routing, and load-balanced HTTP serving.
+runpod-flash (v1.3.0, PyPI: `runpod-flash`, MIT, Python 3.12). Python SDK for distributed inference and serving on RunPod serverless. Provides `@remote` decorator, CLI (`flash init/run/build/deploy`), runtime for serialization, endpoint provisioning, cross-endpoint routing, and load-balanced HTTP serving.
 
 Package: `runpod_flash` (src layout). Key deps: cloudpickle, runpod, pydantic>=2.0, rich>=14.0, typer>=0.12.
 
@@ -125,7 +125,7 @@ flash-worker   --> flash (protocols)    --> runpod-python (serverless.start)
 
 ### Known Drift
 
-- Python version: runpod-python supports 3.8+, flash requires 3.10+
+- Python version: runpod-python supports 3.8+, flash requires 3.12
 - Coverage thresholds: runpod-python 90%, flash 35%, flash-examples none
 - runpod pinned to git main instead of stable release
 

@@ -74,10 +74,7 @@ def check_and_migrate_legacy_credentials() -> None:
     exists and the new location has no credentials, automatically migrate the
     legacy API key to the new credentials file.
     """
-    try:
-        import tomllib
-    except ImportError:
-        import tomli as tomllib
+    import tomllib
 
     try:
         existing_creds = get_credentials()
