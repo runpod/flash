@@ -118,20 +118,10 @@ def remote(
     method: Optional[str] = None,
     path: Optional[str] = None,
     _internal: bool = False,
+    # **extra is retained (rather than removing it and relying on Python's own
+    # TypeError) so we can provide "did you mean?" suggestions for typos.
     **extra,
 ):
-    _KNOWN_KWARGS = {
-        "resource_config",
-        "dependencies",
-        "system_dependencies",
-        "accelerate_downloads",
-        "local",
-        "method",
-        "path",
-        "_internal",
-    }
-    if extra:
-        _reject_unknown_kwargs(extra, _KNOWN_KWARGS)
     """
     .. deprecated::
         Use :class:`runpod_flash.Endpoint` instead.
@@ -205,6 +195,8 @@ def remote(
             pass
     ```
     """
+    if extra:
+        _reject_unknown_kwargs(extra, _REMOTE_KNOWN_KWARGS)
 
     if not _internal:
         import warnings
@@ -326,3 +318,11 @@ def remote(
             return wrapper
 
     return decorator
+
+
+# Derived from remote()'s signature so it stays in sync automatically.
+_REMOTE_KNOWN_KWARGS = {
+    p.name
+    for p in inspect.signature(remote).parameters.values()
+    if p.kind != inspect.Parameter.VAR_KEYWORD
+}
