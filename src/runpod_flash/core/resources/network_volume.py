@@ -4,7 +4,9 @@ from enum import Enum
 from typing import Optional, Dict, Any
 
 from pydantic import (
+    ConfigDict,
     Field,
+    field_validator,
     field_serializer,
     model_validator,
 )
@@ -80,13 +82,25 @@ class NetworkVolume(DeployableResource):
         "name",
     }
 
+    model_config = ConfigDict(extra="forbid")
+
     # public alias -- users pass datacenter=, which syncs to dataCenterId for the API
     datacenter: Optional[DataCenter] = Field(default=None, exclude=True)
     dataCenterId: DataCenter = Field(default=DataCenter.EU_RO_1)
 
     id: Optional[str] = Field(default=None)
     name: Optional[str] = None
-    size: Optional[int] = Field(default=100, gt=0)  # Size in GB
+    size: Optional[int] = Field(default=100, gt=0, le=4096)  # Size in GB
+
+    @field_validator("name")
+    @classmethod
+    def validate_name_not_empty(cls, value: Optional[str]) -> Optional[str]:
+        """Reject empty/whitespace-only volume names."""
+        if value is None:
+            return value
+        if not value.strip():
+            raise ValueError("name must not be empty or whitespace-only")
+        return value
 
     @model_validator(mode="before")
     @classmethod
