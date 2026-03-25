@@ -9,4 +9,9 @@ DEFAULT_BACKOFF_BASE = 2
 DEFAULT_CACHE_TTL = 300  # seconds
 
 # Serialization limits
-MAX_PAYLOAD_SIZE = 10 * 1024 * 1024  # 10MB
+# max size of a single base64-encoded argument before decoding.
+# base64 expands data by ~33%, so 10 MB encoded is ~7.5 MB decoded.
+MAX_PAYLOAD_SIZE = 10 * 1024 * 1024  # 10 MB
+
+# max wall-clock seconds for a single cloudpickle.loads() call
+DESERIALIZE_TIMEOUT_SECONDS = 30
