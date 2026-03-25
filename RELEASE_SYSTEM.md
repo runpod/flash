@@ -72,7 +72,7 @@ docs: update API documentation
 - **Build**: Package build and verification (blocking)
 
 ### Build Requirements
-- **Python Versions**: 3.12
+- **Python Versions**: 3.10, 3.11, 3.12
 - **Package Verification**: Twine check and Sigstore signing
 - **OIDC Publishing**: Trusted publishing without API keys
 

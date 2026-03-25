@@ -6,7 +6,7 @@ This guide walks through deploying a Flash application from local development to
 
 ## Prerequisites
 
-- Python 3.12
+- Python 3.10+
 - `pip install runpod-flash`
 - A Runpod account with API key ([get one here](https://docs.runpod.io/get-started/api-keys))
 

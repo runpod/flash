@@ -219,19 +219,19 @@ class TestLiveServerlessPythonVersion:
         assert f"py{GPU_BASE_IMAGE_PYTHON_VERSION}" in ls.imageName
 
     def test_gpu_explicit_python_311_raises(self):
-        with pytest.raises(ValueError, match="not supported"):
+        with pytest.raises(ValueError, match="GPU endpoints require"):
             LiveServerless(name="test", python_version="3.11")
 
     def test_gpu_explicit_python_310_raises(self):
-        with pytest.raises(ValueError, match="not supported"):
+        with pytest.raises(ValueError, match="GPU endpoints require"):
             LiveServerless(name="test", python_version="3.10")
 
     def test_cpu_explicit_python_311_raises(self):
-        with pytest.raises(ValueError, match="not supported"):
+        with pytest.raises(ValueError, match="CPU endpoints require"):
             CpuLiveServerless(name="test", python_version="3.11")
 
     def test_cpu_explicit_python_310_raises(self):
-        with pytest.raises(ValueError, match="not supported"):
+        with pytest.raises(ValueError, match="CPU endpoints require"):
             CpuLiveServerless(name="test", python_version="3.10")
 
     def test_cpu_default_uses_3_12(self):
@@ -249,15 +249,15 @@ class TestLiveLoadBalancerPythonVersion:
         assert "runpod/flash-lb:" in lb.imageName
 
     def test_lb_explicit_python_311_raises(self):
-        with pytest.raises(ValueError, match="not supported"):
+        with pytest.raises(ValueError, match="GPU endpoints require"):
             LiveLoadBalancer(name="test", python_version="3.11")
 
     def test_lb_explicit_python_310_raises(self):
-        with pytest.raises(ValueError, match="not supported"):
+        with pytest.raises(ValueError, match="GPU endpoints require"):
             LiveLoadBalancer(name="test", python_version="3.10")
 
     def test_cpu_lb_explicit_python_310_raises(self):
-        with pytest.raises(ValueError, match="not supported"):
+        with pytest.raises(ValueError, match="CPU endpoints require"):
             CpuLiveLoadBalancer(name="test", python_version="3.10")
 
     def test_cpu_lb_default_uses_3_12(self):

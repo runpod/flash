@@ -22,7 +22,7 @@ def check_conda_available() -> bool:
 
 
 def create_conda_environment(
-    env_name: str, python_version: str = "3.12"
+    env_name: str, python_version: str = "3.11"
 ) -> Tuple[bool, str]:
     """
     Create a new conda environment.

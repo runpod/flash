@@ -4,7 +4,7 @@
 
 ### Prerequisites
 
-- Python 3.12
+- Python 3.10+ (3.12 recommended)
 - uv package manager
 - Git
 
@@ -234,7 +234,7 @@ Fix: bug in client             # Incorrect capitalization
 
 ### CI Quality Gates
 
-All PRs run quality gates on Python 3.12:
+All PRs run quality gates on Python 3.10, 3.11, and 3.12:
 
 1. Code formatting check (ruff)
 2. Linting (ruff)

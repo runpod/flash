@@ -19,14 +19,18 @@ def _endpoint_domain_from_base_url(base_url: str) -> str:
 ENDPOINT_DOMAIN = _endpoint_domain_from_base_url(runpod.endpoint_url_base)
 
 
-# all flash workers run Python 3.12. one tarball serves every resource type
-# (GPU and CPU), so packages, images, and the runtime must all target 3.12.
-SUPPORTED_PYTHON_VERSIONS: tuple[str, ...] = ("3.12",)
+# worker runtime Python versions. all flash workers run Python 3.12.
+# one tarball serves every resource type (GPU and CPU), so packages,
+# images, and the runtime must all target 3.12.
+WORKER_PYTHON_VERSION: str = "3.12"
 GPU_PYTHON_VERSIONS: tuple[str, ...] = ("3.12",)
 CPU_PYTHON_VERSIONS: tuple[str, ...] = ("3.12",)
 
 GPU_BASE_IMAGE_PYTHON_VERSION: str = "3.12"
 DEFAULT_PYTHON_VERSION: str = "3.12"
+
+# python versions that can run the flash SDK locally (for flash build, etc.)
+SUPPORTED_PYTHON_VERSIONS: tuple[str, ...] = ("3.10", "3.11", "3.12")
 
 
 def local_python_version() -> str:
@@ -44,6 +48,9 @@ _IMAGE_REPOS: dict[str, str] = {
 
 # Image types that require GPU-compatible Python versions
 _GPU_IMAGE_TYPES: frozenset[str] = frozenset({"gpu", "lb"})
+
+# Image types that require CPU-compatible Python versions
+_CPU_IMAGE_TYPES: frozenset[str] = frozenset({"cpu", "lb-cpu"})
 
 # Image type to environment variable override mapping
 _IMAGE_ENV_VARS: dict[str, str] = {
@@ -111,6 +118,12 @@ def get_image_name(
         gpu_versions = ", ".join(GPU_PYTHON_VERSIONS)
         raise ValueError(
             f"GPU endpoints require Python {gpu_versions}. Got Python {python_version}."
+        )
+
+    if image_type in _CPU_IMAGE_TYPES and python_version not in CPU_PYTHON_VERSIONS:
+        cpu_versions = ", ".join(CPU_PYTHON_VERSIONS)
+        raise ValueError(
+            f"CPU endpoints require Python {cpu_versions}. Got Python {python_version}."
         )
 
     resolved_tag = tag or os.environ.get("FLASH_IMAGE_TAG", "latest")

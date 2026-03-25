@@ -34,7 +34,7 @@ pip install runpod-flash
 uv add runpod-flash
 ```
 
-Flash requires [Python 3.12](https://www.python.org/downloads/), and is currently available for macOS and Linux. Windows support is in development.
+Flash requires [Python 3.10+](https://www.python.org/downloads/), and is currently available for macOS and Linux. Windows support is in development.
 
 ### Authentication
 
@@ -163,7 +163,7 @@ Browse working examples: **[github.com/runpod/flash-examples](https://github.com
 
 ## Requirements
 
-- Python 3.12
+- Python 3.10+
 - macOS or Linux (Windows support in development)
 - [Runpod account](https://runpod.io/console) with API key
 

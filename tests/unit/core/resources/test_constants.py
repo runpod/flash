@@ -19,7 +19,7 @@ from runpod_flash.core.resources.constants import (
 
 class TestSupportedPythonVersions:
     def test_supported_versions(self):
-        assert SUPPORTED_PYTHON_VERSIONS == ("3.12",)
+        assert SUPPORTED_PYTHON_VERSIONS == ("3.10", "3.11", "3.12")
 
     def test_gpu_python_versions(self):
         assert GPU_PYTHON_VERSIONS == ("3.12",)
@@ -41,11 +41,11 @@ class TestGetImageName:
         )
 
     def test_gpu_3_11_raises(self):
-        with pytest.raises(ValueError, match="not supported"):
+        with pytest.raises(ValueError, match="GPU endpoints require"):
             get_image_name("gpu", "3.11", tag="latest")
 
     def test_gpu_3_10_raises(self):
-        with pytest.raises(ValueError, match="not supported"):
+        with pytest.raises(ValueError, match="GPU endpoints require"):
             get_image_name("gpu", "3.10", tag="latest")
 
     def test_cpu_3_12(self):
@@ -55,19 +55,19 @@ class TestGetImageName:
         )
 
     def test_cpu_3_11_raises(self):
-        with pytest.raises(ValueError, match="not supported"):
+        with pytest.raises(ValueError, match="CPU endpoints require"):
             get_image_name("cpu", "3.11", tag="latest")
 
     def test_cpu_3_10_raises(self):
-        with pytest.raises(ValueError, match="not supported"):
+        with pytest.raises(ValueError, match="CPU endpoints require"):
             get_image_name("cpu", "3.10", tag="latest")
 
     def test_lb_3_11_raises(self):
-        with pytest.raises(ValueError, match="not supported"):
+        with pytest.raises(ValueError, match="GPU endpoints require"):
             get_image_name("lb", "3.11", tag="latest")
 
     def test_lb_3_10_raises(self):
-        with pytest.raises(ValueError, match="not supported"):
+        with pytest.raises(ValueError, match="GPU endpoints require"):
             get_image_name("lb", "3.10", tag="latest")
 
     def test_lb_3_12(self):
@@ -83,7 +83,7 @@ class TestGetImageName:
         )
 
     def test_lb_cpu_3_10_raises(self):
-        with pytest.raises(ValueError, match="not supported"):
+        with pytest.raises(ValueError, match="CPU endpoints require"):
             get_image_name("lb-cpu", "3.10", tag="latest")
 
     def test_default_tag_reads_flash_image_tag_env(self):
@@ -143,14 +143,6 @@ class TestValidatePythonVersion:
     def test_valid_versions(self):
         for v in SUPPORTED_PYTHON_VERSIONS:
             assert validate_python_version(v) == v
-
-    def test_3_11_raises(self):
-        with pytest.raises(ValueError, match="not supported"):
-            validate_python_version("3.11")
-
-    def test_3_10_raises(self):
-        with pytest.raises(ValueError, match="not supported"):
-            validate_python_version("3.10")
 
     def test_invalid_version_raises(self):
         with pytest.raises(ValueError, match="not supported"):
