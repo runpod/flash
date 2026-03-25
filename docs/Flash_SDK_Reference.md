@@ -30,7 +30,7 @@ Endpoint(
     scaler_type: Optional[ServerlessScalerType] = None,
     scaler_value: int = 4,
     template: Optional[PodTemplate] = None,
-    min_cuda_version: Optional[str] = None,
+    min_cuda_version: Optional[str] = "12.8",
 )
 ```
 
