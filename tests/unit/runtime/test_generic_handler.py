@@ -5,6 +5,7 @@ import base64
 import cloudpickle
 
 from runpod_flash.runtime.generic_handler import (
+    create_deployed_handler,
     create_handler,
     deserialize_arguments,
     execute_function,
@@ -380,7 +381,7 @@ def test_create_handler_input_none():
 
     response = handler(job)
     assert response["success"] is False
-    assert "error" in response
+    assert "not found" in response["error"]
 
 
 def test_create_handler_input_missing():
@@ -395,4 +396,32 @@ def test_create_handler_input_missing():
 
     response = handler(job)
     assert response["success"] is False
-    assert "error" in response
+    assert "not found" in response["error"]
+
+
+def test_create_deployed_handler_input_none():
+    """Test deployed handler treats None input as empty kwargs instead of crashing."""
+
+    def dummy(x: int = 1):
+        return x
+
+    handler = create_deployed_handler(dummy)
+
+    job = {"input": None}
+
+    result = handler(job)
+    assert result == 1
+
+
+def test_create_deployed_handler_input_missing():
+    """Test deployed handler treats missing input as empty kwargs."""
+
+    def dummy(x: int = 1):
+        return x
+
+    handler = create_deployed_handler(dummy)
+
+    job = {}
+
+    result = handler(job)
+    assert result == 1
