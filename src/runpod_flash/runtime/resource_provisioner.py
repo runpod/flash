@@ -141,6 +141,8 @@ def create_resource_from_manifest(
         deployment_kwargs["scalerType"] = resource_data["scalerType"]
     if "scalerValue" in resource_data:
         deployment_kwargs["scalerValue"] = resource_data["scalerValue"]
+    if "minCudaVersion" in resource_data:
+        deployment_kwargs["minCudaVersion"] = resource_data["minCudaVersion"]
     if "instanceIds" in resource_data:
         deployment_kwargs["instanceIds"] = resource_data["instanceIds"]
     if "idleTimeout" in resource_data:

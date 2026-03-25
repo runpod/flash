@@ -1,10 +1,4 @@
-"""unified endpoint class for flash.
-
-replaces the 8-class resource config hierarchy with a single class.
-queue-based vs load-balanced is inferred from usage pattern.
-gpu vs cpu is a parameter, not a class choice.
-live vs deploy is determined by the runtime environment.
-"""
+"""unified endpoint class for flash."""
 
 import logging
 import os
@@ -14,7 +8,7 @@ from .core.resources.constants import DEFAULT_WORKERS_MAX, DEFAULT_WORKERS_MIN
 from .core.resources.cpu import CpuInstanceType
 from .core.resources.gpu import GpuGroup, GpuType
 from .core.resources.network_volume import DataCenter, NetworkVolume
-from .core.resources.serverless import ServerlessScalerType
+from .core.resources.serverless import CudaVersion, ServerlessScalerType
 from .core.resources.template import PodTemplate
 
 log = logging.getLogger(__name__)
@@ -370,6 +364,7 @@ class Endpoint:
         scaler_type: Optional[ServerlessScalerType] = None,
         scaler_value: int = 4,
         template: Optional[PodTemplate] = None,
+        min_cuda_version: Optional[CudaVersion | str] = CudaVersion.V12_8,
     ):
         if gpu is not None and cpu is not None:
             raise ValueError(
@@ -405,6 +400,7 @@ class Endpoint:
         self._explicit_scaler_type = scaler_type
         self.scaler_value = scaler_value
         self.template = template
+        self.min_cuda_version = min_cuda_version
 
         # if no gpu or cpu specified, default to gpu any (unless pure client mode)
         if not self._is_cpu and self._gpu is None and not self.is_client:
@@ -496,9 +492,11 @@ class Endpoint:
             "executionTimeoutMs": self.execution_timeout_ms,
             "flashboot": self.flashboot,
             "datacenter": self.datacenter,
-            "scalerType": self.scaler_type.value
-            if hasattr(self.scaler_type, "value")
-            else self.scaler_type,
+            "scalerType": (
+                self.scaler_type.value
+                if hasattr(self.scaler_type, "value")
+                else self.scaler_type
+            ),
             "scalerValue": self.scaler_value,
         }
 
@@ -533,6 +531,9 @@ class Endpoint:
 
         if self.image is not None:
             kwargs["imageName"] = self.image
+
+        if not is_cpu and self.min_cuda_version is not None:
+            kwargs["minCudaVersion"] = self.min_cuda_version
 
         # select the right class
         if is_lb and is_cpu and live:

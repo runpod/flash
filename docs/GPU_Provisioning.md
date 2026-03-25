@@ -7,6 +7,7 @@ This document describes the architectural design and implementation of GPU provi
 ## Problem Statement
 
 GPU provisioning requires sophisticated resource management:
+
 - Multiple GPU types with different capabilities and memory configurations
 - CUDA version compatibility across different GPU architectures
 - Dynamic GPU group selection and availability
@@ -63,14 +64,15 @@ graph TD
 
 When `Endpoint._build_resource_config()` runs, the GPU configuration is passed to the appropriate internal resource class:
 
-| Endpoint Config | Internal Class | Notes |
-|----------------|---------------|-------|
-| `gpu=GpuGroup.ADA_24` (QB) | `LiveServerless` | Locked image, full code execution |
-| `gpu=GpuGroup.ADA_24` (LB) | `LiveLoadBalancer` | Locked image, HTTP routes |
-| `image="...", gpu=GpuGroup.ADA_24` | `ServerlessEndpoint` | Custom image, raw JSON only |
-| `cpu="cpu3c-1-2"` | `CpuLiveServerless` | CPU endpoint, no GPU |
+| Endpoint Config                    | Internal Class       | Notes                             |
+| ---------------------------------- | -------------------- | --------------------------------- |
+| `gpu=GpuGroup.ADA_24` (QB)         | `LiveServerless`     | Locked image, full code execution |
+| `gpu=GpuGroup.ADA_24` (LB)         | `LiveLoadBalancer`   | Locked image, HTTP routes         |
+| `image="...", gpu=GpuGroup.ADA_24` | `ServerlessEndpoint` | Custom image, raw JSON only       |
+| `cpu="cpu3c-1-2"`                  | `CpuLiveServerless`  | CPU endpoint, no GPU              |
 
 The GPU normalization pipeline (`_normalize_gpu()`) handles:
+
 - Single `GpuGroup` -> `[GpuGroup]`
 - Single `GpuType` -> `[GpuType]`
 - Mixed lists of `GpuGroup`/`GpuType` -> flattened list
@@ -95,10 +97,10 @@ async def serve(data: dict) -> dict:
 
 #### Scaling Strategies
 
-| Scaler Type | Description | Scaling Trigger |
-|------------|-------------|-----------------|
-| `QUEUE_DELAY` | Scale based on request queue delay (QB default) | `scaler_value` seconds of queue time |
-| `REQUEST_COUNT` | Scale based on request volume (LB default) | `scaler_value` requests per time window |
+| Scaler Type     | Description                                     | Scaling Trigger                         |
+| --------------- | ----------------------------------------------- | --------------------------------------- |
+| `QUEUE_DELAY`   | Scale based on request queue delay (QB default) | `scaler_value` seconds of queue time    |
+| `REQUEST_COUNT` | Scale based on request volume (LB default)      | `scaler_value` requests per time window |
 
 The scaler type is auto-selected based on usage pattern. QB endpoints default to `QUEUE_DELAY`, LB endpoints default to `REQUEST_COUNT`. Override with `scaler_type=`:
 
@@ -119,17 +121,17 @@ async def worker(data: dict) -> dict:
 
 GPU groups are organized by architecture, memory, and performance tier:
 
-| Group | Architecture | Memory | Examples | Use Cases |
-|-------|-------------|--------|----------|-----------|
-| `ADA_24` | Ada Lovelace | 24GB | RTX 4090 | ML inference, gaming |
-| `ADA_32_PRO` | Ada Lovelace | 32GB | RTX 5090 | Professional graphics, training |
-| `ADA_48_PRO` | Ada Lovelace | 48GB | L40, L40S | AI training, rendering |
-| `ADA_80_PRO` | Ada Lovelace | 80GB | H100 PCIe | Large model training |
-| `AMPERE_16` | Ampere | 16GB | RTX A4000 | Development, small models |
-| `AMPERE_24` | Ampere | 24GB | RTX 3090 | Research, mid-size training |
-| `AMPERE_48` | Ampere | 48GB | A40 | Professional ML workloads |
-| `AMPERE_80` | Ampere | 80GB | A100 | Large-scale training |
-| `HOPPER_141` | Hopper | 141GB | H200 | Cutting-edge AI research |
+| Group        | Architecture | Memory | Examples  | Use Cases                       |
+| ------------ | ------------ | ------ | --------- | ------------------------------- |
+| `ADA_24`     | Ada Lovelace | 24GB   | RTX 4090  | ML inference, gaming            |
+| `ADA_32_PRO` | Ada Lovelace | 32GB   | RTX 5090  | Professional graphics, training |
+| `ADA_48_PRO` | Ada Lovelace | 48GB   | L40, L40S | AI training, rendering          |
+| `ADA_80_PRO` | Ada Lovelace | 80GB   | H100 PCIe | Large model training            |
+| `AMPERE_16`  | Ampere       | 16GB   | RTX A4000 | Development, small models       |
+| `AMPERE_24`  | Ampere       | 24GB   | RTX 3090  | Research, mid-size training     |
+| `AMPERE_48`  | Ampere       | 48GB   | A40       | Professional ML workloads       |
+| `AMPERE_80`  | Ampere       | 80GB   | A100      | Large-scale training            |
+| `HOPPER_141` | Hopper       | 141GB  | H200      | Cutting-edge AI research        |
 
 `GpuGroup.ANY` expands to all available GPU groups at validation time, maximizing job placement opportunities.
 
@@ -154,19 +156,20 @@ class CudaVersion(Enum):
 ### CUDA Compatibility Matrix
 
 | GPU Architecture | Supported CUDA Versions | Recommended |
-|------------------|-------------------------|-------------|
-| Ampere | 11.8+ | 12.0+ |
-| Ada Lovelace | 11.8+ | 12.1+ |
-| Hopper | 12.0+ | 12.4+ |
+| ---------------- | ----------------------- | ----------- |
+| Ampere           | 11.8+                   | 12.0+       |
+| Ada Lovelace     | 11.8+                   | 12.1+       |
+| Hopper           | 12.0+                   | 12.4+       |
 
 ## Field Synchronization System
 
 Internally, the `ServerlessResource` base class maintains dual fields for developer experience and API compatibility:
 
-| Developer Field | API Field | Purpose |
-|----------------|-----------|---------|
-| `gpus: List[GpuGroup]` | `gpuIds: str` | GPU group selection |
-| `cudaVersions: List[CudaVersion]` | `allowedCudaVersions: str` | CUDA compatibility |
+| Developer Field                         | API Field                  | Purpose             |
+| --------------------------------------- | -------------------------- | ------------------- | ----------------------------------------------------------- |
+| `gpus: List[GpuGroup]`                  | `gpuIds: str`              | GPU group selection |
+| `cudaVersions: List[CudaVersion]`       | `allowedCudaVersions: str` | CUDA compatibility  |
+| `min_cuda_version: str` (on `Endpoint`) | `minCudaVersion: str       | CudaVersion`        | Minimum CUDA version for host selection (default: `"12.8"`) |
 
 The `_sync_input_fields_gpu()` method synchronizes between these formats. When a user sets `gpu=GpuGroup.AMPERE_80` on `Endpoint`, the value flows through:
 

@@ -74,6 +74,8 @@ class CudaVersion(Enum):
     V12_6 = "12.6"
     V12_7 = "12.7"
     V12_8 = "12.8"
+    V12_9 = "12.9"
+    V13_0 = "13.0"
 
 
 class ServerlessResource(DeployableResource):
@@ -102,6 +104,7 @@ class ServerlessResource(DeployableResource):
         "executionTimeoutMs",
         "gpuCount",
         "locations",
+        "minCudaVersion",
         "name",
         "networkVolumeId",
         "networkVolumes",
@@ -153,6 +156,7 @@ class ServerlessResource(DeployableResource):
     executionTimeoutMs: Optional[int] = 0
     gpuCount: Optional[int] = 1
     idleTimeout: Optional[int] = 60
+    minCudaVersion: Optional[CudaVersion | str] = CudaVersion.V12_8
     instanceIds: Optional[List[CpuInstanceType]] = None
     locations: Optional[str] = None
     name: str
@@ -296,6 +300,16 @@ class ServerlessResource(DeployableResource):
                     raise ValueError(f"Invalid datacenter value: {item!r}")
             return result
         raise ValueError(f"Invalid datacenter value: {value!r}")
+
+    @field_validator("minCudaVersion")
+    @classmethod
+    def validate_min_cuda_version(
+        cls, value: Optional[CudaVersion | str]
+    ) -> Optional[CudaVersion]:
+        """Validate minCudaVersion is a known CudaVersion value."""
+        if value is None or isinstance(value, CudaVersion):
+            return value
+        return CudaVersion(value)
 
     @field_validator("gpus")
     @classmethod
@@ -1091,6 +1105,7 @@ class ServerlessResource(DeployableResource):
             "flashboot",
             "allowedCudaVersions",
             "cudaVersions",
+            "minCudaVersion",
             "instanceIds",
         ]
 
