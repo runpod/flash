@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.11.0](https://github.com/runpod/flash/compare/v1.10.2...v1.11.0) (2026-03-25)
+
+
+### Features
+
+* default GPU endpoints to minCudaVersion 12.8 ([#277](https://github.com/runpod/flash/issues/277)) ([e693d7d](https://github.com/runpod/flash/commit/e693d7d549cedeca7f623c2c4035443c85e5c205))
+* migrate from AST to import + inspect ([#265](https://github.com/runpod/flash/issues/265)) ([dce6a1f](https://github.com/runpod/flash/commit/dce6a1f79ad15f850ae926ff6308de62df258262))
+
 ## [1.10.2](https://github.com/runpod/flash/compare/v1.10.1...v1.10.2) (2026-03-23)
 
 
