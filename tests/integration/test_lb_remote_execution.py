@@ -160,7 +160,7 @@ class TestRemoteWithLoadBalancerIntegration:
 
     def test_scanner_discovers_load_balancer_resources(self):
         """Test that scanner can discover LiveLoadBalancer and LoadBalancerSlsResource."""
-        from runpod_flash.cli.commands.build_utils.scanner import RemoteDecoratorScanner
+        from runpod_flash.cli.commands.build_utils.scanner import RuntimeScanner
         from pathlib import Path
         import tempfile
 
@@ -188,7 +188,7 @@ def get_status():
             py_file = project_dir / "test_api.py"
             py_file.write_text(code)
 
-            scanner = RemoteDecoratorScanner(project_dir)
+            scanner = RuntimeScanner(project_dir)
             functions = scanner.discover_remote_functions()
 
             # Verify both resources were discovered
@@ -200,7 +200,9 @@ def get_status():
             assert "LoadBalancerSlsResource" in resource_types
 
             # Verify resource configs were extracted
-            assert "test-api" in scanner.resource_types
-            assert scanner.resource_types["test-api"] == "LiveLoadBalancer"
-            assert "deployed-api" in scanner.resource_types
-            assert scanner.resource_types["deployed-api"] == "LoadBalancerSlsResource"
+            assert "test-api-fb" in scanner.resource_types
+            assert scanner.resource_types["test-api-fb"] == "LiveLoadBalancer"
+            assert "deployed-api-fb" in scanner.resource_types
+            assert (
+                scanner.resource_types["deployed-api-fb"] == "LoadBalancerSlsResource"
+            )

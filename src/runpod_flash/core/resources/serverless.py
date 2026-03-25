@@ -9,6 +9,7 @@ from typing import Any, ClassVar, Dict, List, Optional, Set
 from pydantic import (
     BaseModel,
     Field,
+    PrivateAttr,
     field_serializer,
     field_validator,
     model_validator,
@@ -16,14 +17,19 @@ from pydantic import (
 from runpod.endpoint.runner import Job
 
 from ..api.runpod import RunpodGraphQLClient
+from ..exceptions import RunpodAPIKeyError
 from ..utils.backoff import get_backoff_delay
 from .base import DeployableResource
 from .cloud import runpod
-from .constants import CONSOLE_URL, DEFAULT_WORKERS_MAX, DEFAULT_WORKERS_MIN
-from .environment import EnvironmentVars
+from .constants import (
+    CONSOLE_URL,
+    DEFAULT_WORKERS_MAX,
+    DEFAULT_WORKERS_MIN,
+    validate_python_version as _validate_python_version,
+)
 from .cpu import CpuInstanceType
 from .gpu import GpuGroup, GpuType
-from .network_volume import NetworkVolume, DataCenter
+from .network_volume import NetworkVolume, DataCenter, CPU_DATACENTERS
 from .template import KeyValuePair, PodTemplate
 from .resource_manager import ResourceManager
 
@@ -32,27 +38,7 @@ from .resource_manager import ResourceManager
 LIVE_PREFIX = "live-"
 
 
-# Environment variables are loaded from the .env file
-def get_env_vars() -> Dict[str, str]:
-    """
-    Returns the environment variables from the .env file.
-    {
-        "KEY": "VALUE",
-    }
-    """
-    env_vars = EnvironmentVars()
-    return env_vars.get_env()
-
-
 log = logging.getLogger(__name__)
-
-
-def _is_prod_environment() -> bool:
-    env = os.getenv("RUNPOD_ENV")
-    if env:
-        return env.lower() == "prod"
-    api_base = os.getenv("RUNPOD_API_BASE_URL", "https://api.runpod.io")
-    return "api.runpod.io" in api_base or "api.runpod.ai" in api_base
 
 
 class ServerlessScalerType(Enum):
@@ -88,6 +74,8 @@ class CudaVersion(Enum):
     V12_6 = "12.6"
     V12_7 = "12.7"
     V12_8 = "12.8"
+    V12_9 = "12.9"
+    V13_0 = "13.0"
 
 
 class ServerlessResource(DeployableResource):
@@ -105,6 +93,8 @@ class ServerlessResource(DeployableResource):
         "flashEnvironmentId",
         "imageName",
         "networkVolume",
+        "networkVolumes",
+        "python_version",
     }
 
     _hashed_fields = {
@@ -114,8 +104,11 @@ class ServerlessResource(DeployableResource):
         "executionTimeoutMs",
         "gpuCount",
         "locations",
+        "minCudaVersion",
         "name",
         "networkVolumeId",
+        "networkVolumes",
+        "python_version",
         "scalerType",
         "scalerValue",
         "workersMax",
@@ -146,17 +139,24 @@ class ServerlessResource(DeployableResource):
 
     # === Input-only Fields ===
     cudaVersions: Optional[List[CudaVersion]] = []  # for allowedCudaVersions
-    env: Optional[Dict[str, str]] = Field(default_factory=get_env_vars)
+    env: Optional[Dict[str, str]] = Field(default=None)
     flashboot: Optional[bool] = True
     gpus: Optional[List[GpuGroup | GpuType]] = [GpuGroup.ANY]  # for gpuIds
     imageName: Optional[str] = ""  # for template.imageName
     networkVolume: Optional[NetworkVolume] = None
-    datacenter: DataCenter = Field(default=DataCenter.EU_RO_1)
+    networkVolumes: Optional[List[NetworkVolume]] = None
+    # accepts a single DataCenter or a list for multi-dc deployments
+    datacenter: Optional[List[DataCenter] | DataCenter] = Field(default=None)
+    python_version: Optional[str] = Field(
+        default=None,
+        description="Python version for runtime image selection. Defaults to the local interpreter version at build time.",
+    )
 
     # === Input Fields ===
     executionTimeoutMs: Optional[int] = 0
     gpuCount: Optional[int] = 1
     idleTimeout: Optional[int] = 60
+    minCudaVersion: Optional[CudaVersion | str] = CudaVersion.V12_8
     instanceIds: Optional[List[CpuInstanceType]] = None
     locations: Optional[str] = None
     name: str
@@ -169,6 +169,9 @@ class ServerlessResource(DeployableResource):
     workersMax: Optional[int] = DEFAULT_WORKERS_MAX
     workersMin: Optional[int] = DEFAULT_WORKERS_MIN
     workersPFBTarget: Optional[int] = 0
+
+    # === Private Attributes ===
+    _deployed_volume_ids: list[str] = PrivateAttr(default_factory=list)
 
     # === Runtime Fields ===
     activeBuildid: Optional[str] = None
@@ -229,6 +232,85 @@ class ServerlessResource(DeployableResource):
             return None
         return value.value if isinstance(value, ServerlessType) else value
 
+    @field_serializer("datacenter")
+    def serialize_datacenter(
+        self,
+        value: Optional[List[DataCenter]],
+    ) -> Optional[List[str]]:
+        """Convert DataCenter enum list to strings."""
+        if value is None:
+            return None
+        return [dc.value if isinstance(dc, DataCenter) else str(dc) for dc in value]
+
+    @model_validator(mode="after")
+    def normalize_network_volumes(self):
+        """Merge networkVolume (singular) into networkVolumes list.
+
+        Validates that no two volumes share the same datacenter.
+        """
+        volumes: list[NetworkVolume] = []
+        if self.networkVolumes:
+            volumes.extend(self.networkVolumes)
+        if self.networkVolume and self.networkVolume not in volumes:
+            volumes.append(self.networkVolume)
+
+        if not volumes:
+            return self
+
+        # validate one volume per datacenter
+        seen_dcs: dict[str, str] = {}
+        for v in volumes:
+            dc_id = v.dataCenterId.value
+            label = v.name or v.id or "unknown"
+            if dc_id in seen_dcs:
+                raise ValueError(
+                    f"Multiple volumes in datacenter {dc_id} "
+                    f"('{seen_dcs[dc_id]}' and '{label}'). "
+                    f"Only one network volume is allowed per datacenter."
+                )
+            seen_dcs[dc_id] = label
+
+        self.networkVolumes = volumes
+        # keep networkVolume pointing at the first for backward compat
+        self.networkVolume = volumes[0] if volumes else None
+
+        return self
+
+    @field_validator("datacenter", mode="before")
+    @classmethod
+    def normalize_datacenter(cls, value):
+        """Normalize datacenter to a list of DataCenter enums.
+
+        Accepts a single DataCenter, a string, a list of either, or None.
+        """
+        if value is None:
+            return None
+        if isinstance(value, DataCenter):
+            return [value]
+        if isinstance(value, str):
+            return [DataCenter.from_string(value)]
+        if isinstance(value, list):
+            result = []
+            for item in value:
+                if isinstance(item, DataCenter):
+                    result.append(item)
+                elif isinstance(item, str):
+                    result.append(DataCenter.from_string(item))
+                else:
+                    raise ValueError(f"Invalid datacenter value: {item!r}")
+            return result
+        raise ValueError(f"Invalid datacenter value: {value!r}")
+
+    @field_validator("minCudaVersion")
+    @classmethod
+    def validate_min_cuda_version(
+        cls, value: Optional[CudaVersion | str]
+    ) -> Optional[CudaVersion]:
+        """Validate minCudaVersion is a known CudaVersion value."""
+        if value is None or isinstance(value, CudaVersion):
+            return value
+        return CudaVersion(value)
+
     @field_validator("gpus")
     @classmethod
     def validate_gpus(cls, value: List[GpuGroup | GpuType]) -> List[GpuGroup | GpuType]:
@@ -239,28 +321,51 @@ class ServerlessResource(DeployableResource):
             return GpuGroup.all()
         return value
 
+    @field_validator("python_version")
+    @classmethod
+    def validate_python_version(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            _validate_python_version(v)
+        return v
+
     @property
     def config_hash(self) -> str:
-        """Get config hash excluding env and runtime-assigned fields.
+        """Get config hash excluding runtime-assigned fields.
 
-        Prevents false drift from:
-        - Dynamic env vars computed at runtime
-        - Runtime-assigned fields (template, templateId, aiKey, userId, etc.)
+        Fields that are None are excluded via exclude_none. When env is None
+        (default), it is not included in the hash. When env is explicitly set,
+        it IS included and triggers drift detection.
 
-        Only hashes user-specified configuration, not server-assigned state.
+        Hashes user-specified configuration including env vars.
         """
         import hashlib
         import json
 
         resource_type = self.__class__.__name__
 
-        # Exclude runtime fields, env, and id from hash
+        # Exclude runtime fields and id from hash
         exclude_fields = (
             self.__class__.RUNTIME_FIELDS | self.__class__.EXCLUDED_HASH_FIELDS
         )
         config_dict = self.model_dump(
             exclude_none=True, exclude=exclude_fields, mode="json"
         )
+
+        # strip runtime-assigned IDs from nested network volumes so that
+        # pre-deploy and post-deploy hashes match
+        for key in ("networkVolume", "networkVolumes"):
+            if key not in config_dict:
+                continue
+            val = config_dict[key]
+            if isinstance(val, dict):
+                val.pop("id", None)
+            elif isinstance(val, list):
+                for entry in val:
+                    if isinstance(entry, dict):
+                        entry.pop("id", None)
+
+        # networkVolumeId is derived from volume deployment, not user config
+        config_dict.pop("networkVolumeId", None)
 
         # Convert to JSON string for hashing
         config_str = json.dumps(config_dict, sort_keys=True)
@@ -294,8 +399,7 @@ class ServerlessResource(DeployableResource):
                 self.name = self.name[:-3]
             self.name += "-fb"
 
-        # Sync datacenter to locations field for API (only if not already set)
-        # Allow overrides in non-prod via env
+        # sync datacenter list to locations field for API
         env_locations = os.getenv("RUNPOD_DEFAULT_LOCATIONS")
         env_datacenter = os.getenv("RUNPOD_DEFAULT_DATACENTER")
         if env_locations:
@@ -306,22 +410,49 @@ class ServerlessResource(DeployableResource):
                     self.locations = DataCenter(env_datacenter).value
                 except ValueError:
                     self.locations = env_datacenter
-            elif _is_prod_environment():
-                self.locations = self.datacenter.value
+            elif self.datacenter:
+                self.locations = ",".join(dc.value for dc in self.datacenter)
 
-        # Validate datacenter consistency between endpoint and network volume
-        if self.networkVolume and self.networkVolume.dataCenterId != self.datacenter:
-            raise ValueError(
-                f"Network volume datacenter ({self.networkVolume.dataCenterId.value}) "
-                f"must match endpoint datacenter ({self.datacenter.value})"
-            )
+        # validate that all network volume DCs are within the endpoint's datacenter list
+        all_volumes = self.networkVolumes or (
+            [self.networkVolume] if self.networkVolume else []
+        )
+        if all_volumes and self.datacenter:
+            for vol in all_volumes:
+                if vol.dataCenterId not in self.datacenter:
+                    dc_values = ", ".join(dc.value for dc in self.datacenter)
+                    raise ValueError(
+                        f"Network volume datacenter ({vol.dataCenterId.value}) "
+                        f"is not in the endpoint's datacenter list ({dc_values})"
+                    )
 
+        # backward compat: sync single volume ID for legacy code paths
         if self.networkVolume and self.networkVolume.is_created:
-            # Volume already exists, use its ID
             self.networkVolumeId = self.networkVolume.id
 
         self._sync_input_fields_gpu()
 
+        return self
+
+    @model_validator(mode="after")
+    def validate_cpu_datacenters(self):
+        """Ensure CPU endpoints only target data centers that support CPU."""
+        if not self._has_cpu_instances():
+            return self
+        if not self.datacenter:
+            return self
+
+        dc_list = self.datacenter
+        unsupported = [dc for dc in dc_list if dc not in CPU_DATACENTERS]
+        if unsupported:
+            unsupported_str = ", ".join(dc.value for dc in unsupported)
+            supported_str = ", ".join(
+                dc.value for dc in sorted(CPU_DATACENTERS, key=lambda d: d.value)
+            )
+            raise ValueError(
+                f"CPU endpoints are not available in: {unsupported_str}. "
+                f"Supported CPU data centers: {supported_str}"
+            )
         return self
 
     @model_validator(mode="after")
@@ -422,7 +553,7 @@ class ServerlessResource(DeployableResource):
         return PodTemplate(
             name=self.resource_id,
             imageName=self.imageName,
-            env=KeyValuePair.from_dict(self.env or get_env_vars()),
+            env=KeyValuePair.from_dict(self.env or {}),
         )
 
     def _configure_existing_template(self) -> None:
@@ -434,8 +565,12 @@ class ServerlessResource(DeployableResource):
 
         if self.imageName:
             self.template.imageName = self.imageName
-        if self.env:
-            self.template.env = KeyValuePair.from_dict(self.env)
+        if self.env is not None:
+            has_explicit_template_env = "env" in getattr(
+                self.template, "model_fields_set", set()
+            )
+            if self.env or not has_explicit_template_env:
+                self.template.env = KeyValuePair.from_dict(self.env)
 
     async def _sync_graphql_object_with_inputs(
         self, returned_endpoint: "ServerlessResource"
@@ -469,16 +604,32 @@ class ServerlessResource(DeployableResource):
         return self
 
     async def _ensure_network_volume_deployed(self) -> None:
-        """
-        Ensures network volume is deployed and ready if one is specified.
-        Updates networkVolumeId with the deployed volume ID.
-        """
-        if self.networkVolumeId:
-            return
+        """Ensures all network volumes are deployed.
 
-        if self.networkVolume:
-            deployedNetworkVolume = await self.networkVolume.deploy()
-            self.networkVolumeId = deployedNetworkVolume.id
+        Deploys each volume in networkVolumes and collects their IDs.
+        Sets networkVolumeId (singular) for backward compat with the first volume.
+        Populates _deployed_volume_ids for multi-volume API payloads.
+        """
+        self._deployed_volume_ids = []
+
+        if self.networkVolumeId:
+            self._deployed_volume_ids.append(self.networkVolumeId)
+
+        volumes = self.networkVolumes or (
+            [self.networkVolume] if self.networkVolume else []
+        )
+        for vol in volumes:
+            if vol.is_created and vol.id:
+                if vol.id not in self._deployed_volume_ids:
+                    self._deployed_volume_ids.append(vol.id)
+            else:
+                deployed = await vol.deploy()
+                if deployed.id and deployed.id not in self._deployed_volume_ids:
+                    self._deployed_volume_ids.append(deployed.id)
+
+        # backward compat: set singular field from first volume
+        if self._deployed_volume_ids and not self.networkVolumeId:
+            self.networkVolumeId = self._deployed_volume_ids[0]
 
     async def is_deployed(self) -> bool:
         """
@@ -502,6 +653,14 @@ class ServerlessResource(DeployableResource):
             log.debug(f"Error checking {self}: {e}")
             return False
 
+    def _inject_multi_volume_payload(self, payload: dict) -> None:
+        """Replace singular networkVolumeId with networkVolumeIds when multiple volumes are deployed."""
+        if len(self._deployed_volume_ids) > 1:
+            payload["networkVolumeIds"] = [
+                {"networkVolumeId": vid} for vid in self._deployed_volume_ids
+            ]
+            payload.pop("networkVolumeId", None)
+
     def _payload_exclude(self) -> Set[str]:
         # flashEnvironmentId is input-only but must be sent when provided
         exclude_fields = set(self._input_only or set())
@@ -516,12 +675,17 @@ class ServerlessResource(DeployableResource):
 
     @staticmethod
     def _build_template_update_payload(
-        template: PodTemplate, template_id: str
+        template: PodTemplate,
+        template_id: str,
     ) -> Dict[str, Any]:
         """Build saveTemplate payload from template model.
 
         Keep this to fields supported by saveTemplate to avoid passing endpoint-only
         fields to the template mutation.
+
+        Args:
+            template: Template model with desired configuration.
+            template_id: ID of the template to update.
         """
         template_data = template.model_dump(exclude_none=True, mode="json")
         allowed_fields = {
@@ -535,6 +699,8 @@ class ServerlessResource(DeployableResource):
         payload = {
             key: value for key, value in template_data.items() if key in allowed_fields
         }
+        # saveTemplate requires env (non-nullable) — default to empty list
+        payload.setdefault("env", [])
         # savetemplate mutation requires volumeInGb, but for sls this is always 0
         payload["volumeInGb"] = 0
         payload["id"] = template_id
@@ -625,6 +791,105 @@ class ServerlessResource(DeployableResource):
         except Exception:
             return None
 
+    def _inject_template_env(self, key: str, value: str) -> None:
+        """Append a KeyValuePair to self.template.env if the key isn't already present.
+
+        This injects runtime env vars directly into the template without
+        mutating self.env, which would cause false config drift on subsequent
+        deploys.
+        """
+        if self.template is None:
+            return
+        if self.template.env is None:
+            self.template.env = []
+        existing_keys = {kv.key for kv in self.template.env}
+        if key not in existing_keys:
+            self.template.env.append(KeyValuePair(key=key, value=value))
+
+    def _inject_runtime_template_vars(self) -> None:
+        """Inject runtime env vars into template.env without mutating self.env.
+
+        For QB endpoints making remote calls: injects RUNPOD_API_KEY.
+        For LB endpoints: injects FLASH_MODULE_PATH.
+
+        Called by both _do_deploy (initial) and update (env changes) so
+        runtime vars survive template updates.
+        """
+        env_dict = self.env or {}
+
+        if self.type == ServerlessType.QB:
+            if self._check_makes_remote_calls():
+                if "RUNPOD_API_KEY" not in env_dict:
+                    from runpod_flash.core.credentials import get_api_key
+
+                    api_key = get_api_key()
+                    if api_key:
+                        self._inject_template_env("RUNPOD_API_KEY", api_key)
+                        log.debug(
+                            f"{self.name}: Injected RUNPOD_API_KEY for remote calls "
+                            f"(makes_remote_calls=True)"
+                        )
+                    else:
+                        log.warning(
+                            f"{self.name}: makes_remote_calls=True but RUNPOD_API_KEY not set. "
+                            f"Remote calls to other endpoints will fail."
+                        )
+
+        elif self.type == ServerlessType.LB:
+            module_path = self._get_module_path()
+            if module_path and "FLASH_MODULE_PATH" not in env_dict:
+                self._inject_template_env("FLASH_MODULE_PATH", module_path)
+                log.debug(f"{self.name}: Injected FLASH_MODULE_PATH={module_path}")
+
+    async def _preserve_platform_env(
+        self,
+        client: "RunpodGraphQLClient",
+        template_id: str,
+        old_env: Optional[Dict[str, str]] = None,
+    ) -> None:
+        """Read current template env and re-add platform-injected vars.
+
+        The platform injects env vars (e.g. PORT, PORT_HEALTH) once at
+        initial deploy and does not re-inject them on saveTemplate.  When
+        we send a full env replacement we must carry those vars forward.
+
+        A live template key is considered platform-injected only if it
+        was NOT in the previous user config (old_env).  Keys that were
+        in old_env but are absent from the new config were intentionally
+        removed by the user and must not be resurrected.
+        """
+        if self.template is None:
+            return
+
+        try:
+            live = await client.get_template(template_id)
+        except Exception:
+            log.debug(
+                f"{self.name}: Could not fetch template '{template_id}', "
+                f"skipping platform env preservation"
+            )
+            return
+
+        live_env = live.get("env") or []
+        if not live_env:
+            return
+
+        new_keys = {kv.key for kv in (self.template.env or [])}
+        old_keys = set(old_env or {})
+        for entry in live_env:
+            key = entry.get("key", "")
+            if not key or key in new_keys:
+                continue
+            # Key was in old user config — user intentionally removed it
+            if key in old_keys:
+                log.debug(f"{self.name}: User removed env var '{key}', not preserving")
+                continue
+            self.template.env = self.template.env or []
+            self.template.env.append(
+                KeyValuePair(key=key, value=entry.get("value", ""))
+            )
+            log.debug(f"{self.name}: Preserved platform env var '{key}'")
+
     async def _do_deploy(self) -> "DeployableResource":
         """
         Deploys the serverless resource using the provided configuration.
@@ -640,51 +905,19 @@ class ServerlessResource(DeployableResource):
                 log.debug(f"{self} exists")
                 return self
 
-            # Inject API key for queue-based endpoints that make remote calls
-            if self.type == ServerlessType.QB:
-                env_dict = self.env or {}
+            self._inject_runtime_template_vars()
 
-                # Check if this resource makes remote calls (from build manifest)
-                makes_remote_calls = self._check_makes_remote_calls()
-
-                if makes_remote_calls:
-                    # Inject RUNPOD_API_KEY if not already set
-                    if "RUNPOD_API_KEY" not in env_dict:
-                        from runpod_flash.core.credentials import get_api_key
-
-                        api_key = get_api_key()
-                        if api_key:
-                            env_dict["RUNPOD_API_KEY"] = api_key
-                            log.debug(
-                                f"{self.name}: Injected RUNPOD_API_KEY for remote calls "
-                                f"(makes_remote_calls=True)"
-                            )
-                        else:
-                            log.warning(
-                                f"{self.name}: makes_remote_calls=True but RUNPOD_API_KEY not set. "
-                                f"Remote calls to other endpoints will fail."
-                            )
-
-                self.env = env_dict
-
-            # Inject module path for load-balanced endpoints
-            elif self.type == ServerlessType.LB:
-                env_dict = self.env or {}
-
-                module_path = self._get_module_path()
-                if module_path and "FLASH_MODULE_PATH" not in env_dict:
-                    env_dict["FLASH_MODULE_PATH"] = module_path
-                    log.debug(f"{self.name}: Injected FLASH_MODULE_PATH={module_path}")
-
-                self.env = env_dict
-
-            # Ensure network volume is deployed first
+            # Ensure network volumes are deployed first
             await self._ensure_network_volume_deployed()
 
             async with RunpodGraphQLClient() as client:
                 payload = self.model_dump(
                     exclude=self._payload_exclude(), exclude_none=True, mode="json"
                 )
+
+                # inject multi-volume IDs if available
+                self._inject_multi_volume_payload(payload)
+
                 result = await client.save_endpoint(payload)
 
             if endpoint := self.__class__(**result):
@@ -698,6 +931,8 @@ class ServerlessResource(DeployableResource):
 
             raise ValueError("Deployment failed, no endpoint was returned.")
 
+        except RunpodAPIKeyError:
+            raise
         except Exception as e:
             log.error(f"{self} failed to deploy: {e}")
             raise
@@ -727,7 +962,7 @@ class ServerlessResource(DeployableResource):
             if not self._has_structural_changes(new_config):
                 log.info(f"Updating endpoint '{self.name}' (ID: {self.id})")
 
-            # Ensure network volume is deployed if specified
+            # Ensure network volumes are deployed if specified
             await new_config._ensure_network_volume_deployed()
 
             async with RunpodGraphQLClient() as client:
@@ -739,6 +974,9 @@ class ServerlessResource(DeployableResource):
                 )
                 payload["id"] = self.id  # Critical: include ID for update
 
+                # inject multi-volume IDs if available
+                new_config._inject_multi_volume_payload(payload)
+
                 result = await client.save_endpoint(payload)
                 resolved_template_id = (
                     result.get("templateId") or self.templateId or new_config.templateId
@@ -746,8 +984,59 @@ class ServerlessResource(DeployableResource):
 
                 if new_config.template:
                     if resolved_template_id:
+                        # Skip env in the template payload when the user's env
+                        # hasn't changed.  This lets the platform keep vars it
+                        # injected (e.g. PORT, PORT_HEALTH on LB endpoints)
+                        # and avoids a spurious rolling release.
+                        #
+                        # Also check template.env: if env is empty but the
+                        # caller provided explicit template env entries, those
+                        # must not be silently dropped.
+                        env_changed = self.env != new_config.env
+                        template_fields_set = getattr(
+                            new_config.template, "model_fields_set", set()
+                        )
+                        has_explicit_template_env = (
+                            not new_config.env and "env" in template_fields_set
+                        )
+                        env_needs_update = env_changed or has_explicit_template_env
+
+                        if env_needs_update:
+                            # Inject runtime vars (RUNPOD_API_KEY, FLASH_MODULE_PATH)
+                            # so they survive the template env overwrite.
+                            new_config._inject_runtime_template_vars()
+
+                            # Preserve platform-injected env vars (e.g. PORT,
+                            # PORT_HEALTH) that the platform sets once at initial
+                            # deploy and does not re-inject on template updates.
+                            await new_config._preserve_platform_env(
+                                client, resolved_template_id, self.env
+                            )
+                        else:
+                            # Env unchanged — echo back the live template env so
+                            # platform-injected vars (PORT, PORT_HEALTH) are
+                            # preserved.  saveTemplate requires env (non-nullable),
+                            # so we cannot omit the field.
+                            try:
+                                live = await client.get_template(resolved_template_id)
+                                live_env = live.get("env") or []
+                                new_config.template.env = [
+                                    KeyValuePair(
+                                        key=entry["key"], value=entry.get("value", "")
+                                    )
+                                    for entry in live_env
+                                ]
+                            except Exception:
+                                log.warning(
+                                    f"{self.name}: Could not fetch live template env; "
+                                    f"cannot guarantee platform-injected vars "
+                                    f"(PORT, PORT_HEALTH) are preserved"
+                                )
+                                raise
+
                         template_payload = self._build_template_update_payload(
-                            new_config.template, resolved_template_id
+                            new_config.template,
+                            resolved_template_id,
                         )
                         await client.update_template(template_payload)
                         log.debug(
@@ -816,6 +1105,7 @@ class ServerlessResource(DeployableResource):
             "flashboot",
             "allowedCudaVersions",
             "cudaVersions",
+            "minCudaVersion",
             "instanceIds",
         ]
 

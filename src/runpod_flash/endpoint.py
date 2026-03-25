@@ -1,19 +1,14 @@
-"""unified endpoint class for flash.
-
-replaces the 8-class resource config hierarchy with a single class.
-queue-based vs load-balanced is inferred from usage pattern.
-gpu vs cpu is a parameter, not a class choice.
-live vs deploy is determined by the runtime environment.
-"""
+"""unified endpoint class for flash."""
 
 import logging
 import os
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from .core.resources.constants import DEFAULT_WORKERS_MAX, DEFAULT_WORKERS_MIN
 from .core.resources.cpu import CpuInstanceType
 from .core.resources.gpu import GpuGroup, GpuType
 from .core.resources.network_volume import DataCenter, NetworkVolume
-from .core.resources.serverless import ServerlessScalerType
+from .core.resources.serverless import CudaVersion, ServerlessScalerType
 from .core.resources.template import PodTemplate
 
 log = logging.getLogger(__name__)
@@ -173,14 +168,14 @@ def _normalize_workers(
     """convert workers param to (min, max) tuple.
 
     accepts:
-      - int: shorthand for (0, n)
+      - int: shorthand for (DEFAULT_WORKERS_MIN, n)
       - (min, max): explicit tuple
-      - None: defaults to (0, 1)
+      - None: defaults to (DEFAULT_WORKERS_MIN, DEFAULT_WORKERS_MAX)
     """
     if workers is None:
-        return (0, 1)
+        return (DEFAULT_WORKERS_MIN, DEFAULT_WORKERS_MAX)
     if isinstance(workers, int):
-        min_w, max_w = 0, workers
+        min_w, max_w = DEFAULT_WORKERS_MIN, workers
     elif isinstance(workers, (tuple, list)) and len(workers) == 2:
         min_w, max_w = int(workers[0]), int(workers[1])
     else:
@@ -254,6 +249,30 @@ def _normalize_cpu(
         return [CpuInstanceType(c) if isinstance(c, str) else c for c in cpu]
     raise ValueError(
         f"cpu must be a CpuInstanceType, string, or list, got {type(cpu).__name__}"
+    )
+
+
+def _normalize_volumes(
+    volume: Optional[Union[NetworkVolume, List[NetworkVolume]]],
+) -> Optional[List[NetworkVolume]]:
+    """Normalize volume parameter to a list of NetworkVolume."""
+    if volume is None:
+        return None
+    if isinstance(volume, NetworkVolume):
+        return [volume]
+    if isinstance(volume, list):
+        if not volume:
+            raise ValueError("volume list must not be empty")
+        for idx, vol in enumerate(volume):
+            if not isinstance(vol, NetworkVolume):
+                raise ValueError(
+                    "volume list elements must be NetworkVolume; "
+                    f"element at index {idx} is {type(vol).__name__}"
+                )
+        return volume
+    raise ValueError(
+        f"volume must be a NetworkVolume or list of NetworkVolume, "
+        f"got {type(volume).__name__}"
     )
 
 
@@ -333,8 +352,10 @@ class Endpoint:
         dependencies: Optional[List[str]] = None,
         system_dependencies: Optional[List[str]] = None,
         accelerate_downloads: bool = True,
-        volume: Optional[NetworkVolume] = None,
-        datacenter: DataCenter = DataCenter.EU_RO_1,
+        volume: Optional[Union[NetworkVolume, List[NetworkVolume]]] = None,
+        datacenter: Optional[
+            Union[DataCenter, List[DataCenter], str, List[str]]
+        ] = None,
         env: Optional[Dict[str, str]] = None,
         gpu_count: int = 1,
         execution_timeout_ms: int = 0,
@@ -343,6 +364,7 @@ class Endpoint:
         scaler_type: Optional[ServerlessScalerType] = None,
         scaler_value: int = 4,
         template: Optional[PodTemplate] = None,
+        min_cuda_version: Optional[CudaVersion | str] = CudaVersion.V12_8,
     ):
         if gpu is not None and cpu is not None:
             raise ValueError(
@@ -353,9 +375,11 @@ class Endpoint:
                 "id and image are mutually exclusive. id= connects to an "
                 "existing endpoint, image= deploys a new one."
             )
-        if name is None and id is None:
-            raise ValueError("name or id is required.")
+        if name is None and id is None and image is not None:
+            raise ValueError("name or id is required when image= is set.")
 
+        # name can be None here for QB decorator mode (@Endpoint(gpu=...)).
+        # it gets derived from the decorated function/class in __call__().
         self.name = name
         self.id = id
         self._gpu = _normalize_gpu(gpu)
@@ -366,7 +390,7 @@ class Endpoint:
         self.dependencies = dependencies
         self.system_dependencies = system_dependencies
         self.accelerate_downloads = accelerate_downloads
-        self.volume = volume
+        self.volume = _normalize_volumes(volume)
         self.datacenter = datacenter
         self.env = env
         self.gpu_count = gpu_count
@@ -376,6 +400,7 @@ class Endpoint:
         self._explicit_scaler_type = scaler_type
         self.scaler_value = scaler_value
         self.template = template
+        self.min_cuda_version = min_cuda_version
 
         # if no gpu or cpu specified, default to gpu any (unless pure client mode)
         if not self._is_cpu and self._gpu is None and not self.is_client:
@@ -466,12 +491,12 @@ class Endpoint:
             "idleTimeout": self.idle_timeout,
             "executionTimeoutMs": self.execution_timeout_ms,
             "flashboot": self.flashboot,
-            "datacenter": self.datacenter.value
-            if hasattr(self.datacenter, "value")
-            else self.datacenter,
-            "scalerType": self.scaler_type.value
-            if hasattr(self.scaler_type, "value")
-            else self.scaler_type,
+            "datacenter": self.datacenter,
+            "scalerType": (
+                self.scaler_type.value
+                if hasattr(self.scaler_type, "value")
+                else self.scaler_type
+            ),
             "scalerValue": self.scaler_value,
         }
 
@@ -481,9 +506,13 @@ class Endpoint:
             kwargs["template"] = self.template.model_dump(exclude_none=True)
 
         if self.volume is not None:
-            # serialize to dict to avoid pydantic model identity issues
+            # serialize to dicts to avoid pydantic model identity issues
             # when modules get re-imported across different test/import contexts
-            kwargs["networkVolume"] = self.volume.model_dump(exclude_none=True)
+            volumes_dicts = [v.model_dump(exclude_none=True) for v in self.volume]
+            if len(volumes_dicts) == 1:
+                kwargs["networkVolume"] = volumes_dicts[0]
+            else:
+                kwargs["networkVolumes"] = volumes_dicts
 
         if self.env is not None:
             kwargs["env"] = self.env
@@ -502,6 +531,9 @@ class Endpoint:
 
         if self.image is not None:
             kwargs["imageName"] = self.image
+
+        if not is_cpu and self.min_cuda_version is not None:
+            kwargs["minCudaVersion"] = self.min_cuda_version
 
         # select the right class
         if is_lb and is_cpu and live:
@@ -565,6 +597,10 @@ class Endpoint:
                 "routes with .get()/.post()/etc. use one pattern or the other."
             )
 
+        # auto-derive name from the decorated function/class if not provided
+        if self.name is None:
+            self.name = func_or_class.__name__
+
         self._qb_target = func_or_class
         resource_config = self._build_resource_config()
 
@@ -582,6 +618,11 @@ class Endpoint:
 
     def _route(self, method: str, path: str):
         """register an http route on this endpoint (lb mode)."""
+        if self.name is None:
+            raise ValueError(
+                "name is required for load-balanced endpoints. "
+                "use Endpoint(name='my-api', ...) when registering routes."
+            )
         method = method.upper()
         if method not in _VALID_HTTP_METHODS:
             raise ValueError(

@@ -1,5 +1,81 @@
 # Changelog
 
+## [1.11.0](https://github.com/runpod/flash/compare/v1.10.2...v1.11.0) (2026-03-25)
+
+
+### Features
+
+* default GPU endpoints to minCudaVersion 12.8 ([#277](https://github.com/runpod/flash/issues/277)) ([e693d7d](https://github.com/runpod/flash/commit/e693d7d549cedeca7f623c2c4035443c85e5c205))
+* migrate from AST to import + inspect ([#265](https://github.com/runpod/flash/issues/265)) ([dce6a1f](https://github.com/runpod/flash/commit/dce6a1f79ad15f850ae926ff6308de62df258262))
+
+## [1.10.2](https://github.com/runpod/flash/compare/v1.10.1...v1.10.2) (2026-03-23)
+
+
+### Bug Fixes
+
+* **deploy:** always include env in saveTemplate payload ([#281](https://github.com/runpod/flash/issues/281)) ([69ecac2](https://github.com/runpod/flash/commit/69ecac28d5757ed3cf15ac694b235808e4f98ac7))
+* exclude .env files from deploy artifact by default ([#280](https://github.com/runpod/flash/issues/280)) ([92d0e3e](https://github.com/runpod/flash/commit/92d0e3e9a8b176807a09a791ecaf8a03e300d3cc))
+
+## [1.10.1](https://github.com/runpod/flash/compare/v1.10.0...v1.10.1) (2026-03-20)
+
+
+### Features
+
+* bump max flash tarball size ([#258](https://github.com/runpod/flash/issues/258)) ([4c58a3e](https://github.com/runpod/flash/commit/4c58a3e63bd323b1e16740323bea2f410a3fc8bb))
+* **cli:** add flash update command with passive update check ([#237](https://github.com/runpod/flash/issues/237)) ([5464ce0](https://github.com/runpod/flash/commit/5464ce0a3c741bf88d6f0b53933574fcbfdb8c1f))
+
+
+### Bug Fixes
+
+* **init:** `flash init` show usage menu when called without arguments ([#235](https://github.com/runpod/flash/issues/235)) ([3144d0c](https://github.com/runpod/flash/commit/3144d0cb7abf10566aa9a67b8793d8a116b9da46))
+* resolve .env from CWD and stop _do_deploy env mutation ([#236](https://github.com/runpod/flash/issues/236)) ([583efae](https://github.com/runpod/flash/commit/583efae06b2923ef8da825cd20a8d89af68c2be3))
+* retry tarball upload on transient SSL and connection errors ([#279](https://github.com/runpod/flash/issues/279)) ([564f51e](https://github.com/runpod/flash/commit/564f51e80f0340f7f4b0163780896efa337686f4))
+
+
+### Code Refactoring
+
+* separate .env from deployed endpoint env vars ([#257](https://github.com/runpod/flash/issues/257)) ([ee26c43](https://github.com/runpod/flash/commit/ee26c43267dabb042cdc455e691b7dfaf65686d9))
+
+## [1.10.0](https://github.com/runpod/flash/compare/v1.9.1...v1.10.0) (2026-03-17)
+
+
+### Features
+
+* enable multi-datacenter support ([#266](https://github.com/runpod/flash/issues/266)) ([5631c32](https://github.com/runpod/flash/commit/5631c322be301ab06a4dded60aed1b9026c1c1f2))
+
+## [1.9.1](https://github.com/runpod/flash/compare/v1.9.0...v1.9.1) (2026-03-12)
+
+
+### Bug Fixes
+
+* **auth:** clean up API key error message ([#269](https://github.com/runpod/flash/issues/269)) ([7780f28](https://github.com/runpod/flash/commit/7780f28ad11174f1dd635deb59c812649c432528))
+
+## [1.9.0](https://github.com/runpod/flash/compare/v1.8.1...v1.9.0) (2026-03-12)
+
+
+### Features
+
+* refactor GpuType enum names, add B200 and RTX PRO 6000s ([#233](https://github.com/runpod/flash/issues/233)) ([b709176](https://github.com/runpod/flash/commit/b7091764ac348078b9b2d30dbc31e1316c133483))
+
+
+### Bug Fixes
+
+* **login:** prevent env var auth leak in guest sessions ([#267](https://github.com/runpod/flash/issues/267)) ([6316289](https://github.com/runpod/flash/commit/6316289fa61f6c630f07e8fb60bdbb1e0b9be351))
+
+## [1.8.1](https://github.com/runpod/flash/compare/v1.8.0...v1.8.1) (2026-03-10)
+
+
+### Bug Fixes
+
+* **build:** remove numpy from dependency blacklist, rename to SIZE_PROHIBITIVE_PACKAGES ([#263](https://github.com/runpod/flash/issues/263)) ([65fde9d](https://github.com/runpod/flash/commit/65fde9da8bfaef0cb7db7b8bbe1b11d271448c94))
+
+## [1.8.0](https://github.com/runpod/flash/compare/v1.7.0...v1.8.0) (2026-03-09)
+
+
+### Features
+
+* Python version-aware Docker image selection ([#261](https://github.com/runpod/flash/issues/261)) ([e10c18e](https://github.com/runpod/flash/commit/e10c18e7f2ec9b245e6c69e12dcbc68ec32d510e))
+
 ## [1.7.0](https://github.com/runpod/flash/compare/v1.6.1...v1.7.0) (2026-03-05)
 
 

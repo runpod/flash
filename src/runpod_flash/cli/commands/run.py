@@ -32,8 +32,9 @@ except ModuleNotFoundError:
             pass
 
 
+from ..utils.ignore import get_file_tree, load_ignore_patterns
 from .build_utils.scanner import (
-    RemoteDecoratorScanner,
+    RuntimeScanner,
     file_to_module_path,
     file_to_resource_name,
     file_to_url_prefix,
@@ -92,23 +93,14 @@ class WorkerInfo:
     )  # fn_or_method_name -> first line of docstring
 
 
-def _scan_project_workers(project_root: Path) -> List[WorkerInfo]:
-    """Scan the project for all @remote decorated functions.
+def _scan_project_workers(
+    project_root: Path,
+) -> tuple[List[WorkerInfo], RuntimeScanner]:
+    """scan the project for all @remote decorated functions.
 
-    Walks all .py files (excluding .flash/, __pycache__, __init__.py) and
-    builds WorkerInfo for each file that contains @remote functions.
-
-    Files with QB functions produce one WorkerInfo per file (QB type).
-    Files with LB functions produce one WorkerInfo per file (LB type).
-    A file can have both QB and LB functions (unusual but supported).
-
-    Args:
-        project_root: Root directory of the Flash project
-
-    Returns:
-        List of WorkerInfo, one entry per discovered source file
+    returns (workers, scanner) so callers can inspect import_errors.
     """
-    scanner = RemoteDecoratorScanner(project_root)
+    scanner = RuntimeScanner(project_root)
     remote_functions = scanner.discover_remote_functions()
 
     # Group by file path
@@ -189,7 +181,7 @@ def _scan_project_workers(project_root: Path) -> List[WorkerInfo]:
                 )
             )
 
-    return workers
+    return workers, scanner
 
 
 def _ensure_gitignore(project_root: Path) -> None:
@@ -242,7 +234,7 @@ def _module_parent_subdir(module_path: str) -> str | None:
     return parts[0].replace(".", "/")
 
 
-def _make_import_line(module_path: str, name: str) -> str:
+def _make_import_line(module_path: str, name: str, alias: str | None = None) -> str:
     """Build an import statement for *name* from *module_path*.
 
     Uses a regular ``from … import …`` when the module path is a valid
@@ -250,12 +242,22 @@ def _make_import_line(module_path: str, name: str) -> str:
     helper in server.py) when any segment starts with a digit. The helper
     temporarily scopes ``sys.path`` so sibling imports in the target module
     resolve to the correct directory.
+
+    Args:
+        module_path: Dotted module path to import from.
+        name: Symbol name to import.
+        alias: If provided, assign the import to this variable name instead
+            of *name*. Prevents collisions when multiple modules export the
+            same symbol (e.g. multiple files exporting ``api``).
     """
+    target = alias or name
     if _has_numeric_module_segments(module_path):
         subdir = _module_parent_subdir(module_path)
         if subdir:
-            return f'{name} = _flash_import("{module_path}", "{name}", "{subdir}")'
-        return f'{name} = _flash_import("{module_path}", "{name}")'
+            return f'{target} = _flash_import("{module_path}", "{name}", "{subdir}")'
+        return f'{target} = _flash_import("{module_path}", "{name}")'
+    if alias:
+        return f"from {module_path} import {name} as {alias}"
     return f"from {module_path} import {name}"
 
 
@@ -377,6 +379,17 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
             "",
         ]
 
+    # Purge user modules from sys.modules so uvicorn hot-reload reimports them
+    # with current code and config values (e.g. updated env dicts).
+    user_modules = sorted({w.module_path for w in workers})
+    if user_modules:
+        module_list = ", ".join(f'"{m}"' for m in user_modules)
+        lines += [
+            f"for _mod in [{module_list}]:",
+            "    sys.modules.pop(_mod, None)",
+            "",
+        ]
+
     # Collect imports — QB functions are called directly, LB config variables and
     # functions are passed to lb_execute for dispatch via LoadBalancerSlsStub.
     all_imports: List[str] = []
@@ -390,13 +403,22 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
                 )
         elif worker.worker_type == "LB":
             # Import the resource config variable (e.g. "api" from api = LiveLoadBalancer(...))
+            # Use aliased names to prevent collisions when multiple files export
+            # the same variable name (e.g. multiple files exporting "api").
             config_vars = {
                 r["config_variable"]
                 for r in worker.lb_routes
                 if r.get("config_variable")
             }
             for var in sorted(config_vars):
-                all_imports.append(_make_import_line(worker.module_path, var))
+                alias = f"_cfg_{_sanitize_fn_name(worker.resource_name)}"
+                all_imports.append(
+                    _make_import_line(worker.module_path, var, alias=alias)
+                )
+                # Store the alias so route codegen can reference it
+                for r in worker.lb_routes:
+                    if r.get("config_variable") == var:
+                        r["_config_alias"] = alias
             for fn_name in worker.functions:
                 all_imports.append(_make_import_line(worker.module_path, fn_name))
 
@@ -561,7 +583,7 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
                 method = route["method"].lower()
                 sub_path = route["path"].lstrip("/")
                 fn_name = route["fn_name"]
-                config_var = route["config_variable"]
+                config_var = route.get("_config_alias") or route["config_variable"]
                 full_path = f"{worker.url_prefix}/{sub_path}"
                 handler_name = _sanitize_fn_name(
                     f"_route_{worker.resource_name}_{fn_name}"
@@ -856,7 +878,7 @@ def _watch_and_regenerate(project_root: Path, stop_event: threading.Event) -> No
             if not py_changed:
                 continue
             try:
-                workers = _scan_project_workers(project_root)
+                workers, _ = _scan_project_workers(project_root)
                 _generate_flash_server(project_root, workers)
                 logger.debug("server.py regenerated (%d changed)", len(py_changed))
             except Exception as e:
@@ -871,8 +893,9 @@ def _watch_and_regenerate(project_root: Path, stop_event: threading.Event) -> No
 def _discover_resources(project_root: Path):
     """Discover deployable resources in project files.
 
-    Uses ResourceDiscovery to find all DeployableResource instances by
-    parsing @remote decorators and importing the referenced config variables.
+    Imports each python file and inspects module-level objects for
+    DeployableResource instances and Endpoint facades. Endpoint facades
+    are unwrapped via _build_resource_config() to get the inner resource.
 
     Args:
         project_root: Root directory of the Flash project
@@ -880,35 +903,65 @@ def _discover_resources(project_root: Path):
     Returns:
         List of discovered DeployableResource instances
     """
-    from ...core.discovery import ResourceDiscovery
+    from ...core.resources.base import DeployableResource
+    from ...endpoint import Endpoint
 
+    from .build_utils.scanner import _import_module_from_file
+
+    spec = load_ignore_patterns(project_root)
+    all_files = get_file_tree(project_root, spec)
     py_files = sorted(
-        p
-        for p in project_root.rglob("*.py")
-        if not any(
-            skip in p.parts
-            for skip in (".flash", ".venv", "venv", "__pycache__", ".git")
-        )
+        f for f in all_files if f.suffix == ".py" and f.name != "__init__.py"
     )
 
-    # Add project root to sys.path so cross-module imports resolve
-    # (e.g. api/routes.py doing "from longruns.stage1 import stage1_process").
     root_str = str(project_root)
     added_to_path = root_str not in sys.path
     if added_to_path:
         sys.path.insert(0, root_str)
 
     resources = []
+    seen_names: set[str] = set()
     try:
         for py_file in py_files:
             try:
-                discovery = ResourceDiscovery(str(py_file), max_depth=0)
-                resources.extend(discovery.discover())
+                module_path = file_to_module_path(py_file, project_root)
+                module = _import_module_from_file(py_file, module_path)
+                if module is None:
+                    continue
+
+                for name in dir(module):
+                    try:
+                        obj = getattr(module, name)
+                    except Exception:
+                        continue
+
+                    resource = None
+                    if isinstance(obj, DeployableResource):
+                        resource = obj
+                    elif isinstance(obj, Endpoint) and not obj.is_client:
+                        resource = obj._build_resource_config()
+                    elif hasattr(obj, "__remote_config__"):
+                        cfg = getattr(obj, "__remote_config__", {})
+                        rc = cfg.get("resource_config")
+                        if isinstance(rc, Endpoint) and not rc.is_client:
+                            resource = rc._build_resource_config()
+                        elif isinstance(rc, DeployableResource):
+                            resource = rc
+
+                    if resource is not None:
+                        res_name = getattr(resource, "name", None) or name
+                        if res_name not in seen_names:
+                            seen_names.add(res_name)
+                            resources.append(resource)
+
             except Exception as e:
                 logger.debug("Discovery failed for %s: %s", py_file, e)
     finally:
         if added_to_path:
-            sys.path.remove(root_str)
+            try:
+                sys.path.remove(root_str)
+            except ValueError:
+                pass
 
     if resources:
         console.print(f"\n[dim]Discovered {len(resources)} resource(s):[/dim]")
@@ -930,20 +983,25 @@ def _provision_resources(resources) -> None:
     import asyncio
 
     from ...core.deployment import DeploymentOrchestrator
+    from ...core.exceptions import RunpodAPIKeyError
 
+    console.print(f"[bold]Provisioning {len(resources)} resource(s)...[/bold]")
+    orchestrator = DeploymentOrchestrator(max_concurrent=3)
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     try:
-        console.print(f"[bold]Provisioning {len(resources)} resource(s)...[/bold]")
-        orchestrator = DeploymentOrchestrator(max_concurrent=3)
-
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
         loop.run_until_complete(orchestrator.deploy_all(resources, show_progress=True))
-        loop.close()
+    except RunpodAPIKeyError as e:
+        console.print(f"\n[red]Error:[/red] {e}")
+        raise typer.Exit(1)
     except Exception as e:
         console.print(f"[yellow]Warning:[/yellow] Provisioning failed: {e}")
         console.print(
             "[dim]Resources will be provisioned on-demand at first request.[/dim]"
         )
+    finally:
+        loop.close()
 
 
 def run_command(
@@ -989,6 +1047,8 @@ def run_command(
             resources = _discover_resources(project_root)
             if resources:
                 _provision_resources(resources)
+        except (typer.Exit, SystemExit, KeyboardInterrupt):
+            raise
         except Exception as e:
             logger.error("Auto-provisioning failed", exc_info=True)
             console.print(f"[yellow]Warning:[/yellow] Auto-provisioning failed: {e}")
@@ -997,26 +1057,27 @@ def run_command(
             )
 
     # Discover @remote functions
-    workers = _scan_project_workers(project_root)
+    workers, scanner = _scan_project_workers(project_root)
+
+    if scanner.import_errors:
+        console.print("\n[red bold]Failed to load:[/red bold]")
+        for filename, err in scanner.import_errors.items():
+            console.print(f"  [red]{filename}[/red]: {err}")
+        console.print()
+        raise typer.Exit(1)
 
     if not workers:
-        console.print("[red]Error:[/red] No endpoints found.")
-        console.print("Decorate your functions with @Endpoint to get started.")
-        console.print("\nQueue-based (one function per endpoint):")
         console.print(
-            "  from runpod_flash import Endpoint, GpuGroup\n"
+            "\n[red bold]No endpoints found.[/red bold]\n"
             "\n"
-            "  @Endpoint(name='my-worker', gpu=GpuGroup.ANY)\n"
-            "  async def process(input_data: dict) -> dict:\n"
-            "      return {'result': input_data}"
-        )
-        console.print("\nLoad-balanced (multiple routes, shared workers):")
-        console.print(
-            "  api = Endpoint(name='my-api', cpu='cpu3g-2-8', workers=(1, 3))\n"
+            "  [dim]Queue-based:[/dim]\n"
+            "    @Endpoint(name='worker', gpu=GpuGroup.ANY)\n"
+            "    async def process(input_data: dict) -> dict: ...\n"
             "\n"
-            "  @api.post('/compute')\n"
-            "  async def compute(data: dict) -> dict:\n"
-            "      return {'result': data}"
+            "  [dim]Load-balanced:[/dim]\n"
+            "    api = Endpoint(name='api', cpu='cpu3g-2-8')\n"
+            "    @api.post('/compute')\n"
+            "    async def compute(data: dict) -> dict: ...\n"
         )
         raise typer.Exit(1)
 

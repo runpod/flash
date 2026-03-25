@@ -289,18 +289,37 @@ result = await vllm.post("/v1/completions", {"prompt": "hello"})
 ### Persistent Storage
 
 ```python
-from runpod_flash import Endpoint, GpuGroup, NetworkVolume
+from runpod_flash import Endpoint, GpuGroup, DataCenter, NetworkVolume, PodTemplate
 
-vol = NetworkVolume(id="vol_abc123")
+vol = NetworkVolume(name="model-cache", size=100, datacenter=DataCenter.US_GA_1)
 
 @Endpoint(
     name="model-server",
     gpu=GpuGroup.AMPERE_80,
+    datacenter=DataCenter.US_GA_2,
     volume=vol,
     template=PodTemplate(containerDiskInGb=100),
 )
 async def serve(data: dict) -> dict:
     # models cached on network volume survive worker restarts
+    ...
+```
+
+Multiple volumes across datacenters:
+
+```python
+volumes = [
+    NetworkVolume(name="models-us", size=100, datacenter=DataCenter.US_GA_1),
+    NetworkVolume(name="models-eu", size=100, datacenter=DataCenter.EU_RO_1),
+]
+
+@Endpoint(
+    name="global-server",
+    gpu=GpuGroup.AMPERE_80,
+    datacenter=[DataCenter.US_GA_1, DataCenter.EU_RO_1],
+    volume=volumes,
+)
+async def serve(data: dict) -> dict:
     ...
 ```
 

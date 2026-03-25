@@ -8,7 +8,7 @@ Covers:
   CLI-ENV-006        delete_command bubbles error when env fetch fails
   CLI-UNDEPLOY-001   list_command uses ResourceManager.list_all_resources()
   SRVGEN-017         file_to_url_prefix includes directory path (no collision)
-  BUILD-015          RemoteDecoratorScanner returns empty list for no @remote
+  BUILD-015          RuntimeScanner returns empty list for no @remote
   FILE-005           _build_file_upload_wrapper handles multiple bytes params
   LOG-003            JobOutput.model_post_init logs delayTime and executionTime
 """
@@ -401,19 +401,19 @@ class TestFileToUrlPrefix:
 
 
 class TestScannerEmptyProject:
-    """RemoteDecoratorScanner handles projects with no @remote functions."""
+    """RuntimeScanner handles projects with no @remote functions."""
 
     def test_empty_project_directory_returns_empty_list(self, tmp_path):
         """BUILD-015: project with no Python files returns empty list."""
-        from runpod_flash.cli.commands.build_utils.scanner import RemoteDecoratorScanner
+        from runpod_flash.cli.commands.build_utils.scanner import RuntimeScanner
 
-        scanner = RemoteDecoratorScanner(tmp_path)
+        scanner = RuntimeScanner(tmp_path)
         functions = scanner.discover_remote_functions()
         assert functions == []
 
     def test_py_files_with_no_remote_decorator(self, tmp_path):
         """BUILD-015: .py files without @remote return empty list."""
-        from runpod_flash.cli.commands.build_utils.scanner import RemoteDecoratorScanner
+        from runpod_flash.cli.commands.build_utils.scanner import RuntimeScanner
 
         (tmp_path / "worker.py").write_text(
             "def compute(x):\n    return x * 2\n",
@@ -424,27 +424,27 @@ class TestScannerEmptyProject:
             encoding="utf-8",
         )
 
-        scanner = RemoteDecoratorScanner(tmp_path)
+        scanner = RuntimeScanner(tmp_path)
         functions = scanner.discover_remote_functions()
         assert functions == []
 
     def test_scanner_with_syntax_error_file_does_not_raise(self, tmp_path):
         """BUILD-015: a file with a syntax error is skipped gracefully."""
-        from runpod_flash.cli.commands.build_utils.scanner import RemoteDecoratorScanner
+        from runpod_flash.cli.commands.build_utils.scanner import RuntimeScanner
 
         (tmp_path / "broken.py").write_text(
             "def foo(\n",  # unclosed parenthesis -> SyntaxError
             encoding="utf-8",
         )
 
-        scanner = RemoteDecoratorScanner(tmp_path)
+        scanner = RuntimeScanner(tmp_path)
         # Should not raise; broken file is silently skipped
         functions = scanner.discover_remote_functions()
         assert functions == []
 
     def test_scanner_finds_remote_in_non_empty_project(self, tmp_path):
         """BUILD-015: contrast test – scanner finds @remote when present."""
-        from runpod_flash.cli.commands.build_utils.scanner import RemoteDecoratorScanner
+        from runpod_flash.cli.commands.build_utils.scanner import RuntimeScanner
 
         (tmp_path / "worker.py").write_text(
             "from runpod_flash import remote, LiveServerless\n"
@@ -455,7 +455,7 @@ class TestScannerEmptyProject:
             encoding="utf-8",
         )
 
-        scanner = RemoteDecoratorScanner(tmp_path)
+        scanner = RuntimeScanner(tmp_path)
         functions = scanner.discover_remote_functions()
         assert len(functions) == 1
         assert functions[0].function_name == "process"

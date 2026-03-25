@@ -14,15 +14,21 @@ console = Console()
 
 
 def init_command(
+    ctx: typer.Context,
     project_name: Optional[str] = typer.Argument(
-        None, help="Project name or '.' for current directory"
+        None, help="Project name, or '.' to initialize in current directory"
     ),
     force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing files"),
 ):
     """Create new Flash project with Flash Server and GPU workers."""
 
+    # No argument provided — show usage and exit
+    if project_name is None:
+        console.print(ctx.get_help(), markup=False, highlight=False)
+        raise typer.Exit(0)
+
     # Determine target directory and initialization mode
-    if project_name is None or project_name == ".":
+    if project_name == ".":
         # Initialize in current directory
         project_dir = Path.cwd()
         is_current_dir = True
@@ -105,19 +111,11 @@ def init_command(
 
     steps_table.add_row(f"{step_num}.", "pip install -r requirements.txt")
     step_num += 1
-    steps_table.add_row(f"{step_num}.", "cp .env.example .env")
-    step_num += 1
-    steps_table.add_row(
-        f"{step_num}.", "Add your RUNPOD_API_KEY to .env (or run flash login)"
-    )
+    steps_table.add_row(f"{step_num}.", "flash login")
     step_num += 1
     steps_table.add_row(f"{step_num}.", "flash run")
 
     console.print(steps_table)
 
-    console.print("\n[bold]Get your API key:[/bold]")
-    console.print("  https://docs.runpod.io/get-started/api-keys")
-    console.print("\n[bold]Or authenticate with flash:[/bold]")
-    console.print("  flash login")
     console.print("\nVisit http://localhost:8888/docs after running")
     console.print("\nCheck out the README.md for more")

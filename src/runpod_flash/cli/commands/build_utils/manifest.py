@@ -9,6 +9,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from runpod_flash.core.resources.constants import (
+    DEFAULT_PYTHON_VERSION,
+    GPU_BASE_IMAGE_PYTHON_VERSION,
+)
+
 from .scanner import (
     RemoteFunctionMetadata,
     file_to_module_path,
@@ -18,6 +23,24 @@ from .scanner import (
 logger = logging.getLogger(__name__)
 
 RESERVED_PATHS = ["/execute", "/ping"]
+
+
+def _serialize_network_volume(nv) -> dict:
+    """Serialize a NetworkVolume to a manifest-safe dict."""
+    nv_config: dict = {}
+    if nv.name is not None:
+        nv_config["name"] = nv.name
+    if getattr(nv, "id", None) is not None:
+        nv_config["id"] = nv.id
+    if nv.size is not None:
+        nv_config["size"] = nv.size
+    if hasattr(nv, "dataCenterId") and nv.dataCenterId is not None:
+        nv_config["dataCenterId"] = (
+            nv.dataCenterId.value
+            if hasattr(nv.dataCenterId, "value")
+            else nv.dataCenterId
+        )
+    return nv_config
 
 
 @dataclass
@@ -64,13 +87,15 @@ class ManifestBuilder:
         remote_functions: List[RemoteFunctionMetadata],
         scanner=None,
         build_dir: Optional[Path] = None,
+        python_version: Optional[str] = None,
     ):
         self.project_name = project_name
         self.remote_functions = remote_functions
-        self.scanner = (
-            scanner  # Optional: RemoteDecoratorScanner with resource config info
-        )
+        self.scanner = scanner  # Optional: RuntimeScanner with resource config info
         self.build_dir = build_dir
+        self.python_version = (
+            python_version or f"{sys.version_info.major}.{sys.version_info.minor}"
+        )
 
     def _import_module(self, file_path: Path):
         """Import a module from file path, returning (module, cleanup_fn).
@@ -197,6 +222,12 @@ class ManifestBuilder:
             config["workersMax"] = resource_config.workersMax
 
         if (
+            hasattr(resource_config, "idleTimeout")
+            and resource_config.idleTimeout is not None
+        ):
+            config["idleTimeout"] = resource_config.idleTimeout
+
+        if (
             hasattr(resource_config, "scalerType")
             and resource_config.scalerType is not None
         ):
@@ -209,24 +240,33 @@ class ManifestBuilder:
         ):
             config["scalerValue"] = resource_config.scalerValue
 
-        if hasattr(resource_config, "env") and resource_config.env:
-            env_dict = dict(resource_config.env)
-            env_dict.pop("RUNPOD_API_KEY", None)
-            if env_dict:
-                config["env"] = env_dict
+        if hasattr(resource_config, "locations") and resource_config.locations:
+            config["locations"] = resource_config.locations
 
-        if hasattr(resource_config, "networkVolume") and resource_config.networkVolume:
-            nv = resource_config.networkVolume
-            nv_config = {"name": nv.name}
-            if nv.size is not None:
-                nv_config["size"] = nv.size
-            if hasattr(nv, "dataCenterId") and nv.dataCenterId is not None:
-                nv_config["dataCenterId"] = (
-                    nv.dataCenterId.value
-                    if hasattr(nv.dataCenterId, "value")
-                    else nv.dataCenterId
-                )
-            config["networkVolume"] = nv_config
+        if (
+            hasattr(resource_config, "minCudaVersion")
+            and resource_config.minCudaVersion is not None
+        ):
+            v = resource_config.minCudaVersion
+            config["minCudaVersion"] = v.value if hasattr(v, "value") else v
+
+        if hasattr(resource_config, "env") and resource_config.env is not None:
+            config["env"] = dict(resource_config.env)
+
+        if (
+            hasattr(resource_config, "networkVolumes")
+            and resource_config.networkVolumes
+        ):
+            config["networkVolumes"] = [
+                _serialize_network_volume(nv) for nv in resource_config.networkVolumes
+            ]
+
+        elif (
+            hasattr(resource_config, "networkVolume") and resource_config.networkVolume
+        ):
+            config["networkVolume"] = _serialize_network_volume(
+                resource_config.networkVolume
+            )
 
         elif (
             hasattr(resource_config, "networkVolumeId")
@@ -373,6 +413,20 @@ class ManifestBuilder:
             # Determine if this resource makes remote calls
             makes_remote_calls = any(func.calls_remote_functions for func in functions)
 
+            # One tarball serves all resources, so target_python_version must agree.
+            # GPU resources are pinned to the base image's Python; CPU resources
+            # use DEFAULT_PYTHON_VERSION (aligned to GPU to avoid ABI mismatch).
+            _GPU_RESOURCE_TYPES = {
+                "LiveServerless",
+                "LiveLoadBalancer",
+                "LoadBalancerSlsResource",
+                "ServerlessEndpoint",
+            }
+            if resource_type in _GPU_RESOURCE_TYPES:
+                target_python_version = GPU_BASE_IMAGE_PYTHON_VERSION
+            else:
+                target_python_version = DEFAULT_PYTHON_VERSION
+
             resources_dict[resource_name] = {
                 "resource_type": resource_type,
                 "file_path": file_path_str,
@@ -383,6 +437,7 @@ class ManifestBuilder:
                 "is_live_resource": is_live_resource,
                 "config_variable": config_variable,
                 "makes_remote_calls": makes_remote_calls,
+                "target_python_version": target_python_version,
                 **deployment_config,  # Include imageName, templateId, gpuIds, workers config
             }
 
@@ -406,6 +461,7 @@ class ManifestBuilder:
 
         manifest = {
             "version": "1.0",
+            "python_version": self.python_version,
             "generated_at": datetime.now(timezone.utc)
             .isoformat()
             .replace("+00:00", "Z"),

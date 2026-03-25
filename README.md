@@ -38,13 +38,25 @@ Flash requires [Python 3.10+](https://www.python.org/downloads/), and is current
 
 ### Authentication
 
-Before you can use Flash, you need to authenticate with your Runpod account:
+Before you can use Flash, you need a Runpod API key. The simplest way:
 
 ```bash
 flash login
 ```
 
-This saves your API key securely and allows you to use the Flash CLI and run `@Endpoint` functions.
+This opens a browser auth flow and saves your key to `~/.runpod/config.toml`.
+
+You can also provide a key via environment variable or `.env` file:
+
+```bash
+# Environment variable
+export RUNPOD_API_KEY=your_api_key_here
+
+# Or .env file in project root
+echo "RUNPOD_API_KEY=your_api_key_here" > .env
+```
+
+Flash checks these sources in order: env var, `.env` file, then credentials file. See the [flash login docs](src/runpod_flash/cli/docs/flash-login.md) for details.
 
 ### Coding agent integration (optional)
 
@@ -154,6 +166,14 @@ Browse working examples: **[github.com/runpod/flash-examples](https://github.com
 - Python 3.10+
 - macOS or Linux (Windows support in development)
 - [Runpod account](https://runpod.io/console) with API key
+
+### Python version in deployed workers
+
+Your local Python version does not affect what runs in the cloud. `flash build` downloads wheels for the container's Python version automatically.
+
+- **GPU workers**: Python 3.12 only. The GPU base image ships multiple interpreters (3.9-3.14) for interactive pod use, but torch and CUDA libraries are installed only for 3.12. Using a different version would require reinstalling torch (~2GB) and matching all C-extension wheel ABIs.
+- **CPU workers**: Python 3.10, 3.11, or 3.12. Configurable via the `PYTHON_VERSION` build arg.
+- **Image tags**: `py{version}-{tag}` (e.g., `runpod/flash:py3.12-latest`).
 
 ## Contributing
 

@@ -7,10 +7,14 @@ import pytest
 import typer
 
 from runpod_flash.cli.commands.build import (
+    SIZE_PROHIBITIVE_PACKAGES,
     _find_runpod_flash,
+    _resolve_pip_python_version,
     collect_requirements,
+    create_tarball,
     extract_remote_dependencies,
     extract_package_name,
+    install_dependencies,
     run_build,
     should_exclude_package,
 )
@@ -158,7 +162,7 @@ class TestExtractRemoteDependencies:
 
         worker_file.write_text(
             "from runpod_flash import remote, LiveServerless\n"
-            "gpu = LiveServerless()\n"
+            "gpu = LiveServerless(name='gpu_worker')\n"
             "@remote(gpu, dependencies=['torch', 'transformers'])\n"
             "async def my_async_func(prompt: str) -> str:\n"
             "    return prompt\n"
@@ -179,7 +183,7 @@ class TestExtractRemoteDependencies:
         api_example = build_dir / "api_example.py"
         api_example.write_text(
             "from runpod_flash import remote, LiveServerless\n"
-            "gpu = LiveServerless()\n"
+            "gpu = LiveServerless(name='gpu_worker')\n"
             "@remote(gpu, dependencies=['transformers'])\n"
             "async def smoke(prompt: str) -> str:\n"
             "    return prompt\n"
@@ -234,7 +238,7 @@ class TestExtractRemoteDependencies:
         f1 = workers_dir / "remote_worker.py"
         f1.write_text(
             "from runpod_flash import remote, LiveServerless\n"
-            "gpu = LiveServerless()\n"
+            "gpu = LiveServerless(name='gpu_worker')\n"
             "@remote(gpu, dependencies=['torch'])\n"
             "async def train(data): return data\n"
         )
@@ -299,7 +303,7 @@ class TestRunBuildHandlerGeneration:
         worker_file = project_dir / "worker.py"
         worker_file.write_text(
             "from runpod_flash import remote, LiveServerless\n"
-            "gpu = LiveServerless()\n"
+            "gpu = LiveServerless(name='gpu_worker')\n"
             "@remote(gpu)\n"
             "def my_func(prompt: str) -> str:\n"
             "    return prompt\n"
@@ -336,7 +340,7 @@ class TestRunBuildHandlerGeneration:
         worker_file = project_dir / "worker.py"
         worker_file.write_text(
             "from runpod_flash import remote, LiveServerless\n"
-            "gpu = LiveServerless()\n"
+            "gpu = LiveServerless(name='gpu_worker')\n"
             "@remote(gpu)\n"
             "def my_func(prompt: str) -> str:\n"
             "    return prompt\n"
@@ -367,7 +371,7 @@ class TestRunBuildHandlerGeneration:
         worker_file = project_dir / "worker.py"
         worker_file.write_text(
             "from runpod_flash import remote, LiveServerless\n"
-            "gpu = LiveServerless()\n"
+            "gpu = LiveServerless(name='gpu_worker')\n"
             "@remote(gpu)\n"
             "def my_func(prompt: str) -> str:\n"
             "    return prompt\n"
@@ -507,7 +511,7 @@ class TestRunBuildBundlingFailure:
         project_dir.mkdir()
         (project_dir / "worker.py").write_text(
             "from runpod_flash import remote, LiveServerless\n"
-            "gpu = LiveServerless()\n"
+            "gpu = LiveServerless(name='gpu_worker')\n"
             "@remote(gpu)\n"
             "def my_func(prompt: str) -> str:\n"
             "    return prompt\n"
@@ -538,7 +542,7 @@ class TestRunBuildBundling:
         project_dir.mkdir()
         (project_dir / "worker.py").write_text(
             "from runpod_flash import remote, LiveServerless\n"
-            "gpu = LiveServerless()\n"
+            "gpu = LiveServerless(name='gpu_worker')\n"
             "@remote(gpu)\n"
             "def my_func(prompt: str) -> str:\n"
             "    return prompt\n"
@@ -565,3 +569,299 @@ class TestRunBuildBundling:
         bundled = build_dir / "runpod_flash" / "__init__.py"
         assert bundled.exists()
         assert "0.0.0-test" in bundled.read_text()
+
+
+class TestBaseImageAutoExclusion:
+    """Tests for automatic exclusion of base image packages (torch, etc.)."""
+
+    def _bundle_patches(self):
+        """Return context manager that mocks bundling."""
+        from contextlib import ExitStack, contextmanager
+        from pathlib import Path
+
+        @contextmanager
+        def _stack():
+            with ExitStack() as stack:
+                stack.enter_context(
+                    patch(
+                        "runpod_flash.cli.commands.build._find_runpod_flash",
+                        return_value=Path("/fake/runpod_flash"),
+                    )
+                )
+                stack.enter_context(
+                    patch("runpod_flash.cli.commands.build._bundle_runpod_flash")
+                )
+                stack.enter_context(
+                    patch(
+                        "runpod_flash.cli.commands.build._remove_runpod_flash_from_requirements"
+                    )
+                )
+                yield
+
+        return _stack()
+
+    def test_constant_contains_expected_packages(self):
+        """Verify CUDA/torch ecosystem packages are in SIZE_PROHIBITIVE_PACKAGES."""
+        assert "torch" in SIZE_PROHIBITIVE_PACKAGES
+        assert "torchvision" in SIZE_PROHIBITIVE_PACKAGES
+        assert "torchaudio" in SIZE_PROHIBITIVE_PACKAGES
+        assert "triton" in SIZE_PROHIBITIVE_PACKAGES
+
+    def test_numpy_not_in_size_prohibitive_packages(self):
+        """NumPy must NOT be excluded — CPU images (python-slim) don't ship it."""
+        assert "numpy" not in SIZE_PROHIBITIVE_PACKAGES
+
+    def test_auto_excludes_torch_without_flag(self, tmp_path):
+        """Torch is filtered even with no --exclude flag; numpy passes through."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+        (project_dir / "worker.py").write_text(
+            "from runpod_flash import remote, LiveServerless\n"
+            "gpu = LiveServerless(name='gpu_worker')\n"
+            "@remote(gpu, dependencies=['torch', 'numpy', 'requests'])\n"
+            "def my_func(prompt: str) -> str:\n"
+            "    return prompt\n"
+        )
+
+        installed = []
+
+        def fake_install(_build_dir, reqs, _no_deps, target_python_version=None):
+            installed.extend(reqs)
+            return True
+
+        with (
+            patch(
+                "runpod_flash.cli.commands.build.install_dependencies",
+                side_effect=fake_install,
+            ),
+            self._bundle_patches(),
+        ):
+            run_build(project_dir, "test_app", no_deps=True)
+
+        pkg_names = [extract_package_name(r) for r in installed]
+        assert "torch" not in pkg_names
+        assert "numpy" in pkg_names
+        assert "requests" in pkg_names
+
+    def test_user_excludes_merged_with_auto(self, tmp_path):
+        """User --exclude scipy + auto torch = all excluded; numpy passes through."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+        (project_dir / "worker.py").write_text(
+            "from runpod_flash import remote, LiveServerless\n"
+            "gpu = LiveServerless(name='gpu_worker')\n"
+            "@remote(gpu, dependencies=['torch', 'numpy', 'scipy', 'pandas'])\n"
+            "def my_func(prompt: str) -> str:\n"
+            "    return prompt\n"
+        )
+
+        installed = []
+
+        def fake_install(_build_dir, reqs, _no_deps, target_python_version=None):
+            installed.extend(reqs)
+            return True
+
+        with (
+            patch(
+                "runpod_flash.cli.commands.build.install_dependencies",
+                side_effect=fake_install,
+            ),
+            self._bundle_patches(),
+        ):
+            run_build(project_dir, "test_app", no_deps=True, exclude="scipy")
+
+        pkg_names = [extract_package_name(r) for r in installed]
+        assert "torch" not in pkg_names
+        assert "numpy" in pkg_names
+        assert "scipy" not in pkg_names
+        assert "pandas" in pkg_names
+
+    def test_auto_exclude_silent_when_not_in_requirements(self, tmp_path, capsys):
+        """No auto-exclude message if no size-prohibitive packages are in requirements."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+        (project_dir / "worker.py").write_text(
+            "from runpod_flash import remote, LiveServerless\n"
+            "gpu = LiveServerless(name='gpu_worker')\n"
+            "@remote(gpu, dependencies=['requests'])\n"
+            "def my_func(prompt: str) -> str:\n"
+            "    return prompt\n"
+        )
+
+        with (
+            patch(
+                "runpod_flash.cli.commands.build.install_dependencies",
+                return_value=True,
+            ),
+            self._bundle_patches(),
+        ):
+            run_build(project_dir, "test_app", no_deps=True)
+
+        captured = capsys.readouterr()
+        assert "Auto-excluded size-prohibitive packages" not in captured.out
+
+    def test_user_unmatched_warning_excludes_base_image_packages(
+        self, tmp_path, capsys
+    ):
+        """--exclude torch doesn't warn 'no match' when torch isn't in requirements."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+        (project_dir / "worker.py").write_text(
+            "from runpod_flash import remote, LiveServerless\n"
+            "gpu = LiveServerless(name='gpu_worker')\n"
+            "@remote(gpu, dependencies=['requests'])\n"
+            "def my_func(prompt: str) -> str:\n"
+            "    return prompt\n"
+        )
+
+        with (
+            patch(
+                "runpod_flash.cli.commands.build.install_dependencies",
+                return_value=True,
+            ),
+            self._bundle_patches(),
+        ):
+            run_build(project_dir, "test_app", no_deps=True, exclude="torch")
+
+        captured = capsys.readouterr()
+        assert "No packages matched exclusions" not in captured.out
+
+    def test_tarball_excludes_base_image_packages(self, tmp_path):
+        """create_tarball filters out excluded package directories and dist-info."""
+        build_dir = tmp_path / "build"
+        build_dir.mkdir()
+
+        # Create fake package directories
+        (build_dir / "torch" / "nn").mkdir(parents=True)
+        (build_dir / "torch" / "__init__.py").write_text("")
+        (build_dir / "numpy").mkdir()
+        (build_dir / "numpy" / "__init__.py").write_text("")
+        (build_dir / "torch-2.0.0.dist-info").mkdir()
+        (build_dir / "torch-2.0.0.dist-info" / "METADATA").write_text("")
+        (build_dir / "requests").mkdir()
+        (build_dir / "requests" / "__init__.py").write_text("")
+
+        output = tmp_path / "test.tar.gz"
+        create_tarball(
+            build_dir, output, "test_app", excluded_packages=["torch", "numpy"]
+        )
+
+        import tarfile
+
+        with tarfile.open(output, "r:gz") as tar:
+            names = tar.getnames()
+
+        # torch and numpy directories (and dist-info) should be excluded
+        torch_entries = [n for n in names if "torch" in n]
+        numpy_entries = [n for n in names if "numpy" in n]
+        assert torch_entries == [], f"torch entries found: {torch_entries}"
+        assert numpy_entries == [], f"numpy entries found: {numpy_entries}"
+        # requests should still be present
+        assert any("requests" in n for n in names)
+
+    def test_tarball_keeps_non_excluded_packages(self, tmp_path):
+        """create_tarball keeps packages not in the exclusion list."""
+        build_dir = tmp_path / "build"
+        build_dir.mkdir()
+
+        (build_dir / "requests").mkdir()
+        (build_dir / "requests" / "__init__.py").write_text("")
+        (build_dir / "my_torch_utils").mkdir()
+        (build_dir / "my_torch_utils" / "__init__.py").write_text("")
+
+        output = tmp_path / "test.tar.gz"
+        create_tarball(build_dir, output, "test_app", excluded_packages=["torch"])
+
+        import tarfile
+
+        with tarfile.open(output, "r:gz") as tar:
+            names = tar.getnames()
+
+        assert any("requests" in n for n in names)
+        # my_torch_utils should NOT be excluded (exact match, not substring)
+        assert any("my_torch_utils" in n for n in names)
+
+
+class TestResolvePipPythonVersion:
+    """Tests for _resolve_pip_python_version."""
+
+    def test_returns_version_from_gpu_manifest(self):
+        """Returns target_python_version from GPU-containing manifest."""
+        manifest = {
+            "resources": {
+                "gpu_worker": {
+                    "resource_type": "LiveServerless",
+                    "target_python_version": "3.12",
+                },
+            }
+        }
+        assert _resolve_pip_python_version(manifest) == "3.12"
+
+    def test_returns_none_for_empty_resources(self):
+        """Returns None when no resources have target_python_version."""
+        manifest = {"resources": {}}
+        assert _resolve_pip_python_version(manifest) is None
+
+    def test_returns_none_for_missing_field(self):
+        """Returns None when resources lack target_python_version."""
+        manifest = {
+            "resources": {
+                "worker": {"resource_type": "LiveServerless"},
+            }
+        }
+        assert _resolve_pip_python_version(manifest) is None
+
+    def test_consistent_versions_returns_single(self):
+        """Returns the version when all resources agree."""
+        manifest = {
+            "resources": {
+                "gpu": {"target_python_version": "3.12"},
+                "cpu": {"target_python_version": "3.12"},
+            }
+        }
+        assert _resolve_pip_python_version(manifest) == "3.12"
+
+    def test_mixed_versions_returns_highest(self):
+        """Returns the highest version when resources disagree."""
+        manifest = {
+            "resources": {
+                "gpu": {"target_python_version": "3.12"},
+                "cpu": {"target_python_version": "3.11"},
+            }
+        }
+        assert _resolve_pip_python_version(manifest) == "3.12"
+
+
+class TestInstallDependenciesTargetVersion:
+    """Tests for install_dependencies with target_python_version."""
+
+    def test_uses_target_version_for_python_version_flag(self, tmp_path):
+        """install_dependencies passes target version to --python-version."""
+        build_dir = tmp_path / "build"
+        build_dir.mkdir()
+
+        captured_cmd = []
+
+        def mock_run(cmd, **kwargs):
+            captured_cmd.extend(cmd)
+            result = MagicMock()
+            result.returncode = 0
+            result.stdout = ""
+            result.stderr = ""
+            return result
+
+        with patch("subprocess.run", side_effect=mock_run):
+            install_dependencies(
+                build_dir,
+                ["requests"],
+                no_deps=False,
+                target_python_version="3.12",
+            )
+
+        # Find --python-version in the captured command
+        for i, arg in enumerate(captured_cmd):
+            if arg == "--python-version" and i + 1 < len(captured_cmd):
+                assert captured_cmd[i + 1] == "3.12"
+                break
+        else:
+            pytest.fail("--python-version not found in pip command")

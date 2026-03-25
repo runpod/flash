@@ -11,6 +11,7 @@ def create_resource_from_manifest(
     resource_name: str,
     resource_data: Dict[str, Any],
     flash_environment_id: Optional[str] = None,
+    python_version: Optional[str] = None,
 ) -> Any:
     """Create a deployable resource configuration from a manifest entry.
 
@@ -111,6 +112,15 @@ def create_resource_from_manifest(
     # Extract deployment config from manifest
     deployment_kwargs = {"name": prefixed_name, "env": env}
 
+    # Use per-resource target_python_version (set by manifest builder based on
+    # resource type: GPU uses GPU_BASE_IMAGE_PYTHON_VERSION, CPU uses DEFAULT).
+    # Falls back to the caller-provided python_version for backward compatibility.
+    effective_python_version = (
+        resource_data.get("target_python_version") or python_version
+    )
+    if effective_python_version:
+        deployment_kwargs["python_version"] = effective_python_version
+
     if flash_environment_id:
         deployment_kwargs["flashEnvironmentId"] = flash_environment_id
 
@@ -131,11 +141,23 @@ def create_resource_from_manifest(
         deployment_kwargs["scalerType"] = resource_data["scalerType"]
     if "scalerValue" in resource_data:
         deployment_kwargs["scalerValue"] = resource_data["scalerValue"]
+    if "minCudaVersion" in resource_data:
+        deployment_kwargs["minCudaVersion"] = resource_data["minCudaVersion"]
     if "instanceIds" in resource_data:
         deployment_kwargs["instanceIds"] = resource_data["instanceIds"]
+    if "idleTimeout" in resource_data:
+        deployment_kwargs["idleTimeout"] = resource_data["idleTimeout"]
+    if "locations" in resource_data:
+        deployment_kwargs["locations"] = resource_data["locations"]
 
-    # Reconstruct NetworkVolume from manifest data if present
-    if "networkVolume" in resource_data:
+    # Reconstruct NetworkVolume(s) from manifest data if present
+    if "networkVolumes" in resource_data:
+        from runpod_flash.core.resources.network_volume import NetworkVolume
+
+        deployment_kwargs["networkVolumes"] = [
+            NetworkVolume(**nv) for nv in resource_data["networkVolumes"]
+        ]
+    elif "networkVolume" in resource_data:
         from runpod_flash.core.resources.network_volume import NetworkVolume
 
         nv_data = resource_data["networkVolume"]

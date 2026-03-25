@@ -10,11 +10,12 @@ from typing import Any
 import typer
 from rich.console import Console
 
+from runpod_flash.core.exceptions import RunpodAPIKeyError
+from runpod_flash.core.resources.app import FlashApp
+
 from ..utils.app import discover_flash_project
 from ..utils.deployment import deploy_from_uploaded_build, validate_local_manifest
 from .build import run_build
-
-from runpod_flash.core.resources.app import FlashApp
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -31,7 +32,7 @@ def deploy_command(
     exclude: str | None = typer.Option(
         None,
         "--exclude",
-        help="Comma-separated packages to exclude (e.g., 'torch,torchvision')",
+        help="Comma-separated additional packages to exclude (torch packages are auto-excluded)",
     ),
     output_name: str | None = typer.Option(
         None, "--output", "-o", help="Custom archive name (default: artifact.tar.gz)"
@@ -53,7 +54,7 @@ def deploy_command(
       flash deploy --env staging                # build + deploy to staging
       flash deploy --app my-app --env prod      # deploy a different app
       flash deploy --preview                    # build + launch local preview
-      flash deploy --exclude torch,torchvision  # exclude packages from build
+      flash deploy --exclude transformers        # exclude additional packages from build
     """
     try:
         project_dir, discovered_app_name = discover_flash_project()
@@ -83,10 +84,23 @@ def deploy_command(
         raise typer.Exit(1)
     except typer.Exit:
         raise
-    except Exception as e:
-        console.print(f"\n[red]Deploy failed:[/red] {e}")
-        logger.exception("Deploy failed")
+    except RunpodAPIKeyError as e:
+        console.print(f"\n[red]Error:[/red] {e}")
         raise typer.Exit(1)
+    except Exception as e:
+        _handle_deploy_error(e)
+
+
+def _handle_deploy_error(exc: Exception) -> None:
+    """Handle deploy errors, providing targeted guidance for SSL issues."""
+    from requests.exceptions import SSLError
+
+    if isinstance(exc, SSLError):
+        console.print(f"\n[red]SSL error:[/red] {exc}")
+        raise typer.Exit(1)
+    console.print(f"\n[red]Deploy failed:[/red] {exc}")
+    logger.exception("Deploy failed")
+    raise typer.Exit(1)
 
 
 def _print_curl_example(url: str, method: str = "POST") -> None:
