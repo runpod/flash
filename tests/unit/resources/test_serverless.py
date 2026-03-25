@@ -368,6 +368,20 @@ class TestServerlessResourceValidation:
         ):
             ServerlessResource(name="test", workersMin=5, workersMax=1)
 
+    @pytest.mark.parametrize("idle_timeout", [0, -1, 3601])
+    def test_idle_timeout_must_be_between_1_and_3600(self, idle_timeout):
+        with pytest.raises(
+            ValueError,
+            match="idleTimeout must be between 1 and 3600 seconds",
+        ):
+            ServerlessResource(name="test", idleTimeout=idle_timeout)
+
+    @pytest.mark.parametrize("idle_timeout", [1, 3600])
+    def test_idle_timeout_accepts_valid_boundaries(self, idle_timeout):
+        serverless = ServerlessResource(name="test", idleTimeout=idle_timeout)
+
+        assert serverless.idleTimeout == idle_timeout
+
     def test_scaler_type_serialization(self):
         """Test ServerlessScalerType enum serialization."""
         serverless = ServerlessResource(

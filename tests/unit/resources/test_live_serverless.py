@@ -27,6 +27,13 @@ class TestLiveServerless:
         ):
             LiveServerless(name="broken", workersMin=5, workersMax=1)
 
+    def test_live_serverless_idle_timeout_rejects_zero(self):
+        with pytest.raises(
+            ValueError,
+            match="idleTimeout must be between 1 and 3600 seconds",
+        ):
+            LiveServerless(name="broken", idleTimeout=0)
+
     def test_live_serverless_gpu_defaults(self):
         """Test LiveServerless uses GPU image and defaults."""
         live_serverless = LiveServerless(

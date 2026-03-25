@@ -328,6 +328,15 @@ class ServerlessResource(DeployableResource):
             _validate_python_version(v)
         return v
 
+    @field_validator("idleTimeout")
+    @classmethod
+    def validate_idle_timeout(cls, value: Optional[int]) -> Optional[int]:
+        if value is None:
+            return value
+        if not 1 <= value <= 3600:
+            raise ValueError("idleTimeout must be between 1 and 3600 seconds")
+        return value
+
     @property
     def config_hash(self) -> str:
         """Get config hash excluding runtime-assigned fields.
