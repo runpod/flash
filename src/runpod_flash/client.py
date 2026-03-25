@@ -101,7 +101,7 @@ def _reject_unknown_kwargs(extra: dict[str, Any], known: set[str]) -> None:
     names = sorted(extra)
     parts: list[str] = []
     for name in names:
-        close = difflib.get_close_matches(name, known, n=1, cutoff=0.6)
+        close = difflib.get_close_matches(name, sorted(known), n=1, cutoff=0.6)
         hint = f" (Did you mean '{close[0]}'?)" if close else ""
         parts.append(f"'{name}'{hint}")
 
