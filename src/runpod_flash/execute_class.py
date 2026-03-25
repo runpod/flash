@@ -190,7 +190,6 @@ def create_remote_class(
     dependencies: Optional[List[str]],
     system_dependencies: Optional[List[str]],
     accelerate_downloads: bool,
-    extra: dict,
 ):
     """
     Create a remote class wrapper.
@@ -211,7 +210,6 @@ def create_remote_class(
             self._dependencies = dependencies or []
             self._system_dependencies = system_dependencies or []
             self._accelerate_downloads = accelerate_downloads
-            self._extra = extra
             self._constructor_args = args
             self._constructor_kwargs = kwargs
             self._instance_id = (
@@ -235,7 +233,7 @@ def create_remote_class(
             remote_resource = await resource_manager.get_or_deploy_resource(
                 self._resource_config
             )
-            self._stub = stub_resource(remote_resource, **self._extra)
+            self._stub = stub_resource(remote_resource)
 
             # Create the remote instance by calling a method (which will trigger instance creation)
             # We'll do this on first method call

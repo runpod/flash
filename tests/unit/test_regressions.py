@@ -64,7 +64,7 @@ class TestREG002ClassNotEagerlyInstantiated:
                 return x * 2
 
         mock_resource = MagicMock()
-        RemoteWrapper = create_remote_class(HeavyModel, mock_resource, [], [], True, {})
+        RemoteWrapper = create_remote_class(HeavyModel, mock_resource, [], [], True)
 
         # Instantiate the wrapper — original __init__ should NOT fire
         instance = RemoteWrapper()
@@ -87,7 +87,7 @@ class TestREG002ClassNotEagerlyInstantiated:
                 return data
 
         mock_resource = MagicMock()
-        RemoteWrapper = create_remote_class(GPUWorker, mock_resource, [], [], True, {})
+        RemoteWrapper = create_remote_class(GPUWorker, mock_resource, [], [], True)
 
         _ = RemoteWrapper()
         assert init_called is False
@@ -142,7 +142,7 @@ class TestREG004ClassInitNotCalledDuringFlashRun:
                 return data
 
         mock_resource = MagicMock()
-        Wrapper = create_remote_class(ModelWorker, mock_resource, [], [], True, {})
+        Wrapper = create_remote_class(ModelWorker, mock_resource, [], [], True)
         _ = Wrapper()
 
         # import_attempted stays False because RemoteClassWrapper.__init__
@@ -158,7 +158,7 @@ class TestREG004ClassInitNotCalledDuringFlashRun:
                 return x * 2
 
         mock_resource = MagicMock()
-        Wrapper = create_remote_class(MyClass, mock_resource, [], [], True, {})
+        Wrapper = create_remote_class(MyClass, mock_resource, [], [], True)
         instance = Wrapper()
 
         assert instance._class_type is MyClass

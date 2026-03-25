@@ -19,14 +19,14 @@ log = logging.getLogger(__name__)
 
 
 @singledispatch
-def stub_resource(resource, **extra):
+def stub_resource(resource):
     async def fallback(*args, **kwargs):
         return {"error": f"Cannot stub {resource.__class__.__name__}."}
 
     return fallback
 
 
-def _create_live_serverless_stub(resource, **extra):
+def _create_live_serverless_stub(resource):
     """Create a live serverless stub for both LiveServerless and CpuLiveServerless."""
     stub = LiveServerlessStub(resource)
 
@@ -105,17 +105,17 @@ def _create_live_serverless_stub(resource, **extra):
 
 
 @stub_resource.register(LiveServerless)
-def _(resource, **extra):
-    return _create_live_serverless_stub(resource, **extra)
+def _(resource):
+    return _create_live_serverless_stub(resource)
 
 
 @stub_resource.register(CpuLiveServerless)
-def _(resource, **extra):
-    return _create_live_serverless_stub(resource, **extra)
+def _(resource):
+    return _create_live_serverless_stub(resource)
 
 
 @stub_resource.register(ServerlessEndpoint)
-def _(resource, **extra):
+def _(resource):
     async def stubbed_resource(
         func,
         dependencies,
@@ -132,14 +132,14 @@ def _(resource, **extra):
 
         stub = ServerlessEndpointStub(resource)
         payload = stub.prepare_payload(func, *args, **kwargs)
-        response = await stub.execute(payload, sync=extra.get("sync", False))
+        response = await stub.execute(payload, sync=False)
         return stub.handle_response(response)
 
     return stubbed_resource
 
 
 @stub_resource.register(CpuServerlessEndpoint)
-def _(resource, **extra):
+def _(resource):
     async def stubbed_resource(
         func,
         dependencies,
@@ -156,14 +156,14 @@ def _(resource, **extra):
 
         stub = ServerlessEndpointStub(resource)
         payload = stub.prepare_payload(func, *args, **kwargs)
-        response = await stub.execute(payload, sync=extra.get("sync", False))
+        response = await stub.execute(payload, sync=False)
         return stub.handle_response(response)
 
     return stubbed_resource
 
 
 @stub_resource.register(LoadBalancerSlsResource)
-def _(resource, **extra):
+def _(resource):
     """Create stub for LoadBalancerSlsResource (HTTP-based execution)."""
     stub = LoadBalancerSlsStub(resource)
 
@@ -188,7 +188,7 @@ def _(resource, **extra):
 
 
 @stub_resource.register(LiveLoadBalancer)
-def _(resource, **extra):
+def _(resource):
     """Create stub for LiveLoadBalancer (HTTP-based execution, local testing)."""
     stub = LoadBalancerSlsStub(resource)
 
@@ -213,7 +213,7 @@ def _(resource, **extra):
 
 
 @stub_resource.register(CpuLiveLoadBalancer)
-def _(resource, **extra):
+def _(resource):
     """Create stub for CpuLiveLoadBalancer (HTTP-based execution, local testing)."""
     stub = LoadBalancerSlsStub(resource)
 

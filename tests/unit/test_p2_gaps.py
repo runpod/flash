@@ -58,26 +58,25 @@ class TestAccelerateDownloads:
 
 
 # ---------------------------------------------------------------------------
-# REM-FN-010: Extra **kwargs forwarded to stub_resource()
+# REM-FN-010: Unknown **kwargs raise TypeError (AE-2313)
 # ---------------------------------------------------------------------------
-class TestExtraKwargsForwarded:
-    """@remote extra kwargs forwarded to stub_resource()."""
+class TestUnknownKwargsRejected:
+    """@remote rejects unknown kwargs to prevent typo bugs."""
 
     @patch.dict(os.environ, {}, clear=True)
-    def test_extra_kwargs_accepted(self):
-        """REM-FN-010: Extra kwargs do not raise at decoration time."""
+    def test_unknown_kwargs_raise_type_error(self):
+        """REM-FN-010: Unknown kwargs raise TypeError at decoration time."""
+        import warnings
+
         from runpod_flash.client import remote
         from runpod_flash.core.resources import LiveServerless
 
         resource = LiveServerless(name="extra-kwargs")
 
-        # extra kwargs should be accepted without error
-        @remote(resource, custom_param="foo", another=42)
-        async def my_func(x):
-            return x
-
-        assert hasattr(my_func, "__remote_config__")
-        assert callable(my_func)
+        with pytest.raises(TypeError, match="unknown keyword arguments"):
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", DeprecationWarning)
+                remote(resource, custom_param="foo", another=42)
 
 
 # ---------------------------------------------------------------------------
