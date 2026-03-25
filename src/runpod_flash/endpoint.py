@@ -532,7 +532,7 @@ class Endpoint:
         if self.image is not None:
             kwargs["imageName"] = self.image
 
-        if self.min_cuda_version is not None:
+        if not is_cpu and self.min_cuda_version is not None:
             kwargs["minCudaVersion"] = self.min_cuda_version
 
         # select the right class
