@@ -1069,6 +1069,7 @@ class TestServerlessResourceDeployment:
                 "imageName": "image:v2",
             }
         )
+        mock_runpod_client.get_template = AsyncMock(return_value={"env": []})
 
         with patch(
             "runpod_flash.core.resources.serverless.RunpodGraphQLClient"
