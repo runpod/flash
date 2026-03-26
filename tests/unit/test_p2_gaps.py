@@ -138,11 +138,11 @@ class TestNetworkVolumeValidation:
             await vol.undeploy()
 
     def test_volume_default_size(self):
-        """Default volume size is 20GB."""
+        """Default volume size is 100GB for backwards compatibility."""
         from runpod_flash.core.resources.network_volume import NetworkVolume
 
         vol = NetworkVolume(name="test-vol")
-        assert vol.size == 20
+        assert vol.size == 100
 
 
 # ---------------------------------------------------------------------------
