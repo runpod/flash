@@ -27,8 +27,8 @@ You can find a repository of prebuilt Flash examples at [runpod/flash-examples](
 
 There are two basic modes for using Flash. You can:
 
-- Build and run standalone Python scripts using the `@remote` decorator.
-- Create Flash API endpoints with FastAPI (using the same script syntax).
+- Build and run standalone Python scripts using `Endpoint` as a decorator.
+- Create Flash API endpoints with HTTP routing (using the same `Endpoint` class).
 
 Follow the steps in the next section to install Flash and create your first script before learning how to [create Flash API endpoints](#create-flash-api-endpoints).
 
@@ -38,7 +38,7 @@ To learn more about how Flash works, see [Key concepts](#key-concepts).
 
 Before you can use Flash, you'll need:
 
-- Python 3.9 (or higher) installed on your local machine.
+- Python 3.10 (or higher) installed on your local machine.
 - A Runpod account with API key ([sign up here](https://runpod.io/console)).
 - Basic knowledge of Python and async programming.
 
@@ -92,27 +92,18 @@ Add the following code to a new Python file:
 
 ```python
 import asyncio
-from runpod_flash import remote, LiveServerless
-from dotenv import load_dotenv
+from runpod_flash import Endpoint
 
-# Uncomment if using a .env file
-# load_dotenv()
 
-# Configure GPU resources
-gpu_config = LiveServerless(name="flash-quickstart")
-
-@remote(
-    resource_config=gpu_config,
-    dependencies=["torch", "numpy"]
-)
-def gpu_compute(data):
+@Endpoint(name="flash-quickstart", dependencies=["torch", "numpy"])
+async def gpu_compute(data):
     import torch
     import numpy as np
-    
+
     # This runs on a GPU in Runpod's cloud
     tensor = torch.tensor(data, device="cuda")
     result = tensor.sum().item()
-    
+
     return {
         "result": result,
         "device": torch.cuda.get_device_name(0)
@@ -159,9 +150,9 @@ Computed on: NVIDIA GeForce RTX 4090
 
 ## Create Flash API endpoints
 
-You can use Flash to deploy and serve API endpoints that compute responses using GPU and CPU Serverless workers. Use `flash run` for local development of `@remote` functions, then `flash deploy` to deploy your full application to Runpod Serverless for production.
+You can use Flash to deploy and serve API endpoints that compute responses using GPU and CPU Serverless workers. Use `flash run` for local development of `Endpoint` functions, then `flash deploy` to deploy your full application to Runpod Serverless for production.
 
-These endpoints use the same Python `@remote` decorators [demonstrated above](#get-started)
+These endpoints use the same `Endpoint` class [demonstrated above](#get-started)
 
 ### Step 1: Initialize a new project
 
@@ -186,9 +177,10 @@ This is the structure of the project template created by `flash init`:
 
 ```txt
 my_project/
-├── gpu_worker.py              # GPU worker with @remote function
-├── cpu_worker.py              # CPU worker with @remote function
-├── .env                       # Environment variable template
+├── gpu_worker.py              # GPU worker with Endpoint decorator
+├── cpu_worker.py              # CPU worker with Endpoint decorator
+├── lb_worker.py               # CPU load-balanced HTTP endpoint
+├── .env.example               # Environment variable template
 ├── .gitignore                 # Git ignore patterns
 ├── pyproject.toml             # Python dependencies (uv/pip compatible)
 └── README.md                  # Project documentation
@@ -196,13 +188,13 @@ my_project/
 
 This template includes:
 
-- Example worker files with `@remote` decorated functions.
-- Templates for Python dependencies, `.env`, `.gitignore`, etc.
+- Example worker files with `Endpoint` decorated functions.
+- Templates for Python dependencies, `.env.example`, `.gitignore`, etc.
 - Each worker file contains:
-    - Pre-configured worker scaling limits using the `LiveServerless()` object.
-    - A `@remote` decorated function that returns a response from a worker.
+    - Pre-configured worker configuration using the `Endpoint` class.
+    - An `Endpoint`-decorated function that returns a response from a worker.
 
-When you run `flash run`, it auto-discovers all `@remote` functions and generates a local development server at `.flash/server.py`. Queue-based workers are exposed at `/{file_prefix}/runsync` (e.g., `/gpu_worker/runsync`).
+When you run `flash run`, it auto-discovers all `Endpoint` functions and generates a local development server at `.flash/server.py`. Queue-based workers are exposed at `/{file_prefix}/runsync` (e.g., `/gpu_worker/runsync`).
 
 ### Step 3: Install Python dependencies
 
@@ -279,9 +271,9 @@ You'll get a response from your workers right in the explorer.
 
 To customize your API:
 
-1. Create new `.py` files with `@remote` decorated functions.
+1. Create new `.py` files with `Endpoint` decorated functions.
 2. Test the scripts individually by running `python your_worker.py`.
-3. Run `flash run` to auto-discover all `@remote` functions and serve them.
+3. Run `flash run` to auto-discover all `Endpoint` functions and serve them.
 
 ## CLI Reference
 
@@ -289,9 +281,9 @@ Flash provides a command-line interface for project management, development, and
 
 ### Main Commands
 
-- **`flash login`** - Authenticate via the RunPod console and store credentials locally
+- **`flash login`** - Authenticate via the Runpod console and store credentials locally
 - **`flash init`** - Initialize a new Flash project with template structure
-- **`flash run`** - Start local development server to test your `@remote` functions with auto-reload
+- **`flash run`** - Start local development server to test your `Endpoint` functions with auto-reload
 - **`flash build`** - Build deployment artifact with all dependencies
 - **`flash deploy`** - Build and deploy your application to Runpod Serverless in one step
 
@@ -342,13 +334,13 @@ Individual command references:
 
 ## Key concepts
 
-### Remote functions
+### Endpoint functions
 
-The Flash `@remote` decorator marks functions for execution on Runpod's infrastructure. Everything inside the decorated function runs remotely, while code outside runs locally.
+The `Endpoint` class marks functions for execution on Runpod's infrastructure. Everything inside the decorated function runs remotely, while code outside runs locally.
 
 ```python
-@remote(resource_config=config, dependencies=["pandas"])
-def process_data(data):
+@Endpoint(name="data-processor", dependencies=["pandas"])
+async def process_data(data):
     # This code runs remotely
     import pandas as pd
     df = pd.DataFrame(data)
@@ -361,37 +353,39 @@ async def main():
 
 ### Resource configuration
 
-Flash provides fine-grained control over hardware allocation through configuration objects:
+Flash provides fine-grained control over hardware allocation through `Endpoint` parameters:
 
 ```python
-from runpod_flash import LiveServerless, GpuGroup, CpuInstanceType, PodTemplate
+from runpod_flash import Endpoint, GpuGroup, CpuInstanceType, PodTemplate
 
-# GPU configuration
-gpu_config = LiveServerless(
+# GPU endpoint
+@Endpoint(
     name="ml-inference",
-    gpus=[GpuGroup.AMPERE_80],  # A100 80GB
-    workersMax=5,
-    template=PodTemplate(containerDiskInGb=100)  # Extra disk space
+    gpu=GpuGroup.AMPERE_80,  # A100 80GB
+    workers=(0, 5),
+    template=PodTemplate(containerDiskInGb=100),  # Extra disk space
 )
+async def inference(data): ...
 
-# CPU configuration
-cpu_config = LiveServerless(
+# CPU endpoint
+@Endpoint(
     name="data-processor",
-    instanceIds=[CpuInstanceType.CPU5C_4_16],  # 4 vCPU, 16GB RAM
-    workersMax=3
+    cpu=CpuInstanceType.CPU5C_4_16,  # 4 vCPU, 16GB RAM
+    workers=(0, 3),
 )
+async def preprocess(data): ...
 ```
 
 ### Dependency management
 
-Specify Python packages in the decorator, and Flash installs them automatically:
+Specify Python packages in the `Endpoint` decorator, and Flash installs them automatically:
 
 ```python
-@remote(
-    resource_config=gpu_config,
-    dependencies=["transformers==4.36.0", "torch", "pillow"]
+@Endpoint(
+    name="image-gen",
+    dependencies=["transformers==4.36.0", "torch", "pillow"],
 )
-def generate_image(prompt):
+async def generate_image(prompt):
     # Import inside the function
     from transformers import pipeline
     import torch
@@ -418,20 +412,17 @@ results = await asyncio.gather(
 For API endpoints requiring low-latency HTTP access with direct routing, use load-balanced endpoints:
 
 ```python
-from runpod_flash import LiveLoadBalancer, remote
+from runpod_flash import Endpoint
 
-api = LiveLoadBalancer(name="api-service")
+api = Endpoint(name="api-service", workers=(1, 5))
 
-@remote(api, method="POST", path="/api/process")
+@api.post("/api/process")
 async def process_data(x: int, y: int):
     return {"result": x + y}
 
-@remote(api, method="GET", path="/api/health")
-def health_check():
+@api.get("/api/health")
+async def health_check():
     return {"status": "ok"}
-
-# Call functions directly
-result = await process_data(5, 3)  # → {"result": 8}
 ```
 
 **Key differences from queue-based endpoints:**
@@ -450,7 +441,7 @@ For detailed information:
 
 Flash orchestrates workflow execution through a sophisticated multi-step process:
 
-1. **Function identification**: The `@remote` decorator marks functions for remote execution, enabling Flash to distinguish between local and remote operations.
+1. **Function identification**: The `Endpoint` decorator marks functions for remote execution, enabling Flash to distinguish between local and remote operations.
 2. **Dependency analysis**: Flash automatically analyzes function dependencies to construct an optimal execution order, ensuring data flows correctly between sequential and parallel operations.
 3. **Resource provisioning and execution**: For each remote function, Flash:
    - Dynamically provisions endpoint and worker resources on Runpod's infrastructure.
@@ -464,30 +455,33 @@ Flash orchestrates workflow execution through a sophisticated multi-step process
 
 ### Custom Docker images
 
-`LiveServerless` resources use a fixed Docker image that's optimized for Flash runtime, and supports full remote code execution. For specialized environments that require a custom Docker image, use `ServerlessEndpoint` or `CpuServerlessEndpoint`:
+By default, `Endpoint` uses a fixed Docker image optimized for the Flash runtime, supporting full remote code execution. For specialized environments that require a custom Docker image, pass the `image` parameter:
 
 ```python
-from runpod_flash import ServerlessEndpoint
+from runpod_flash import Endpoint, GpuGroup
 
-custom_gpu = ServerlessEndpoint(
+custom_gpu = Endpoint(
     name="custom-ml-env",
-    imageName="pytorch/pytorch:2.0.1-cuda11.7-cudnn8-runtime",
-    gpus=[GpuGroup.AMPERE_80]
+    image="pytorch/pytorch:2.0.1-cuda11.7-cudnn8-runtime",
+    gpu=GpuGroup.AMPERE_80,
 )
 ```
 
-Unlike `LiveServerless`, these endpoints only support dictionary payloads in the form of `{"input": {...}}` (similar to a traditional [Serverless endpoint request](https://docs.runpod.io/serverless/endpoints/send-requests)), and cannot execute arbitrary Python functions remotely.
+When `image` is set, the endpoint operates in client mode: it deploys the provided image and exposes `.run()`, `.runsync()`, `.get()`, `.post()` methods for interacting with it. Client-mode endpoints only support dictionary payloads (similar to a traditional [Serverless endpoint request](https://docs.runpod.io/serverless/endpoints/send-requests)), and cannot execute arbitrary Python functions remotely.
 
 ### Persistent storage with network volumes
 
 Attach [network volumes](https://docs.runpod.io/storage/network-volumes) for persistent storage across workers and endpoints:
 
 ```python
-config = LiveServerless(
+from runpod_flash import Endpoint, NetworkVolume, PodTemplate
+
+@Endpoint(
     name="model-server",
-    networkVolumeId="vol_abc123",  # Your volume ID
-    template=PodTemplate(containerDiskInGb=100)
+    volume=NetworkVolume(id="vol_abc123"),
+    template=PodTemplate(containerDiskInGb=100),
 )
+async def serve_model(data): ...
 ```
 
 ### Environment variables
@@ -495,10 +489,11 @@ config = LiveServerless(
 Pass configuration to remote functions:
 
 ```python
-config = LiveServerless(
+@Endpoint(
     name="api-worker",
-    env={"HF_TOKEN": "your_token", "MODEL_ID": "gpt2"}
+    env={"HF_TOKEN": "your_token", "MODEL_ID": "gpt2"},
 )
+async def worker(data): ...
 ```
 
 Environment variables are excluded from configuration hashing, which means changing environment values won't trigger endpoint recreation. This allows different processes to load environment variables from `.env` files without causing false drift detection. Only structural changes (like GPU type, image, or template modifications) trigger endpoint updates.
@@ -511,8 +506,8 @@ Flash uses a sophisticated build process to package your application for deploym
 
 When you run `flash build`, the following happens:
 
-1. **Discovery**: Flash scans your code for `@remote` decorated functions
-2. **Grouping**: Functions are grouped by their `resource_config`
+1. **Discovery**: Flash scans your code for `Endpoint` decorated functions
+2. **Grouping**: Functions are grouped by their endpoint configuration
 3. **Manifest Creation**: A `flash_manifest.json` file maps functions to their endpoints
 4. **Dependency Installation**: Python packages are installed with Linux x86_64 compatibility
 5. **Packaging**: Everything is bundled into `artifact.tar.gz` for deployment
@@ -532,16 +527,18 @@ This means you can build on macOS ARM64, Windows, or any other platform, and the
 Flash enables functions on different endpoints to call each other. The runtime automatically discovers endpoints using the manifest and routes calls appropriately:
 
 ```python
+from runpod_flash import Endpoint, CpuInstanceType
+
 # CPU endpoint function
-@remote(resource_config=cpu_config)
-def preprocess(data):
+@Endpoint(name="preprocessor", cpu=CpuInstanceType.CPU5C_4_16)
+async def preprocess(data):
     return clean_data
 
 # GPU endpoint function
-@remote(resource_config=gpu_config)
+@Endpoint(name="inference")
 async def inference(data):
     # Can call CPU endpoint function
-    clean = preprocess(data)
+    clean = await preprocess(data)
     return result
 ```
 
@@ -558,8 +555,8 @@ For information on load-balanced endpoints (required for HTTP services), see [do
 
 #### Troubleshooting Build Issues
 
-**No @remote functions found:**
-- Ensure your functions are decorated with `@remote(resource_config)`
+**No Endpoint functions found:**
+- Ensure your functions are decorated with `@Endpoint(name=...)`
 - Check that Python files are not excluded by `.gitignore`
 - Verify function decorators have valid syntax
 
@@ -599,7 +596,7 @@ See [worker-flash](https://github.com/runpod-workers/worker-flash) for base imag
 
 ### GPU configuration parameters
 
-The following parameters can be used with `LiveServerless` (full remote code execution) and `ServerlessEndpoint` (dictionary payload only) to configure your Runpod GPU endpoints:
+The following parameters can be used with `Endpoint` to configure your Runpod GPU endpoints:
 
 | Parameter          | Description                                     | Default       | Example Values                      |
 |--------------------|-------------------------------------------------|---------------|-------------------------------------|
@@ -615,26 +612,26 @@ The following parameters can be used with `LiveServerless` (full remote code exe
 | `scalerType`       | Scaling strategy                                | `QUEUE_DELAY` | `REQUEST_COUNT`                     |
 | `scalerValue`      | Scaling parameter value                         | 4             | 1-10 range typical                  |
 | `locations`        | Preferred datacenter locations                  | `None`        | `"us-east,eu-central"`              |
-| `imageName`        | Custom Docker image (`ServerlessEndpoint` only)   | Fixed for LiveServerless | `"pytorch/pytorch:latest"`, `"my-registry/custom:v1.0"` |
+| `image`            | Custom Docker image (client mode)                  | None (uses Flash runtime) | `"pytorch/pytorch:latest"`, `"my-registry/custom:v1.0"` |
 
 ### CPU configuration parameters
 
-The same GPU configuration parameters above apply to `LiveServerless` (full remote code execution) and `CpuServerlessEndpoint` (dictionary payload only), with these additional CPU-specific parameters:
+The same GPU configuration parameters above apply, with these additional CPU-specific parameters:
 
 | Parameter          | Description                                     | Default       | Example Values                      |
 |--------------------|-------------------------------------------------|---------------|-------------------------------------|
 | `instanceIds`      | CPU Instance Types (forces a CPU endpoint type) | `None`        | `[CpuInstanceType.CPU5C_2_4]`       |
-| `imageName`        | Custom Docker image (`CpuServerlessEndpoint` only) | Fixed for `LiveServerless` | `"python:3.11-slim"`, `"my-registry/custom:v1.0"` |
+| `image`            | Custom Docker image (client mode)                   | None (uses Flash runtime) | `"python:3.11-slim"`, `"my-registry/custom:v1.0"` |
 
-### Resource class comparison
+### Endpoint modes
 
-| Feature | LiveServerless | ServerlessEndpoint | CpuServerlessEndpoint |
-|---------|----------------|-------------------|----------------------|
-| **Remote code execution** | ✅ Full Python function execution | ❌ Dictionary payload only | ❌ Dictionary payload only |
-| **Custom Docker images** | ❌ Fixed optimized images | ✅ Any Docker image | ✅ Any Docker image |
-| **Use case** | Dynamic remote functions | Traditional API endpoints | Traditional CPU endpoints |
-| **Function returns** | Any Python object | Dictionary only | Dictionary only |
-| **@remote decorator** | Full functionality | Limited to payload passing | Limited to payload passing |
+| Feature | Decorator mode (your code) | Client mode (`image=` or `id=`) |
+|---------|---------------------------|--------------------------------|
+| **Remote code execution** | Full Python function execution | Dictionary payload only |
+| **Custom Docker images** | Fixed optimized images | Any Docker image |
+| **Use case** | Dynamic remote functions | Pre-built images, existing endpoints |
+| **Function returns** | Any Python object | Dictionary only |
+| **Route decorators** | `.get()`, `.post()`, etc. for LB | `.get()`, `.post()` for HTTP calls |
 
 ### Available GPU types
 
@@ -689,7 +686,7 @@ Flash uses the following environment variables. Values are resolved in the liste
 
 | Variable | Description |
 |----------|-------------|
-| `RUNPOD_API_KEY` | RunPod API key. Takes precedence over stored credentials. |
+| `RUNPOD_API_KEY` | Runpod API key. Takes precedence over stored credentials. |
 | `RUNPOD_CREDENTIALS_FILE` | Path to a TOML credentials file. Defaults to `~/.config/runpod/credentials.toml` (or `$XDG_CONFIG_HOME/runpod/credentials.toml`). |
 
 **Credential precedence:** `RUNPOD_API_KEY` env var > credentials file (`flash login` stores the key here) > none (error).
@@ -698,11 +695,11 @@ Flash uses the following environment variables. Values are resolved in the liste
 
 | Variable | Description |
 |----------|-------------|
-| `RUNPOD_API_BASE_URL` | Base URL for the RunPod API. |
-| `RUNPOD_REST_API_URL` | Base URL for the RunPod REST API. |
+| `RUNPOD_API_BASE_URL` | Base URL for the Runpod API. |
+| `RUNPOD_REST_API_URL` | Base URL for the Runpod REST API. |
 | `RUNPOD_ENDPOINT_ID` | Set automatically inside deployed workers. |
 | `RUNPOD_POD_ID` | Set automatically inside deployed pods. |
-| `CONSOLE_BASE_URL` | Base URL for the RunPod console UI. |
+| `CONSOLE_BASE_URL` | Base URL for the Runpod console UI. |
 
 #### Flash configuration
 
@@ -741,26 +738,21 @@ Flash uses the following environment variables. Values are resolved in the liste
 
 ```python
 import asyncio
-from runpod_flash import remote, LiveServerless
+from runpod_flash import Endpoint
 
-# Simple GPU configuration
-gpu_config = LiveServerless(name="example-gpu-server")
 
-@remote(
-    resource_config=gpu_config,
-    dependencies=["torch", "numpy"]
-)
-def gpu_compute(data):
+@Endpoint(name="example-gpu-server", dependencies=["torch", "numpy"])
+async def gpu_compute(data):
     import torch
     import numpy as np
-    
+
     # Convert to tensor and perform computation on GPU
     tensor = torch.tensor(data, device="cuda")
     result = tensor.sum().item()
-    
+
     # Get GPU info
     gpu_info = torch.cuda.get_device_properties(0)
-    
+
     return {
         "result": result,
         "gpu_name": gpu_info.name,
@@ -780,52 +772,43 @@ if __name__ == "__main__":
 
 ```python
 import asyncio
-from runpod_flash import remote, LiveServerless, GpuGroup, PodTemplate
-import base64
+from runpod_flash import Endpoint, GpuGroup, PodTemplate
 
-# Advanced GPU configuration with consolidated template overrides
-sd_config = LiveServerless(
-    gpus=[GpuGroup.AMPERE_80],  # A100 80GB GPUs
+
+@Endpoint(
     name="example_image_gen_server",
+    gpu=GpuGroup.AMPERE_80,  # A100 80GB GPUs
     template=PodTemplate(containerDiskInGb=100),  # Large disk for models
-    workersMax=3,
-    idleTimeout=10
+    workers=(0, 3),
+    idle_timeout=10,
+    dependencies=["diffusers", "transformers", "torch", "accelerate", "safetensors"],
 )
-
-@remote(
-    resource_config=sd_config,
-    dependencies=["diffusers", "transformers", "torch", "accelerate", "safetensors"]
-)
-def generate_image(prompt, width=512, height=512):
+async def generate_image(prompt, width=512, height=512):
     import torch
     from diffusers import StableDiffusionPipeline
     import io
     import base64
-    
+
     # Load pipeline (benefits from large container disk)
     pipeline = StableDiffusionPipeline.from_pretrained(
         "runwayml/stable-diffusion-v1-5",
         torch_dtype=torch.float16
     )
     pipeline = pipeline.to("cuda")
-    
+
     # Generate image
     image = pipeline(prompt=prompt, width=width, height=height).images[0]
-    
+
     # Convert to base64 for return
     buffered = io.BytesIO()
     image.save(buffered, format="PNG")
     img_str = base64.b64encode(buffered.getvalue()).decode()
-    
+
     return {"image": img_str, "prompt": prompt}
 
 async def main():
     result = await generate_image("A serene mountain landscape at sunset")
     print(f"Generated image for: {result['prompt']}")
-    # Save image locally if needed
-    # img_data = base64.b64decode(result["image"])
-    # with open("output.png", "wb") as f:
-    #     f.write(img_data)
 
 if __name__ == "__main__":
     asyncio.run(main())
@@ -835,26 +818,22 @@ if __name__ == "__main__":
 
 ```python
 import asyncio
-from runpod_flash import remote, LiveServerless, CpuInstanceType
+from runpod_flash import Endpoint
 
-# Simple CPU configuration
-cpu_config = LiveServerless(
+
+@Endpoint(
     name="example-cpu-server",
-    instanceIds=[CpuInstanceType.CPU5G_2_8],  # 2 vCPU, 8GB RAM
+    cpu="cpu5g-2-8",  # 2 vCPU, 8GB RAM
+    dependencies=["pandas", "numpy"],
 )
-
-@remote(
-    resource_config=cpu_config,
-    dependencies=["pandas", "numpy"]
-)
-def cpu_data_processing(data):
+async def cpu_data_processing(data):
     import pandas as pd
     import numpy as np
     import platform
-    
+
     # Process data using CPU
     df = pd.DataFrame(data)
-    
+
     return {
         "row_count": len(df),
         "column_count": len(df.columns) if not df.empty else 0,
@@ -869,7 +848,7 @@ async def main():
         {"name": "Bob", "age": 25, "score": 92},
         {"name": "Charlie", "age": 35, "score": 78}
     ]
-    
+
     result = await cpu_data_processing(sample_data)
     print(f"Processed {result['row_count']} rows on {result['platform']}")
     print(f"Mean values: {result['mean_values']}")
@@ -882,27 +861,22 @@ if __name__ == "__main__":
 
 ```python
 import asyncio
-import base64
-from runpod_flash import remote, LiveServerless, CpuInstanceType, PodTemplate
+from runpod_flash import Endpoint, CpuInstanceType, PodTemplate
 
-# Advanced CPU configuration with template overrides
-data_processing_config = LiveServerless(
+
+@Endpoint(
     name="advanced-cpu-processor",
-    instanceIds=[CpuInstanceType.CPU5C_4_16, CpuInstanceType.CPU3C_4_8],  # Fallback options
+    cpu=[CpuInstanceType.CPU5C_4_16, CpuInstanceType.CPU3C_4_8],  # Fallback options
     template=PodTemplate(
         containerDiskInGb=20,  # Extra disk space for data processing
         env=[{"key": "PYTHONPATH", "value": "/workspace"}]  # Custom environment
     ),
-    workersMax=5,
-    idleTimeout=15,
-    env={"PROCESSING_MODE": "batch", "DEBUG": "false"}  # Additional env vars
+    workers=(0, 5),
+    idle_timeout=15,
+    env={"PROCESSING_MODE": "batch", "DEBUG": "false"},  # Additional env vars
+    dependencies=["pandas", "numpy", "scipy", "scikit-learn"],
 )
-
-@remote(
-    resource_config=data_processing_config,
-    dependencies=["pandas", "numpy", "scipy", "scikit-learn"]
-)
-def advanced_data_analysis(dataset, analysis_type="full"):
+async def advanced_data_analysis(dataset, analysis_type="full"):
     import pandas as pd
     import numpy as np
     from sklearn.preprocessing import StandardScaler
@@ -960,32 +934,20 @@ if __name__ == "__main__":
 
 ```python
 import asyncio
-from runpod_flash import remote, LiveServerless, GpuGroup, CpuInstanceType, PodTemplate
+from runpod_flash import Endpoint, GpuGroup, CpuInstanceType, PodTemplate
 
-# GPU configuration for model inference
-gpu_config = LiveServerless(
-    name="ml-inference-gpu",
-    gpus=[GpuGroup.AMPERE_24],  # RTX 3090/A5000
-    template=PodTemplate(containerDiskInGb=50),  # Space for models
-    workersMax=2
-)
 
-# CPU configuration for data preprocessing
-cpu_config = LiveServerless(
+@Endpoint(
     name="data-preprocessor",
-    instanceIds=[CpuInstanceType.CPU5C_4_16],  # 4 vCPU, 16GB RAM
+    cpu=CpuInstanceType.CPU5C_4_16,  # 4 vCPU, 16GB RAM
     template=PodTemplate(
         containerDiskInGb=30,
         env=[{"key": "NUMPY_NUM_THREADS", "value": "4"}]
     ),
-    workersMax=3
+    workers=(0, 3),
+    dependencies=["pandas", "numpy", "scikit-learn"],
 )
-
-@remote(
-    resource_config=cpu_config,
-    dependencies=["pandas", "numpy", "scikit-learn"]
-)
-def preprocess_data(raw_data):
+async def preprocess_data(raw_data):
     import pandas as pd
     import numpy as np
     from sklearn.preprocessing import StandardScaler
@@ -1008,11 +970,14 @@ def preprocess_data(raw_data):
         "columns": list(df.columns)
     }
 
-@remote(
-    resource_config=gpu_config,
-    dependencies=["torch", "transformers", "numpy"]
+@Endpoint(
+    name="ml-inference-gpu",
+    gpu=GpuGroup.AMPERE_24,  # RTX 3090/A5000
+    template=PodTemplate(containerDiskInGb=50),  # Space for models
+    workers=(0, 2),
+    dependencies=["torch", "transformers", "numpy"],
 )
-def run_inference(processed_data):
+async def run_inference(processed_data):
     import torch
     import numpy as np
     
@@ -1073,19 +1038,13 @@ if __name__ == "__main__":
 ### Multi-stage ML pipeline example
 
 ```python
-import os
 import asyncio
-from runpod_flash import remote, LiveServerless
+from runpod_flash import Endpoint
 
-# Configure Runpod resources
-runpod_config = LiveServerless(name="multi-stage-pipeline-server")
 
 # Feature extraction on GPU
-@remote(
-    resource_config=runpod_config,
-    dependencies=["torch", "transformers"]
-)
-def extract_features(texts):
+@Endpoint(name="feature-extractor", dependencies=["torch", "transformers"])
+async def extract_features(texts):
     import torch
     from transformers import AutoTokenizer, AutoModel
     
@@ -1103,11 +1062,8 @@ def extract_features(texts):
     return features
 
 # Classification on GPU
-@remote(
-    resource_config=runpod_config,
-    dependencies=["torch", "sklearn"]
-)
-def classify(features, labels=None):
+@Endpoint(name="classifier", dependencies=["torch", "sklearn"])
+async def classify(features, labels=None):
     import torch
     import numpy as np
     from sklearn.linear_model import LogisticRegression
@@ -1176,7 +1132,7 @@ Flash is well-suited for a diverse range of AI and data processing workloads:
 
 - Serverless deployments using Flash are currently restricted to the `EU-RO-1` datacenter.
 - Flash is designed primarily for local development and live-testing workflows.
-- While Flash supports provisioning traditional Serverless endpoints (non-Live endpoints), the interface for interacting with these resources will change in upcoming releases. For now, focus on using `LiveServerless` for the most stable development experience, as it provides full remote code execution without requiring custom Docker images.
+- While Flash supports deploying custom Docker images via `Endpoint(image=...)`, the primary development experience is through `Endpoint` in decorator mode, which provides full remote code execution without requiring custom Docker images.
 - As you work through the Flash examples repository, you'll accumulate multiple endpoints in your Runpod account. These endpoints persist until manually deleted through the Runpod console. A `flash undeploy` command is in development to streamline cleanup, but for now, regular manual deletion of unused endpoints is recommended to avoid unnecessary charges.
 - Finally, be aware of your account's maximum worker capacity limits. Flash can rapidly scale workers across multiple endpoints, and you may hit capacity constraints faster than with traditional deployment patterns. If you find yourself consistently reaching worker limits, contact Runpod support to increase your account's capacity allocation.
 
@@ -1225,8 +1181,8 @@ echo $RUNPOD_API_KEY  # Should show your key
 Remember to import packages inside remote functions:
 
 ```python
-@remote(dependencies=["requests"])
-def fetch_data(url):
+@Endpoint(name="fetcher", dependencies=["requests"])
+async def fetch_data(url):
     import requests  # Import here, not at top of file
     return requests.get(url).json()
 ```
