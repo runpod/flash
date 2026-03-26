@@ -90,7 +90,7 @@ class NetworkVolume(DeployableResource):
 
     id: Optional[str] = Field(default=None)
     name: Optional[str] = None
-    size: Optional[int] = Field(default=20, ge=10, le=4096)  # Size in GB
+    size: Optional[int] = Field(default=100, ge=10, le=4096)  # Size in GB
 
     @field_validator("name")
     @classmethod
