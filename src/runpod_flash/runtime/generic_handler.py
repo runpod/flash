@@ -243,6 +243,7 @@ def create_deployed_handler(func: Callable) -> Callable:
             job_input = job.get("input")
             if not isinstance(job_input, dict):
                 return {
+                    "success": False,
                     "error": f"Malformed input: expected dict, got {type(job_input).__name__}",
                 }
         try:
@@ -267,6 +268,10 @@ def create_deployed_handler(func: Callable) -> Callable:
                 e,
                 exc_info=True,
             )
-            return {"error": str(e), "traceback": traceback.format_exc()}
+            return {
+                "success": False,
+                "error": str(e),
+                "traceback": traceback.format_exc(),
+            }
 
     return handler

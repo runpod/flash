@@ -429,6 +429,20 @@ def test_create_deployed_handler_input_none():
     assert result == 1
 
 
+def test_create_deployed_handler_input_missing():
+    """Test deployed handler treats missing input key as empty kwargs."""
+
+    def dummy(x: int = 1):
+        return x
+
+    handler = create_deployed_handler(dummy)
+
+    job = {}
+
+    result = handler(job)
+    assert result == 1
+
+
 def test_create_deployed_handler_input_non_dict():
     """Test deployed handler rejects non-dict input types."""
 
@@ -440,5 +454,6 @@ def test_create_deployed_handler_input_non_dict():
     job = {"input": [1, 2, 3]}
 
     result = handler(job)
+    assert result["success"] is False
     assert "error" in result
     assert "list" in result["error"]
