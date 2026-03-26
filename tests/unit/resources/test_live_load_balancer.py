@@ -1,11 +1,13 @@
-"""
-Unit tests for LiveLoadBalancer class and template serialization.
-"""
+"""Unit tests for LiveLoadBalancer class and template serialization."""
 
+import importlib
 import os
 
 import pytest
-
+from runpod_flash.core.resources.constants import (
+    GPU_BASE_IMAGE_PYTHON_VERSION,
+    local_python_version,
+)
 from runpod_flash.core.resources.cpu import CpuInstanceType
 from runpod_flash.core.resources.live_serverless import (
     CpuLiveLoadBalancer,
@@ -23,7 +25,6 @@ class TestLiveLoadBalancer:
         """Test LiveLoadBalancer creates with local image tag."""
         monkeypatch.setenv("FLASH_IMAGE_TAG", "local")
         # Need to reload modules to pick up new env var
-        import importlib
         import runpod_flash.core.resources.constants as const_module
         import runpod_flash.core.resources.live_serverless as ls_module
 
@@ -42,21 +43,29 @@ class TestLiveLoadBalancer:
         os.environ.pop("FLASH_IMAGE_TAG", None)
 
         lb = LiveLoadBalancer(name="test-lb")
-
-        assert "runpod/flash-lb:" in lb.imageName
+        assert f"py{GPU_BASE_IMAGE_PYTHON_VERSION}" in lb.imageName
         assert lb.template is not None
         assert lb.template.imageName == lb.imageName
+
+    def test_live_load_balancer_user_can_override_image(self):
+        """Test user can set custom imageName (BYOI)."""
+        lb = LiveLoadBalancer(name="test-lb", imageName="custom/image:v1")
+        assert lb.imageName == "custom/image:v1"
 
     def test_live_load_balancer_template_creation(self):
         """Test LiveLoadBalancer creates proper template from imageName."""
         lb = LiveLoadBalancer(name="cpu_processor")
 
-        # Should have a template created from imageName
         assert lb.template is not None
         assert lb.template.imageName == lb.imageName
-        # Template name uses resource IDs, not the original name
         assert "LiveLoadBalancer" in lb.template.name
         assert "PodTemplate" in lb.template.name
+
+    def test_live_load_balancer_template_has_docker_args(self):
+        """Test LiveLoadBalancer template has process injection dockerArgs."""
+        lb = LiveLoadBalancer(name="test-lb")
+        assert lb.template.dockerArgs
+        assert "bootstrap.sh" in lb.template.dockerArgs
 
     def test_live_load_balancer_template_env_variables(self):
         """Test LiveLoadBalancer template includes environment variables."""
@@ -69,7 +78,6 @@ class TestLiveLoadBalancer:
         assert lb.template.env is not None
         assert len(lb.template.env) > 0
 
-        # Check for custom env var
         custom_vars = [kv for kv in lb.template.env if kv.key == "CUSTOM_VAR"]
         assert len(custom_vars) == 1
         assert custom_vars[0].value == "custom_value"
@@ -78,14 +86,11 @@ class TestLiveLoadBalancer:
         """Test LiveLoadBalancer serializes correctly for GraphQL deployment."""
         lb = LiveLoadBalancer(name="data_processor")
 
-        # Generate payload as would be sent to RunPod
         payload = lb.model_dump(exclude=lb._input_only, exclude_none=True, mode="json")
 
-        # Template must be in payload (not imageName since that's in _input_only)
         assert "template" in payload
         assert "imageName" not in payload
 
-        # Template must have all required fields
         template = payload["template"]
         assert "imageName" in template
         assert "name" in template
@@ -94,14 +99,11 @@ class TestLiveLoadBalancer:
     def test_live_load_balancer_type_is_lb(self):
         """Test LiveLoadBalancer has type=LB."""
         lb = LiveLoadBalancer(name="test-lb")
-
         assert lb.type.value == "LB"
-        assert str(lb.type) == "ServerlessType.LB"
 
     def test_live_load_balancer_scaler_is_request_count(self):
         """Test LiveLoadBalancer uses REQUEST_COUNT scaler."""
         lb = LiveLoadBalancer(name="test-lb")
-
         assert lb.scalerType.value == "REQUEST_COUNT"
 
 
@@ -147,21 +149,15 @@ class TestTemplateSerializationRoundtrip:
             env={"API_KEY": "secret123"},
         )
 
-        # Simulate what gets sent to RunPod
         payload = lb.model_dump(exclude=lb._input_only, exclude_none=True, mode="json")
 
-        # Verify GraphQL payload has template
         assert "template" in payload, "Template must be in GraphQL payload"
         assert payload["template"]["imageName"] is not None
         assert payload["template"]["name"] is not None
-
-        # Verify imageName is NOT in payload (it's in _input_only)
         assert "imageName" not in payload
 
-        # Verify the template has the correct image
-        assert "flash-lb:" in payload["template"]["imageName"], (
-            "Must have load-balancer image"
-        )
+        # dockerArgs must contain injection command
+        assert "bootstrap.sh" in payload["template"]["dockerArgs"]
 
     def test_template_env_serialization(self):
         """Test template environment variables serialize correctly."""
@@ -176,7 +172,6 @@ class TestTemplateSerializationRoundtrip:
         assert isinstance(template_env, list)
         assert len(template_env) >= 2
 
-        # Check env vars are serialized as {key, value} objects
         var_keys = {kv["key"] for kv in template_env}
         assert "VAR1" in var_keys
         assert "VAR2" in var_keys
@@ -189,7 +184,6 @@ class TestCpuLiveLoadBalancer:
         """Test CpuLiveLoadBalancer creates with local image tag."""
         monkeypatch.setenv("FLASH_IMAGE_TAG", "local")
         # Need to reload modules to pick up new env var
-        import importlib
         import runpod_flash.core.resources.constants as const_module
         import runpod_flash.core.resources.live_serverless as ls_module
 
@@ -209,16 +203,18 @@ class TestCpuLiveLoadBalancer:
         os.environ.pop("FLASH_IMAGE_TAG", None)
 
         lb = CpuLiveLoadBalancer(name="test-lb")
-
-        assert "runpod/flash-lb-cpu:" in lb.imageName
+        assert f"py{local_python_version()}" in lb.imageName
         assert lb.template is not None
         assert lb.template.imageName == lb.imageName
+
+    def test_cpu_live_load_balancer_user_can_override_image(self):
+        """Test CpuLiveLoadBalancer allows user image override."""
+        lb = CpuLiveLoadBalancer(name="test-lb", imageName="python:3.11-slim")
+        assert lb.imageName == "python:3.11-slim"
 
     def test_cpu_live_load_balancer_defaults(self):
         """Test CpuLiveLoadBalancer defaults to CPU3G_2_8."""
         lb = CpuLiveLoadBalancer(name="test-lb")
-
-        # Should default to CPU3G_2_8
         assert lb.instanceIds == [CpuInstanceType.CPU3G_2_8]
 
     def test_cpu_live_load_balancer_with_specific_cpu_instances(self):
@@ -227,34 +223,27 @@ class TestCpuLiveLoadBalancer:
             name="test-lb",
             instanceIds=[CpuInstanceType.CPU3G_1_4],
         )
-
         assert lb.instanceIds == [CpuInstanceType.CPU3G_1_4]
 
     def test_cpu_live_load_balancer_type_is_lb(self):
         """Test CpuLiveLoadBalancer has type=LB."""
         lb = CpuLiveLoadBalancer(name="test-lb")
-
         assert lb.type.value == "LB"
-        assert str(lb.type) == "ServerlessType.LB"
 
     def test_cpu_live_load_balancer_scaler_is_request_count(self):
         """Test CpuLiveLoadBalancer uses REQUEST_COUNT scaler."""
         lb = CpuLiveLoadBalancer(name="test-lb")
-
         assert lb.scalerType.value == "REQUEST_COUNT"
 
     def test_cpu_live_load_balancer_payload_serialization(self):
         """Test CpuLiveLoadBalancer serializes correctly for GraphQL deployment."""
         lb = CpuLiveLoadBalancer(name="data_processor")
 
-        # Generate payload as would be sent to RunPod
         payload = lb.model_dump(exclude=lb._input_only, exclude_none=True, mode="json")
 
-        # Template must be in payload (not imageName since that's in _input_only)
         assert "template" in payload
         assert "imageName" not in payload
 
-        # Template must have all required fields
         template = payload["template"]
         assert "imageName" in template
         assert "name" in template
@@ -266,7 +255,12 @@ class TestCpuLiveLoadBalancer:
 
         payload = lb.model_dump(exclude=lb._input_only, exclude_none=True, mode="json")
 
-        # GPU-specific fields should not be in payload
         assert "gpus" not in payload
         assert "gpuIds" not in payload
         assert "cudaVersions" not in payload
+
+    def test_cpu_live_load_balancer_template_has_docker_args(self):
+        """Test CpuLiveLoadBalancer template has process injection dockerArgs."""
+        lb = CpuLiveLoadBalancer(name="test-lb")
+        assert lb.template.dockerArgs
+        assert "bootstrap.sh" in lb.template.dockerArgs
