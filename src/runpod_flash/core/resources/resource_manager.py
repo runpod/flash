@@ -2,6 +2,7 @@ import asyncio
 from contextlib import asynccontextmanager
 import cloudpickle
 import logging
+import shutil
 from typing import Any, Dict, List, Optional, Tuple
 from pathlib import Path
 
@@ -14,8 +15,30 @@ from .base import DeployableResource
 log = logging.getLogger(__name__)
 
 # Directory and file to persist state of resources
-RUNPOD_FLASH_DIR = Path(".flash")
-RESOURCE_STATE_FILE = RUNPOD_FLASH_DIR / "resources.pkl"
+FLASH_STATE_DIR = Path(".flash")
+RESOURCE_STATE_FILE = FLASH_STATE_DIR / "resources.pkl"
+
+# Legacy directory from pre-1.12 versions
+_LEGACY_STATE_DIR = Path(".runpod")
+_LEGACY_STATE_FILE = _LEGACY_STATE_DIR / "resources.pkl"
+
+# Backward compatibility alias
+RUNPOD_FLASH_DIR = FLASH_STATE_DIR
+
+
+def migrate_legacy_state() -> None:
+    """Migrate state file from .runpod/ to .flash/ if needed.
+
+    Copies .runpod/resources.pkl to .flash/resources.pkl when the legacy
+    file exists and the new file does not. This preserves endpoint tracking
+    for users upgrading from pre-1.12 versions.
+    """
+    if RESOURCE_STATE_FILE.exists() or not _LEGACY_STATE_FILE.exists():
+        return
+
+    FLASH_STATE_DIR.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(_LEGACY_STATE_FILE, RESOURCE_STATE_FILE)
+    log.info("Migrated resource state from .runpod/ to .flash/")
 
 
 class ResourceManager(SingletonMixin):
@@ -37,6 +60,7 @@ class ResourceManager(SingletonMixin):
 
         # Load resources immediately on initialization (only once)
         if not ResourceManager._resources_initialized:
+            migrate_legacy_state()
             self._load_resources()
             self._migrate_to_name_based_keys()  # Auto-migrate legacy resources
             self._refresh_config_hashes()  # Refresh config hashes after code changes
@@ -142,7 +166,7 @@ class ResourceManager(SingletonMixin):
         """Persist state of resources to disk using cross-platform file locking."""
         try:
             # Ensure directory exists
-            RUNPOD_FLASH_DIR.mkdir(parents=True, exist_ok=True)
+            FLASH_STATE_DIR.mkdir(parents=True, exist_ok=True)
 
             with open(RESOURCE_STATE_FILE, "wb") as f:
                 # Acquire exclusive lock for writing (cross-platform)
