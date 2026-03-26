@@ -617,7 +617,7 @@ def test_extract_deployment_config_network_volume_minimal():
 
         assert config["networkVolume"]["name"] == "minimal-vol"
         # Default size and dataCenterId should still be present
-        assert config["networkVolume"]["size"] == 20
+        assert config["networkVolume"]["size"] == 100
         assert config["networkVolume"]["dataCenterId"] == "EU-RO-1"
 
 
