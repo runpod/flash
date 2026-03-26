@@ -155,7 +155,7 @@ class TestResourceManagerCorruptedStateFile:
         state_file.write_bytes(b"this is not a valid pickle \xff\xfe")
 
         monkeypatch.setattr(resource_manager, "RESOURCE_STATE_FILE", state_file)
-        monkeypatch.setattr(resource_manager, "RUNPOD_FLASH_DIR", runpod_dir)
+        monkeypatch.setattr(resource_manager, "FLASH_STATE_DIR", runpod_dir)
 
         rm = ResourceManager()
         rm._load_resources()
@@ -173,7 +173,7 @@ class TestResourceManagerCorruptedStateFile:
         state_file.write_bytes(b"\x00\x01\x02\x03 garbage data")
 
         monkeypatch.setattr(resource_manager, "RESOURCE_STATE_FILE", state_file)
-        monkeypatch.setattr(resource_manager, "RUNPOD_FLASH_DIR", runpod_dir)
+        monkeypatch.setattr(resource_manager, "FLASH_STATE_DIR", runpod_dir)
 
         # Should not raise
         rm = ResourceManager()
@@ -192,7 +192,7 @@ class TestResourceManagerCorruptedStateFile:
         # Deliberately do NOT create the file
 
         monkeypatch.setattr(resource_manager, "RESOURCE_STATE_FILE", state_file)
-        monkeypatch.setattr(resource_manager, "RUNPOD_FLASH_DIR", runpod_dir)
+        monkeypatch.setattr(resource_manager, "FLASH_STATE_DIR", runpod_dir)
 
         rm = ResourceManager()
         rm._load_resources()
@@ -212,7 +212,7 @@ class TestResourceManagerCorruptedStateFile:
         state_file.write_bytes(valid_start[:10])  # truncated
 
         monkeypatch.setattr(resource_manager, "RESOURCE_STATE_FILE", state_file)
-        monkeypatch.setattr(resource_manager, "RUNPOD_FLASH_DIR", runpod_dir)
+        monkeypatch.setattr(resource_manager, "FLASH_STATE_DIR", runpod_dir)
 
         rm = ResourceManager()
         rm._load_resources()

@@ -273,7 +273,7 @@ def isolate_resource_state_file(
 ) -> Path:
     """Automatically isolate RESOURCE_STATE_FILE per worker.
 
-    Patches RESOURCE_STATE_FILE and RUNPOD_FLASH_DIR to point to
+    Patches RESOURCE_STATE_FILE and FLASH_STATE_DIR to point to
     worker-specific temp directory, preventing file system conflicts.
 
     Args:
@@ -287,7 +287,7 @@ def isolate_resource_state_file(
 
     worker_state_file = worker_flash_dir / "resources.pkl"
     monkeypatch.setattr(resource_manager, "RESOURCE_STATE_FILE", worker_state_file)
-    monkeypatch.setattr(resource_manager, "RUNPOD_FLASH_DIR", worker_flash_dir)
+    monkeypatch.setattr(resource_manager, "FLASH_STATE_DIR", worker_flash_dir)
 
     return worker_state_file
 
