@@ -68,6 +68,7 @@ def load_ignore_patterns(project_dir: Path) -> pathspec.PathSpec:
     always_ignore = [
         ".build/",
         ".flash/",
+        ".runpod/",  # Legacy directory — keep ignored during upgrade window
         ".venv/",
         "venv/",
         "*.tar.gz",

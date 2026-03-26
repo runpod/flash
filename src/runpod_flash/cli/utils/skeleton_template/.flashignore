@@ -28,6 +28,7 @@ build/
 
 # Flash resources
 .flash/
+.runpod/
 
 # Tests
 tests/

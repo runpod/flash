@@ -37,6 +37,7 @@ wheels/
 
 # Flash
 .flash/
+.runpod/
 dist/
 
 # OS
