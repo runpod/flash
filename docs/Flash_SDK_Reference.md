@@ -373,6 +373,12 @@ CPU endpoints are restricted to the `CPU_DATACENTERS` subset: `EU_RO_1`.
 
 Persistent storage that survives worker restarts. Each volume is tied to a specific datacenter.
 
+#### Network Volume Lifecycle
+
+- **Create or attach on deploy:** If `id` is set, Flash attaches that existing volume. If `name` is set, Flash looks up by `(name, dataCenterId)` and reuses a match, otherwise it creates a new volume.
+- **Persistence:** Volumes outlive workers/endpoints and remain until deleted.
+- **Deletion:** `NetworkVolume.undeploy()` is not supported; delete volumes manually in Runpod UI/API.
+
 ```python
 from runpod_flash import NetworkVolume, DataCenter
 
