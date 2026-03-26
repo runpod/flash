@@ -5,6 +5,7 @@ import base64
 import cloudpickle
 
 from runpod_flash.runtime.generic_handler import (
+    create_deployed_handler,
     create_handler,
     deserialize_arguments,
     execute_function,
@@ -366,3 +367,93 @@ def test_create_handler_with_return_none():
     assert response["success"] is True
     result = cloudpickle.loads(base64.b64decode(response["result"]))
     assert result is None
+
+
+def test_create_handler_input_none():
+    """Test handler returns error when job input is None instead of crashing."""
+
+    def dummy():
+        return "dummy"
+
+    handler = create_handler({"dummy": dummy})
+
+    job = {"input": None}
+
+    response = handler(job)
+    assert response["success"] is False
+    assert "not found" in response["error"]
+
+
+def test_create_handler_input_missing():
+    """Test handler returns error when job has no input key."""
+
+    def dummy():
+        return "dummy"
+
+    handler = create_handler({"dummy": dummy})
+
+    job = {}
+
+    response = handler(job)
+    assert response["success"] is False
+    assert "not found" in response["error"]
+
+
+def test_create_handler_input_non_dict():
+    """Test handler rejects non-dict input types."""
+
+    def dummy():
+        return "dummy"
+
+    handler = create_handler({"dummy": dummy})
+
+    job = {"input": "not a dict"}
+
+    response = handler(job)
+    assert response["success"] is False
+    assert "Invalid job input type" in response["error"]
+    assert "str" in response["error"]
+
+
+def test_create_deployed_handler_input_none():
+    """Test deployed handler treats None input as empty kwargs instead of crashing."""
+
+    def dummy(x: int = 1):
+        return x
+
+    handler = create_deployed_handler(dummy)
+
+    job = {"input": None}
+
+    result = handler(job)
+    assert result == 1
+
+
+def test_create_deployed_handler_input_missing():
+    """Test deployed handler treats missing input key as empty kwargs."""
+
+    def dummy(x: int = 1):
+        return x
+
+    handler = create_deployed_handler(dummy)
+
+    job = {}
+
+    result = handler(job)
+    assert result == 1
+
+
+def test_create_deployed_handler_input_non_dict():
+    """Test deployed handler rejects non-dict input types."""
+
+    def dummy(x: int = 1):
+        return x
+
+    handler = create_deployed_handler(dummy)
+
+    job = {"input": [1, 2, 3]}
+
+    result = handler(job)
+    assert result["success"] is False
+    assert "error" in result
+    assert "list" in result["error"]

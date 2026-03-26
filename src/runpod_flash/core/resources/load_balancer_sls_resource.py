@@ -340,6 +340,7 @@ class CpuLoadBalancerSlsResource(CpuEndpointMixin, LoadBalancerSlsResource):
         "gpuIds",
         "gpuCount",
         "allowedCudaVersions",
+        "minCudaVersion",
         "imageName",
         "networkVolume",
         "networkVolumes",

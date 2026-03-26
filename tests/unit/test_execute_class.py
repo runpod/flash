@@ -226,7 +226,6 @@ class TestCreateRemoteClass:
         )
         self.dependencies = ["numpy", "pandas"]
         self.system_dependencies = ["git"]
-        self.extra = {"timeout": 30}
 
     def test_create_remote_class_basic(self):
         """Test basic remote class creation."""
@@ -244,7 +243,6 @@ class TestCreateRemoteClass:
             self.dependencies,
             self.system_dependencies,
             True,
-            self.extra,
         )
 
         # Should return a class
@@ -265,7 +263,6 @@ class TestCreateRemoteClass:
             self.dependencies,
             self.system_dependencies,
             True,
-            self.extra,
         )
 
         instance = RemoteWrapper(42, name="test")
@@ -274,7 +271,6 @@ class TestCreateRemoteClass:
         assert instance._resource_config == self.mock_resource_config
         assert instance._dependencies == self.dependencies
         assert instance._system_dependencies == self.system_dependencies
-        assert instance._extra == self.extra
         assert instance._constructor_args == (42,)
         assert instance._constructor_kwargs == {"name": "test"}
         assert instance._instance_id.startswith("TestClass_")
@@ -293,7 +289,6 @@ class TestCreateRemoteClass:
             None,  # dependencies
             None,  # system_dependencies
             True,  # accelerate_downloads
-            self.extra,
         )
 
         instance = RemoteWrapper()
@@ -316,7 +311,6 @@ class TestCreateRemoteClass:
             self.dependencies,
             self.system_dependencies,
             True,
-            self.extra,
         )
 
         instance = RemoteWrapper()
@@ -352,7 +346,6 @@ class TestCreateRemoteClass:
             self.dependencies,
             self.system_dependencies,
             True,
-            self.extra,
         )
 
         instance = RemoteWrapper()
@@ -393,7 +386,6 @@ class TestCreateRemoteClass:
             self.dependencies,
             self.system_dependencies,
             True,
-            self.extra,
         )
 
         instance = RemoteWrapper()
@@ -424,7 +416,6 @@ class TestCreateRemoteClass:
             self.dependencies,
             self.system_dependencies,
             True,
-            self.extra,
         )
 
         instance = RemoteWrapper(5)
@@ -489,7 +480,6 @@ class TestCreateRemoteClass:
             self.dependencies,
             self.system_dependencies,
             True,
-            self.extra,
         )
 
         instance = RemoteWrapper()
@@ -528,7 +518,7 @@ class TestCreateRemoteClass:
                 return "simple"
 
         RemoteWrapper = create_remote_class(
-            TestClass, self.mock_resource_config, [], [], True, {}
+            TestClass, self.mock_resource_config, [], [], True
         )
 
         instance = RemoteWrapper()
@@ -571,7 +561,6 @@ class TestCreateRemoteClass:
             self.dependencies,
             self.system_dependencies,
             True,
-            self.extra,
         )
 
         instance = RemoteWrapper()
@@ -596,7 +585,6 @@ class TestCreateRemoteClass:
             self.dependencies,
             self.system_dependencies,
             True,
-            self.extra,
         )
 
         instance1 = RemoteWrapper()
@@ -642,7 +630,7 @@ class TestExecuteClassIntegration:
         )
 
         RemoteCalculator = create_remote_class(
-            CalculatorClass, resource_config, ["numpy"], [], True, {"timeout": 60}
+            CalculatorClass, resource_config, ["numpy"], [], True
         )
 
         calculator = RemoteCalculator(10)
@@ -693,7 +681,6 @@ class TestExecuteClassIntegration:
             [],  # dependencies
             [],  # system_dependencies
             True,  # accelerate_downloads
-            {},  # extra
         )
 
         instance = RemoteWrapper("test", extra_arg=True)

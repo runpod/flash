@@ -30,34 +30,37 @@ Endpoint(
     scaler_type: Optional[ServerlessScalerType] = None,
     scaler_value: int = 4,
     template: Optional[PodTemplate] = None,
+    min_cuda_version: Optional[CudaVersion | str] = None,
 )
 ```
 
 **Parameters:**
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `name` | `str` | `None` | Endpoint name. Required unless `id=` is used. |
-| `id` | `str` | `None` | Existing endpoint ID. Mutually exclusive with `image`. |
-| `gpu` | `GpuGroup`, `GpuType`, or list | `None` | GPU type(s). Mutually exclusive with `cpu`. Defaults to `GpuGroup.ANY` if neither is set. |
-| `cpu` | `str`, `CpuInstanceType`, or list | `None` | CPU instance type(s). Mutually exclusive with `gpu`. |
-| `workers` | `int` or `(int, int)` | `(0, 3)` | Worker scaling. `N` = `(0, N)`. `(min, max)` = explicit range. |
-| `idle_timeout` | `int` | `60` | Seconds before idle workers scale down. |
-| `dependencies` | `list[str]` | `None` | Python packages to install (e.g., `["torch", "numpy==1.24"]`). |
-| `system_dependencies` | `list[str]` | `None` | System packages to install. |
-| `accelerate_downloads` | `bool` | `True` | Enable accelerated downloads. |
-| `volume` | `NetworkVolume` or list | `None` | Network volume(s) for persistent storage. One volume per datacenter. |
-| `datacenter` | `DataCenter`, list, `str`, or `None` | `None` | Datacenter(s) to deploy into. `None` means all available DCs. Accepts a single value, a list, or string DC IDs. CPU endpoints must use DCs in `CPU_DATACENTERS`. |
-| `env` | `dict[str, str]` | `None` | Environment variables for the deployed endpoint. This is the only way to pass env vars to deployed workers; `.env` files are not carried to endpoints. |
-| `gpu_count` | `int` | `1` | GPUs per worker. |
-| `execution_timeout_ms` | `int` | `0` | Max execution time in ms. 0 = no limit. |
-| `flashboot` | `bool` | `True` | Enable Flashboot fast startup. |
-| `image` | `str` | `None` | Custom Docker image to deploy. Mutually exclusive with `id`. |
-| `scaler_type` | `ServerlessScalerType` | auto | Scaling strategy. Auto-selects `QUEUE_DELAY` for QB, `REQUEST_COUNT` for LB. |
-| `scaler_value` | `int` | `4` | Scaling threshold value. |
-| `template` | `PodTemplate` | `None` | Pod template overrides (e.g., `PodTemplate(containerDiskInGb=100)`). |
+| Parameter              | Type                                 | Default  | Description                                                                                                                                                      |
+| ---------------------- | ------------------------------------ | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`                 | `str`                                | `None`   | Endpoint name. Required unless `id=` is used.                                                                                                                    |
+| `id`                   | `str`                                | `None`   | Existing endpoint ID. Mutually exclusive with `image`.                                                                                                           |
+| `gpu`                  | `GpuGroup`, `GpuType`, or list       | `None`   | GPU type(s). Mutually exclusive with `cpu`. Defaults to `GpuGroup.ANY` if neither is set.                                                                        |
+| `cpu`                  | `str`, `CpuInstanceType`, or list    | `None`   | CPU instance type(s). Mutually exclusive with `gpu`.                                                                                                             |
+| `workers`              | `int` or `(int, int)`                | `(0, 3)` | Worker scaling. `N` = `(0, N)`. `(min, max)` = explicit range.                                                                                                   |
+| `idle_timeout`         | `int`                                | `60`     | Seconds before idle workers scale down.                                                                                                                          |
+| `dependencies`         | `list[str]`                          | `None`   | Python packages to install (e.g., `["torch", "numpy==1.24"]`).                                                                                                   |
+| `system_dependencies`  | `list[str]`                          | `None`   | System packages to install.                                                                                                                                      |
+| `accelerate_downloads` | `bool`                               | `True`   | Enable accelerated downloads.                                                                                                                                    |
+| `volume`               | `NetworkVolume` or list              | `None`   | Network volume(s) for persistent storage. One volume per datacenter.                                                                                             |
+| `datacenter`           | `DataCenter`, list, `str`, or `None` | `None`   | Datacenter(s) to deploy into. `None` means all available DCs. Accepts a single value, a list, or string DC IDs. CPU endpoints must use DCs in `CPU_DATACENTERS`. |
+| `env`                  | `dict[str, str]`                     | `None`   | Environment variables for the deployed endpoint. This is the only way to pass env vars to deployed workers; `.env` files are not carried to endpoints.           |
+| `gpu_count`            | `int`                                | `1`      | GPUs per worker.                                                                                                                                                 |
+| `execution_timeout_ms` | `int`                                | `0`      | Max execution time in ms. 0 = no limit.                                                                                                                          |
+| `flashboot`            | `bool`                               | `True`   | Enable Flashboot fast startup.                                                                                                                                   |
+| `image`                | `str`                                | `None`   | Custom Docker image to deploy. Mutually exclusive with `id`.                                                                                                     |
+| `scaler_type`          | `ServerlessScalerType`               | auto     | Scaling strategy. Auto-selects `QUEUE_DELAY` for QB, `REQUEST_COUNT` for LB.                                                                                     |
+| `scaler_value`         | `int`                                | `4`      | Scaling threshold value.                                                                                                                                         |
+| `template`             | `PodTemplate`                        | `None`   | Pod template overrides (e.g., `PodTemplate(containerDiskInGb=100)`).                                                                                             |
+| `min_cuda_version`     | `str`                                | `None`   | Minimum CUDA version for GPU host selection. GPU endpoints default to `"12.8"` when not set. Has no effect on CPU endpoints.                                     |
 
 **Validation rules:**
+
 - `gpu` and `cpu` are mutually exclusive
 - `id` and `image` are mutually exclusive
 - `name` or `id` is required
@@ -125,6 +128,7 @@ async def patch_item(item_id: int, data: dict):
 ```
 
 **Route decorator rules:**
+
 - Path must start with `/`
 - Paths `/execute` and `/ping` are reserved
 - Duplicate method+path combinations are rejected
@@ -197,7 +201,7 @@ job = await ep.cancel("job-abc123")
 print(job.status)  # "CANCELLED"
 ```
 
-#### get(path, data=None, **kwargs)
+#### get(path, data=None, \*\*kwargs)
 
 Make an HTTP GET request to an LB endpoint. Returns raw response data.
 
@@ -205,7 +209,7 @@ Make an HTTP GET request to an LB endpoint. Returns raw response data.
 models = await ep.get("/v1/models")
 ```
 
-#### post(path, data=None, **kwargs)
+#### post(path, data=None, \*\*kwargs)
 
 Make an HTTP POST request to an LB endpoint. Returns raw response data.
 
@@ -213,20 +217,20 @@ Make an HTTP POST request to an LB endpoint. Returns raw response data.
 result = await ep.post("/v1/completions", {"prompt": "hello"})
 ```
 
-#### put(path, data=None, **kwargs) / delete(path, ...) / patch(path, ...)
+#### put(path, data=None, \*\*kwargs) / delete(path, ...) / patch(path, ...)
 
 HTTP PUT, DELETE, PATCH requests. Same interface as `post()`.
 
 ### Properties
 
-| Property | Type | Description |
-|----------|------|-------------|
-| `is_cpu` | `bool` | Whether this is a CPU endpoint |
-| `is_client` | `bool` | Whether this is a client-only endpoint (`id=` or `image=`) |
-| `is_load_balanced` | `bool` | Whether this endpoint has LB routes registered |
-| `workers_min` | `int` | Minimum worker count |
-| `workers_max` | `int` | Maximum worker count |
-| `scaler_type` | `ServerlessScalerType` | Effective scaler type (auto-selected or explicit) |
+| Property           | Type                   | Description                                                |
+| ------------------ | ---------------------- | ---------------------------------------------------------- |
+| `is_cpu`           | `bool`                 | Whether this is a CPU endpoint                             |
+| `is_client`        | `bool`                 | Whether this is a client-only endpoint (`id=` or `image=`) |
+| `is_load_balanced` | `bool`                 | Whether this endpoint has LB routes registered             |
+| `workers_min`      | `int`                  | Minimum worker count                                       |
+| `workers_max`      | `int`                  | Maximum worker count                                       |
+| `scaler_type`      | `ServerlessScalerType` | Effective scaler type (auto-selected or explicit)          |
 
 ## EndpointJob
 
@@ -234,12 +238,12 @@ Represents a submitted job on a Runpod endpoint. Returned by `Endpoint.run()` an
 
 ### Properties
 
-| Property | Type | Description |
-|----------|------|-------------|
-| `id` | `str` | Job ID assigned by Runpod |
-| `output` | `Any` | Job output. Available after completion. |
-| `error` | `Optional[str]` | Error message if job failed |
-| `done` | `bool` | Whether job is in a terminal state |
+| Property | Type            | Description                             |
+| -------- | --------------- | --------------------------------------- |
+| `id`     | `str`           | Job ID assigned by Runpod               |
+| `output` | `Any`           | Job output. Available after completion. |
+| `error`  | `Optional[str]` | Error message if job failed             |
+| `done`   | `bool`          | Whether job is in a terminal state      |
 
 ### Methods
 
@@ -276,80 +280,80 @@ Raises `TimeoutError` if the timeout is exceeded.
 
 Architecture-level GPU selection. Common values:
 
-| Value | Description |
-|-------|-------------|
-| `GpuGroup.ANY` | Any available GPU (default) |
-| `GpuGroup.ADA_24` | RTX 4090 (24GB) |
-| `GpuGroup.ADA_32_PRO` | RTX 5090 (32GB) |
+| Value                 | Description                    |
+| --------------------- | ------------------------------ |
+| `GpuGroup.ANY`        | Any available GPU (default)    |
+| `GpuGroup.ADA_24`     | RTX 4090 (24GB)                |
+| `GpuGroup.ADA_32_PRO` | RTX 5090 (32GB)                |
 | `GpuGroup.ADA_48_PRO` | L40, L40S, RTX 6000 Ada (48GB) |
-| `GpuGroup.ADA_80_PRO` | H100 PCIe (80GB) |
-| `GpuGroup.AMPERE_16` | RTX A4000 (16GB) |
-| `GpuGroup.AMPERE_24` | RTX 3090, L4, RTX A5000 (24GB) |
-| `GpuGroup.AMPERE_48` | A40, RTX A6000 (48GB) |
-| `GpuGroup.AMPERE_80` | A100 80GB |
-| `GpuGroup.HOPPER_141` | H200 (141GB) |
+| `GpuGroup.ADA_80_PRO` | H100 PCIe (80GB)               |
+| `GpuGroup.AMPERE_16`  | RTX A4000 (16GB)               |
+| `GpuGroup.AMPERE_24`  | RTX 3090, L4, RTX A5000 (24GB) |
+| `GpuGroup.AMPERE_48`  | A40, RTX A6000 (48GB)          |
+| `GpuGroup.AMPERE_80`  | A100 80GB                      |
+| `GpuGroup.HOPPER_141` | H200 (141GB)                   |
 
 ### GpuType
 
 Specific GPU model selection. Common values:
 
-| Value | Model | VRAM |
-|-------|-------|------|
-| `GpuType.ANY` | Any | varies |
-| `GpuType.NVIDIA_GEFORCE_RTX_4090` | RTX 4090 | 24GB |
-| `GpuType.NVIDIA_GEFORCE_RTX_5090` | RTX 5090 | 32GB |
-| `GpuType.NVIDIA_RTX_6000_ADA_GENERATION` | RTX 6000 Ada | 48GB |
-| `GpuType.NVIDIA_L4` | L4 | 24GB |
-| `GpuType.NVIDIA_A100_80GB_PCIe` | A100 PCIe | 80GB |
-| `GpuType.NVIDIA_A100_SXM4_80GB` | A100 SXM4 | 80GB |
-| `GpuType.NVIDIA_H100_80GB_HBM3` | H100 | 80GB |
-| `GpuType.NVIDIA_H200` | H200 | 141GB |
+| Value                                    | Model        | VRAM   |
+| ---------------------------------------- | ------------ | ------ |
+| `GpuType.ANY`                            | Any          | varies |
+| `GpuType.NVIDIA_GEFORCE_RTX_4090`        | RTX 4090     | 24GB   |
+| `GpuType.NVIDIA_GEFORCE_RTX_5090`        | RTX 5090     | 32GB   |
+| `GpuType.NVIDIA_RTX_6000_ADA_GENERATION` | RTX 6000 Ada | 48GB   |
+| `GpuType.NVIDIA_L4`                      | L4           | 24GB   |
+| `GpuType.NVIDIA_A100_80GB_PCIe`          | A100 PCIe    | 80GB   |
+| `GpuType.NVIDIA_A100_SXM4_80GB`          | A100 SXM4    | 80GB   |
+| `GpuType.NVIDIA_H100_80GB_HBM3`          | H100         | 80GB   |
+| `GpuType.NVIDIA_H200`                    | H200         | 141GB  |
 
 ### CpuInstanceType
 
 CPU instance selection. Can also be passed as a string to `cpu=`.
 
-| Value | String | Specs |
-|-------|--------|-------|
-| `CpuInstanceType.CPU3G_1_4` | `"cpu3g-1-4"` | 1 vCPU, 4GB RAM |
-| `CpuInstanceType.CPU3G_2_8` | `"cpu3g-2-8"` | 2 vCPU, 8GB RAM |
+| Value                        | String         | Specs            |
+| ---------------------------- | -------------- | ---------------- |
+| `CpuInstanceType.CPU3G_1_4`  | `"cpu3g-1-4"`  | 1 vCPU, 4GB RAM  |
+| `CpuInstanceType.CPU3G_2_8`  | `"cpu3g-2-8"`  | 2 vCPU, 8GB RAM  |
 | `CpuInstanceType.CPU3G_4_16` | `"cpu3g-4-16"` | 4 vCPU, 16GB RAM |
 | `CpuInstanceType.CPU3G_8_32` | `"cpu3g-8-32"` | 8 vCPU, 32GB RAM |
-| `CpuInstanceType.CPU3C_1_2` | `"cpu3c-1-2"` | 1 vCPU, 2GB RAM |
-| `CpuInstanceType.CPU3C_2_4` | `"cpu3c-2-4"` | 2 vCPU, 4GB RAM |
-| `CpuInstanceType.CPU3C_4_8` | `"cpu3c-4-8"` | 4 vCPU, 8GB RAM |
+| `CpuInstanceType.CPU3C_1_2`  | `"cpu3c-1-2"`  | 1 vCPU, 2GB RAM  |
+| `CpuInstanceType.CPU3C_2_4`  | `"cpu3c-2-4"`  | 2 vCPU, 4GB RAM  |
+| `CpuInstanceType.CPU3C_4_8`  | `"cpu3c-4-8"`  | 4 vCPU, 8GB RAM  |
 | `CpuInstanceType.CPU3C_8_16` | `"cpu3c-8-16"` | 8 vCPU, 16GB RAM |
-| `CpuInstanceType.CPU5C_1_2` | `"cpu5c-1-2"` | 1 vCPU, 2GB RAM |
-| `CpuInstanceType.CPU5C_2_4` | `"cpu5c-2-4"` | 2 vCPU, 4GB RAM |
-| `CpuInstanceType.CPU5C_4_8` | `"cpu5c-4-8"` | 4 vCPU, 8GB RAM |
+| `CpuInstanceType.CPU5C_1_2`  | `"cpu5c-1-2"`  | 1 vCPU, 2GB RAM  |
+| `CpuInstanceType.CPU5C_2_4`  | `"cpu5c-2-4"`  | 2 vCPU, 4GB RAM  |
+| `CpuInstanceType.CPU5C_4_8`  | `"cpu5c-4-8"`  | 4 vCPU, 8GB RAM  |
 | `CpuInstanceType.CPU5C_8_16` | `"cpu5c-8-16"` | 8 vCPU, 16GB RAM |
 
 ### ServerlessScalerType
 
-| Value | Description | Default For |
-|-------|-------------|------------|
-| `QUEUE_DELAY` | Scale based on queue wait time | QB endpoints |
+| Value           | Description                         | Default For  |
+| --------------- | ----------------------------------- | ------------ |
+| `QUEUE_DELAY`   | Scale based on queue wait time      | QB endpoints |
 | `REQUEST_COUNT` | Scale based on active request count | LB endpoints |
 
 ### DataCenter
 
-| Value | Location |
-|-------|----------|
-| `DataCenter.US_CA_2` | US - California |
-| `DataCenter.US_GA_2` | US - Georgia |
-| `DataCenter.US_IL_1` | US - Illinois |
-| `DataCenter.US_KS_2` | US - Kansas |
-| `DataCenter.US_MD_1` | US - Maryland |
-| `DataCenter.US_MO_1` | US - Missouri |
-| `DataCenter.US_MO_2` | US - Missouri |
-| `DataCenter.US_NC_1` | US - North Carolina |
-| `DataCenter.US_NC_2` | US - North Carolina |
-| `DataCenter.US_NE_1` | US - Nebraska |
-| `DataCenter.US_WA_1` | US - Washington |
-| `DataCenter.EU_CZ_1` | Europe - Czech Republic |
-| `DataCenter.EU_RO_1` | Europe - Romania |
-| `DataCenter.EUR_IS_1` | Europe - Iceland |
-| `DataCenter.EUR_NO_1` | Europe - Norway |
+| Value                 | Location                |
+| --------------------- | ----------------------- |
+| `DataCenter.US_CA_2`  | US - California         |
+| `DataCenter.US_GA_2`  | US - Georgia            |
+| `DataCenter.US_IL_1`  | US - Illinois           |
+| `DataCenter.US_KS_2`  | US - Kansas             |
+| `DataCenter.US_MD_1`  | US - Maryland           |
+| `DataCenter.US_MO_1`  | US - Missouri           |
+| `DataCenter.US_MO_2`  | US - Missouri           |
+| `DataCenter.US_NC_1`  | US - North Carolina     |
+| `DataCenter.US_NC_2`  | US - North Carolina     |
+| `DataCenter.US_NE_1`  | US - Nebraska           |
+| `DataCenter.US_WA_1`  | US - Washington         |
+| `DataCenter.EU_CZ_1`  | Europe - Czech Republic |
+| `DataCenter.EU_RO_1`  | Europe - Romania        |
+| `DataCenter.EUR_IS_1` | Europe - Iceland        |
+| `DataCenter.EUR_NO_1` | Europe - Norway         |
 
 When `datacenter=None` (the default), the endpoint is available in all data centers.
 
@@ -357,10 +361,10 @@ CPU endpoints are restricted to the `CPU_DATACENTERS` subset: `EU_RO_1`.
 
 ### CudaVersion
 
-| Value | Version |
-|-------|---------|
-| `CudaVersion.V11_8` | CUDA 11.8 |
-| `CudaVersion.V12_0` | CUDA 12.0 |
+| Value                               | Version        |
+| ----------------------------------- | -------------- |
+| `CudaVersion.V11_8`                 | CUDA 11.8      |
+| `CudaVersion.V12_0`                 | CUDA 12.0      |
 | `CudaVersion.V12_1` through `V12_8` | CUDA 12.1-12.8 |
 
 ## Models

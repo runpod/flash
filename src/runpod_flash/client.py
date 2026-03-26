@@ -1,6 +1,7 @@
-import os
+import difflib
 import inspect
 import logging
+import os
 from functools import wraps
 from typing import Any, List, Optional
 
@@ -95,6 +96,19 @@ async def _resolve_deployed_endpoint_id(func_name: str) -> Optional[str]:
         return None
 
 
+def _reject_unknown_kwargs(extra: dict[str, Any], known: set[str]) -> None:
+    """Raise TypeError for unknown kwargs with 'did you mean?' suggestions."""
+    names = sorted(extra)
+    parts: list[str] = []
+    for name in names:
+        close = difflib.get_close_matches(name, sorted(known), n=1, cutoff=0.6)
+        hint = f" (Did you mean '{close[0]}'?)" if close else ""
+        parts.append(f"'{name}'{hint}")
+
+    noun = "argument" if len(names) == 1 else "arguments"
+    raise TypeError(f"remote() got unknown keyword {noun}: {', '.join(parts)}")
+
+
 def remote(
     resource_config: ServerlessResource,
     dependencies: Optional[List[str]] = None,
@@ -104,6 +118,8 @@ def remote(
     method: Optional[str] = None,
     path: Optional[str] = None,
     _internal: bool = False,
+    # **extra is retained (rather than removing it and relying on Python's own
+    # TypeError) so we can provide "did you mean?" suggestions for typos.
     **extra,
 ):
     """
@@ -142,7 +158,6 @@ def remote(
             Ignored for queue-based endpoints. Defaults to None.
         _internal (bool, optional): suppress deprecation warning when called from
             Endpoint internals. not part of the public API. Defaults to False.
-        extra (dict, optional): Additional parameters for the execution of the resource. Defaults to an empty dict.
 
     Returns:
         Callable: A decorator that wraps the target function, enabling remote execution with the specified
@@ -180,6 +195,8 @@ def remote(
             pass
     ```
     """
+    if extra:
+        _reject_unknown_kwargs(extra, _REMOTE_KNOWN_KWARGS)
 
     if not _internal:
         import warnings
@@ -268,7 +285,6 @@ def remote(
                 dependencies,
                 system_dependencies,
                 accelerate_downloads,
-                extra,
             )
             wrapped_class.__remote_config__ = routing_config
             return wrapped_class
@@ -287,7 +303,7 @@ def remote(
                         resource_config
                     )
 
-                stub = stub_resource(remote_resource, **extra)
+                stub = stub_resource(remote_resource)
                 return await stub(
                     func_or_class,
                     dependencies,
@@ -302,3 +318,11 @@ def remote(
             return wrapper
 
     return decorator
+
+
+# Derived from remote()'s signature so it stays in sync automatically.
+_REMOTE_KNOWN_KWARGS = {
+    p.name
+    for p in inspect.signature(remote).parameters.values()
+    if p.kind != inspect.Parameter.VAR_KEYWORD
+}

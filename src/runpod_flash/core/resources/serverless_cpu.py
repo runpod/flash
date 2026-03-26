@@ -88,6 +88,8 @@ class CpuEndpointMixin:
             self.gpuCount = 0
         if hasattr(self, "allowedCudaVersions"):
             self.allowedCudaVersions = ""
+        if hasattr(self, "minCudaVersion"):
+            self.minCudaVersion = None
         if hasattr(self, "gpuIds"):
             self.gpuIds = ""
 
@@ -119,6 +121,7 @@ class CpuServerlessEndpoint(CpuEndpointMixin, ServerlessEndpoint):
         "gpuIds",  # GPU-specific API field, exclude from payload
         "gpuCount",  # GPU-specific API field, exclude from payload
         "allowedCudaVersions",  # GPU-specific API field, exclude from payload
+        "minCudaVersion",  # GPU-specific API field, exclude from payload
         "flashboot",
         "flashEnvironmentId",
         "imageName",
