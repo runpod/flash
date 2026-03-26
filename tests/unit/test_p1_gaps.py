@@ -134,7 +134,7 @@ class TestRemoteClassPrivateMethods:
                 return "secret"
 
         mock_resource = MagicMock()
-        Wrapper = create_remote_class(MyModel, mock_resource, [], [], True, {})
+        Wrapper = create_remote_class(MyModel, mock_resource, [], [], True)
         instance = Wrapper()
 
         with pytest.raises(AttributeError, match="has no attribute '_internal'"):
@@ -149,7 +149,7 @@ class TestRemoteClassPrivateMethods:
                 return data
 
         mock_resource = MagicMock()
-        Wrapper = create_remote_class(MyModel, mock_resource, [], [], True, {})
+        Wrapper = create_remote_class(MyModel, mock_resource, [], [], True)
         instance = Wrapper()
 
         with pytest.raises(AttributeError):

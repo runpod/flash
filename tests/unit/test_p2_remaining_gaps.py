@@ -463,7 +463,6 @@ class TestRemoteClassWrapperClassType:
             dependencies=None,
             system_dependencies=None,
             accelerate_downloads=True,
-            extra={},
         )
         instance = WrapperClass()
         assert instance._class_type is TargetClass
@@ -487,7 +486,6 @@ class TestRemoteClassWrapperClassType:
             dependencies=None,
             system_dependencies=None,
             accelerate_downloads=True,
-            extra={},
         )
         instance = WrapperClass()
 
@@ -512,7 +510,6 @@ class TestRemoteClassWrapperClassType:
             dependencies=None,
             system_dependencies=None,
             accelerate_downloads=True,
-            extra={},
         )
         inst1 = WrapperClass()
         inst2 = WrapperClass()

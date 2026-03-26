@@ -16,7 +16,8 @@ from runpod_flash.core.resources.constants import FLASH_CPU_LB_IMAGE
 logger = logging.getLogger(__name__)
 console = Console()
 
-# Container archive mount path - expected location where containers unpack the archive
+# Container archive mount path - must match flash-worker's DEFAULT_ARTIFACT_PATH.
+# This stays as .runpod until flash-worker is updated in a coordinated release.
 CONTAINER_ARCHIVE_PATH = "/root/.runpod/artifact.tar.gz"
 
 

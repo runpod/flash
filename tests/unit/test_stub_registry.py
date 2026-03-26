@@ -46,7 +46,7 @@ class TestFallbackHandler:
     @pytest.mark.asyncio
     async def test_fallback_accepts_any_args(self):
         """Fallback handler accepts arbitrary args/kwargs."""
-        result = stub_resource(42, extra_kwarg="test")
+        result = stub_resource(42)
         assert callable(result)
         error = await result("arg1", key="val")
         assert isinstance(error, dict)
