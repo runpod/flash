@@ -4,7 +4,7 @@ Covers:
   CLI-RUN-018  – watchfiles fallback stub raises ModuleNotFoundError
   REM-CLS-013  – extract_class_code_simple fallback when inspect.getsource fails
   RES-LS-008   – ServerlessResource.env default populated from .env file
-  VOL-006      – NetworkVolume with empty name still constructs (no validator guards it)
+  VOL-006      – NetworkVolume with empty/whitespace name is rejected by validator
   SCAN-016     – RuntimeScanner handles @remote on nested class (class in function)
   SCAN-017     – RuntimeScanner handles conditional @remote gracefully
   STUB-STACK-004 – detect_remote_dependencies terminates on circular dependency graph
@@ -217,7 +217,7 @@ class TestNetworkVolumeEmptyName:
         from runpod_flash.core.resources.network_volume import NetworkVolume
 
         with pytest.raises(
-            ValidationError, match="either 'name' or 'id' must be provided"
+            ValidationError, match="name must not be empty or whitespace-only"
         ):
             NetworkVolume(name="")
 
@@ -238,7 +238,7 @@ class TestNetworkVolumeEmptyName:
         assert vol.size == 50
 
     def test_network_volume_size_zero_raises(self):
-        """VOL-006: size=0 violates the gt=0 constraint and raises ValidationError."""
+        """VOL-006: size=0 violates the min 10GB constraint and raises ValidationError."""
         from pydantic import ValidationError
 
         from runpod_flash.core.resources.network_volume import NetworkVolume

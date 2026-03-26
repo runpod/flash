@@ -4,6 +4,7 @@ Unit tests for NetworkVolume idempotent behavior.
 
 from unittest.mock import AsyncMock, patch, MagicMock
 import pytest
+from pydantic import ValidationError
 
 from runpod_flash.core.resources.network_volume import NetworkVolume, DataCenter
 
@@ -165,6 +166,36 @@ class TestNetworkVolumeIdempotent:
         # Assert
         assert volume1.resource_id == volume2.resource_id  # Same name + datacenter
         assert volume1.resource_id != volume3.resource_id  # Different name
+
+    def test_empty_name_rejected(self):
+        """Reject empty names at model construction time."""
+        with pytest.raises(ValidationError, match="name must not be empty"):
+            NetworkVolume(name="")
+
+    def test_whitespace_name_rejected(self):
+        """Reject whitespace-only names at model construction time."""
+        with pytest.raises(ValidationError, match="name must not be empty"):
+            NetworkVolume(name="   ")
+
+    def test_max_size_is_allowed(self):
+        """Max supported size (4TB) is accepted."""
+        volume = NetworkVolume(name="large-vol", size=4096)
+        assert volume.size == 4096
+
+    def test_size_above_max_rejected(self):
+        """Size above 4TB should fail validation."""
+        with pytest.raises(ValidationError, match="less than or equal to 4096"):
+            NetworkVolume(name="too-large", size=4097)
+
+    def test_size_below_min_rejected(self):
+        """Size below 10GB should fail validation."""
+        with pytest.raises(ValidationError, match="greater than or equal to 10"):
+            NetworkVolume(name="too-small", size=5)
+
+    def test_unknown_field_rejected(self):
+        """Unknown fields should raise validation errors."""
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            NetworkVolume(name="data", sizee=500)
 
     @pytest.mark.asyncio
     async def test_deploy_uses_resource_manager_to_register(self, sample_volume_data):
