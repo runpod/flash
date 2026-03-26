@@ -62,7 +62,7 @@ class TestRemoteRejectsUnknownKwargs:
 
         with pytest.raises(
             TypeError,
-            match="unknown keyword arguments.*foo.*bar|unknown keyword arguments.*bar.*foo",
+            match="unknown keyword arguments.*bar.*foo",
         ):
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", DeprecationWarning)
