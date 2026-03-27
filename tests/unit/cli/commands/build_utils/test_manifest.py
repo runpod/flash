@@ -945,10 +945,9 @@ def test_manifest_includes_python_version():
     manifest = builder.build()
 
     assert "python_version" in manifest
-    import sys
+    from runpod_flash.core.resources.constants import DEFAULT_PYTHON_VERSION
 
-    expected = f"{sys.version_info.major}.{sys.version_info.minor}"
-    assert manifest["python_version"] == expected
+    assert manifest["python_version"] == DEFAULT_PYTHON_VERSION
 
 
 def test_manifest_uses_explicit_python_version():

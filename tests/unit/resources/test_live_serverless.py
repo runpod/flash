@@ -5,7 +5,6 @@ Unit tests for LiveServerless and CpuLiveServerless classes.
 import pytest
 from runpod_flash.core.resources.constants import (
     GPU_BASE_IMAGE_PYTHON_VERSION,
-    local_python_version,
 )
 from runpod_flash.core.resources.cpu import CpuInstanceType
 from runpod_flash.core.resources.live_serverless import (
@@ -234,14 +233,17 @@ class TestLiveServerlessPythonVersion:
         with pytest.raises(ValueError, match="GPU endpoints require"):
             LiveServerless(name="test", python_version="3.10")
 
-    def test_cpu_explicit_python_311(self):
-        ls = CpuLiveServerless(name="test", python_version="3.11")
-        assert "py3.11" in ls.imageName
-        assert "runpod/flash-cpu:" in ls.imageName
+    def test_cpu_explicit_python_311_raises(self):
+        with pytest.raises(ValueError, match="CPU endpoints require"):
+            CpuLiveServerless(name="test", python_version="3.11")
 
-    def test_cpu_explicit_python_310(self):
-        ls = CpuLiveServerless(name="test", python_version="3.10")
-        assert "py3.10" in ls.imageName
+    def test_cpu_explicit_python_310_raises(self):
+        with pytest.raises(ValueError, match="CPU endpoints require"):
+            CpuLiveServerless(name="test", python_version="3.10")
+
+    def test_cpu_default_uses_3_12(self):
+        ls = CpuLiveServerless(name="test")
+        assert "py3.12" in ls.imageName
         assert "runpod/flash-cpu:" in ls.imageName
 
 
@@ -261,11 +263,10 @@ class TestLiveLoadBalancerPythonVersion:
         with pytest.raises(ValueError, match="GPU endpoints require"):
             LiveLoadBalancer(name="test", python_version="3.10")
 
-    def test_cpu_lb_explicit_python_310(self):
-        lb = CpuLiveLoadBalancer(name="test", python_version="3.10")
-        assert "py3.10" in lb.imageName
-        assert "runpod/flash-lb-cpu:" in lb.imageName
+    def test_cpu_lb_explicit_python_310_raises(self):
+        with pytest.raises(ValueError, match="CPU endpoints require"):
+            CpuLiveLoadBalancer(name="test", python_version="3.10")
 
-    def test_cpu_lb_default_uses_local_python(self):
+    def test_cpu_lb_default_uses_3_12(self):
         lb = CpuLiveLoadBalancer(name="test")
-        assert f"py{local_python_version()}" in lb.imageName
+        assert "py3.12" in lb.imageName

@@ -93,9 +93,7 @@ class ManifestBuilder:
         self.remote_functions = remote_functions
         self.scanner = scanner  # Optional: RuntimeScanner with resource config info
         self.build_dir = build_dir
-        self.python_version = (
-            python_version or f"{sys.version_info.major}.{sys.version_info.minor}"
-        )
+        self.python_version = python_version or DEFAULT_PYTHON_VERSION
 
     def _import_module(self, file_path: Path):
         """Import a module from file path, returning (module, cleanup_fn).

@@ -18,12 +18,11 @@ from rich.console import Console
 try:
     import tomllib  # Python 3.11+
 except ImportError:
-    import tomli as tomllib  # Python 3.9-3.10
+    import tomli as tomllib  # Python 3.10
 
 from runpod_flash.core.resources.constants import (
+    DEFAULT_PYTHON_VERSION,
     MAX_TARBALL_SIZE_MB,
-    SUPPORTED_PYTHON_VERSIONS,
-    validate_python_version,
 )
 
 from ..utils.ignore import get_file_tree, load_ignore_patterns
@@ -280,23 +279,10 @@ def run_build(
     spec = load_ignore_patterns(project_dir)
     files = get_file_tree(project_dir, spec)
 
-    # Validate Python version unconditionally — even projects with no dependencies
-    # must build on a supported Python to avoid runtime ABI mismatches.
-    python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
-    try:
-        validate_python_version(python_version)
-    except ValueError:
-        console.print(
-            f"\n[red]Python {python_version} is not supported for Flash deployment.[/red]"
-        )
-        console.print(
-            f"[yellow]Supported versions: {', '.join(SUPPORTED_PYTHON_VERSIONS)}[/yellow]"
-        )
-        console.print(
-            "[yellow]Please switch your local Python interpreter to a supported "
-            "version, or build inside a virtual environment that uses one.[/yellow]"
-        )
-        raise typer.Exit(1)
+    # all packaging and image selection targets 3.12 regardless of local python.
+    # pip downloads wheels for 3.12 via --python-version, and all worker images
+    # run 3.12, so the local interpreter version does not affect the build output.
+    python_version = DEFAULT_PYTHON_VERSION
 
     try:
         copy_project_files(files, project_dir, build_dir)

@@ -826,7 +826,7 @@ class TestResolvePipPythonVersion:
         manifest = {
             "resources": {
                 "gpu": {"target_python_version": "3.12"},
-                "cpu": {"target_python_version": "3.11"},
+                "cpu": {"target_python_version": "3.12"},
             }
         }
         assert _resolve_pip_python_version(manifest) == "3.12"

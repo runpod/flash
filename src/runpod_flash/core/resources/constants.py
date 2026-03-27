@@ -19,24 +19,23 @@ def _endpoint_domain_from_base_url(base_url: str) -> str:
 ENDPOINT_DOMAIN = _endpoint_domain_from_base_url(runpod.endpoint_url_base)
 
 
-# Python version support
-SUPPORTED_PYTHON_VERSIONS: tuple[str, ...] = ("3.10", "3.11", "3.12")
+# worker runtime Python versions. all flash workers run Python 3.12.
+# one tarball serves every resource type (GPU and CPU), so packages,
+# images, and the runtime must all target 3.12.
+WORKER_PYTHON_VERSION: str = "3.12"
 GPU_PYTHON_VERSIONS: tuple[str, ...] = ("3.12",)
-CPU_PYTHON_VERSIONS: tuple[str, ...] = ("3.10", "3.11", "3.12")
+CPU_PYTHON_VERSIONS: tuple[str, ...] = ("3.12",)
 
-# GPU base image (runpod/pytorch:1.0.3-cu1281-torch291-ubuntu2204) ships Python 3.12.
-# This is a fact of the Docker image, not configurable at build time.
 GPU_BASE_IMAGE_PYTHON_VERSION: str = "3.12"
-
-# Default must match GPU to avoid ABI mismatch (one tarball serves all resources)
 DEFAULT_PYTHON_VERSION: str = "3.12"
+
+# python versions that can run the flash SDK locally (for flash build, etc.)
+SUPPORTED_PYTHON_VERSIONS: tuple[str, ...] = ("3.10", "3.11", "3.12")
 
 
 def local_python_version() -> str:
-    """Return the running interpreter's major.minor version string."""
-    import sys
-
-    return f"{sys.version_info.major}.{sys.version_info.minor}"
+    """Return the Python version used by flash workers (always 3.12)."""
+    return DEFAULT_PYTHON_VERSION
 
 
 # Image type to repository mapping
@@ -49,6 +48,9 @@ _IMAGE_REPOS: dict[str, str] = {
 
 # Image types that require GPU-compatible Python versions
 _GPU_IMAGE_TYPES: frozenset[str] = frozenset({"gpu", "lb"})
+
+# Image types that require CPU-compatible Python versions
+_CPU_IMAGE_TYPES: frozenset[str] = frozenset({"cpu", "lb-cpu"})
 
 # Image type to environment variable override mapping
 _IMAGE_ENV_VARS: dict[str, str] = {
@@ -63,7 +65,7 @@ def validate_python_version(version: str) -> str:
     """Validate that a Python version string is supported.
 
     Args:
-        version: Python version string (e.g. "3.11").
+        version: Python version string (e.g. "3.12").
 
     Returns:
         The validated version string.
@@ -89,15 +91,14 @@ def get_image_name(
 
     Args:
         image_type: One of 'gpu', 'cpu', 'lb', 'lb-cpu'.
-        python_version: Python version string (e.g. "3.11", "3.12").
+        python_version: Python version string (e.g. "3.12").
         tag: Image tag suffix. Defaults to FLASH_IMAGE_TAG env var or "latest".
 
     Returns:
         Fully qualified image name, e.g. "runpod/flash:py3.12-latest".
 
     Raises:
-        ValueError: If image_type is unknown, python_version is unsupported,
-            or a GPU image type is requested with a CPU-only Python version.
+        ValueError: If image_type is unknown or python_version is unsupported.
     """
     if image_type not in _IMAGE_REPOS:
         raise ValueError(
@@ -117,6 +118,12 @@ def get_image_name(
         gpu_versions = ", ".join(GPU_PYTHON_VERSIONS)
         raise ValueError(
             f"GPU endpoints require Python {gpu_versions}. Got Python {python_version}."
+        )
+
+    if image_type in _CPU_IMAGE_TYPES and python_version not in CPU_PYTHON_VERSIONS:
+        cpu_versions = ", ".join(CPU_PYTHON_VERSIONS)
+        raise ValueError(
+            f"CPU endpoints require Python {cpu_versions}. Got Python {python_version}."
         )
 
     resolved_tag = tag or os.environ.get("FLASH_IMAGE_TAG", "latest")
