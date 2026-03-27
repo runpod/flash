@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.11.1](https://github.com/runpod/flash/compare/v1.11.0...v1.11.1) (2026-03-27)
+
+
+### Bug Fixes
+
+* AE-2322: network volume size bounds, forbid extra args ([#290](https://github.com/runpod/flash/issues/290)) ([6cc7ec2](https://github.com/runpod/flash/commit/6cc7ec27a230d0f9d08246d6a0085ad8159d479d))
+* enforce payload size limit and timeout on deserialization ([#289](https://github.com/runpod/flash/issues/289)) ([1240d82](https://github.com/runpod/flash/commit/1240d824a19d98f655eda50fc8c6b4e37c3834ca))
+* idletimeout must be in valid range ([#287](https://github.com/runpod/flash/issues/287)) ([57aebbf](https://github.com/runpod/flash/commit/57aebbf472b8d03900608bcac01fa83dcb6b51c4))
+* lock all workers to Python 3.12, remove multi-version support ([#292](https://github.com/runpod/flash/issues/292)) ([e1f1dd8](https://github.com/runpod/flash/commit/e1f1dd8738dcc641d36699d13e131368b614f6fb))
+* reject unknown kwargs in [@remote](https://github.com/remote) ([#288](https://github.com/runpod/flash/issues/288)) ([a651275](https://github.com/runpod/flash/commit/a6512756a8b06cd8dd22ac8b3a5c90e3830edd6d))
+* **runtime:** handle input=None in generic handler ([#286](https://github.com/runpod/flash/issues/286)) ([cab2d0c](https://github.com/runpod/flash/commit/cab2d0c4c80d3c450d102db641e5414bec995976))
+* stable sorted gpu ids ([#285](https://github.com/runpod/flash/issues/285)) ([759e0f6](https://github.com/runpod/flash/commit/759e0f640342495ef58073c6ff39dc54df643eeb))
+
+
+### Code Refactoring
+
+* **build:** replace .flashignore with built-in ignore patterns ([#220](https://github.com/runpod/flash/issues/220)) ([f42c802](https://github.com/runpod/flash/commit/f42c802be1a9cc5b6887f83ebaf7635ac71dbf62))
+* migrate .runpod directory to .flash ([#221](https://github.com/runpod/flash/issues/221)) ([c6792d6](https://github.com/runpod/flash/commit/c6792d6f421443ee0f31ff73760c57b5441997fb))
+
 ## [1.11.0](https://github.com/runpod/flash/compare/v1.10.2...v1.11.0) (2026-03-25)
 
 
