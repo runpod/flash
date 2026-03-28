@@ -10,8 +10,8 @@ import importlib.util
 import inspect
 import logging
 import os
-import signal
 import sys
+import threading
 import types
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -182,9 +182,8 @@ def _import_module_from_file(file_path: Path, module_name: str) -> Any:
     (so relative imports within the file resolve), then restores the
     previous entry to avoid leaking user modules into the cli process.
 
-    on unix, raises TimeoutError if the module takes longer than
-    MODULE_IMPORT_TIMEOUT_SECONDS to execute. on windows the timeout
-    is skipped because signal.SIGALRM is not available.
+    runs exec_module in a daemon thread so hung module-level code
+    (e.g. blocking db connections, time.sleep) doesn't stall the build.
     """
     spec = importlib.util.spec_from_file_location(module_name, file_path)
     if not spec or not spec.loader:
@@ -194,33 +193,33 @@ def _import_module_from_file(file_path: Path, module_name: str) -> Any:
     old_module = sys.modules.get(module_name)
     sys.modules[module_name] = module
 
-    use_alarm = hasattr(signal, "SIGALRM")
-    old_handler = None
+    exc_holder: list[Exception] = []
 
-    def _timeout_handler(signum: int, frame: Any) -> None:
+    def _do_import() -> None:
+        try:
+            spec.loader.exec_module(module)  # type: ignore[union-attr]
+        except Exception as e:
+            exc_holder.append(e)
+
+    t = threading.Thread(target=_do_import, daemon=True)
+    t.start()
+    t.join(timeout=MODULE_IMPORT_TIMEOUT_SECONDS)
+
+    if t.is_alive():
+        # thread is stuck, restore sys.modules and bail.
+        # the daemon thread will die when the process exits.
+        _restore_module(module_name, old_module)
         raise TimeoutError(
             f"import of {file_path.name} timed out after "
             f"{MODULE_IMPORT_TIMEOUT_SECONDS}s (module-level code may be blocking)"
         )
 
-    try:
-        if use_alarm:
-            old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
-            signal.alarm(MODULE_IMPORT_TIMEOUT_SECONDS)
-
-        spec.loader.exec_module(module)  # type: ignore[union-attr]
-        return module
-    except TimeoutError:
-        raise
-    except Exception as e:
-        logger.debug("failed to import %s: %s", file_path.name, e)
-        raise
-    finally:
-        if use_alarm:
-            signal.alarm(0)
-            if old_handler is not None:
-                signal.signal(signal.SIGALRM, old_handler)
+    if exc_holder:
         _restore_module(module_name, old_module)
+        logger.debug("failed to import %s: %s", file_path.name, exc_holder[0])
+        raise exc_holder[0]
+
+    return module
 
 
 def _restore_module(module_name: str, old_module: Any) -> None:
