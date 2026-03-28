@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.11.2](https://github.com/runpod/flash/compare/v1.11.1...v1.11.2) (2026-03-28)
+
+
+### Bug Fixes
+
+* use threading for canary module exec ([#294](https://github.com/runpod/flash/issues/294)) ([4d4a0df](https://github.com/runpod/flash/commit/4d4a0dfaec7fcbe9abd46620353bddb325b02d82))
+
 ## [1.11.1](https://github.com/runpod/flash/compare/v1.11.0...v1.11.1) (2026-03-27)
 
 
