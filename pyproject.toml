@@ -2,9 +2,7 @@
 name = "runpod-flash"
 version = "1.11.1"
 description = "A Python library for distributed inference and serving of machine learning models"
-authors = [
-    { name = "Runpod", email = "engineer@runpod.io" },
-]
+authors = [{ name = "Runpod", email = "engineer@runpod.io" }]
 readme = "README.md"
 license = { text = "MIT" }
 classifiers = [
@@ -28,11 +26,7 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = [
-    "mypy>=1.16.1",
-    "ruff>=0.11.9",
-    "mcp>=1.0.0",
-]
+dev = ["mypy>=1.16.1", "ruff>=0.11.9", "mcp>=1.0.0"]
 test = [
     "pytest>=8.4.1",
     "pytest-mock>=3.14.0",
@@ -69,7 +63,7 @@ addopts = [
     "--tb=short",
     "--cov=runpod_flash",
     "--cov-report=term-missing",
-    "--cov-fail-under=65"
+    "--cov-fail-under=65",
 ]
 timeout = 30
 asyncio_mode = "auto"
@@ -78,13 +72,13 @@ markers = [
     "unit: Unit tests",
     "integration: Integration tests",
     "slow: Slow tests",
-    "serial: Tests that must run serially (not parallelized)"
+    "serial: Tests that must run serially (not parallelized)",
 ]
 filterwarnings = [
     "ignore::DeprecationWarning",
     "ignore::PendingDeprecationWarning",
     "ignore::pytest.PytestDeprecationWarning",
-    "ignore::pytest.PytestUnknownMarkWarning"
+    "ignore::pytest.PytestUnknownMarkWarning",
 ]
 
 [tool.mypy]
@@ -92,7 +86,7 @@ filterwarnings = [
 python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
-disallow_untyped_defs = false  # Start lenient, can be stricter later
+disallow_untyped_defs = false    # Start lenient, can be stricter later
 disallow_incomplete_defs = false
 check_untyped_defs = true
 
@@ -107,27 +101,19 @@ pretty = true
 
 # Exclude directories
 exclude = [
-    "tests/",  # Start by excluding tests, can add later
+    "tests/", # Start by excluding tests, can add later
 ]
 
 # Per-module options
 [[tool.mypy.overrides]]
-module = [
-    "runpod.*",
-    "cloudpickle.*",
-]
+module = ["runpod.*", "cloudpickle.*"]
 ignore_missing_imports = true
 
 [tool.coverage.run]
 parallel = true
 branch = false
 source = ["runpod_flash"]
-omit = [
-    "*/tests/*",
-    "*/test_*.py",
-    "*/__pycache__/*",
-    "*/site-packages/*",
-]
+omit = ["*/tests/*", "*/test_*.py", "*/__pycache__/*", "*/site-packages/*"]
 
 [tool.coverage.report]
 precision = 2
@@ -144,21 +130,12 @@ exclude_lines = [
 ]
 
 [tool.coverage.paths]
-source = [
-    "src/runpod_flash",
-    "*/site-packages/runpod_flash",
-]
+source = ["src/runpod_flash", "*/site-packages/runpod_flash"]
 
 [tool.ruff]
 target-version = "py310"
 line-length = 88
-exclude = [
-    ".venv",
-    ".git",
-    "__pycache__",
-    "dist",
-    "build",
-]
+exclude = [".venv", ".git", "__pycache__", "dist", "build"]
 
 [tool.uv.sources]
 runpod = { git = "https://github.com/runpod/runpod-python", rev = "main" }

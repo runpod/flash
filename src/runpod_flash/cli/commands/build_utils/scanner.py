@@ -205,21 +205,20 @@ def _import_module_from_file(file_path: Path, module_name: str) -> Any:
     t.start()
     t.join(timeout=MODULE_IMPORT_TIMEOUT_SECONDS)
 
-    if t.is_alive():
-        # thread is stuck, restore sys.modules and bail.
-        # the daemon thread will die when the process exits.
-        _restore_module(module_name, old_module)
-        raise TimeoutError(
-            f"import of {file_path.name} timed out after "
-            f"{MODULE_IMPORT_TIMEOUT_SECONDS}s (module-level code may be blocking)"
-        )
+    try:
+        if t.is_alive():
+            raise TimeoutError(
+                f"import of {file_path.name} timed out after "
+                f"{MODULE_IMPORT_TIMEOUT_SECONDS}s (module-level code may be blocking)"
+            )
 
-    if exc_holder:
-        _restore_module(module_name, old_module)
-        logger.debug("failed to import %s: %s", file_path.name, exc_holder[0])
-        raise exc_holder[0]
+        if exc_holder:
+            logger.debug("failed to import %s: %s", file_path.name, exc_holder[0])
+            raise exc_holder[0]
 
-    return module
+        return module
+    finally:
+        _restore_module(module_name, old_module)
 
 
 def _restore_module(module_name: str, old_module: Any) -> None:
