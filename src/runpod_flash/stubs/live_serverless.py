@@ -139,9 +139,11 @@ class LiveServerlessStub(RemoteExecutorStub):
                 print(line)
 
         if response.success:
-            if response.result is None:
-                raise ValueError("Response result is None")
-            return cloudpickle.loads(base64.b64decode(response.result))
+            if response.result is not None:
+                return cloudpickle.loads(base64.b64decode(response.result))
+            if response.json_result is not None:
+                return response.json_result
+            return None
         else:
             raise Exception(f"Remote execution failed: {response.error}")
 
