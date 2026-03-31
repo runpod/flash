@@ -87,7 +87,7 @@ def is_local_function(func_name: str) -> bool:
     Uses FLASH_RESOURCE_NAME environment variable to determine the current
     resource, then checks if the function belongs to that resource.
 
-    Handles the -fb suffix that RunPod backend adds to flashbooted endpoints.
+    Handles the -fb suffix that RunPod backend historically added to flashbooted endpoints.
 
     Args:
         func_name: Name of the function
@@ -102,7 +102,7 @@ def is_local_function(func_name: str) -> bool:
         # No resource name set - assume local for safety
         return True
 
-    # Handle -fb suffix that RunPod backend adds to flashbooted endpoints
+    # Handle -fb suffix that RunPod backend historically added to flashbooted endpoints
     # Try exact match first, then with -fb suffix, then without -fb suffix
     local_functions = RESOURCE_LOCAL_FUNCTIONS.get(current_resource)
     if local_functions is None:

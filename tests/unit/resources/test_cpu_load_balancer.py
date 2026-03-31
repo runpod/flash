@@ -28,10 +28,11 @@ class TestCpuLoadBalancerDefaults:
             imageName="test/image:latest",
         )
 
-        assert lb.name == "test-cpu-lb-fb"
+        assert lb.name == "test-cpu-lb"
         assert lb.imageName == "test/image:latest"
         assert lb.type == ServerlessType.LB
         assert lb.scalerType == ServerlessScalerType.REQUEST_COUNT
+        assert lb.flashBootType == "FLASHBOOT"
 
     def test_cpu_load_balancer_with_custom_instances(self):
         """Test explicit CPU instance type configuration."""
@@ -177,11 +178,12 @@ class TestCpuLoadBalancerPayloadExclusion:
         payload = lb.model_dump(exclude=lb._input_only, exclude_none=True, mode="json")
 
         # Required LB fields
-        assert payload["name"] == "prod-api-fb"
+        assert payload["name"] == "prod-api"
         assert payload["type"] == "LB"
         assert payload["scalerType"] == "REQUEST_COUNT"
         assert payload["workersMin"] == 1
         assert payload["workersMax"] == 5
+        assert payload["flashBootType"] == "FLASHBOOT"
 
     def test_model_dump_excludes_template_image_name(self):
         """Test imageName is excluded (sent via template object)."""

@@ -39,8 +39,9 @@ class TestResourceIdentity:
         # Get resource_id (this triggers caching)
         first_id = config.resource_id
 
-        # Verify validator mutated the name (should have "-fb" suffix)
-        assert config.name.endswith("-fb")
+        # Verify validator did not mutate the name (should not have "-fb" suffix)
+        assert not config.name.endswith("-fb")
+        assert config.flashBootType == "FLASHBOOT"
 
         # Get resource_id again
         second_id = config.resource_id
@@ -113,7 +114,7 @@ class TestResourceIdentity:
         assert id_before == id_after
 
     def test_validator_idempotency_name_suffix(self):
-        """Test that validators don't add multiple suffixes."""
+        """Test that validators don't add any flashboot suffixes."""
         config = LiveServerless(
             name="test",
             gpus=[GpuGroup.ADA_24],
@@ -125,16 +126,18 @@ class TestResourceIdentity:
         # First access triggers validators
         _ = config.resource_id
 
-        # Name should have exactly one "-fb" suffix
-        assert config.name == "test-fb"
-        assert config.name.count("-fb") == 1
+        # Name should have exactly zero "-fb" suffix
+        assert config.name == "test"
+        assert config.name.count("-fb") == 0
+        assert config.flashBootType == "FLASHBOOT"
 
         # Manually trigger validator again (simulate multiple runs)
         config.sync_input_fields()
 
-        # Should still have only one "-fb" suffix
-        assert config.name == "test-fb"
-        assert config.name.count("-fb") == 1
+        # Should still have zero "-fb" suffixes
+        assert config.name == "test"
+        assert config.name.count("-fb") == 0
+        assert config.flashBootType == "FLASHBOOT"
 
     def test_resource_id_excludes_none_values(self):
         """Test that None values are excluded from resource_id computation."""

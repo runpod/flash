@@ -112,8 +112,7 @@ class TestRemoteWithLoadBalancerIntegration:
             return {"echo": message}
 
         # Verify resource is correctly configured
-        # Note: name may have "-fb" appended by flash boot validator
-        assert "test-live-api" in lb.name
+        assert lb.name == "test-live-api"
         assert "flash-lb" in lb.imageName
         assert echo.__remote_config__["method"] == "POST"
 
@@ -200,9 +199,7 @@ def get_status():
             assert "LoadBalancerSlsResource" in resource_types
 
             # Verify resource configs were extracted
-            assert "test-api-fb" in scanner.resource_types
-            assert scanner.resource_types["test-api-fb"] == "LiveLoadBalancer"
-            assert "deployed-api-fb" in scanner.resource_types
-            assert (
-                scanner.resource_types["deployed-api-fb"] == "LoadBalancerSlsResource"
-            )
+            assert "test-api" in scanner.resource_types
+            assert scanner.resource_types["test-api"] == "LiveLoadBalancer"
+            assert "deployed-api" in scanner.resource_types
+            assert scanner.resource_types["deployed-api"] == "LoadBalancerSlsResource"

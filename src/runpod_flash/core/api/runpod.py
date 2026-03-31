@@ -325,6 +325,7 @@ class RunpodGraphQLClient:
                 instanceIds
                 activeBuildid
                 idePodId
+                flashBootType
             }
         }
         """

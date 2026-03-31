@@ -50,8 +50,8 @@ class TestServerlessResource:
         """Test basic initialization of ServerlessResource."""
         serverless = ServerlessResource(**basic_serverless_config)
 
-        # Name gets "-fb" appended because flashboot defaults to True
-        assert serverless.name == "test-serverless-fb"
+        assert serverless.name == "test-serverless"
+        assert serverless.flashBootType == "FLASHBOOT"
         assert serverless.gpuCount == 1
         assert serverless.workersMax == 3
         assert serverless.workersMin == 0
@@ -428,14 +428,23 @@ class TestServerlessResourceValidation:
 
         assert serverless.gpus == specific_gpus
 
-    def test_flashboot_appends_to_name(self):
-        """Test flashboot=True appends '-fb' to name."""
+    def test_flashboot_does_not_append_to_name(self):
+        """Test flashboot=True does not append '-fb' to name."""
         serverless = ServerlessResource(
             name="test-serverless",
             flashboot=True,
         )
 
-        assert serverless.name == "test-serverless-fb"
+        assert serverless.name == "test-serverless"
+
+    def test_flashboot_sets_flashBootType(self):
+        """Test flashboot=True sets flashBootType="FLASHBOOT"."""
+        serverless = ServerlessResource(
+            name="test-serverless",
+            flashboot=True,
+        )
+
+        assert serverless.flashBootType == "FLASHBOOT"
 
     def test_datacenter_defaults_to_none(self):
         """Test datacenter defaults to None (all datacenters)."""
@@ -810,10 +819,11 @@ class TestServerlessResourceDeployment:
         """Mock deployment response from RunPod API."""
         return {
             "id": "endpoint-123",
-            "name": "test-serverless-fb",
+            "name": "test-serverless",
             "gpuIds": "RTX4090",
             "allowedCudaVersions": "12.1",
             "networkVolumeId": "vol-456",
+            "flashBootType": "FLASHBOOT",
         }
 
     @pytest.mark.asyncio
@@ -906,8 +916,9 @@ class TestServerlessResourceDeployment:
 
         # Should return new instance with deployment data
         assert result.id == "endpoint-123"
-        # Validator is now idempotent - only adds "-fb" once, not twice
-        assert hasattr(result, "name") and result.name == "test-serverless-fb"
+        # Validator does not append "-fb"
+        assert hasattr(result, "name") and result.name == "test-serverless"
+        assert hasattr(result, "flashBootType") and result.flashBootType == "FLASHBOOT"
         # Verify locations was set from datacenter
         assert hasattr(result, "locations") and result.locations == "EU-RO-1"
 
@@ -925,9 +936,10 @@ class TestServerlessResourceDeployment:
 
         deployment_response = {
             "id": "endpoint-sync",
-            "name": "input-sync-fb",
+            "name": "input-sync",
             "gpuIds": "AMPERE_48",
             "allowedCudaVersions": "",
+            "flashBootType": "FLASHBOOT",
         }
 
         mock_runpod_client.save_endpoint = AsyncMock(return_value=deployment_response)
@@ -1453,7 +1465,8 @@ class TestLivePrefixNaming:
                 imageName="test:latest",
                 flashboot=True,
             )
-            assert endpoint.name == "live-test-endpoint-fb"
+            assert endpoint.name == "live-test-endpoint"
+            assert endpoint.flashBootType == "FLASHBOOT"
 
     def test_no_live_prefix_when_flag_not_set(self):
         """Test no live- prefix without flag."""

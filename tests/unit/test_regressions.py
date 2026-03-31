@@ -177,7 +177,8 @@ class TestREG005SSLCertFile:
 
         # Should not raise even with SSL_CERT_FILE set
         resource = LiveServerless(name="ssl-test")
-        assert resource.name == "ssl-test-fb"
+        assert resource.name == "ssl-test"
+        assert resource.flashBootType == "FLASHBOOT"
 
 
 # ---------------------------------------------------------------------------

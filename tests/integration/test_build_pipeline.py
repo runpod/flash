@@ -56,8 +56,7 @@ def process(data):
 
         assert len(functions) == 1
         assert functions[0].function_name == "process"
-        # LiveServerless appends -fb suffix
-        assert functions[0].resource_config_name == "test-gpu-fb"
+        assert functions[0].resource_config_name == "test-gpu"
 
         builder = ManifestBuilder(
             project_name="test-project",
@@ -69,9 +68,9 @@ def process(data):
         assert "version" in manifest
         assert "resources" in manifest
         assert "function_registry" in manifest
-        assert "test-gpu-fb" in manifest["resources"]
+        assert "test-gpu" in manifest["resources"]
 
-        resource = manifest["resources"]["test-gpu-fb"]
+        resource = manifest["resources"]["test-gpu"]
         assert len(resource["functions"]) == 1
         assert resource["functions"][0]["name"] == "process"
 
@@ -108,9 +107,8 @@ def cpu_task(x):
         )
         manifest = builder.build()
 
-        # Live* classes append -fb suffix
-        assert "my-gpu-fb" in manifest["resources"]
-        assert "my-cpu-fb" in manifest["resources"]
+        assert "my-gpu" in manifest["resources"]
+        assert "my-cpu" in manifest["resources"]
         assert len(manifest["function_registry"]) == 2
 
 

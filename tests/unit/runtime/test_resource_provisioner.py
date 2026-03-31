@@ -27,8 +27,7 @@ class TestCreateResourceFromManifest:
             resource = create_resource_from_manifest(resource_name, resource_data)
 
             assert isinstance(resource, ServerlessResource)
-            # ServerlessResource may append "-fb" suffix during initialization
-            assert resource_name in resource.name
+            assert resource.name == resource_name
             assert resource.env["FLASH_RESOURCE_NAME"] == resource_name
 
     def test_create_resource_from_manifest_live_serverless(self):

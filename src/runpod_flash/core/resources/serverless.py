@@ -133,6 +133,7 @@ class ServerlessResource(DeployableResource):
         "computeType",
         "hubRelease",
         "repo",
+        "flashBootType",
     }
 
     EXCLUDED_HASH_FIELDS: ClassVar[Set[str]] = {"id"}
@@ -184,6 +185,7 @@ class ServerlessResource(DeployableResource):
     repo: Optional[str] = None
     template: Optional[PodTemplate] = None
     userId: Optional[str] = None
+    flashBootType: Optional[str] = None
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}:{self.id}"
@@ -390,7 +392,6 @@ class ServerlessResource(DeployableResource):
         Idempotent: Can be called multiple times safely without changing the result.
         """
         # Prepend live- prefix for live provisioning context
-        # Must happen BEFORE flashboot suffix to get: live-my-endpoint-fb
         is_live_provisioning = (
             os.getenv("FLASH_IS_LIVE_PROVISIONING", "").lower() == "true"
         )
@@ -402,11 +403,11 @@ class ServerlessResource(DeployableResource):
             # Add prefix once
             self.name = f"{LIVE_PREFIX}{self.name}"
 
-        if self.flashboot and not self.name.endswith("-fb"):
-            # Remove all trailing '-fb' suffixes, then add one
+        if self.flashboot:
+            # Remove all trailing '-fb' suffixes, no longer needed
             while self.name.endswith("-fb"):
                 self.name = self.name[:-3]
-            self.name += "-fb"
+            self.flashBootType = "FLASHBOOT"
 
         # sync datacenter list to locations field for API
         env_locations = os.getenv("RUNPOD_DEFAULT_LOCATIONS")
