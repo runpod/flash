@@ -178,12 +178,39 @@ class TestLiveServerlessStub:
         with pytest.raises(ValueError, match="Invalid response"):
             stub.handle_response(response)
 
-    def test_handle_response_none_result(self, stub):
-        """handle_response raises ValueError when success but result is None."""
-        response = FunctionResponse(success=True, result=None)
+    def test_handle_response_void_function_returns_none(self, stub):
+        """handle_response returns None for void functions (no result or json_result)."""
+        response = FunctionResponse(success=True, result=None, json_result=None)
 
-        with pytest.raises(ValueError, match="result is None"):
-            stub.handle_response(response)
+        result = stub.handle_response(response)
+        assert result is None
+
+    def test_handle_response_json_result_dict(self, stub):
+        """handle_response returns json_result dict when result is None."""
+        response = FunctionResponse(
+            success=True, result=None, json_result={"key": "value"}
+        )
+
+        result = stub.handle_response(response)
+        assert result == {"key": "value"}
+
+    def test_handle_response_json_result_scalar(self, stub):
+        """handle_response returns json_result scalar without deserialization."""
+        response = FunctionResponse(success=True, result=None, json_result=42)
+
+        result = stub.handle_response(response)
+        assert result == 42
+
+    def test_handle_response_result_takes_priority_over_json_result(self, stub):
+        """handle_response prefers cloudpickle result over json_result when both set."""
+        result_data = "from_cloudpickle"
+        encoded = base64.b64encode(cloudpickle.dumps(result_data)).decode()
+        response = FunctionResponse(
+            success=True, result=encoded, json_result="from_json"
+        )
+
+        result = stub.handle_response(response)
+        assert result == "from_cloudpickle"
 
     def test_handle_response_prints_stdout(self, stub, capsys):
         """handle_response prints stdout lines."""
