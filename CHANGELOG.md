@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.11.3](https://github.com/runpod/flash/compare/v1.11.2...v1.11.3) (2026-04-01)
+
+
+### Bug Fixes
+
+* CE-1414 rely on flashBootType instead of -fb ([#297](https://github.com/runpod/flash/issues/297)) ([1f8b7d6](https://github.com/runpod/flash/commit/1f8b7d6f3a25034a6aedb258275ec38c59d2c206))
+* **execute_class:** add async lock to prevent double deploy ([#274](https://github.com/runpod/flash/issues/274)) ([4ef36c8](https://github.com/runpod/flash/commit/4ef36c889ea4865db51fe37a5677ec9614feb445))
+* **serverless:** use executionTimeoutMs as runsync client timeout ([#272](https://github.com/runpod/flash/issues/272)) ([49451d4](https://github.com/runpod/flash/commit/49451d475243cd7cab4182b65942e168d177ea0a))
+* **stubs:** handle None return from void [@remote](https://github.com/remote) functions ([#273](https://github.com/runpod/flash/issues/273)) ([65aa1c9](https://github.com/runpod/flash/commit/65aa1c9827742b1f3dc9a4b81fdea35126808f75))
+* update skeleton template python version ([#298](https://github.com/runpod/flash/issues/298)) ([633f708](https://github.com/runpod/flash/commit/633f7086e935ff42be4c1e7adb1ce519e11e8098))
+
 ## [1.11.2](https://github.com/runpod/flash/compare/v1.11.1...v1.11.2) (2026-03-28)
 
 
