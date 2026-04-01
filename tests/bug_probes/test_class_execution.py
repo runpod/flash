@@ -6,12 +6,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 
-class TestNEW1_EnsureInitializedRace:
-    """AE-2370: _ensure_initialized has no async lock — concurrent calls cause double deploy.
+class TestEnsureInitializedRace:
+    """AE-2370: concurrent _ensure_initialized calls must not double-deploy.
 
-    Without a lock, two concurrent calls to _ensure_initialized both pass
-    the `if not self._initialized` check and both call get_or_deploy_resource,
-    causing a double deploy and orphaning one stub.
+    Regression guard: without the async lock added in this PR, two concurrent
+    calls both pass the `if not self._initialized` check and both call
+    get_or_deploy_resource, causing a double deploy and orphaning one stub.
     """
 
     @pytest.fixture
@@ -41,7 +41,6 @@ class TestNEW1_EnsureInitializedRace:
                 dependencies=None,
                 system_dependencies=None,
                 accelerate_downloads=False,
-                extra={},
             )
             instance = wrapper_cls()
 
@@ -51,11 +50,13 @@ class TestNEW1_EnsureInitializedRace:
     async def test_concurrent_calls_deploy_only_once(self, wrapper_instance):
         """Two concurrent _ensure_initialized calls must call get_or_deploy_resource exactly once."""
         deploy_call_count = 0
+        deploy_entered = asyncio.Event()
         gate = asyncio.Event()
 
         async def slow_deploy(config):
             nonlocal deploy_call_count
             deploy_call_count += 1
+            deploy_entered.set()
             await gate.wait()
             return MagicMock()
 
@@ -70,7 +71,7 @@ class TestNEW1_EnsureInitializedRace:
             task1 = asyncio.create_task(wrapper_instance._ensure_initialized())
             task2 = asyncio.create_task(wrapper_instance._ensure_initialized())
 
-            await asyncio.sleep(0.05)
+            await deploy_entered.wait()
             gate.set()
 
             await asyncio.gather(task1, task2)
