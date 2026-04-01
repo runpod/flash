@@ -1284,6 +1284,8 @@ class TestServerlessEndpoint:
 
     def test_serverless_endpoint_template_env_override(self):
         """Test ServerlessEndpoint overrides template env vars."""
+        from runpod_flash.core.resources.template import PodTemplate, KeyValuePair
+
         template = PodTemplate(
             name="existing-template",
             imageName="test/image:v1",
@@ -2580,3 +2582,116 @@ class TestBuildTemplateUpdatePayload:
         template_payload = mock_client.update_template.call_args.args[0]
         env_entries = template_payload.get("env", [])
         assert env_entries == []
+
+
+class TestServerlessRunsyncTimeout:
+    """Test that runsync uses executionTimeoutMs as client timeout."""
+
+    @pytest.fixture
+    def resource_with_timeout(self):
+        """ServerlessResource with executionTimeoutMs set to 300s."""
+        resource = ServerlessResource(
+            name="test-gpu-worker",
+            executionTimeoutMs=300_000,
+        )
+        resource.id = "ep-abc123"
+        return resource
+
+    @pytest.fixture
+    def resource_default_timeout(self):
+        """ServerlessResource with default executionTimeoutMs (0)."""
+        resource = ServerlessResource(
+            name="test-default",
+            executionTimeoutMs=0,
+        )
+        resource.id = "ep-default"
+        return resource
+
+    @pytest.mark.asyncio
+    async def test_runsync_uses_execution_timeout(self, resource_with_timeout):
+        """runsync should use executionTimeoutMs/1000 as client timeout."""
+        mock_rp_client = MagicMock()
+        mock_rp_client.post.return_value = {
+            "id": "job-1",
+            "workerId": "w-1",
+            "status": "COMPLETED",
+            "delayTime": 100,
+            "executionTime": 5000,
+            "output": {"result": "ok"},
+        }
+
+        mock_endpoint = MagicMock()
+        mock_endpoint.rp_client = mock_rp_client
+
+        with patch.object(
+            ServerlessResource,
+            "endpoint",
+            new_callable=lambda: property(lambda self: mock_endpoint),
+        ):
+            result = await resource_with_timeout.runsync({"input": "data"})
+
+        # The client timeout should be executionTimeoutMs / 1000 = 300s, not 60s
+        mock_rp_client.post.assert_called_once_with(
+            "ep-abc123/runsync", {"input": "data"}, timeout=300
+        )
+        assert result.status == "COMPLETED"
+
+    @pytest.mark.asyncio
+    async def test_runsync_default_timeout_when_zero(self, resource_default_timeout):
+        """runsync should fall back to 60s when executionTimeoutMs is 0."""
+        mock_rp_client = MagicMock()
+        mock_rp_client.post.return_value = {
+            "id": "job-2",
+            "workerId": "w-2",
+            "status": "COMPLETED",
+            "delayTime": 50,
+            "executionTime": 2000,
+            "output": None,
+        }
+
+        mock_endpoint = MagicMock()
+        mock_endpoint.rp_client = mock_rp_client
+
+        with patch.object(
+            ServerlessResource,
+            "endpoint",
+            new_callable=lambda: property(lambda self: mock_endpoint),
+        ):
+            await resource_default_timeout.runsync({"input": "data"})
+
+        mock_rp_client.post.assert_called_once_with(
+            "ep-default/runsync", {"input": "data"}, timeout=60
+        )
+
+    @pytest.mark.asyncio
+    async def test_runsync_default_timeout_when_none(self):
+        """runsync should fall back to 60s when executionTimeoutMs is None."""
+        resource = ServerlessResource(
+            name="test-none",
+            executionTimeoutMs=None,
+        )
+        resource.id = "ep-none"
+
+        mock_rp_client = MagicMock()
+        mock_rp_client.post.return_value = {
+            "id": "job-3",
+            "workerId": "w-3",
+            "status": "COMPLETED",
+            "delayTime": 10,
+            "executionTime": 1000,
+            "output": None,
+        }
+
+        mock_endpoint = MagicMock()
+        mock_endpoint.rp_client = mock_rp_client
+
+        with patch.object(
+            ServerlessResource,
+            "endpoint",
+            new_callable=lambda: property(lambda self: mock_endpoint),
+        ):
+            await resource.runsync({"input": "data"})
+
+        mock_rp_client.post.assert_called_once_with(
+            "ep-none/runsync", {"input": "data"}, timeout=60
+        )
