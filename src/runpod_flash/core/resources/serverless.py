@@ -2,6 +2,8 @@ import asyncio
 import json
 import logging
 import os
+import re
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Optional, Set
@@ -30,11 +32,11 @@ from .constants import (
 from .environment import EnvironmentVars
 from .cpu import CpuInstanceType
 from .gpu import GpuGroup, GpuType
-
-from .request_logs import QBRequestLogFetcher
 from .network_volume import NetworkVolume, DataCenter, CPU_DATACENTERS
+from .request_logs import QBRequestLogFetcher, QBRequestLogPhase
 from .template import KeyValuePair, PodTemplate
 from .resource_manager import ResourceManager
+from ..credentials import get_api_key
 
 
 # Prefix applied to endpoint names during live provisioning
@@ -54,6 +56,27 @@ def get_env_vars() -> Dict[str, str]:
 
 
 log = logging.getLogger(__name__)
+POD_LOG_PREFIX_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\s+")
+
+
+def _is_prod_environment() -> bool:
+    env = os.getenv("RUNPOD_ENV")
+    if env:
+        return env.lower() == "prod"
+    api_base = os.getenv("RUNPOD_API_BASE_URL", "https://api.runpod.io")
+    return "api.runpod.io" in api_base or "api.runpod.ai" in api_base
+
+
+def _normalize_stream_log_line(line: str) -> str:
+    normalized = line.strip()
+    if not normalized:
+        return ""
+
+    if normalized.lower().startswith("worker log:"):
+        normalized = normalized.split(":", 1)[1].strip()
+
+    normalized = POD_LOG_PREFIX_RE.sub("", normalized, count=1)
+    return normalized
 
 
 class ServerlessScalerType(Enum):
@@ -222,23 +245,35 @@ class ServerlessResource(DeployableResource):
     async def _emit_endpoint_logs(
         self,
         fetcher: QBRequestLogFetcher,
-    ):
+        request_id: str,
+    ) -> Optional["QBRequestLogBatch"]:
         if self.type != ServerlessType.QB:
-            return
+            return None
 
-        if not self.id or not self.aiKey:
-            return
+        if not self.id:
+            return None
+
+        pod_logs_api_key = get_api_key()
+        if not pod_logs_api_key:
+            return None
+
+        status_api_key = self.aiKey or pod_logs_api_key
 
         batch = await fetcher.fetch_logs(
             endpoint_id=self.id,
-            endpoint_ai_key=self.aiKey,
+            request_id=request_id,
+            status_api_key=status_api_key,
+            pod_logs_api_key=pod_logs_api_key,
+            status_api_key_fallback=pod_logs_api_key,
         )
         if not batch:
-            return False
+            return None
 
         if batch.lines:
             for line in batch.lines:
                 print(f"worker log: {line}")
+
+        return batch
 
     @field_serializer("scalerType")
     def serialize_scaler_type(
@@ -1127,7 +1162,16 @@ class ServerlessResource(DeployableResource):
             attempt = 0
             job_status = Status.UNKNOWN
             last_status = job_status
-            fetcher = QBRequestLogFetcher()
+            fetcher = QBRequestLogFetcher(start_time=datetime.now(timezone.utc))
+            last_log_state: (
+                tuple[
+                    QBRequestLogPhase,
+                    bool,
+                    Optional[str],
+                ]
+                | None
+            ) = None
+            assigned_streaming_announced_worker: Optional[str] = None
 
             # Poll for job status
             while True:
@@ -1147,9 +1191,56 @@ class ServerlessResource(DeployableResource):
                     log.info(f"{log_subgroup} | Status: {job_status}")
                     attempt = 0
 
-                await self._emit_endpoint_logs(
+                batch = await self._emit_endpoint_logs(
                     fetcher=fetcher,
+                    request_id=job.job_id,
                 )
+
+                if batch:
+                    current_log_state = (
+                        batch.phase,
+                        batch.matched_by_request_id,
+                        batch.worker_id,
+                    )
+                    state_changed = current_log_state != last_log_state
+
+                    if (
+                        batch.phase == QBRequestLogPhase.STREAMING
+                        and batch.matched_by_request_id
+                        and batch.worker_id
+                    ):
+                        if assigned_streaming_announced_worker != batch.worker_id:
+                            log.info(
+                                f"{log_subgroup} | Request assigned to worker {batch.worker_id}, streaming pod logs"
+                            )
+                            assigned_streaming_announced_worker = batch.worker_id
+                    elif state_changed:
+                        if batch.phase == QBRequestLogPhase.WAITING_FOR_WORKER:
+                            log.info(
+                                f"{log_subgroup} | No workers available; check that your endpoint is properly configured and/or GPU availability for selected GPUs"
+                            )
+                        elif (
+                            batch.phase
+                            == QBRequestLogPhase.WAITING_FOR_WORKER_INITIALIZATION
+                        ):
+                            if batch.matched_by_request_id and batch.worker_id:
+                                log.info(
+                                    f"{log_subgroup} | Request assigned to worker {batch.worker_id}, waiting for worker initialization/image pull logs"
+                                )
+                            elif batch.worker_id:
+                                log.info(
+                                    f"{log_subgroup} | Worker capacity detected, waiting for request assignment and worker initialization/image pull"
+                                )
+                            else:
+                                log.info(
+                                    f"{log_subgroup} | Waiting for worker initialization/image pull"
+                                )
+                        elif batch.phase == QBRequestLogPhase.STREAMING:
+                            log.info(
+                                f"{log_subgroup} | Streaming endpoint startup logs while waiting for request assignment"
+                            )
+
+                    last_log_state = current_log_state
 
                 last_status = job_status
 
@@ -1157,18 +1248,34 @@ class ServerlessResource(DeployableResource):
                 current_pace = get_backoff_delay(attempt, max_seconds=5)
 
                 if job_status in ("COMPLETED", "FAILED", "CANCELLED"):
+                    for _ in range(2):
+                        await self._emit_endpoint_logs(
+                            fetcher=fetcher,
+                            request_id=job.job_id,
+                        )
                     response = await asyncio.to_thread(job._fetch_job)
                     output = response.get("output")
                     if isinstance(output, dict):
                         stdout = output.get("stdout")
                         if isinstance(stdout, str):
+                            seen_normalized = {
+                                normalized
+                                for line in fetcher.seen
+                                if (normalized := _normalize_stream_log_line(line))
+                            }
                             kept = []
                             for raw in stdout.splitlines():
                                 raw = raw.strip()
                                 if not raw:
                                     continue
-                                if raw in fetcher.seen:
+
+                                normalized_raw = _normalize_stream_log_line(raw)
+                                if not normalized_raw:
                                     continue
+                                if normalized_raw in seen_normalized:
+                                    continue
+
+                                seen_normalized.add(normalized_raw)
                                 kept.append(raw)
                             output["stdout"] = "\n".join(kept)
                     return JobOutput(**response)
