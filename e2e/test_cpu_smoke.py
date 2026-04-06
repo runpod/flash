@@ -71,19 +71,22 @@ class TestCpuSmoke:
 
         finally:
             # Attempt graceful undeploy first
-            undeploy = subprocess.run(
-                ["uv", "run", "flash", "undeploy", WORKER_NAME, "--force"],
-                cwd=tmp_path,
-                env=env,
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
-            if undeploy.returncode != 0:
-                print(
-                    f"WARNING: undeploy failed (exit {undeploy.returncode}):\n"
-                    f"stdout: {undeploy.stdout}\nstderr: {undeploy.stderr}"
+            try:
+                undeploy = subprocess.run(
+                    ["uv", "run", "flash", "undeploy", WORKER_NAME, "--force"],
+                    cwd=tmp_path,
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
                 )
+                if undeploy.returncode != 0:
+                    print(
+                        f"WARNING: undeploy failed (exit {undeploy.returncode}):\n"
+                        f"stdout: {undeploy.stdout}\nstderr: {undeploy.stderr}"
+                    )
+            except subprocess.TimeoutExpired:
+                print("WARNING: undeploy timed out after 60s")
 
             # Always sweep all endpoints — dedicated e2e account, stale
             # endpoints hit the worker quota on subsequent runs.
