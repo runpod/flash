@@ -90,6 +90,8 @@ def restore_real_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
     if _REAL_API_KEY:
         monkeypatch.setenv("RUNPOD_API_KEY", _REAL_API_KEY)
     elif os.environ.get("CI"):
-        pytest.fail("RUNPOD_API_KEY secret not configured — set it in repository secrets")
+        pytest.fail(
+            "RUNPOD_API_KEY secret not configured — set it in repository secrets"
+        )
     else:
         pytest.skip("No credentials available — skipping E2E test")

@@ -61,7 +61,9 @@ class TestCpuSmoke:
 
             # Invoke
             runpod.api_key = env.get("RUNPOD_API_KEY")
-            output = runpod.Endpoint(endpoint_id).run_sync({"msg": "smoke"}, timeout=180)
+            output = runpod.Endpoint(endpoint_id).run_sync(
+                {"msg": "smoke"}, timeout=180
+            )
 
             assert output is not None, "run_sync returned None"
             assert output.get("echo") == "smoke", f"Unexpected output: {output}"
