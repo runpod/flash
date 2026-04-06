@@ -1,0 +1,246 @@
+name: E2E Tests
+
+on:
+  # Uncomment to run on every push to main / pull request:
+  # push:
+  #   branches: [main]
+  # pull_request:
+  #   branches: [main]
+  workflow_dispatch:
+    inputs:
+      tests:
+        description: 'E2E test filter (pytest -k expression, leave empty to run all e2e tests)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  unit-tests:
+    name: Unit + Integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      - name: Run unit + integration tests
+        run: |
+          uv run pytest tests/ \
+            -n auto \
+            --timeout=60 \
+            --junitxml=unit-results.xml \
+            --cov-report=xml:coverage.xml \
+            --cov-fail-under=0
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unit-results
+          path: unit-results.xml
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage
+          path: coverage.xml
+
+  e2e:
+    name: E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      - name: Run E2E tests
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        run: |
+          uv run pytest e2e/ \
+            ${{ inputs.tests != '' && format('-k "{0}"', inputs.tests) || '' }} \
+            -v \
+            --timeout=0 \
+            --no-cov \
+            -p no:xdist \
+            --override-ini="addopts=" \
+            --junitxml=e2e-results.xml \
+            -s
+
+      - name: Check at least one test ran
+        if: always()
+        run: |
+          python - <<'EOF'
+          import xml.etree.ElementTree as ET, sys
+          try:
+              tree = ET.parse("e2e-results.xml")
+              root = tree.getroot()
+              if root.tag == "testsuites":
+                  tests = sum(int(s.attrib.get("tests", 0)) for s in root.findall("testsuite"))
+              else:
+                  tests = int(root.attrib.get("tests", 0))
+              print(f"Tests run: {tests}")
+              if tests == 0:
+                  print("ERROR: 0 tests ran — check test filter or test collection")
+                  sys.exit(1)
+          except FileNotFoundError:
+              print("ERROR: e2e-results.xml not found — pytest did not run")
+              sys.exit(1)
+          EOF
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-results
+          path: e2e-results.xml
+
+  summary:
+    name: Summary
+    needs: [unit-tests, e2e]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Download unit results
+        uses: actions/download-artifact@v4
+        with:
+          name: unit-results
+        continue-on-error: true
+
+      - name: Download coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage
+        continue-on-error: true
+
+      - name: Download E2E results
+        uses: actions/download-artifact@v4
+        with:
+          name: e2e-results
+        continue-on-error: true
+
+      - name: Write summary
+        env:
+          UNIT_RESULT: ${{ needs.unit-tests.result }}
+          E2E_RESULT: ${{ needs.e2e.result }}
+        run: |
+          python - <<'EOF'
+          import xml.etree.ElementTree as ET, os, sys
+
+          summary_file = os.environ.get("GITHUB_STEP_SUMMARY")
+          out = open(summary_file, "a") if summary_file else sys.stdout
+
+          def parse_junit(path):
+              """Return (total, failures, duration) from a JUnit XML file."""
+              try:
+                  root = ET.parse(path).getroot()
+                  suites = root.findall("testsuite") if root.tag == "testsuites" else [root]
+                  total    = sum(int(s.attrib.get("tests",    0)) for s in suites)
+                  failures = sum(int(s.attrib.get("failures", 0)) + int(s.attrib.get("errors", 0)) for s in suites)
+                  duration = sum(float(s.attrib.get("time",   0)) for s in suites)
+                  failed_names = [
+                      tc.get("classname", "") + "::" + tc.get("name", "")
+                      for s in suites
+                      for tc in s.findall("testcase")
+                      if tc.find("failure") is not None or tc.find("error") is not None
+                  ]
+                  return total, failures, duration, failed_names
+              except FileNotFoundError:
+                  return None, None, None, []
+
+          def status_icon(result, total, failures):
+              if total is None:   return ":x: Did not run"
+              if total == 0:      return ":warning: No tests ran"
+              if failures == 0:   return ":white_check_mark: Passed"
+              return ":x: Failed"
+
+          unit_total, unit_fail, unit_dur, unit_failed_names = parse_junit("unit-results.xml")
+          e2e_total,  e2e_fail,  e2e_dur,  e2e_failed_names  = parse_junit("e2e-results.xml")
+
+          unit_pass = (unit_total - unit_fail) if unit_total is not None else None
+          e2e_pass  = (e2e_total  - e2e_fail)  if e2e_total  is not None else None
+
+          unit_result = os.environ.get("UNIT_RESULT", "")
+          e2e_result  = os.environ.get("E2E_RESULT",  "")
+
+          print("# Test Results\n", file=out)
+          print("| Suite | Status | Passed | Failed | Total | Duration |", file=out)
+          print("|---|---|---|---|---|---|", file=out)
+          print(f"| Unit + Integration | {status_icon(unit_result, unit_total, unit_fail)} | "
+                f"{unit_pass if unit_pass is not None else '-'} | "
+                f"{unit_fail if unit_fail is not None else '-'} | "
+                f"{unit_total if unit_total is not None else '-'} | "
+                f"{unit_dur:.1f}s |" if unit_dur is not None else "- |", file=out)
+          print(f"| E2E | {status_icon(e2e_result, e2e_total, e2e_fail)} | "
+                f"{e2e_pass if e2e_pass is not None else '-'} | "
+                f"{e2e_fail if e2e_fail is not None else '-'} | "
+                f"{e2e_total if e2e_total is not None else '-'} | "
+                f"{e2e_dur:.1f}s |" if e2e_dur is not None else "- |", file=out)
+          print("", file=out)
+
+          all_failed = [("Unit", n) for n in unit_failed_names] + [("E2E", n) for n in e2e_failed_names]
+          if all_failed:
+              print("## Failed Tests\n", file=out)
+              print("| Suite | Test |", file=out)
+              print("|---|---|", file=out)
+              for suite, name in all_failed:
+                  print(f"| {suite} | `{name}` |", file=out)
+              print("", file=out)
+
+          # Coverage
+          print("## Coverage\n", file=out)
+          try:
+              cov_root = ET.parse("coverage.xml").getroot()
+              line_rate = float(cov_root.attrib.get("line-rate", 0))
+              total_cov = f"{line_rate * 100:.1f}%"
+              print(f"**Total: {total_cov}**\n", file=out)
+              print("<details>", file=out)
+              print("<summary>Per-package breakdown</summary>\n", file=out)
+              print("| Package | Coverage |", file=out)
+              print("|---|---|", file=out)
+              for pkg in cov_root.iter("package"):
+                  name = pkg.attrib.get("name", "")
+                  rate = float(pkg.attrib.get("line-rate", 0))
+                  print(f"| `{name}` | {rate * 100:.1f}% |", file=out)
+              print("</details>", file=out)
+          except FileNotFoundError:
+              print("> Coverage data not available.", file=out)
+          EOF
