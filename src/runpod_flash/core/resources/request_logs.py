@@ -2,6 +2,7 @@ import logging
 import os
 import re
 from dataclasses import dataclass
+from dataclasses import field
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, List, Optional
@@ -45,6 +46,8 @@ class QBRequestLogBatch:
     matched_by_request_id: bool
     worker_id: Optional[str]
     phase: QBRequestLogPhase
+    worker_metrics: dict[str, int] = field(default_factory=dict)
+    ready_worker_ids: List[str] = field(default_factory=list)
 
 
 class QBRequestLogFetcher:
@@ -89,6 +92,8 @@ class QBRequestLogFetcher:
         )
         running_worker_ids = self._running_worker_ids_from_metrics(metrics_payload)
         initializing_workers = self._initializing_worker_count(metrics_payload)
+        worker_metrics = self._worker_metrics_snapshot(metrics_payload)
+        ready_worker_ids = self._ready_worker_ids_from_metrics(metrics_payload)
 
         matched_by_request_id = False
         if assigned_worker_id:
@@ -108,6 +113,8 @@ class QBRequestLogFetcher:
                 matched_by_request_id=False,
                 worker_id=None,
                 phase=phase,
+                worker_metrics=worker_metrics,
+                ready_worker_ids=ready_worker_ids,
             )
 
         logs_payload = await self._fetch_pod_logs(
@@ -120,6 +127,8 @@ class QBRequestLogFetcher:
                 matched_by_request_id=matched_by_request_id,
                 worker_id=self.worker_id,
                 phase=QBRequestLogPhase.WAITING_FOR_WORKER_INITIALIZATION,
+                worker_metrics=worker_metrics,
+                ready_worker_ids=ready_worker_ids,
             )
 
         if not self.has_primed_worker_logs:
@@ -136,6 +145,8 @@ class QBRequestLogFetcher:
                     if self.has_streamed_logs
                     else QBRequestLogPhase.WAITING_FOR_WORKER_INITIALIZATION
                 ),
+                worker_metrics=worker_metrics,
+                ready_worker_ids=ready_worker_ids,
             )
 
         lines = self._extract_lines(logs_payload)
@@ -151,6 +162,8 @@ class QBRequestLogFetcher:
             matched_by_request_id=matched_by_request_id,
             worker_id=self.worker_id,
             phase=phase,
+            worker_metrics=worker_metrics,
+            ready_worker_ids=ready_worker_ids,
         )
 
     async def _fetch_status_payload(
@@ -193,8 +206,8 @@ class QBRequestLogFetcher:
         status_api_key: str,
         status_api_key_fallback: Optional[str],
     ) -> Optional[dict[str, Any]]:
-        url = f"{API_BASE_URL}/v1/{endpoint_id}/metrics"
         auth_keys = self._auth_candidates(status_api_key, status_api_key_fallback)
+        url = f"{API_BASE_URL}/v2/{endpoint_id}/metrics"
 
         for auth_key in auth_keys:
             try:
@@ -209,12 +222,18 @@ class QBRequestLogFetcher:
                 if exc.response is not None and exc.response.status_code == 401:
                     continue
                 log.debug(
-                    "Failed to fetch endpoint metrics for %s: %s", endpoint_id, exc
+                    "Failed to fetch endpoint metrics for %s via %s: %s",
+                    endpoint_id,
+                    url,
+                    exc,
                 )
                 return None
             except (httpx.HTTPError, ValueError) as exc:
                 log.debug(
-                    "Failed to fetch endpoint metrics for %s: %s", endpoint_id, exc
+                    "Failed to fetch endpoint metrics for %s via %s: %s",
+                    endpoint_id,
+                    url,
+                    exc,
                 )
                 return None
 
@@ -241,6 +260,36 @@ class QBRequestLogFetcher:
         if not isinstance(ready_workers, list):
             return []
         return [str(worker) for worker in ready_workers if worker]
+
+    @staticmethod
+    def _ready_worker_ids_from_metrics(payload: Optional[dict[str, Any]]) -> List[str]:
+        if not payload:
+            return []
+        ready_workers = payload.get("readyWorkers")
+        if not isinstance(ready_workers, list):
+            return []
+        return [str(worker) for worker in ready_workers if worker]
+
+    @staticmethod
+    def _worker_metrics_snapshot(payload: Optional[dict[str, Any]]) -> dict[str, int]:
+        base = {
+            "ready": 0,
+            "running": 0,
+            "idle": 0,
+            "initializing": 0,
+            "throttled": 0,
+            "unhealthy": 0,
+        }
+        if not payload:
+            return base
+        workers = payload.get("workers")
+        if not isinstance(workers, dict):
+            return base
+        for key in base:
+            value = workers.get(key)
+            if isinstance(value, int):
+                base[key] = value
+        return base
 
     @staticmethod
     def _initializing_worker_count(payload: Optional[dict[str, Any]]) -> int:

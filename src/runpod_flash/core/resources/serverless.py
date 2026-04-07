@@ -34,6 +34,7 @@ from .cpu import CpuInstanceType
 from .gpu import GpuGroup, GpuType
 from .network_volume import NetworkVolume, DataCenter, CPU_DATACENTERS
 from .request_logs import QBRequestLogFetcher, QBRequestLogPhase
+from .worker_availability_diagnostic import WorkerAvailabilityDiagnostic
 from .template import KeyValuePair, PodTemplate
 from .resource_manager import ResourceManager
 from ..credentials import get_api_key
@@ -1172,10 +1173,14 @@ class ServerlessResource(DeployableResource):
                 | None
             ) = None
             assigned_streaming_announced_worker: Optional[str] = None
+            worker_availability_diagnostic = WorkerAvailabilityDiagnostic()
+            repeated_no_worker_message: Optional[str] = None
+            waiting_update_count = 0
 
             # Poll for job status
             while True:
                 await asyncio.sleep(current_pace)
+                emit_regular_update = False
 
                 # Check job status
                 job_status = await asyncio.to_thread(job.status)
@@ -1183,9 +1188,9 @@ class ServerlessResource(DeployableResource):
                 if last_status == job_status:
                     # nothing changed, increase the gap
                     attempt += 1
-                    indicator = "." * (attempt // 2) if attempt % 2 == 0 else ""
-                    if indicator:
-                        log.info(f"{log_subgroup} | {indicator}")
+                    if job_status != "IN_PROGRESS" and attempt % 2 == 0:
+                        emit_regular_update = True
+                        log.info(f"{log_subgroup} | {'.' * (attempt // 2)}")
                 else:
                     # status changed, reset the gap
                     log.info(f"{log_subgroup} | Status: {job_status}")
@@ -1209,6 +1214,8 @@ class ServerlessResource(DeployableResource):
                         and batch.matched_by_request_id
                         and batch.worker_id
                     ):
+                        repeated_no_worker_message = None
+                        waiting_update_count = 0
                         if assigned_streaming_announced_worker != batch.worker_id:
                             log.info(
                                 f"{log_subgroup} | Request assigned to worker {batch.worker_id}, streaming pod logs"
@@ -1216,13 +1223,25 @@ class ServerlessResource(DeployableResource):
                             assigned_streaming_announced_worker = batch.worker_id
                     elif state_changed:
                         if batch.phase == QBRequestLogPhase.WAITING_FOR_WORKER:
-                            log.info(
-                                f"{log_subgroup} | No workers available; check that your endpoint is properly configured and/or GPU availability for selected GPUs"
+                            diagnostic = await worker_availability_diagnostic.diagnose(
+                                self,
+                                worker_metrics=batch.worker_metrics,
                             )
+                            log.info(f"{log_subgroup} | {diagnostic.message}")
+                            if diagnostic.reason in (
+                                "no_gpu_availability",
+                                "workers_throttled",
+                            ):
+                                repeated_no_worker_message = diagnostic.message
+                            else:
+                                repeated_no_worker_message = None
+                            waiting_update_count = 0
                         elif (
                             batch.phase
                             == QBRequestLogPhase.WAITING_FOR_WORKER_INITIALIZATION
                         ):
+                            repeated_no_worker_message = None
+                            waiting_update_count = 0
                             if batch.matched_by_request_id and batch.worker_id:
                                 log.info(
                                     f"{log_subgroup} | Request assigned to worker {batch.worker_id}, waiting for worker initialization/image pull logs"
@@ -1236,11 +1255,31 @@ class ServerlessResource(DeployableResource):
                                     f"{log_subgroup} | Waiting for worker initialization/image pull"
                                 )
                         elif batch.phase == QBRequestLogPhase.STREAMING:
+                            repeated_no_worker_message = None
+                            waiting_update_count = 0
                             log.info(
                                 f"{log_subgroup} | Streaming endpoint startup logs while waiting for request assignment"
                             )
 
                     last_log_state = current_log_state
+
+                if emit_regular_update:
+                    waiting_update_count += 1
+                    if waiting_update_count % 5 == 0:
+                        worker_state = (
+                            batch.worker_id if batch and batch.worker_id else "None"
+                        )
+                        worker_metrics = (batch.worker_metrics if batch else {}) or {}
+                        assignment_state = (
+                            "assigned"
+                            if batch and batch.matched_by_request_id
+                            else "unassigned"
+                        )
+                        log.info(
+                            f"{log_subgroup} | Waiting for request: endpoint metrics: worker={worker_state}, assignment={assignment_state}, status={job_status}, workers={{ready:{worker_metrics.get('ready', 0)}, running:{worker_metrics.get('running', 0)}, idle:{worker_metrics.get('idle', 0)}, initializing:{worker_metrics.get('initializing', 0)}, throttled:{worker_metrics.get('throttled', 0)}, unhealthy:{worker_metrics.get('unhealthy', 0)}}}, readyWorkers={batch.ready_worker_ids if batch else []}"
+                        )
+                        if repeated_no_worker_message:
+                            log.info(f"{log_subgroup} | {repeated_no_worker_message}")
 
                 last_status = job_status
 

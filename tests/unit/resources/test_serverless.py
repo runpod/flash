@@ -27,6 +27,9 @@ from runpod_flash.core.resources.request_logs import (
     QBRequestLogBatch,
     QBRequestLogPhase,
 )
+from runpod_flash.core.resources.worker_availability_diagnostic import (
+    WorkerAvailabilityResult,
+)
 from runpod_flash.core.resources.template import PodTemplate
 
 
@@ -1287,6 +1290,180 @@ class TestServerlessResourceDeployment:
             in str(call.args[0])
         ]
         assert len(assigned_messages) == 1
+
+    @pytest.mark.asyncio
+    async def test_run_async_repeats_no_gpu_availability_message_every_five_updates(
+        self,
+    ):
+        serverless = ServerlessResource(name="test")
+        serverless.id = "endpoint-123"
+        serverless.type = ServerlessType.QB
+        serverless.aiKey = "ai-key-123"
+
+        mock_job = MagicMock()
+        mock_job.job_id = "job-123"
+        mock_job.status.side_effect = [
+            "IN_QUEUE",
+            "IN_QUEUE",
+            "IN_QUEUE",
+            "IN_QUEUE",
+            "IN_QUEUE",
+            "IN_QUEUE",
+            "IN_QUEUE",
+            "IN_QUEUE",
+            "IN_QUEUE",
+            "IN_QUEUE",
+            "IN_QUEUE",
+            "IN_QUEUE",
+            "COMPLETED",
+        ]
+        mock_job._fetch_job.return_value = {
+            "id": "job-123",
+            "workerId": "worker-456",
+            "status": "COMPLETED",
+            "delayTime": 1000,
+            "executionTime": 2000,
+            "output": {"result": "success"},
+        }
+
+        waiting_batch = QBRequestLogBatch(
+            worker_id=None,
+            lines=[],
+            matched_by_request_id=False,
+            phase=QBRequestLogPhase.WAITING_FOR_WORKER,
+        )
+
+        async def emit_waiting_batch(*, fetcher, request_id):
+            return waiting_batch
+
+        mock_endpoint = MagicMock()
+        mock_endpoint.run.return_value = mock_job
+
+        with patch.object(
+            type(serverless),
+            "endpoint",
+            new_callable=lambda: property(lambda self: mock_endpoint),
+        ):
+            with patch("asyncio.sleep"):
+                with patch.object(
+                    ServerlessResource,
+                    "_emit_endpoint_logs",
+                    new=AsyncMock(side_effect=emit_waiting_batch),
+                ):
+                    with patch(
+                        "runpod_flash.core.resources.serverless.WorkerAvailabilityDiagnostic.diagnose",
+                        new=AsyncMock(
+                            return_value=WorkerAvailabilityResult(
+                                message=(
+                                    "No workers available on endpoint: no gpu availability for gpu type NVIDIA GeForce RTX 4090"
+                                ),
+                                has_availability=False,
+                                reason="no_gpu_availability",
+                            )
+                        ),
+                    ):
+                        with patch(
+                            "runpod_flash.core.resources.serverless.log.info"
+                        ) as mock_log_info:
+                            await serverless.run({"input": "test"})
+
+        no_worker_messages = [
+            str(call.args[0])
+            for call in mock_log_info.call_args_list
+            if call.args
+            and "No workers available on endpoint: no gpu availability for gpu type"
+            in str(call.args[0])
+        ]
+        assert len(no_worker_messages) == 2
+
+    @pytest.mark.asyncio
+    async def test_run_async_stops_waiting_metrics_logs_after_in_progress(self):
+        serverless = ServerlessResource(name="test")
+        serverless.id = "endpoint-123"
+        serverless.type = ServerlessType.QB
+        serverless.aiKey = "ai-key-123"
+
+        mock_job = MagicMock()
+        mock_job.job_id = "job-123"
+        mock_job.status.side_effect = [
+            "IN_QUEUE",
+            "IN_QUEUE",
+            "IN_QUEUE",
+            "IN_QUEUE",
+            "IN_QUEUE",
+            "IN_QUEUE",
+            "IN_QUEUE",
+            "IN_QUEUE",
+            "IN_QUEUE",
+            "IN_QUEUE",
+            "IN_QUEUE",
+            "IN_QUEUE",
+            "IN_PROGRESS",
+            "IN_PROGRESS",
+            "IN_PROGRESS",
+            "IN_PROGRESS",
+            "COMPLETED",
+        ]
+        mock_job._fetch_job.return_value = {
+            "id": "job-123",
+            "workerId": "worker-456",
+            "status": "COMPLETED",
+            "delayTime": 1000,
+            "executionTime": 2000,
+            "output": {"result": "success"},
+        }
+
+        waiting_batch = QBRequestLogBatch(
+            worker_id=None,
+            lines=[],
+            matched_by_request_id=False,
+            phase=QBRequestLogPhase.WAITING_FOR_WORKER,
+            worker_metrics={
+                "ready": 0,
+                "running": 0,
+                "idle": 0,
+                "initializing": 0,
+                "throttled": 2,
+                "unhealthy": 0,
+            },
+        )
+        mock_endpoint = MagicMock()
+        mock_endpoint.run.return_value = mock_job
+
+        with patch.object(
+            type(serverless),
+            "endpoint",
+            new_callable=lambda: property(lambda self: mock_endpoint),
+        ):
+            with patch("asyncio.sleep"):
+                with patch.object(
+                    ServerlessResource,
+                    "_emit_endpoint_logs",
+                    new=AsyncMock(return_value=waiting_batch),
+                ):
+                    with patch(
+                        "runpod_flash.core.resources.serverless.WorkerAvailabilityDiagnostic.diagnose",
+                        new=AsyncMock(
+                            return_value=WorkerAvailabilityResult(
+                                message="Workers are currently throttled on endpoint for selected gpu NVIDIA GeForce RTX 4090. Consider raising max workers or changing gpu type.",
+                                has_availability=True,
+                                reason="workers_throttled",
+                            )
+                        ),
+                    ):
+                        with patch(
+                            "runpod_flash.core.resources.serverless.log.info"
+                        ) as mock_log_info:
+                            await serverless.run({"input": "test"})
+
+        metrics_logs = [
+            str(call.args[0])
+            for call in mock_log_info.call_args_list
+            if call.args
+            and "Waiting for request: endpoint metrics:" in str(call.args[0])
+        ]
+        assert metrics_logs
+        assert not any("status=IN_PROGRESS" in line for line in metrics_logs)
 
     @pytest.mark.asyncio
     async def test_emit_endpoint_logs_prints_worker_lines(self):
