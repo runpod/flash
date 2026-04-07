@@ -35,12 +35,7 @@ async def test_diagnose_gpu_no_availability_includes_selected_locations():
     resource.locations = "EU-RO-1,US-GA-2"
 
     mock_client = MagicMock()
-    mock_client._execute_graphql = AsyncMock(
-        side_effect=[
-            {"gpuTypes": [{"lowestPrice": {"stockStatus": None}}]},
-            {"gpuTypes": [{"lowestPrice": {"stockStatus": None}}]},
-        ]
-    )
+    mock_client.get_gpu_lowest_price_stock_status = AsyncMock(side_effect=[None, None])
 
     with patch(
         "runpod_flash.core.resources.worker_availability_diagnostic.RunpodGraphQLClient",
@@ -64,12 +59,7 @@ async def test_diagnose_gpu_availability_shows_signal_without_locations():
     resource.locations = "EU-RO-1,US-GA-2"
 
     mock_client = MagicMock()
-    mock_client._execute_graphql = AsyncMock(
-        side_effect=[
-            {"gpuTypes": [{"lowestPrice": {"stockStatus": None}}]},
-            {"gpuTypes": [{"lowestPrice": {"stockStatus": "Low"}}]},
-        ]
-    )
+    mock_client.get_gpu_lowest_price_stock_status = AsyncMock(side_effect=[None, "Low"])
 
     with patch(
         "runpod_flash.core.resources.worker_availability_diagnostic.RunpodGraphQLClient",
@@ -94,12 +84,7 @@ async def test_diagnose_cpu_no_availability_message():
     resource.locations = "EU-RO-1,US-GA-2"
 
     mock_client = MagicMock()
-    mock_client._execute_graphql = AsyncMock(
-        side_effect=[
-            {"cpuFlavors": [{"specifics": {"stockStatus": None}}]},
-            {"cpuFlavors": [{"specifics": {"stockStatus": None}}]},
-        ]
-    )
+    mock_client.get_cpu_specific_stock_status = AsyncMock(side_effect=[None, None])
 
     with patch(
         "runpod_flash.core.resources.worker_availability_diagnostic.RunpodGraphQLClient",
@@ -130,3 +115,37 @@ async def test_diagnose_prefers_throttled_reason_over_no_availability():
     assert result.reason == "workers_throttled"
     assert "Workers are currently throttled on endpoint" in result.message
     assert "Consider raising max workers or changing gpu type" in result.message
+
+
+@pytest.mark.asyncio
+async def test_diagnose_cpu_throttled_message_references_cpu_type():
+    resource = ServerlessResource(name="test")
+    resource.instanceIds = [CpuInstanceType.CPU3G_2_8]
+
+    result = await WorkerAvailabilityDiagnostic().diagnose(
+        resource,
+        worker_metrics={"throttled": 2},
+    )
+
+    assert result.reason == "workers_throttled"
+    assert "changing cpu type" in result.message
+
+
+@pytest.mark.asyncio
+async def test_diagnose_treats_out_of_stock_as_unavailable():
+    resource = ServerlessResource(name="test")
+    resource.gpuIds = "NVIDIA GeForce RTX 4090"
+
+    mock_client = MagicMock()
+    mock_client.get_gpu_lowest_price_stock_status = AsyncMock(
+        side_effect=["OUT_OF_STOCK"]
+    )
+
+    with patch(
+        "runpod_flash.core.resources.worker_availability_diagnostic.RunpodGraphQLClient",
+        return_value=_make_client_context(mock_client),
+    ):
+        result = await WorkerAvailabilityDiagnostic().diagnose(resource)
+
+    assert result.has_availability is False
+    assert result.reason == "no_gpu_availability"

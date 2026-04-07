@@ -1,6 +1,7 @@
 """Deployment environment management utilities."""
 
 import asyncio
+import copy
 import json
 import logging
 from typing import Dict, Any
@@ -21,6 +22,19 @@ def _normalized_resource_attr(resource: Any, *names: str) -> str | None:
         if isinstance(value, str) and value.strip():
             return value
     return None
+
+
+def _manifest_without_ai_keys(manifest: Dict[str, Any]) -> Dict[str, Any]:
+    sanitized_manifest = copy.deepcopy(manifest)
+    resources = sanitized_manifest.get("resources")
+    if not isinstance(resources, dict):
+        return sanitized_manifest
+
+    for config in resources.values():
+        if isinstance(config, dict):
+            config.pop("aiKey", None)
+
+    return sanitized_manifest
 
 
 async def upload_build(app_name: str, build_path: str | Path):
@@ -338,9 +352,12 @@ async def reconcile_and_provision_resources(
             endpoint_id = _normalized_resource_attr(
                 deployed_resource, "endpoint_id", "id"
             )
-            endpoint_url = _normalized_resource_attr(deployed_resource, "endpoint_url")
+            endpoint_url = getattr(deployed_resource, "endpoint_url", None)
+            if isinstance(endpoint_url, str):
+                endpoint_url = endpoint_url.strip() or None
+            else:
+                endpoint_url = None
             ai_key = _normalized_resource_attr(deployed_resource, "aiKey", "ai_key")
-
             if endpoint_id:
                 local_manifest["resources"][resource_name]["endpoint_id"] = endpoint_id
             if endpoint_url:
@@ -373,9 +390,11 @@ async def reconcile_and_provision_resources(
                 f"Successfully provisioned: {provisioned}"
             )
 
+    local_manifest_for_disk = _manifest_without_ai_keys(local_manifest)
+
     # Write updated manifest back to local file
     manifest_path = Path.cwd() / ".flash" / "flash_manifest.json"
-    manifest_path.write_text(json.dumps(local_manifest, indent=2))
+    manifest_path.write_text(json.dumps(local_manifest_for_disk, indent=2))
 
     log.debug(f"Local manifest updated at {manifest_path.relative_to(Path.cwd())}")
 

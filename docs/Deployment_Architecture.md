@@ -191,6 +191,12 @@ When `flash deploy` provisions endpoints:
 3. The State Manager stores `{environment_id, resource_name} -> endpoint_id`
 4. At runtime, the `ServiceRegistry` uses the manifest + State Manager to route calls
 
+### Manifest credential handling
+
+- Runtime endpoint metadata (including API-returned `aiKey`) may be stored in the State Manager manifest for deployment reconciliation.
+- Local `.flash/flash_manifest.json` is sanitized before it is written to disk and does not include `aiKey`.
+- `RUNPOD_API_KEY` is sourced from environment/credential storage and injected into endpoint env when needed; it is not persisted in the local manifest.
+
 See [Cross-Endpoint Routing](Cross_Endpoint_Routing.md) for the full runtime flow.
 
 ## Related Documentation

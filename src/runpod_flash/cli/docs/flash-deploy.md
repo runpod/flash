@@ -138,9 +138,17 @@ The deploy command combines building and deploying your Flash application in a s
    - Registers endpoints in environment tracking
 
 4. **Post-Deployment**:
-   - Displays deployment URLs and available routes
-   - Shows authentication and testing guidance
-   - Cleans up temporary build directory
+    - Displays deployment URLs and available routes
+    - Shows authentication and testing guidance
+    - Cleans up temporary build directory
+
+## Manifest and Credential Handling
+
+During deploy, Flash updates manifest metadata with runtime endpoint details (for example `endpoint_id`, endpoint URLs, and `aiKey` when returned by the API).
+
+- The manifest stored in State Manager keeps runtime metadata used for reconciliation.
+- The local `.flash/flash_manifest.json` is sanitized before writing to disk and does not persist `aiKey`.
+- `RUNPOD_API_KEY` continues to be resolved from credentials/env at runtime and is not stored in the local manifest.
 
 ## Build Options
 

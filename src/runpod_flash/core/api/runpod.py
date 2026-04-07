@@ -364,6 +364,80 @@ class RunpodGraphQLClient:
         result = await self._execute_graphql(query, variables)
         return result.get("gpuTypes", [])
 
+    async def get_gpu_lowest_price_stock_status(
+        self,
+        gpu_id: str,
+        gpu_count: int,
+        data_center_id: Optional[str] = None,
+    ) -> Optional[str]:
+        query = """
+        query ServerlessGpuTypes($lowestPriceInput: GpuLowestPriceInput, $gpuTypesInput: GpuTypeFilter) {
+          gpuTypes(input: $gpuTypesInput) {
+            lowestPrice(input: $lowestPriceInput) {
+              stockStatus
+            }
+          }
+        }
+        """
+
+        variables = {
+            "gpuTypesInput": {"ids": [gpu_id]},
+            "lowestPriceInput": {
+                "dataCenterId": data_center_id,
+                "gpuCount": gpu_count,
+                "secureCloud": True,
+                "includeAiApi": True,
+                "allowedCudaVersions": [],
+                "compliance": [],
+            },
+        }
+
+        result = await self._execute_graphql(query, variables)
+        gpu_types = result.get("gpuTypes") or []
+        first = gpu_types[0] if gpu_types else {}
+        lowest = first.get("lowestPrice") if isinstance(first, dict) else {}
+        if not isinstance(lowest, dict):
+            return None
+        status = lowest.get("stockStatus")
+        if isinstance(status, str) and status.strip():
+            return status.strip()
+        return None
+
+    async def get_cpu_specific_stock_status(
+        self,
+        cpu_flavor_id: str,
+        instance_id: str,
+        data_center_id: str,
+    ) -> Optional[str]:
+        query = """
+        query SecureCpuTypes($cpuFlavorInput: CpuFlavorInput, $specificsInput: SpecificsInput) {
+          cpuFlavors(input: $cpuFlavorInput) {
+            specifics(input: $specificsInput) {
+              stockStatus
+            }
+          }
+        }
+        """
+
+        variables = {
+            "cpuFlavorInput": {"id": cpu_flavor_id},
+            "specificsInput": {
+                "dataCenterId": data_center_id,
+                "instanceId": instance_id,
+            },
+        }
+
+        result = await self._execute_graphql(query, variables)
+        cpu_flavors = result.get("cpuFlavors") or []
+        first = cpu_flavors[0] if cpu_flavors else {}
+        specifics = first.get("specifics") if isinstance(first, dict) else {}
+        if not isinstance(specifics, dict):
+            return None
+        status = specifics.get("stockStatus")
+        if isinstance(status, str) and status.strip():
+            return status.strip()
+        return None
+
     async def get_endpoint(self, endpoint_id: str) -> Dict[str, Any]:
         """Get endpoint details."""
         # Note: The schema doesn't show a specific endpoint query

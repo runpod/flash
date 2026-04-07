@@ -33,7 +33,7 @@ from .environment import EnvironmentVars
 from .cpu import CpuInstanceType
 from .gpu import GpuGroup, GpuType
 from .network_volume import NetworkVolume, DataCenter, CPU_DATACENTERS
-from .request_logs import QBRequestLogFetcher, QBRequestLogPhase
+from .request_logs import QBRequestLogBatch, QBRequestLogFetcher, QBRequestLogPhase
 from .worker_availability_diagnostic import WorkerAvailabilityDiagnostic
 from .template import KeyValuePair, PodTemplate
 from .resource_manager import ResourceManager
@@ -58,14 +58,6 @@ def get_env_vars() -> Dict[str, str]:
 
 log = logging.getLogger(__name__)
 POD_LOG_PREFIX_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\s+")
-
-
-def _is_prod_environment() -> bool:
-    env = os.getenv("RUNPOD_ENV")
-    if env:
-        return env.lower() == "prod"
-    api_base = os.getenv("RUNPOD_API_BASE_URL", "https://api.runpod.io")
-    return "api.runpod.io" in api_base or "api.runpod.ai" in api_base
 
 
 def _normalize_stream_log_line(line: str) -> str:
@@ -1176,6 +1168,7 @@ class ServerlessResource(DeployableResource):
             worker_availability_diagnostic = WorkerAvailabilityDiagnostic()
             repeated_no_worker_message: Optional[str] = None
             waiting_update_count = 0
+            emitted_initial_wait_metrics = False
 
             # Poll for job status
             while True:
@@ -1236,12 +1229,30 @@ class ServerlessResource(DeployableResource):
                             else:
                                 repeated_no_worker_message = None
                             waiting_update_count = 0
+                            if (
+                                job_status != "IN_PROGRESS"
+                                and not emitted_initial_wait_metrics
+                            ):
+                                worker_state = (
+                                    batch.worker_id if batch.worker_id else "None"
+                                )
+                                worker_metrics = batch.worker_metrics or {}
+                                assignment_state = (
+                                    "assigned"
+                                    if batch.matched_by_request_id
+                                    else "unassigned"
+                                )
+                                log.info(
+                                    f"{log_subgroup} | Waiting for request: endpoint metrics: worker={worker_state}, assignment={assignment_state}, status={job_status}, workers={{ready:{worker_metrics.get('ready', 0)}, running:{worker_metrics.get('running', 0)}, idle:{worker_metrics.get('idle', 0)}, initializing:{worker_metrics.get('initializing', 0)}, throttled:{worker_metrics.get('throttled', 0)}, unhealthy:{worker_metrics.get('unhealthy', 0)}}}, readyWorkers={batch.ready_worker_ids}"
+                                )
+                                emitted_initial_wait_metrics = True
                         elif (
                             batch.phase
                             == QBRequestLogPhase.WAITING_FOR_WORKER_INITIALIZATION
                         ):
                             repeated_no_worker_message = None
                             waiting_update_count = 0
+                            emitted_initial_wait_metrics = False
                             if batch.matched_by_request_id and batch.worker_id:
                                 log.info(
                                     f"{log_subgroup} | Request assigned to worker {batch.worker_id}, waiting for worker initialization/image pull logs"
@@ -1257,6 +1268,7 @@ class ServerlessResource(DeployableResource):
                         elif batch.phase == QBRequestLogPhase.STREAMING:
                             repeated_no_worker_message = None
                             waiting_update_count = 0
+                            emitted_initial_wait_metrics = False
                             log.info(
                                 f"{log_subgroup} | Streaming endpoint startup logs while waiting for request assignment"
                             )

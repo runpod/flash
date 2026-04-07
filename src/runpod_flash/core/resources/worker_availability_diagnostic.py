@@ -1,6 +1,6 @@
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 
 from ..api.runpod import RunpodGraphQLClient
 
@@ -9,35 +9,7 @@ if TYPE_CHECKING:
 
 
 log = logging.getLogger(__name__)
-
-
-GPU_STOCK_QUERY = """
-query ServerlessGpuTypes($lowestPriceInput: GpuLowestPriceInput, $gpuTypesInput: GpuTypeFilter) {
-  gpuTypes(input: $gpuTypesInput) {
-    id
-    displayName
-    lowestPrice(input: $lowestPriceInput) {
-      stockStatus
-      __typename
-    }
-    __typename
-  }
-}
-"""
-
-
-CPU_STOCK_QUERY = """
-query SecureCpuTypes($cpuFlavorInput: CpuFlavorInput, $specificsInput: SpecificsInput) {
-  cpuFlavors(input: $cpuFlavorInput) {
-    id
-    specifics(input: $specificsInput) {
-      stockStatus
-      __typename
-    }
-    __typename
-  }
-}
-"""
+AVAILABLE_STOCK_STATUSES = {"LOW", "MEDIUM", "HIGH"}
 
 
 @dataclass
@@ -70,10 +42,11 @@ class WorkerAvailabilityDiagnostic:
 
         throttled_workers = (worker_metrics or {}).get("throttled", 0)
         if throttled_workers > 0:
+            compute_label = "gpu type" if compute_kind == "gpu" else "cpu type"
             return WorkerAvailabilityResult(
                 message=(
                     f"Workers are currently throttled on endpoint for selected {compute_kind} {compute_choice}. "
-                    "Consider raising max workers or changing gpu type."
+                    f"Consider raising max workers or changing {compute_label}."
                 ),
                 has_availability=True,
                 reason="workers_throttled",
@@ -122,7 +95,10 @@ class WorkerAvailabilityDiagnostic:
         availability_by_location: Dict[str, Optional[str]],
         include_available_signal: bool,
     ) -> WorkerAvailabilityResult:
-        has_availability = any(status for status in availability_by_location.values())
+        has_availability = any(
+            self._is_available_stock_status(status)
+            for status in availability_by_location.values()
+        )
 
         if not has_availability:
             selected_locations = ", ".join(locations) if locations else "all locations"
@@ -166,25 +142,12 @@ class WorkerAvailabilityDiagnostic:
 
         async with RunpodGraphQLClient() as client:
             for location in location_inputs:
-                variables = {
-                    "gpuTypesInput": {"ids": [gpu_id]},
-                    "lowestPriceInput": {
-                        "dataCenterId": location,
-                        "gpuCount": gpu_count,
-                        "secureCloud": True,
-                        "includeAiApi": True,
-                        "allowedCudaVersions": [],
-                        "compliance": [],
-                    },
-                }
                 key = location or "global"
                 try:
-                    result = await client._execute_graphql(GPU_STOCK_QUERY, variables)
-                    gpu_types = result.get("gpuTypes") or []
-                    first = gpu_types[0] if gpu_types else {}
-                    lowest = first.get("lowestPrice") if isinstance(first, dict) else {}
-                    status = (
-                        lowest.get("stockStatus") if isinstance(lowest, dict) else None
+                    status = await client.get_gpu_lowest_price_stock_status(
+                        gpu_id=gpu_id,
+                        gpu_count=gpu_count,
+                        data_center_id=location,
                     )
                     availability_by_location[key] = status
                 except Exception as exc:
@@ -207,25 +170,12 @@ class WorkerAvailabilityDiagnostic:
 
         async with RunpodGraphQLClient() as client:
             for location in location_inputs:
-                variables = {
-                    "cpuFlavorInput": {"id": flavor_id},
-                    "specificsInput": {
-                        "dataCenterId": location,
-                        "instanceId": instance_id,
-                    },
-                }
                 key = location or "global"
                 try:
-                    result = await client._execute_graphql(CPU_STOCK_QUERY, variables)
-                    cpu_flavors = result.get("cpuFlavors") or []
-                    first = cpu_flavors[0] if cpu_flavors else {}
-                    specifics = (
-                        first.get("specifics") if isinstance(first, dict) else {}
-                    )
-                    status = (
-                        specifics.get("stockStatus")
-                        if isinstance(specifics, dict)
-                        else None
+                    status = await client.get_cpu_specific_stock_status(
+                        cpu_flavor_id=flavor_id,
+                        instance_id=instance_id,
+                        data_center_id=location,
                     )
                     availability_by_location[key] = status
                 except Exception as exc:
@@ -275,6 +225,18 @@ class WorkerAvailabilityDiagnostic:
         if not non_empty:
             return "unknown"
 
-        priority = {"High": 3, "Medium": 2, "Low": 1}
-        best = max(non_empty, key=lambda status: priority.get(status, 0))
+        priority = {"HIGH": 3, "MEDIUM": 2, "LOW": 1}
+
+        def score(value: str) -> int:
+            normalized = value.strip().upper().replace("-", "_").replace(" ", "_")
+            return priority.get(normalized, 0)
+
+        best = max(non_empty, key=score)
         return best
+
+    @staticmethod
+    def _is_available_stock_status(status: Optional[str]) -> bool:
+        if not isinstance(status, str):
+            return False
+        normalized = status.strip().upper().replace("-", "_").replace(" ", "_")
+        return normalized in AVAILABLE_STOCK_STATUSES

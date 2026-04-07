@@ -578,3 +578,7 @@ async def test_reconciliation_copies_ai_key_from_state_manifest(tmp_path):
         updated_manifest["resources_endpoints"]["worker"]
         == "https://worker.api.runpod.ai"
     )
+
+    with open(flash_dir / "flash_manifest.json") as f:
+        persisted_manifest = json.load(f)
+    assert "aiKey" not in persisted_manifest["resources"]["worker"]

@@ -13,7 +13,7 @@ from runpod_flash.core.utils.http import get_authenticated_httpx_client
 
 log = logging.getLogger(__name__)
 
-API_BASE_URL = "https://api.runpod.ai"
+API_BASE_URL = os.getenv("RUNPOD_API_BASE_URL", "https://api.runpod.ai").rstrip("/")
 DEV_API_BASE_URL = "https://dev-api.runpod.ai"
 HAPI_BASE_URL = "https://hapi.runpod.net"
 DEV_HAPI_BASE_URL = "https://dev-hapi.runpod.net"
@@ -55,13 +55,11 @@ class QBRequestLogFetcher:
         self,
         timeout_seconds: float = 4.0,
         max_lines: int = 25,
-        fallback_tail_lines: int = 10,
         lookback_seconds: int = 20,
         start_time: Optional[datetime] = None,
     ):
         self.timeout_seconds = timeout_seconds
         self.max_lines = max_lines
-        self.fallback_tail_lines = fallback_tail_lines
         self.lookback_seconds = lookback_seconds
         self.start_time = start_time or datetime.now(timezone.utc)
         self.seen = set()
@@ -90,7 +88,7 @@ class QBRequestLogFetcher:
             status_api_key=status_api_key,
             status_api_key_fallback=status_api_key_fallback,
         )
-        running_worker_ids = self._running_worker_ids_from_metrics(metrics_payload)
+        running_worker_ids = self._ready_worker_ids_from_metrics(metrics_payload)
         initializing_workers = self._initializing_worker_count(metrics_payload)
         worker_metrics = self._worker_metrics_snapshot(metrics_payload)
         ready_worker_ids = self._ready_worker_ids_from_metrics(metrics_payload)
@@ -249,17 +247,6 @@ class QBRequestLogFetcher:
         if not worker_id:
             return None
         return str(worker_id)
-
-    @staticmethod
-    def _running_worker_ids_from_metrics(
-        payload: Optional[dict[str, Any]],
-    ) -> List[str]:
-        if not payload:
-            return []
-        ready_workers = payload.get("readyWorkers")
-        if not isinstance(ready_workers, list):
-            return []
-        return [str(worker) for worker in ready_workers if worker]
 
     @staticmethod
     def _ready_worker_ids_from_metrics(payload: Optional[dict[str, Any]]) -> List[str]:

@@ -28,6 +28,12 @@ Logs are written in the same format as console output, so you can grep through t
 - **Graceful degradation**: Continues with stdout-only if file logging fails
 - **Zero configuration**: Works out of the box with sensible defaults
 
+### QB request log polling during `Endpoint.run(...)`
+
+- For queue-based (QB) endpoints, Flash polls endpoint status/metrics while waiting and streams worker log lines to stdout when available.
+- Polling is used for async `run(...)` flows (not `runsync(...)`), and is skipped for non-QB endpoint types.
+- If endpoint `aiKey` is unavailable, Flash falls back to your configured `RUNPOD_API_KEY`; without a key, log streaming is skipped.
+
 ## Log Location
 
 By default, logs are written to:
