@@ -323,6 +323,11 @@ async def serve(data: dict) -> dict:
     ...
 ```
 
+Network volume lifecycle:
+- If `id` is provided, deploy attaches that existing volume.
+- If `name` is provided, deploy reuses an existing `(name, dataCenterId)` volume or creates one.
+- Volumes persist independently; deletion is manual (`NetworkVolume.undeploy()` is not supported).
+
 ## Troubleshooting
 
 ### Build Issues

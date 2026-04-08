@@ -40,8 +40,9 @@ class TestResourceManagerLifecycle:
         uid = await manager.register_resource(resource)
         all_resources = manager.list_all_resources()
         assert uid in all_resources
-        # LiveServerless appends -fb (flashboot) to the name
-        assert "lifecycle-gpu" in all_resources[uid].name
+        # LiveServerless should not append -fb (flashboot) to the name
+        assert all_resources[uid].name == "lifecycle-gpu"
+        assert all_resources[uid].flashBootType == "FLASHBOOT"
 
     @pytest.mark.asyncio
     async def test_undeploy_removes_resource(self):

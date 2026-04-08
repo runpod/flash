@@ -70,7 +70,7 @@ After `flash build` completes:
 Flash automatically handles cross-platform builds, ensuring compatibility with Runpod's Linux x86_64 serverless infrastructure:
 
 - **Automatic Platform Targeting**: Dependencies are always installed for Linux x86_64, regardless of your build platform (macOS, Windows, or Linux)
-- **Python Version Matching**: Uses your current Python version to ensure package compatibility
+- **Python Version**: Targets Python 3.12 for wheel ABI selection regardless of local interpreter
 - **Binary Wheel Enforcement**: Only pre-built binary wheels are used, preventing platform-specific compilation issues
 
 This means you can safely build on macOS ARM64, Windows, or any platform, and the deployment will work correctly on Runpod.
@@ -225,15 +225,15 @@ ls .flash/.build/my-project/
 If a package doesn't have pre-built Linux x86_64 wheels:
 
 1. **Install standard pip**: `python -m ensurepip --upgrade` -- standard pip has better manylinux compatibility than uv pip
-2. **Check package availability**: Visit PyPI and verify the package has Linux wheels for your Python version
-3. **Newer Python versions**: Python 3.13+ packages often require manylinux_2_27 or higher -- standard pip handles these correctly
+2. **Check package availability**: Visit PyPI and verify the package has Linux wheels for Python 3.12
+3. **Python 3.12**: All flash workers run Python 3.12. Ensure packages are available for this version.
 4. **Pure-Python packages**: These work regardless, as they don't require platform-specific builds
 
 ## Managing Deployment Size
 
 ### Size Limits
 
-Runpod Serverless enforces a **500MB limit** on deployment archives. Exceeding this will cause your deployment to fail.
+Runpod Serverless enforces a **1.5GB limit** on deployment archives. Exceeding this will cause your deployment to fail.
 
 ### Excluding Base Image Packages
 

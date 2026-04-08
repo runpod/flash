@@ -30,7 +30,6 @@ from .constants import (
     DEFAULT_WORKERS_MIN,
     validate_python_version as _validate_python_version,
 )
-from .environment import EnvironmentVars
 from .cpu import CpuInstanceType
 from .gpu import GpuGroup, GpuType
 from .network_volume import NetworkVolume, DataCenter, CPU_DATACENTERS
@@ -44,17 +43,8 @@ from ..credentials import get_api_key
 # Prefix applied to endpoint names during live provisioning
 LIVE_PREFIX = "live-"
 
-
-# Environment variables are loaded from the .env file
-def get_env_vars() -> Dict[str, str]:
-    """
-    Returns the environment variables from the .env file.
-    {
-        "KEY": "VALUE",
-    }
-    """
-    env_vars = EnvironmentVars()
-    return env_vars.get_env()
+# Default client-side HTTP timeout for runsync calls (seconds)
+DEFAULT_RUNSYNC_TIMEOUT_S = 60
 
 
 log = logging.getLogger(__name__)
@@ -106,6 +96,8 @@ class CudaVersion(Enum):
     V12_6 = "12.6"
     V12_7 = "12.7"
     V12_8 = "12.8"
+    V12_9 = "12.9"
+    V13_0 = "13.0"
 
 
 class ServerlessResource(DeployableResource):
@@ -134,6 +126,7 @@ class ServerlessResource(DeployableResource):
         "executionTimeoutMs",
         "gpuCount",
         "locations",
+        "minCudaVersion",
         "name",
         "networkVolumeId",
         "networkVolumes",
@@ -162,13 +155,14 @@ class ServerlessResource(DeployableResource):
         "computeType",
         "hubRelease",
         "repo",
+        "flashBootType",
     }
 
     EXCLUDED_HASH_FIELDS: ClassVar[Set[str]] = {"id"}
 
     # === Input-only Fields ===
     cudaVersions: Optional[List[CudaVersion]] = []  # for allowedCudaVersions
-    env: Optional[Dict[str, str]] = Field(default_factory=get_env_vars)
+    env: Optional[Dict[str, str]] = Field(default=None)
     flashboot: Optional[bool] = True
     gpus: Optional[List[GpuGroup | GpuType]] = [GpuGroup.ANY]  # for gpuIds
     imageName: Optional[str] = ""  # for template.imageName
@@ -185,6 +179,7 @@ class ServerlessResource(DeployableResource):
     executionTimeoutMs: Optional[int] = 0
     gpuCount: Optional[int] = 1
     idleTimeout: Optional[int] = 60
+    minCudaVersion: Optional[CudaVersion | str] = CudaVersion.V12_8
     instanceIds: Optional[List[CpuInstanceType]] = None
     locations: Optional[str] = None
     name: str
@@ -212,6 +207,7 @@ class ServerlessResource(DeployableResource):
     repo: Optional[str] = None
     template: Optional[PodTemplate] = None
     userId: Optional[str] = None
+    flashBootType: Optional[str] = None
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}:{self.id}"
@@ -362,6 +358,16 @@ class ServerlessResource(DeployableResource):
             return result
         raise ValueError(f"Invalid datacenter value: {value!r}")
 
+    @field_validator("minCudaVersion")
+    @classmethod
+    def validate_min_cuda_version(
+        cls, value: Optional[CudaVersion | str]
+    ) -> Optional[CudaVersion]:
+        """Validate minCudaVersion is a known CudaVersion value."""
+        if value is None or isinstance(value, CudaVersion):
+            return value
+        return CudaVersion(value)
+
     @field_validator("gpus")
     @classmethod
     def validate_gpus(cls, value: List[GpuGroup | GpuType]) -> List[GpuGroup | GpuType]:
@@ -379,22 +385,31 @@ class ServerlessResource(DeployableResource):
             _validate_python_version(v)
         return v
 
+    @field_validator("idleTimeout")
+    @classmethod
+    def validate_idle_timeout(cls, value: Optional[int]) -> Optional[int]:
+        if value is None:
+            return value
+        if not 1 <= value <= 3600:
+            raise ValueError("idleTimeout must be between 1 and 3600 seconds")
+        return value
+
     @property
     def config_hash(self) -> str:
-        """Get config hash excluding env and runtime-assigned fields.
+        """Get config hash excluding runtime-assigned fields.
 
-        Prevents false drift from:
-        - Dynamic env vars computed at runtime
-        - Runtime-assigned fields (template, templateId, aiKey, userId, etc.)
+        Fields that are None are excluded via exclude_none. When env is None
+        (default), it is not included in the hash. When env is explicitly set,
+        it IS included and triggers drift detection.
 
-        Only hashes user-specified configuration, not server-assigned state.
+        Hashes user-specified configuration including env vars.
         """
         import hashlib
         import json
 
         resource_type = self.__class__.__name__
 
-        # Exclude runtime fields, env, and id from hash
+        # Exclude runtime fields and id from hash
         exclude_fields = (
             self.__class__.RUNTIME_FIELDS | self.__class__.EXCLUDED_HASH_FIELDS
         )
@@ -432,7 +447,6 @@ class ServerlessResource(DeployableResource):
         Idempotent: Can be called multiple times safely without changing the result.
         """
         # Prepend live- prefix for live provisioning context
-        # Must happen BEFORE flashboot suffix to get: live-my-endpoint-fb
         is_live_provisioning = (
             os.getenv("FLASH_IS_LIVE_PROVISIONING", "").lower() == "true"
         )
@@ -444,11 +458,11 @@ class ServerlessResource(DeployableResource):
             # Add prefix once
             self.name = f"{LIVE_PREFIX}{self.name}"
 
-        if self.flashboot and not self.name.endswith("-fb"):
-            # Remove all trailing '-fb' suffixes, then add one
+        if self.flashboot:
+            # Remove all trailing '-fb' suffixes, no longer needed
             while self.name.endswith("-fb"):
                 self.name = self.name[:-3]
-            self.name += "-fb"
+            self.flashBootType = "FLASHBOOT"
 
         # sync datacenter list to locations field for API
         env_locations = os.getenv("RUNPOD_DEFAULT_LOCATIONS")
@@ -604,7 +618,7 @@ class ServerlessResource(DeployableResource):
         return PodTemplate(
             name=self.resource_id,
             imageName=self.imageName,
-            env=KeyValuePair.from_dict(self.env or get_env_vars()),
+            env=KeyValuePair.from_dict(self.env or {}),
         )
 
     def _configure_existing_template(self) -> None:
@@ -616,8 +630,12 @@ class ServerlessResource(DeployableResource):
 
         if self.imageName:
             self.template.imageName = self.imageName
-        if self.env:
-            self.template.env = KeyValuePair.from_dict(self.env)
+        if self.env is not None:
+            has_explicit_template_env = "env" in getattr(
+                self.template, "model_fields_set", set()
+            )
+            if self.env or not has_explicit_template_env:
+                self.template.env = KeyValuePair.from_dict(self.env)
 
     async def _sync_graphql_object_with_inputs(
         self, returned_endpoint: "ServerlessResource"
@@ -630,6 +648,9 @@ class ServerlessResource(DeployableResource):
         return returned_endpoint
 
     def _sync_input_fields_gpu(self):
+        if self.gpuIds:
+            self.gpuIds = GpuGroup.normalize_gpu_ids_str(self.gpuIds)
+
         # GPU-specific fields (idempotent - only set if not already set)
         if self.gpus and not self.gpuIds:
             # Convert gpus list to gpuIds string
@@ -722,12 +743,17 @@ class ServerlessResource(DeployableResource):
 
     @staticmethod
     def _build_template_update_payload(
-        template: PodTemplate, template_id: str
+        template: PodTemplate,
+        template_id: str,
     ) -> Dict[str, Any]:
         """Build saveTemplate payload from template model.
 
         Keep this to fields supported by saveTemplate to avoid passing endpoint-only
         fields to the template mutation.
+
+        Args:
+            template: Template model with desired configuration.
+            template_id: ID of the template to update.
         """
         template_data = template.model_dump(exclude_none=True, mode="json")
         allowed_fields = {
@@ -741,6 +767,8 @@ class ServerlessResource(DeployableResource):
         payload = {
             key: value for key, value in template_data.items() if key in allowed_fields
         }
+        # saveTemplate requires env (non-nullable) — default to empty list
+        payload.setdefault("env", [])
         # savetemplate mutation requires volumeInGb, but for sls this is always 0
         payload["volumeInGb"] = 0
         payload["id"] = template_id
@@ -831,6 +859,105 @@ class ServerlessResource(DeployableResource):
         except Exception:
             return None
 
+    def _inject_template_env(self, key: str, value: str) -> None:
+        """Append a KeyValuePair to self.template.env if the key isn't already present.
+
+        This injects runtime env vars directly into the template without
+        mutating self.env, which would cause false config drift on subsequent
+        deploys.
+        """
+        if self.template is None:
+            return
+        if self.template.env is None:
+            self.template.env = []
+        existing_keys = {kv.key for kv in self.template.env}
+        if key not in existing_keys:
+            self.template.env.append(KeyValuePair(key=key, value=value))
+
+    def _inject_runtime_template_vars(self) -> None:
+        """Inject runtime env vars into template.env without mutating self.env.
+
+        For QB endpoints making remote calls: injects RUNPOD_API_KEY.
+        For LB endpoints: injects FLASH_MODULE_PATH.
+
+        Called by both _do_deploy (initial) and update (env changes) so
+        runtime vars survive template updates.
+        """
+        env_dict = self.env or {}
+
+        if self.type == ServerlessType.QB:
+            if self._check_makes_remote_calls():
+                if "RUNPOD_API_KEY" not in env_dict:
+                    from runpod_flash.core.credentials import get_api_key
+
+                    api_key = get_api_key()
+                    if api_key:
+                        self._inject_template_env("RUNPOD_API_KEY", api_key)
+                        log.debug(
+                            f"{self.name}: Injected RUNPOD_API_KEY for remote calls "
+                            f"(makes_remote_calls=True)"
+                        )
+                    else:
+                        log.warning(
+                            f"{self.name}: makes_remote_calls=True but RUNPOD_API_KEY not set. "
+                            f"Remote calls to other endpoints will fail."
+                        )
+
+        elif self.type == ServerlessType.LB:
+            module_path = self._get_module_path()
+            if module_path and "FLASH_MODULE_PATH" not in env_dict:
+                self._inject_template_env("FLASH_MODULE_PATH", module_path)
+                log.debug(f"{self.name}: Injected FLASH_MODULE_PATH={module_path}")
+
+    async def _preserve_platform_env(
+        self,
+        client: "RunpodGraphQLClient",
+        template_id: str,
+        old_env: Optional[Dict[str, str]] = None,
+    ) -> None:
+        """Read current template env and re-add platform-injected vars.
+
+        The platform injects env vars (e.g. PORT, PORT_HEALTH) once at
+        initial deploy and does not re-inject them on saveTemplate.  When
+        we send a full env replacement we must carry those vars forward.
+
+        A live template key is considered platform-injected only if it
+        was NOT in the previous user config (old_env).  Keys that were
+        in old_env but are absent from the new config were intentionally
+        removed by the user and must not be resurrected.
+        """
+        if self.template is None:
+            return
+
+        try:
+            live = await client.get_template(template_id)
+        except Exception:
+            log.debug(
+                f"{self.name}: Could not fetch template '{template_id}', "
+                f"skipping platform env preservation"
+            )
+            return
+
+        live_env = live.get("env") or []
+        if not live_env:
+            return
+
+        new_keys = {kv.key for kv in (self.template.env or [])}
+        old_keys = set(old_env or {})
+        for entry in live_env:
+            key = entry.get("key", "")
+            if not key or key in new_keys:
+                continue
+            # Key was in old user config — user intentionally removed it
+            if key in old_keys:
+                log.debug(f"{self.name}: User removed env var '{key}', not preserving")
+                continue
+            self.template.env = self.template.env or []
+            self.template.env.append(
+                KeyValuePair(key=key, value=entry.get("value", ""))
+            )
+            log.debug(f"{self.name}: Preserved platform env var '{key}'")
+
     async def _do_deploy(self) -> "DeployableResource":
         """
         Deploys the serverless resource using the provided configuration.
@@ -846,43 +973,7 @@ class ServerlessResource(DeployableResource):
                 log.debug(f"{self} exists")
                 return self
 
-            # Inject API key for queue-based endpoints that make remote calls
-            if self.type == ServerlessType.QB:
-                env_dict = self.env or {}
-
-                # Check if this resource makes remote calls (from build manifest)
-                makes_remote_calls = self._check_makes_remote_calls()
-
-                if makes_remote_calls:
-                    # Inject RUNPOD_API_KEY if not already set
-                    if "RUNPOD_API_KEY" not in env_dict:
-                        from runpod_flash.core.credentials import get_api_key
-
-                        api_key = get_api_key()
-                        if api_key:
-                            env_dict["RUNPOD_API_KEY"] = api_key
-                            log.debug(
-                                f"{self.name}: Injected RUNPOD_API_KEY for remote calls "
-                                f"(makes_remote_calls=True)"
-                            )
-                        else:
-                            log.warning(
-                                f"{self.name}: makes_remote_calls=True but RUNPOD_API_KEY not set. "
-                                f"Remote calls to other endpoints will fail."
-                            )
-
-                self.env = env_dict
-
-            # Inject module path for load-balanced endpoints
-            elif self.type == ServerlessType.LB:
-                env_dict = self.env or {}
-
-                module_path = self._get_module_path()
-                if module_path and "FLASH_MODULE_PATH" not in env_dict:
-                    env_dict["FLASH_MODULE_PATH"] = module_path
-                    log.debug(f"{self.name}: Injected FLASH_MODULE_PATH={module_path}")
-
-                self.env = env_dict
+            self._inject_runtime_template_vars()
 
             # Ensure network volumes are deployed first
             await self._ensure_network_volume_deployed()
@@ -961,8 +1052,59 @@ class ServerlessResource(DeployableResource):
 
                 if new_config.template:
                     if resolved_template_id:
+                        # Skip env in the template payload when the user's env
+                        # hasn't changed.  This lets the platform keep vars it
+                        # injected (e.g. PORT, PORT_HEALTH on LB endpoints)
+                        # and avoids a spurious rolling release.
+                        #
+                        # Also check template.env: if env is empty but the
+                        # caller provided explicit template env entries, those
+                        # must not be silently dropped.
+                        env_changed = self.env != new_config.env
+                        template_fields_set = getattr(
+                            new_config.template, "model_fields_set", set()
+                        )
+                        has_explicit_template_env = (
+                            not new_config.env and "env" in template_fields_set
+                        )
+                        env_needs_update = env_changed or has_explicit_template_env
+
+                        if env_needs_update:
+                            # Inject runtime vars (RUNPOD_API_KEY, FLASH_MODULE_PATH)
+                            # so they survive the template env overwrite.
+                            new_config._inject_runtime_template_vars()
+
+                            # Preserve platform-injected env vars (e.g. PORT,
+                            # PORT_HEALTH) that the platform sets once at initial
+                            # deploy and does not re-inject on template updates.
+                            await new_config._preserve_platform_env(
+                                client, resolved_template_id, self.env
+                            )
+                        else:
+                            # Env unchanged — echo back the live template env so
+                            # platform-injected vars (PORT, PORT_HEALTH) are
+                            # preserved.  saveTemplate requires env (non-nullable),
+                            # so we cannot omit the field.
+                            try:
+                                live = await client.get_template(resolved_template_id)
+                                live_env = live.get("env") or []
+                                new_config.template.env = [
+                                    KeyValuePair(
+                                        key=entry["key"], value=entry.get("value", "")
+                                    )
+                                    for entry in live_env
+                                ]
+                            except Exception:
+                                log.warning(
+                                    f"{self.name}: Could not fetch live template env; "
+                                    f"cannot guarantee platform-injected vars "
+                                    f"(PORT, PORT_HEALTH) are preserved"
+                                )
+                                raise
+
                         template_payload = self._build_template_update_payload(
-                            new_config.template, resolved_template_id
+                            new_config.template,
+                            resolved_template_id,
                         )
                         await client.update_template(template_payload)
                         log.debug(
@@ -1031,6 +1173,7 @@ class ServerlessResource(DeployableResource):
             "flashboot",
             "allowedCudaVersions",
             "cudaVersions",
+            "minCudaVersion",
             "instanceIds",
         ]
 
@@ -1114,10 +1257,16 @@ class ServerlessResource(DeployableResource):
         if not self.id:
             raise ValueError("Serverless is not deployed")
 
+        timeout_s: float = (
+            self.executionTimeoutMs / 1000
+            if self.executionTimeoutMs is not None and self.executionTimeoutMs > 0
+            else DEFAULT_RUNSYNC_TIMEOUT_S
+        )
+
         def _fetch_job():
             log.info(f"{self} | API /runsync")
             return self.endpoint.rp_client.post(
-                f"{self.id}/runsync", payload, timeout=60
+                f"{self.id}/runsync", payload, timeout=timeout_s
             )
 
         try:

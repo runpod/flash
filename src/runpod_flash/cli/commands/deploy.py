@@ -88,9 +88,19 @@ def deploy_command(
         console.print(f"\n[red]Error:[/red] {e}")
         raise typer.Exit(1)
     except Exception as e:
-        console.print(f"\n[red]Deploy failed:[/red] {e}")
-        logger.exception("Deploy failed")
+        _handle_deploy_error(e)
+
+
+def _handle_deploy_error(exc: Exception) -> None:
+    """Handle deploy errors, providing targeted guidance for SSL issues."""
+    from requests.exceptions import SSLError
+
+    if isinstance(exc, SSLError):
+        console.print(f"\n[red]SSL error:[/red] {exc}")
         raise typer.Exit(1)
+    console.print(f"\n[red]Deploy failed:[/red] {exc}")
+    logger.exception("Deploy failed")
+    raise typer.Exit(1)
 
 
 def _print_curl_example(url: str, method: str = "POST") -> None:

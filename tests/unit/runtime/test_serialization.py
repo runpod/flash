@@ -1,11 +1,20 @@
 """Tests for serialization utilities."""
 
+import time
 from unittest.mock import patch
 
+import cloudpickle
 import pytest
 
-from runpod_flash.runtime.exceptions import SerializationError
+from runpod_flash.runtime.config import MAX_PAYLOAD_SIZE
+from runpod_flash.runtime.exceptions import (
+    DeserializeTimeoutError,
+    PayloadTooLargeError,
+    SerializationError,
+)
 from runpod_flash.runtime.serialization import (
+    _check_payload_size,
+    _unpickle_with_timeout,
     deserialize_arg,
     deserialize_args,
     deserialize_kwargs,
@@ -22,7 +31,6 @@ class TestSerializeArg:
         """Test serializing a simple argument."""
         result = serialize_arg(42)
         assert isinstance(result, str)
-        # Verify it's valid base64
         import base64
 
         decoded = base64.b64decode(result)
@@ -106,21 +114,87 @@ class TestSerializeKwargs:
                 serialize_kwargs({"key": 42})
 
 
+class TestCheckPayloadSize:
+    """Test _check_payload_size function."""
+
+    def test_within_limit(self):
+        """Payloads within MAX_PAYLOAD_SIZE pass silently."""
+        _check_payload_size("a" * 100)
+
+    def test_at_limit(self):
+        """Payload exactly at MAX_PAYLOAD_SIZE passes."""
+        _check_payload_size("a" * MAX_PAYLOAD_SIZE)
+
+    def test_over_limit(self):
+        """Payload exceeding MAX_PAYLOAD_SIZE raises PayloadTooLargeError."""
+        with pytest.raises(PayloadTooLargeError, match="exceeds limit"):
+            _check_payload_size("a" * (MAX_PAYLOAD_SIZE + 1))
+
+    def test_error_message_includes_sizes(self):
+        """Error message reports actual and limit sizes in MB."""
+        oversized = "a" * (MAX_PAYLOAD_SIZE + 1)
+        with pytest.raises(PayloadTooLargeError) as exc_info:
+            _check_payload_size(oversized)
+        msg = str(exc_info.value)
+        assert "MB" in msg
+        assert "10.0 MB" in msg
+
+
+class TestUnpickleWithTimeout:
+    """Test _unpickle_with_timeout function."""
+
+    def test_normal_deserialization(self):
+        """Small payloads deserialize within the timeout."""
+        data = cloudpickle.dumps(42)
+        assert _unpickle_with_timeout(data, 5) == 42
+
+    def test_timeout_raises(self):
+        """A slow unpickle triggers DeserializeTimeoutError."""
+
+        def slow_loads(data):
+            time.sleep(5)
+            return None
+
+        with patch("runpod_flash.runtime.serialization.cloudpickle") as mock_cp:
+            mock_cp.loads = slow_loads
+            with pytest.raises(DeserializeTimeoutError, match="timed out"):
+                _unpickle_with_timeout(b"fake", 1)
+
+
 class TestDeserializeArg:
     """Test deserialize_arg function."""
 
-    def test_deserialize_simple_arg(self):
-        """Test deserializing a simple argument."""
-        # First serialize something
+    def test_roundtrip(self):
+        """Serialize then deserialize returns the original value."""
         serialized = serialize_arg(42)
-        # Then deserialize it
         result = deserialize_arg(serialized)
         assert result == 42
 
-    def test_deserialize_raises_on_invalid_base64(self):
-        """Test deserialize_arg raises on invalid base64."""
+    def test_raises_on_invalid_base64(self):
+        """Invalid base64 raises SerializationError."""
         with pytest.raises(SerializationError, match="Failed to deserialize argument"):
             deserialize_arg("not-valid-base64!!!")
+
+    def test_rejects_oversized_payload(self):
+        """Payload larger than MAX_PAYLOAD_SIZE raises PayloadTooLargeError."""
+        oversized = "A" * (MAX_PAYLOAD_SIZE + 1)
+        with pytest.raises(PayloadTooLargeError):
+            deserialize_arg(oversized)
+
+    def test_timeout_on_slow_unpickle(self):
+        """Slow cloudpickle.loads raises DeserializeTimeoutError."""
+        valid_b64 = serialize_arg("hello")
+
+        def slow_loads(data):
+            time.sleep(5)
+
+        with patch("runpod_flash.runtime.serialization.cloudpickle") as mock_cp:
+            mock_cp.loads = slow_loads
+            with patch(
+                "runpod_flash.runtime.serialization.DESERIALIZE_TIMEOUT_SECONDS", 1
+            ):
+                with pytest.raises(DeserializeTimeoutError):
+                    deserialize_arg(valid_b64)
 
 
 class TestDeserializeArgs:
@@ -136,6 +210,12 @@ class TestDeserializeArgs:
         """Test deserializing empty args list."""
         result = deserialize_args([])
         assert result == []
+
+    def test_propagates_payload_too_large(self):
+        """PayloadTooLargeError from a single arg propagates."""
+        oversized = "A" * (MAX_PAYLOAD_SIZE + 1)
+        with pytest.raises(PayloadTooLargeError):
+            deserialize_args([oversized])
 
     def test_deserialize_args_propagates_serialization_error(self):
         """Test deserialize_args propagates SerializationError."""
@@ -169,6 +249,12 @@ class TestDeserializeKwargs:
         """Test deserializing empty kwargs dict."""
         result = deserialize_kwargs({})
         assert result == {}
+
+    def test_propagates_payload_too_large(self):
+        """PayloadTooLargeError from a single kwarg value propagates."""
+        oversized = "A" * (MAX_PAYLOAD_SIZE + 1)
+        with pytest.raises(PayloadTooLargeError):
+            deserialize_kwargs({"big": oversized})
 
     def test_deserialize_kwargs_propagates_serialization_error(self):
         """Test deserialize_kwargs propagates SerializationError."""

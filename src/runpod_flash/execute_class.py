@@ -6,6 +6,7 @@ with automatic caching of class serialization data to improve performance and
 prevent memory leaks through LRU eviction.
 """
 
+import asyncio
 import hashlib
 import inspect
 import logging
@@ -190,7 +191,6 @@ def create_remote_class(
     dependencies: Optional[List[str]],
     system_dependencies: Optional[List[str]],
     accelerate_downloads: bool,
-    extra: dict,
 ):
     """
     Create a remote class wrapper.
@@ -202,19 +202,22 @@ def create_remote_class(
         raise ValueError("Class must have a __name__ attribute")
 
     class RemoteClassWrapper:
+        # store a reference to the original class for introspection
+        _wrapped_class = cls
+
         def __init__(self, *args, **kwargs):
             self._class_type = cls
             self._resource_config = resource_config
             self._dependencies = dependencies or []
             self._system_dependencies = system_dependencies or []
             self._accelerate_downloads = accelerate_downloads
-            self._extra = extra
             self._constructor_args = args
             self._constructor_kwargs = kwargs
             self._instance_id = (
                 f"{cls.__name__}_{uuid.uuid4().hex[:UUID_FALLBACK_LENGTH]}"
             )
             self._initialized = False
+            self._init_lock = asyncio.Lock()
 
             # Generate cache key and get class code
             self._cache_key = get_class_cache_key(cls, args, kwargs)
@@ -223,20 +226,23 @@ def create_remote_class(
             )
 
         async def _ensure_initialized(self):
-            """Ensure the remote instance is created."""
+            """Ensure the remote instance is created exactly once, even under concurrent calls."""
+            # Fast path: already initialized, no lock needed.
             if self._initialized:
                 return
 
-            # Get remote resource
-            resource_manager = ResourceManager()
-            remote_resource = await resource_manager.get_or_deploy_resource(
-                self._resource_config
-            )
-            self._stub = stub_resource(remote_resource, **self._extra)
+            # Slow path: acquire lock and re-check to prevent double deployment
+            # when multiple coroutines race past the fast-path check.
+            async with self._init_lock:
+                if self._initialized:
+                    return
 
-            # Create the remote instance by calling a method (which will trigger instance creation)
-            # We'll do this on first method call
-            self._initialized = True
+                resource_manager = ResourceManager()
+                remote_resource = await resource_manager.get_or_deploy_resource(
+                    self._resource_config
+                )
+                self._stub = stub_resource(remote_resource)
+                self._initialized = True
 
         def __getattr__(self, name):
             """Dynamically create method proxies for all class methods."""

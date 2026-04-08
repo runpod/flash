@@ -19,6 +19,18 @@ class SerializationError(FlashRuntimeError):
     pass
 
 
+class PayloadTooLargeError(SerializationError):
+    """Raised when a serialized argument exceeds MAX_PAYLOAD_SIZE."""
+
+    pass
+
+
+class DeserializeTimeoutError(SerializationError):
+    """Raised when cloudpickle.loads() exceeds DESERIALIZE_TIMEOUT_SECONDS."""
+
+    pass
+
+
 class GraphQLError(FlashRuntimeError):
     """Base exception for GraphQL-related errors."""
 

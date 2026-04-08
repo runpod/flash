@@ -58,26 +58,25 @@ class TestAccelerateDownloads:
 
 
 # ---------------------------------------------------------------------------
-# REM-FN-010: Extra **kwargs forwarded to stub_resource()
+# REM-FN-010: Unknown **kwargs raise TypeError (AE-2313)
 # ---------------------------------------------------------------------------
-class TestExtraKwargsForwarded:
-    """@remote extra kwargs forwarded to stub_resource()."""
+class TestUnknownKwargsRejected:
+    """@remote rejects unknown kwargs to prevent typo bugs."""
 
     @patch.dict(os.environ, {}, clear=True)
-    def test_extra_kwargs_accepted(self):
-        """REM-FN-010: Extra kwargs do not raise at decoration time."""
+    def test_unknown_kwargs_raise_type_error(self):
+        """REM-FN-010: Unknown kwargs raise TypeError at decoration time."""
+        import warnings
+
         from runpod_flash.client import remote
         from runpod_flash.core.resources import LiveServerless
 
         resource = LiveServerless(name="extra-kwargs")
 
-        # extra kwargs should be accepted without error
-        @remote(resource, custom_param="foo", another=42)
-        async def my_func(x):
-            return x
-
-        assert hasattr(my_func, "__remote_config__")
-        assert callable(my_func)
+        with pytest.raises(TypeError, match="unknown keyword arguments"):
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", DeprecationWarning)
+                remote(resource, custom_param="foo", another=42)
 
 
 # ---------------------------------------------------------------------------
@@ -106,7 +105,7 @@ class TestQBResourceMethodPathWarning:
 
 
 # ---------------------------------------------------------------------------
-# VOL-005: Volume size=0 raises validation error
+# VOL-005: Volume size below minimum raises validation error
 # VOL-006: Volume name empty
 # VOL-007: Undeploy raises NotImplementedError
 # ---------------------------------------------------------------------------
@@ -114,17 +113,17 @@ class TestNetworkVolumeValidation:
     """Network volume validation edge cases."""
 
     def test_volume_size_zero_raises(self):
-        """VOL-005: size=0 raises validation error (gt=0 constraint)."""
+        """VOL-005: size=0 raises validation error (min 10GB)."""
         from runpod_flash.core.resources.network_volume import NetworkVolume
 
-        with pytest.raises(ValidationError, match="greater than 0"):
+        with pytest.raises(ValidationError, match="greater than or equal to 10"):
             NetworkVolume(name="test-vol", size=0)
 
     def test_volume_size_negative_raises(self):
         """VOL-005: Negative size also rejected."""
         from runpod_flash.core.resources.network_volume import NetworkVolume
 
-        with pytest.raises(ValidationError, match="greater than 0"):
+        with pytest.raises(ValidationError, match="greater than or equal to 10"):
             NetworkVolume(name="test-vol", size=-10)
 
     @pytest.mark.asyncio
@@ -138,7 +137,7 @@ class TestNetworkVolumeValidation:
             await vol.undeploy()
 
     def test_volume_default_size(self):
-        """Default volume size is 100GB."""
+        """Default volume size is 100GB for backwards compatibility."""
         from runpod_flash.core.resources.network_volume import NetworkVolume
 
         vol = NetworkVolume(name="test-vol")
@@ -226,9 +225,9 @@ class TestScannerDocstring:
     """AST scanner extracts function docstrings."""
 
     def test_scanner_extracts_docstring(self, tmp_path):
-        """SCAN-010: RemoteDecoratorScanner extracts first line of docstring."""
+        """SCAN-010: RuntimeScanner extracts first line of docstring."""
         from runpod_flash.cli.commands.build_utils.scanner import (
-            RemoteDecoratorScanner,
+            RuntimeScanner,
         )
 
         worker_file = tmp_path / "worker.py"
@@ -241,7 +240,7 @@ class TestScannerDocstring:
             "    return x * 2\n"
         )
 
-        scanner = RemoteDecoratorScanner(tmp_path)
+        scanner = RuntimeScanner(tmp_path)
         functions = scanner.discover_remote_functions()
 
         # Scanner should find at least one function

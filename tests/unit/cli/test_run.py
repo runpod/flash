@@ -314,19 +314,16 @@ class TestRunCommandHotReload:
             with patch("runpod_flash.cli.commands.run.os.getpgid", return_value=12345):
                 with patch("runpod_flash.cli.commands.run.os.killpg"):
                     with patch(
-                        "runpod_flash.cli.commands.run.threading.Thread"
-                    ) as mock_thread_cls:
-                        mock_thread = MagicMock()
-                        mock_thread_cls.return_value = mock_thread
-
+                        "runpod_flash.cli.commands.run._watch_and_regenerate"
+                    ) as mock_watcher:
                         runner.invoke(app, ["run", "--no-reload"])
 
             cmd = mock_popen.call_args[0][0]
             assert "--reload" not in cmd
-            mock_thread.start.assert_not_called()
+            mock_watcher.assert_not_called()
 
     def test_watcher_thread_started_on_reload(
-        self, runner, temp_fastapi_app, monkeypatch, patch_watcher
+        self, runner, temp_fastapi_app, monkeypatch
     ):
         """When reload=True, the background watcher thread is started."""
         monkeypatch.chdir(temp_fastapi_app)
@@ -340,14 +337,11 @@ class TestRunCommandHotReload:
             with patch("runpod_flash.cli.commands.run.os.getpgid", return_value=12345):
                 with patch("runpod_flash.cli.commands.run.os.killpg"):
                     with patch(
-                        "runpod_flash.cli.commands.run.threading.Thread"
-                    ) as mock_thread_cls:
-                        mock_thread = MagicMock()
-                        mock_thread_cls.return_value = mock_thread
-
+                        "runpod_flash.cli.commands.run._watch_and_regenerate"
+                    ) as mock_watcher:
                         runner.invoke(app, ["run"])
 
-            mock_thread.start.assert_called_once()
+            mock_watcher.assert_called_once()
 
     def test_watcher_thread_stopped_on_keyboard_interrupt(
         self, runner, temp_fastapi_app, monkeypatch
@@ -364,20 +358,12 @@ class TestRunCommandHotReload:
             with patch("runpod_flash.cli.commands.run.os.getpgid", return_value=12345):
                 with patch("runpod_flash.cli.commands.run.os.killpg"):
                     with patch(
-                        "runpod_flash.cli.commands.run.threading.Thread"
-                    ) as mock_thread_cls:
-                        mock_thread = MagicMock()
-                        mock_thread_cls.return_value = mock_thread
-                        with patch(
-                            "runpod_flash.cli.commands.run.threading.Event"
-                        ) as mock_event_cls:
-                            mock_stop = MagicMock()
-                            mock_event_cls.return_value = mock_stop
+                        "runpod_flash.cli.commands.run._watch_and_regenerate"
+                    ) as mock_watcher:
+                        runner.invoke(app, ["run"])
 
-                            runner.invoke(app, ["run"])
-
-            mock_stop.set.assert_called_once()
-            mock_thread.join.assert_called_once_with(timeout=2)
+            stop_event = mock_watcher.call_args[0][1]
+            assert stop_event.is_set()
 
 
 class TestWatchAndRegenerate:
@@ -391,7 +377,8 @@ class TestWatchAndRegenerate:
         stop = threading.Event()
 
         with patch(
-            "runpod_flash.cli.commands.run._scan_project_workers", return_value=[]
+            "runpod_flash.cli.commands.run._scan_project_workers",
+            return_value=([], None),
         ) as mock_scan:
             with patch(
                 "runpod_flash.cli.commands.run._generate_flash_server"

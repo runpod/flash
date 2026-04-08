@@ -25,7 +25,7 @@ class TestSupportedPythonVersions:
         assert GPU_PYTHON_VERSIONS == ("3.12",)
 
     def test_cpu_python_versions(self):
-        assert CPU_PYTHON_VERSIONS == ("3.10", "3.11", "3.12")
+        assert CPU_PYTHON_VERSIONS == ("3.12",)
 
     def test_default_python_version_is_3_12(self):
         assert DEFAULT_PYTHON_VERSION == "3.12"
@@ -48,17 +48,19 @@ class TestGetImageName:
         with pytest.raises(ValueError, match="GPU endpoints require"):
             get_image_name("gpu", "3.10", tag="latest")
 
-    def test_cpu_3_11(self):
+    def test_cpu_3_12(self):
         assert (
-            get_image_name("cpu", "3.11", tag="latest")
-            == "runpod/flash-cpu:py3.11-latest"
+            get_image_name("cpu", "3.12", tag="latest")
+            == "runpod/flash-cpu:py3.12-latest"
         )
 
-    def test_cpu_3_10(self):
-        assert (
+    def test_cpu_3_11_raises(self):
+        with pytest.raises(ValueError, match="CPU endpoints require"):
+            get_image_name("cpu", "3.11", tag="latest")
+
+    def test_cpu_3_10_raises(self):
+        with pytest.raises(ValueError, match="CPU endpoints require"):
             get_image_name("cpu", "3.10", tag="latest")
-            == "runpod/flash-cpu:py3.10-latest"
-        )
 
     def test_lb_3_11_raises(self):
         with pytest.raises(ValueError, match="GPU endpoints require"):
@@ -74,11 +76,15 @@ class TestGetImageName:
             == "runpod/flash-lb:py3.12-latest"
         )
 
-    def test_lb_cpu_3_10(self):
+    def test_lb_cpu_3_12(self):
         assert (
-            get_image_name("lb-cpu", "3.10", tag="latest")
-            == "runpod/flash-lb-cpu:py3.10-latest"
+            get_image_name("lb-cpu", "3.12", tag="latest")
+            == "runpod/flash-lb-cpu:py3.12-latest"
         )
+
+    def test_lb_cpu_3_10_raises(self):
+        with pytest.raises(ValueError, match="CPU endpoints require"):
+            get_image_name("lb-cpu", "3.10", tag="latest")
 
     def test_default_tag_reads_flash_image_tag_env(self):
         with patch.dict(os.environ, {"FLASH_IMAGE_TAG": "v1.0"}):
@@ -120,26 +126,17 @@ class TestGetImageName:
             assert get_image_name("gpu", "3.9") == "custom/gpu:mine"
 
     def test_env_var_override_bypasses_gpu_version_constraint(self):
-        """Env var override works even for versions not in GPU_PYTHON_VERSIONS."""
+        """env var override works even for versions not in GPU_PYTHON_VERSIONS."""
         with patch.dict(os.environ, {"FLASH_GPU_IMAGE": "custom/gpu:mine"}):
             assert get_image_name("gpu", "3.8") == "custom/gpu:mine"
 
 
 class TestLocalPythonVersion:
-    def test_returns_major_minor_string(self):
-        import sys
-
-        expected = f"{sys.version_info.major}.{sys.version_info.minor}"
-        assert local_python_version() == expected
+    def test_returns_3_12(self):
+        assert local_python_version() == "3.12"
 
     def test_returns_string_type(self):
         assert isinstance(local_python_version(), str)
-
-    def test_matches_dot_separated_format(self):
-        version = local_python_version()
-        parts = version.split(".")
-        assert len(parts) == 2
-        assert all(part.isdigit() for part in parts)
 
 
 class TestValidatePythonVersion:

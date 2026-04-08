@@ -115,7 +115,17 @@ class GpuGroup(Enum):
                 out.append(pool_id.value)
             else:
                 out.append(str(pool_id))
-        return ",".join(out)
+        return cls.normalize_gpu_ids_str(",".join(out))
+
+    @classmethod
+    def normalize_gpu_ids_str(cls, gpu_ids_str: str) -> str:
+        """Return canonical gpuIds string for stable comparisons and hashing."""
+        tokens = {token.strip() for token in gpu_ids_str.split(",") if token.strip()}
+        ordered_tokens = sorted(
+            tokens,
+            key=lambda token: (token.startswith("-"), token.lstrip("-").lower()),
+        )
+        return ",".join(ordered_tokens)
 
     @classmethod
     def from_gpu_ids_str(cls, gpu_ids_str: str) -> List[GpuGroup | GpuType]:

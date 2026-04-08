@@ -28,8 +28,9 @@ class TestLoadBalancerSlsResourceCreation:
             imageName="test-image:latest",
         )
 
-        # Note: name gets -fb suffix added by sync_input_fields due to flashboot=True
-        assert resource.name == "test-endpoint-fb"
+        # Note: name should not get -fb appended anymore
+        assert resource.name == "test-endpoint"
+        assert resource.flashBootType == "FLASHBOOT"
         assert resource.imageName == "test-image:latest"
         assert resource.type == ServerlessType.LB
         assert resource.scalerType == ServerlessScalerType.REQUEST_COUNT

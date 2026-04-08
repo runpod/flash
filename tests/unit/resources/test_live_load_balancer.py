@@ -197,8 +197,7 @@ class TestCpuLiveLoadBalancer:
         importlib.reload(ls_module)
 
         lb = ls_module.CpuLiveLoadBalancer(name="test-lb")
-        local_pyver = const_module.local_python_version()
-        expected_image = f"runpod/flash-lb-cpu:py{local_pyver}-local"
+        expected_image = "runpod/flash-lb-cpu:py3.12-local"
         assert lb.imageName == expected_image
         assert lb.template is not None
         assert lb.template.imageName == expected_image

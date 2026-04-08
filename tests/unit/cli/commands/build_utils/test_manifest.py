@@ -465,8 +465,8 @@ def test_extract_deployment_config_cleans_up_sys_path():
         assert sys.path == path_before
 
 
-def test_extract_deployment_config_includes_env_without_api_key():
-    """Resource env is extracted and RUNPOD_API_KEY is excluded."""
+def test_manifest_preserves_explicit_runpod_api_key_in_env():
+    """If user explicitly declares RUNPOD_API_KEY in resource env, manifest keeps it."""
     with tempfile.TemporaryDirectory() as tmpdir:
         project_dir = Path(tmpdir)
 
@@ -497,7 +497,7 @@ def test_extract_deployment_config_includes_env_without_api_key():
         )
 
         assert config["env"]["APP_MODE"] == "prod"
-        assert "RUNPOD_API_KEY" not in config["env"]
+        assert config["env"]["RUNPOD_API_KEY"] == "secret"
 
 
 # --- Tests for networkVolume extraction ---
@@ -945,10 +945,9 @@ def test_manifest_includes_python_version():
     manifest = builder.build()
 
     assert "python_version" in manifest
-    import sys
+    from runpod_flash.core.resources.constants import DEFAULT_PYTHON_VERSION
 
-    expected = f"{sys.version_info.major}.{sys.version_info.minor}"
-    assert manifest["python_version"] == expected
+    assert manifest["python_version"] == DEFAULT_PYTHON_VERSION
 
 
 def test_manifest_uses_explicit_python_version():

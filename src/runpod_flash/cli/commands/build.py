@@ -18,12 +18,11 @@ from rich.console import Console
 try:
     import tomllib  # Python 3.11+
 except ImportError:
-    import tomli as tomllib  # Python 3.9-3.10
+    import tomli as tomllib  # Python 3.10
 
 from runpod_flash.core.resources.constants import (
+    DEFAULT_PYTHON_VERSION,
     MAX_TARBALL_SIZE_MB,
-    SUPPORTED_PYTHON_VERSIONS,
-    validate_python_version,
 )
 
 from ..utils.ignore import get_file_tree, load_ignore_patterns
@@ -31,7 +30,7 @@ from .build_utils.handler_generator import HandlerGenerator
 from .build_utils.lb_handler_generator import LBHandlerGenerator
 from .build_utils.manifest import ManifestBuilder
 from .build_utils.resource_config_generator import generate_all_resource_configs
-from .build_utils.scanner import RemoteDecoratorScanner
+from .build_utils.scanner import RuntimeScanner
 
 logger = logging.getLogger(__name__)
 
@@ -261,7 +260,7 @@ def run_build(
         Path to the created artifact archive
 
     Raises:
-        typer.Exit: On build failure (including when archive exceeds 500 MB)
+        typer.Exit: On build failure (including when archive exceeds 1500 MB)
     """
     if not validate_project_structure(project_dir):
         console.print("[red]Error:[/red] Not a valid Flash project")
@@ -280,30 +279,24 @@ def run_build(
     spec = load_ignore_patterns(project_dir)
     files = get_file_tree(project_dir, spec)
 
-    # Validate Python version unconditionally — even projects with no dependencies
-    # must build on a supported Python to avoid runtime ABI mismatches.
-    python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
-    try:
-        validate_python_version(python_version)
-    except ValueError:
-        console.print(
-            f"\n[red]Python {python_version} is not supported for Flash deployment.[/red]"
-        )
-        console.print(
-            f"[yellow]Supported versions: {', '.join(SUPPORTED_PYTHON_VERSIONS)}[/yellow]"
-        )
-        console.print(
-            "[yellow]Please switch your local Python interpreter to a supported "
-            "version, or build inside a virtual environment that uses one.[/yellow]"
-        )
-        raise typer.Exit(1)
+    # all packaging and image selection targets 3.12 regardless of local python.
+    # pip downloads wheels for 3.12 via --python-version, and all worker images
+    # run 3.12, so the local interpreter version does not affect the build output.
+    python_version = DEFAULT_PYTHON_VERSION
 
     try:
         copy_project_files(files, project_dir, build_dir)
 
         try:
-            scanner = RemoteDecoratorScanner(build_dir)
+            scanner = RuntimeScanner(build_dir)
             remote_functions = scanner.discover_remote_functions()
+
+            if scanner.import_errors:
+                console.print("\n[red bold]Failed to load:[/red bold]")
+                for filename, err in scanner.import_errors.items():
+                    console.print(f"  [red]{filename}[/red]: {err}")
+                console.print()
+                raise typer.Exit(1)
 
             manifest_builder = ManifestBuilder(
                 app_name,
@@ -326,6 +319,8 @@ def run_build(
             deployment_manifest_path = flash_dir / "flash_manifest.json"
             shutil.copy2(manifest_path, deployment_manifest_path)
 
+        except typer.Exit:
+            raise
         except (ImportError, SyntaxError) as e:
             console.print(f"[red]Error:[/red] Code analysis failed: {e}")
             logger.exception("Code analysis failed")
@@ -534,7 +529,7 @@ def validate_project_structure(project_dir: Path) -> bool:
     Validate that directory is a Flash project.
 
     A Flash project is any directory containing Python files. The
-    RemoteDecoratorScanner validates that @remote functions exist.
+    RuntimeScanner validates that @remote functions exist.
 
     Args:
         project_dir: Directory to validate

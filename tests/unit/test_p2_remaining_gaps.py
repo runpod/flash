@@ -4,9 +4,9 @@ Covers:
   CLI-RUN-018  – watchfiles fallback stub raises ModuleNotFoundError
   REM-CLS-013  – extract_class_code_simple fallback when inspect.getsource fails
   RES-LS-008   – ServerlessResource.env default populated from .env file
-  VOL-006      – NetworkVolume with empty name still constructs (no validator guards it)
-  SCAN-016     – RemoteDecoratorScanner handles @remote on nested class (class in function)
-  SCAN-017     – RemoteDecoratorScanner handles conditional @remote gracefully
+  VOL-006      – NetworkVolume with empty/whitespace name is rejected by validator
+  SCAN-016     – RuntimeScanner handles @remote on nested class (class in function)
+  SCAN-017     – RuntimeScanner handles conditional @remote gracefully
   STUB-STACK-004 – detect_remote_dependencies terminates on circular dependency graph
   SRVGEN-008   – RemoteClassWrapper stores _class_type for Pydantic introspection
   LB-ROUTE-003 – LoadBalancer random strategy selects from endpoint pool
@@ -182,50 +182,24 @@ class TestExtractClassCodeFallback:
 
 
 class TestServerlessResourceEnvLoading:
-    """ServerlessResource.env default is populated by get_env_vars() / EnvironmentVars."""
+    """ServerlessResource.env defaults to None (no implicit .env carryover)."""
 
-    def test_env_loaded_from_dotenv_file(self, tmp_path):
-        """RES-LS-008: env field is populated from a .env file when it exists."""
-
-        # Write a temporary .env file.
-        env_file = tmp_path / ".env"
-        env_file.write_text("FLASH_TEST_SECRET=hunter2\nFLASH_TEST_FOO=bar\n")
-
-        # patch dotenv_values to return our custom file's content.
-        with patch(
-            "runpod_flash.core.resources.environment.dotenv_values",
-            return_value={"FLASH_TEST_SECRET": "hunter2", "FLASH_TEST_FOO": "bar"},
-        ):
-            from runpod_flash.core.resources.serverless import get_env_vars
-
-            env = get_env_vars()
-
-        assert env.get("FLASH_TEST_SECRET") == "hunter2"
-        assert env.get("FLASH_TEST_FOO") == "bar"
-
-    def test_env_field_on_serverless_resource_is_dict(self, monkeypatch):
-        """RES-LS-008: ServerlessResource.env is a dict (not None) after construction."""
-        # Patch get_env_vars so we don't need a real .env.
-        monkeypatch.setattr(
-            "runpod_flash.core.resources.serverless.get_env_vars",
-            lambda: {"INJECTED": "yes"},
-        )
+    def test_env_defaults_to_none_without_explicit_env(self):
+        """RES-LS-008: env field is None when not explicitly provided."""
         from runpod_flash.core.resources import LiveServerless
 
         resource = LiveServerless(name="env-test-resource")
-        assert isinstance(resource.env, dict)
+        assert resource.env is None
 
-    def test_env_vars_empty_dict_when_no_dotenv(self):
-        """RES-LS-008: get_env_vars returns an empty dict when .env has no content."""
-        with patch(
-            "runpod_flash.core.resources.environment.dotenv_values",
-            return_value={},
-        ):
-            from runpod_flash.core.resources.serverless import get_env_vars
+    def test_env_preserves_explicit_dict(self):
+        """RES-LS-008: env field preserves explicitly provided dict."""
+        from runpod_flash.core.resources import LiveServerless
 
-            env = get_env_vars()
-
-        assert env == {}
+        resource = LiveServerless(
+            name="env-test-resource",
+            env={"FLASH_TEST_SECRET": "hunter2"},
+        )
+        assert resource.env == {"FLASH_TEST_SECRET": "hunter2"}
 
 
 # ---------------------------------------------------------------------------
@@ -243,7 +217,7 @@ class TestNetworkVolumeEmptyName:
         from runpod_flash.core.resources.network_volume import NetworkVolume
 
         with pytest.raises(
-            ValidationError, match="either 'name' or 'id' must be provided"
+            ValidationError, match="name must not be empty or whitespace-only"
         ):
             NetworkVolume(name="")
 
@@ -264,7 +238,7 @@ class TestNetworkVolumeEmptyName:
         assert vol.size == 50
 
     def test_network_volume_size_zero_raises(self):
-        """VOL-006: size=0 violates the gt=0 constraint and raises ValidationError."""
+        """VOL-006: size=0 violates the min 10GB constraint and raises ValidationError."""
         from pydantic import ValidationError
 
         from runpod_flash.core.resources.network_volume import NetworkVolume
@@ -292,12 +266,12 @@ class TestNetworkVolumeEmptyName:
 
 
 class TestScannerNestedClass:
-    """RemoteDecoratorScanner does not crash when a class is defined inside a function."""
+    """RuntimeScanner does not crash when a class is defined inside a function."""
 
     def _make_scanner(self, tmp_path: Path):
-        from runpod_flash.cli.commands.build_utils.scanner import RemoteDecoratorScanner
+        from runpod_flash.cli.commands.build_utils.scanner import RuntimeScanner
 
-        return RemoteDecoratorScanner(tmp_path)
+        return RuntimeScanner(tmp_path)
 
     def test_nested_class_does_not_cause_scanner_error(self, tmp_path):
         """SCAN-016: Scanner processes a file containing a @remote on a nested class without error."""
@@ -350,12 +324,12 @@ def outer():
 
 
 class TestScannerConditionalRemote:
-    """RemoteDecoratorScanner handles or skips conditional decorators gracefully."""
+    """RuntimeScanner handles or skips conditional decorators gracefully."""
 
     def _make_scanner(self, tmp_path: Path):
-        from runpod_flash.cli.commands.build_utils.scanner import RemoteDecoratorScanner
+        from runpod_flash.cli.commands.build_utils.scanner import RuntimeScanner
 
-        return RemoteDecoratorScanner(tmp_path)
+        return RuntimeScanner(tmp_path)
 
     def test_conditional_decorator_does_not_crash_scanner(self, tmp_path):
         """SCAN-017: File with conditional @remote is scanned without exception."""
@@ -489,7 +463,6 @@ class TestRemoteClassWrapperClassType:
             dependencies=None,
             system_dependencies=None,
             accelerate_downloads=True,
-            extra={},
         )
         instance = WrapperClass()
         assert instance._class_type is TargetClass
@@ -513,7 +486,6 @@ class TestRemoteClassWrapperClassType:
             dependencies=None,
             system_dependencies=None,
             accelerate_downloads=True,
-            extra={},
         )
         instance = WrapperClass()
 
@@ -538,7 +510,6 @@ class TestRemoteClassWrapperClassType:
             dependencies=None,
             system_dependencies=None,
             accelerate_downloads=True,
-            extra={},
         )
         inst1 = WrapperClass()
         inst2 = WrapperClass()

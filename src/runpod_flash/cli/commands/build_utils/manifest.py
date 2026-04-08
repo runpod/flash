@@ -91,13 +91,9 @@ class ManifestBuilder:
     ):
         self.project_name = project_name
         self.remote_functions = remote_functions
-        self.scanner = (
-            scanner  # Optional: RemoteDecoratorScanner with resource config info
-        )
+        self.scanner = scanner  # Optional: RuntimeScanner with resource config info
         self.build_dir = build_dir
-        self.python_version = (
-            python_version or f"{sys.version_info.major}.{sys.version_info.minor}"
-        )
+        self.python_version = python_version or DEFAULT_PYTHON_VERSION
 
     def _import_module(self, file_path: Path):
         """Import a module from file path, returning (module, cleanup_fn).
@@ -224,6 +220,12 @@ class ManifestBuilder:
             config["workersMax"] = resource_config.workersMax
 
         if (
+            hasattr(resource_config, "idleTimeout")
+            and resource_config.idleTimeout is not None
+        ):
+            config["idleTimeout"] = resource_config.idleTimeout
+
+        if (
             hasattr(resource_config, "scalerType")
             and resource_config.scalerType is not None
         ):
@@ -239,11 +241,15 @@ class ManifestBuilder:
         if hasattr(resource_config, "locations") and resource_config.locations:
             config["locations"] = resource_config.locations
 
-        if hasattr(resource_config, "env") and resource_config.env:
-            env_dict = dict(resource_config.env)
-            env_dict.pop("RUNPOD_API_KEY", None)
-            if env_dict:
-                config["env"] = env_dict
+        if (
+            hasattr(resource_config, "minCudaVersion")
+            and resource_config.minCudaVersion is not None
+        ):
+            v = resource_config.minCudaVersion
+            config["minCudaVersion"] = v.value if hasattr(v, "value") else v
+
+        if hasattr(resource_config, "env") and resource_config.env is not None:
+            config["env"] = dict(resource_config.env)
 
         if (
             hasattr(resource_config, "networkVolumes")

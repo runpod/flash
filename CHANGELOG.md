@@ -1,5 +1,78 @@
 # Changelog
 
+## [1.11.3](https://github.com/runpod/flash/compare/v1.11.2...v1.11.3) (2026-04-01)
+
+
+### Bug Fixes
+
+* CE-1414 rely on flashBootType instead of -fb ([#297](https://github.com/runpod/flash/issues/297)) ([1f8b7d6](https://github.com/runpod/flash/commit/1f8b7d6f3a25034a6aedb258275ec38c59d2c206))
+* **execute_class:** add async lock to prevent double deploy ([#274](https://github.com/runpod/flash/issues/274)) ([4ef36c8](https://github.com/runpod/flash/commit/4ef36c889ea4865db51fe37a5677ec9614feb445))
+* **serverless:** use executionTimeoutMs as runsync client timeout ([#272](https://github.com/runpod/flash/issues/272)) ([49451d4](https://github.com/runpod/flash/commit/49451d475243cd7cab4182b65942e168d177ea0a))
+* **stubs:** handle None return from void [@remote](https://github.com/remote) functions ([#273](https://github.com/runpod/flash/issues/273)) ([65aa1c9](https://github.com/runpod/flash/commit/65aa1c9827742b1f3dc9a4b81fdea35126808f75))
+* update skeleton template python version ([#298](https://github.com/runpod/flash/issues/298)) ([633f708](https://github.com/runpod/flash/commit/633f7086e935ff42be4c1e7adb1ce519e11e8098))
+
+## [1.11.2](https://github.com/runpod/flash/compare/v1.11.1...v1.11.2) (2026-03-28)
+
+
+### Bug Fixes
+
+* use threading for canary module exec ([#294](https://github.com/runpod/flash/issues/294)) ([4d4a0df](https://github.com/runpod/flash/commit/4d4a0dfaec7fcbe9abd46620353bddb325b02d82))
+
+## [1.11.1](https://github.com/runpod/flash/compare/v1.11.0...v1.11.1) (2026-03-27)
+
+
+### Bug Fixes
+
+* AE-2322: network volume size bounds, forbid extra args ([#290](https://github.com/runpod/flash/issues/290)) ([6cc7ec2](https://github.com/runpod/flash/commit/6cc7ec27a230d0f9d08246d6a0085ad8159d479d))
+* enforce payload size limit and timeout on deserialization ([#289](https://github.com/runpod/flash/issues/289)) ([1240d82](https://github.com/runpod/flash/commit/1240d824a19d98f655eda50fc8c6b4e37c3834ca))
+* idletimeout must be in valid range ([#287](https://github.com/runpod/flash/issues/287)) ([57aebbf](https://github.com/runpod/flash/commit/57aebbf472b8d03900608bcac01fa83dcb6b51c4))
+* lock all workers to Python 3.12, remove multi-version support ([#292](https://github.com/runpod/flash/issues/292)) ([e1f1dd8](https://github.com/runpod/flash/commit/e1f1dd8738dcc641d36699d13e131368b614f6fb))
+* reject unknown kwargs in [@remote](https://github.com/remote) ([#288](https://github.com/runpod/flash/issues/288)) ([a651275](https://github.com/runpod/flash/commit/a6512756a8b06cd8dd22ac8b3a5c90e3830edd6d))
+* **runtime:** handle input=None in generic handler ([#286](https://github.com/runpod/flash/issues/286)) ([cab2d0c](https://github.com/runpod/flash/commit/cab2d0c4c80d3c450d102db641e5414bec995976))
+* stable sorted gpu ids ([#285](https://github.com/runpod/flash/issues/285)) ([759e0f6](https://github.com/runpod/flash/commit/759e0f640342495ef58073c6ff39dc54df643eeb))
+
+
+### Code Refactoring
+
+* **build:** replace .flashignore with built-in ignore patterns ([#220](https://github.com/runpod/flash/issues/220)) ([f42c802](https://github.com/runpod/flash/commit/f42c802be1a9cc5b6887f83ebaf7635ac71dbf62))
+* migrate .runpod directory to .flash ([#221](https://github.com/runpod/flash/issues/221)) ([c6792d6](https://github.com/runpod/flash/commit/c6792d6f421443ee0f31ff73760c57b5441997fb))
+
+## [1.11.0](https://github.com/runpod/flash/compare/v1.10.2...v1.11.0) (2026-03-25)
+
+
+### Features
+
+* default GPU endpoints to minCudaVersion 12.8 ([#277](https://github.com/runpod/flash/issues/277)) ([e693d7d](https://github.com/runpod/flash/commit/e693d7d549cedeca7f623c2c4035443c85e5c205))
+* migrate from AST to import + inspect ([#265](https://github.com/runpod/flash/issues/265)) ([dce6a1f](https://github.com/runpod/flash/commit/dce6a1f79ad15f850ae926ff6308de62df258262))
+
+## [1.10.2](https://github.com/runpod/flash/compare/v1.10.1...v1.10.2) (2026-03-23)
+
+
+### Bug Fixes
+
+* **deploy:** always include env in saveTemplate payload ([#281](https://github.com/runpod/flash/issues/281)) ([69ecac2](https://github.com/runpod/flash/commit/69ecac28d5757ed3cf15ac694b235808e4f98ac7))
+* exclude .env files from deploy artifact by default ([#280](https://github.com/runpod/flash/issues/280)) ([92d0e3e](https://github.com/runpod/flash/commit/92d0e3e9a8b176807a09a791ecaf8a03e300d3cc))
+
+## [1.10.1](https://github.com/runpod/flash/compare/v1.10.0...v1.10.1) (2026-03-20)
+
+
+### Features
+
+* bump max flash tarball size ([#258](https://github.com/runpod/flash/issues/258)) ([4c58a3e](https://github.com/runpod/flash/commit/4c58a3e63bd323b1e16740323bea2f410a3fc8bb))
+* **cli:** add flash update command with passive update check ([#237](https://github.com/runpod/flash/issues/237)) ([5464ce0](https://github.com/runpod/flash/commit/5464ce0a3c741bf88d6f0b53933574fcbfdb8c1f))
+
+
+### Bug Fixes
+
+* **init:** `flash init` show usage menu when called without arguments ([#235](https://github.com/runpod/flash/issues/235)) ([3144d0c](https://github.com/runpod/flash/commit/3144d0cb7abf10566aa9a67b8793d8a116b9da46))
+* resolve .env from CWD and stop _do_deploy env mutation ([#236](https://github.com/runpod/flash/issues/236)) ([583efae](https://github.com/runpod/flash/commit/583efae06b2923ef8da825cd20a8d89af68c2be3))
+* retry tarball upload on transient SSL and connection errors ([#279](https://github.com/runpod/flash/issues/279)) ([564f51e](https://github.com/runpod/flash/commit/564f51e80f0340f7f4b0163780896efa337686f4))
+
+
+### Code Refactoring
+
+* separate .env from deployed endpoint env vars ([#257](https://github.com/runpod/flash/issues/257)) ([ee26c43](https://github.com/runpod/flash/commit/ee26c43267dabb042cdc455e691b7dfaf65686d9))
+
 ## [1.10.0](https://github.com/runpod/flash/compare/v1.9.1...v1.10.0) (2026-03-17)
 
 

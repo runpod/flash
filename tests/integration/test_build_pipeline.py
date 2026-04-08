@@ -1,6 +1,6 @@
 """Integration tests for the build pipeline.
 
-Exercises: scanner → manifest → handler generation with real code paths.
+Exercises: scanner -> manifest -> handler generation with real code paths.
 Only external I/O (install_dependencies) is mocked.
 """
 
@@ -10,9 +10,7 @@ import pytest
 
 from runpod_flash.cli.commands.build_utils.handler_generator import HandlerGenerator
 from runpod_flash.cli.commands.build_utils.manifest import ManifestBuilder
-from runpod_flash.cli.commands.build_utils.scanner import (
-    RemoteDecoratorScanner,
-)
+from runpod_flash.cli.commands.build_utils.scanner import RuntimeScanner
 
 
 @pytest.fixture()
@@ -21,7 +19,7 @@ def build_project(tmp_path):
     project_dir = tmp_path / "myproject"
     project_dir.mkdir()
 
-    # Create a .flashignore so scanner doesn't try .gitignore
+    # create a .flashignore so scanner doesn't try .gitignore
     (project_dir / ".flashignore").write_text("")
 
     return project_dir
@@ -35,10 +33,10 @@ def _write_worker_file(project_dir, filename, content):
 
 
 class TestBuildProducesValidManifest:
-    """Scanner → ManifestBuilder → valid manifest JSON."""
+    """Scanner -> ManifestBuilder -> valid manifest JSON."""
 
     def test_build_produces_valid_manifest(self, build_project):
-        """Minimal @remote file → scanner → manifest with correct structure."""
+        """Minimal @remote file -> scanner -> manifest with correct structure."""
         _write_worker_file(
             build_project,
             "worker.py",
@@ -53,7 +51,7 @@ def process(data):
 """,
         )
 
-        scanner = RemoteDecoratorScanner(build_project)
+        scanner = RuntimeScanner(build_project)
         functions = scanner.discover_remote_functions()
 
         assert len(functions) == 1
@@ -77,7 +75,7 @@ def process(data):
         assert resource["functions"][0]["name"] == "process"
 
     def test_build_with_multiple_resources(self, build_project):
-        """File with GPU + CPU resources → both appear in manifest."""
+        """File with GPU + CPU resources -> both appear in manifest."""
         _write_worker_file(
             build_project,
             "worker.py",
@@ -97,7 +95,7 @@ def cpu_task(x):
 """,
         )
 
-        scanner = RemoteDecoratorScanner(build_project)
+        scanner = RuntimeScanner(build_project)
         functions = scanner.discover_remote_functions()
 
         assert len(functions) == 2

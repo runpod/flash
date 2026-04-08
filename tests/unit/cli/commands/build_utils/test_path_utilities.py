@@ -140,7 +140,7 @@ class TestIsLbRouteHandlerField:
 
     def test_lb_function_with_method_and_path_is_handler(self, tmp_path):
         """An LB @remote function with method= and path= is marked as LB route handler."""
-        from runpod_flash.cli.commands.build_utils.scanner import RemoteDecoratorScanner
+        from runpod_flash.cli.commands.build_utils.scanner import RuntimeScanner
 
         (tmp_path / "routes.py").write_text(
             """
@@ -154,7 +154,7 @@ async def compute(data: dict) -> dict:
 """
         )
 
-        scanner = RemoteDecoratorScanner(tmp_path)
+        scanner = RuntimeScanner(tmp_path)
         functions = scanner.discover_remote_functions()
 
         assert len(functions) == 1
@@ -162,7 +162,7 @@ async def compute(data: dict) -> dict:
 
     def test_qb_function_is_not_handler(self, tmp_path):
         """A QB @remote function is NOT marked as LB route handler."""
-        from runpod_flash.cli.commands.build_utils.scanner import RemoteDecoratorScanner
+        from runpod_flash.cli.commands.build_utils.scanner import RuntimeScanner
 
         (tmp_path / "worker.py").write_text(
             """
@@ -176,7 +176,7 @@ async def process(data: dict) -> dict:
 """
         )
 
-        scanner = RemoteDecoratorScanner(tmp_path)
+        scanner = RuntimeScanner(tmp_path)
         functions = scanner.discover_remote_functions()
 
         assert len(functions) == 1
@@ -184,7 +184,7 @@ async def process(data: dict) -> dict:
 
     def test_init_py_files_excluded(self, tmp_path):
         """__init__.py files are excluded from scanning."""
-        from runpod_flash.cli.commands.build_utils.scanner import RemoteDecoratorScanner
+        from runpod_flash.cli.commands.build_utils.scanner import RuntimeScanner
 
         (tmp_path / "__init__.py").write_text(
             """
@@ -209,7 +209,7 @@ async def process(data: dict) -> dict:
 """
         )
 
-        scanner = RemoteDecoratorScanner(tmp_path)
+        scanner = RuntimeScanner(tmp_path)
         functions = scanner.discover_remote_functions()
 
         # Only the worker.py function should be discovered, not __init__.py

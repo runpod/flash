@@ -112,8 +112,7 @@ class TestRemoteWithLoadBalancerIntegration:
             return {"echo": message}
 
         # Verify resource is correctly configured
-        # Note: name may have "-fb" appended by flash boot validator
-        assert "test-live-api" in lb.name
+        assert lb.name == "test-live-api"
         assert "flash-lb" in lb.imageName
         assert echo.__remote_config__["method"] == "POST"
 
@@ -160,7 +159,7 @@ class TestRemoteWithLoadBalancerIntegration:
 
     def test_scanner_discovers_load_balancer_resources(self):
         """Test that scanner can discover LiveLoadBalancer and LoadBalancerSlsResource."""
-        from runpod_flash.cli.commands.build_utils.scanner import RemoteDecoratorScanner
+        from runpod_flash.cli.commands.build_utils.scanner import RuntimeScanner
         from pathlib import Path
         import tempfile
 
@@ -185,10 +184,10 @@ def get_status():
 
         with tempfile.TemporaryDirectory() as tmpdir:
             project_dir = Path(tmpdir)
-            py_file = project_dir / "test_api.py"
+            py_file = project_dir / "api_worker.py"
             py_file.write_text(code)
 
-            scanner = RemoteDecoratorScanner(project_dir)
+            scanner = RuntimeScanner(project_dir)
             functions = scanner.discover_remote_functions()
 
             # Verify both resources were discovered

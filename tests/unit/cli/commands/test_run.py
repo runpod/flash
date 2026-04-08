@@ -44,7 +44,7 @@ class SimpleSD:
 """
         )
 
-        workers = _scan_project_workers(project_root)
+        workers, _ = _scan_project_workers(project_root)
 
         assert len(workers) == 1
         worker = workers[0]
@@ -77,7 +77,7 @@ class StableDiffusion:
 """
         )
 
-        workers = _scan_project_workers(project_root)
+        workers, _ = _scan_project_workers(project_root)
 
         assert len(workers) == 1
         worker = workers[0]
@@ -423,7 +423,7 @@ async def multi_params(text: str, mode: str = "default") -> dict:
 """
         )
 
-        workers = _scan_project_workers(project_root)
+        workers, _ = _scan_project_workers(project_root)
 
         assert len(workers) == 1
         worker = workers[0]
@@ -456,7 +456,7 @@ class Processor:
 """
         )
 
-        workers = _scan_project_workers(project_root)
+        workers, _ = _scan_project_workers(project_root)
 
         assert len(workers) == 1
         worker = workers[0]
