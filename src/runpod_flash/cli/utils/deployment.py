@@ -9,11 +9,17 @@ from datetime import datetime
 from pathlib import Path
 
 from runpod_flash.config import get_paths
+from runpod_flash.core.resources.serverless import ServerlessResource
 from runpod_flash.core.resources.app import FlashApp
 from runpod_flash.core.resources.resource_manager import ResourceManager
 from runpod_flash.runtime.resource_provisioner import create_resource_from_manifest
 
 log = logging.getLogger(__name__)
+
+RUNTIME_RESOURCE_FIELDS = set(ServerlessResource.RUNTIME_FIELDS) | {
+    "id",
+    "endpoint_id",
+}
 
 
 def _normalized_resource_attr(resource: Any, *names: str) -> str | None:
@@ -35,6 +41,13 @@ def _manifest_without_ai_keys(manifest: Dict[str, Any]) -> Dict[str, Any]:
             config.pop("aiKey", None)
 
     return sanitized_manifest
+
+
+def _resource_config_for_compare(config: Dict[str, Any]) -> Dict[str, Any]:
+    compare_config = copy.deepcopy(config)
+    for field in RUNTIME_RESOURCE_FIELDS:
+        compare_config.pop(field, None)
+    return compare_config
 
 
 async def upload_build(app_name: str, build_path: str | Path):
@@ -288,9 +301,15 @@ async def reconcile_and_provision_resources(
         local_config = local_manifest["resources"][resource_name]
         state_config = state_manifest.get("resources", {}).get(resource_name, {})
 
-        # Simple hash comparison for config changes
-        local_json = json.dumps(local_config, sort_keys=True)
-        state_json = json.dumps(state_config, sort_keys=True)
+        # Compare only user-managed config fields (exclude runtime metadata)
+        local_json = json.dumps(
+            _resource_config_for_compare(local_config),
+            sort_keys=True,
+        )
+        state_json = json.dumps(
+            _resource_config_for_compare(state_config),
+            sort_keys=True,
+        )
 
         # Check if endpoint exists in state manifest
         has_endpoint = resource_name in state_manifest.get("resources_endpoints", {})

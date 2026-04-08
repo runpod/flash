@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import re
+from collections import Counter
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -264,7 +265,7 @@ class ServerlessResource(DeployableResource):
 
         if batch.lines:
             for line in batch.lines:
-                print(f"worker log: {line}")
+                log.info("worker log: %s", line)
 
         return batch
 
@@ -1308,27 +1309,29 @@ class ServerlessResource(DeployableResource):
                     output = response.get("output")
                     if isinstance(output, dict):
                         stdout = output.get("stdout")
-                        if isinstance(stdout, str):
-                            seen_normalized = {
+                        should_dedupe_stdout = (
+                            self.type == ServerlessType.QB
+                            and fetcher.has_streamed_logs
+                            and bool(fetcher.seen)
+                        )
+                        if should_dedupe_stdout and isinstance(stdout, str):
+                            seen_normalized_counts = Counter(
                                 normalized
                                 for line in fetcher.seen
                                 if (normalized := _normalize_stream_log_line(line))
-                            }
+                            )
                             kept = []
-                            for raw in stdout.splitlines():
-                                raw = raw.strip()
-                                if not raw:
+                            for raw_line in stdout.splitlines(keepends=True):
+                                normalized_raw = _normalize_stream_log_line(raw_line)
+                                if (
+                                    normalized_raw
+                                    and seen_normalized_counts.get(normalized_raw, 0)
+                                    > 0
+                                ):
+                                    seen_normalized_counts[normalized_raw] -= 1
                                     continue
-
-                                normalized_raw = _normalize_stream_log_line(raw)
-                                if not normalized_raw:
-                                    continue
-                                if normalized_raw in seen_normalized:
-                                    continue
-
-                                seen_normalized.add(normalized_raw)
-                                kept.append(raw)
-                            output["stdout"] = "\n".join(kept)
+                                kept.append(raw_line)
+                            output["stdout"] = "".join(kept)
                     return JobOutput(**response)
 
         except Exception as e:

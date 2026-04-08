@@ -1149,6 +1149,7 @@ class TestServerlessResourceDeployment:
         mock_endpoint.run.return_value = mock_job
 
         async def fake_emit(*, fetcher, request_id):
+            fetcher.has_streamed_logs = True
             fetcher.seen.add(
                 "2026-04-02T18:18:10.165152015Z 2026-04-02 18:18:10,164 | DEBUG | aiohttp_retry | client.py:110 | Attempt 1 out of 3"
             )
@@ -1172,7 +1173,53 @@ class TestServerlessResourceDeployment:
                         result = await serverless.run({"input": "test"})
 
         assert isinstance(result, JobOutput)
-        assert result.output["stdout"] == "unique stdout line"
+        assert result.output["stdout"] == (
+            "2026-04-02 18:18:10,164 | DEBUG | aiohttp_retry | client.py:110 | Attempt 1 out of 3\n"
+            "unique stdout line"
+        )
+
+    @pytest.mark.asyncio
+    async def test_run_async_keeps_stdout_unchanged_when_no_streamed_logs(self):
+        serverless = ServerlessResource(name="test")
+        serverless.id = "endpoint-123"
+        serverless.type = ServerlessType.QB
+        serverless.aiKey = "endpoint-ai-key"
+
+        original_stdout = "dup line\ndup line\n\n  spaced line"
+        mock_job = MagicMock()
+        mock_job.job_id = "job-123"
+        mock_job.status.side_effect = ["IN_QUEUE", "COMPLETED"]
+        mock_job._fetch_job.return_value = {
+            "id": "job-123",
+            "workerId": "worker-456",
+            "status": "COMPLETED",
+            "delayTime": 1000,
+            "executionTime": 2000,
+            "output": {"stdout": original_stdout},
+        }
+
+        mock_endpoint = MagicMock()
+        mock_endpoint.run.return_value = mock_job
+
+        async def fake_emit(*, fetcher, request_id):
+            fetcher.seen.add("dup line")
+            return None
+
+        with patch.object(
+            type(serverless),
+            "endpoint",
+            new_callable=lambda: property(lambda self: mock_endpoint),
+        ):
+            with patch("asyncio.sleep"):
+                with patch.object(
+                    ServerlessResource,
+                    "_emit_endpoint_logs",
+                    new=AsyncMock(side_effect=fake_emit),
+                ):
+                    result = await serverless.run({"input": "test"})
+
+        assert isinstance(result, JobOutput)
+        assert result.output["stdout"] == original_stdout
 
     @pytest.mark.asyncio
     async def test_run_async_fetches_endpoint_logs_while_polling(self):
@@ -1466,8 +1513,8 @@ class TestServerlessResourceDeployment:
         assert not any("status=IN_PROGRESS" in line for line in metrics_logs)
 
     @pytest.mark.asyncio
-    async def test_emit_endpoint_logs_prints_worker_lines(self):
-        """Endpoint log emission prints each worker log line."""
+    async def test_emit_endpoint_logs_uses_logger_for_worker_lines(self):
+        """Endpoint log emission logs each worker line through logger."""
         serverless = ServerlessResource(name="test")
         serverless.id = "endpoint-123"
         serverless.type = ServerlessType.QB
@@ -1487,7 +1534,7 @@ class TestServerlessResourceDeployment:
             "runpod_flash.core.resources.serverless.get_api_key",
             return_value="runpod-key-123",
         ):
-            with patch("builtins.print") as mock_print:
+            with patch("runpod_flash.core.resources.serverless.log.info") as mock_info:
                 batch = await serverless._emit_endpoint_logs(
                     fetcher=mock_fetcher,
                     request_id="job-123",
@@ -1502,8 +1549,8 @@ class TestServerlessResourceDeployment:
         )
         assert batch is not None
         assert batch.phase == QBRequestLogPhase.STREAMING
-        mock_print.assert_any_call("worker log: line-a")
-        mock_print.assert_any_call("worker log: line-b")
+        mock_info.assert_any_call("worker log: %s", "line-a")
+        mock_info.assert_any_call("worker log: %s", "line-b")
 
     @pytest.mark.asyncio
     async def test_emit_endpoint_logs_skips_when_missing_required_fields(self):
