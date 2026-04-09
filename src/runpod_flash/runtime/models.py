@@ -28,6 +28,7 @@ class ResourceConfig:
         False  # LB endpoint (LoadBalancerSlsResource or LiveLoadBalancer)
     )
     is_live_resource: bool = False  # LiveLoadBalancer/LiveServerless (local dev only)
+    max_concurrency: int = 1  # Concurrent jobs per worker (QB only)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "ResourceConfig":
@@ -43,6 +44,7 @@ class ResourceConfig:
             makes_remote_calls=data.get("makes_remote_calls", True),
             is_load_balanced=data.get("is_load_balanced", False),
             is_live_resource=data.get("is_live_resource", False),
+            max_concurrency=data.get("max_concurrency", 1),
         )
 
 
