@@ -150,14 +150,16 @@ class TestNetworkVolumeValidation:
 class TestDeployedHandlerNoInput:
     """Deployed handler template handles empty/missing input."""
 
-    def test_handler_template_defaults_to_empty_dict(self):
-        """RT-DEP-003: Handler uses .get('input', {}) for missing input."""
+    def test_handler_template_validates_empty_input(self):
+        """RT-DEP-003: Handler rejects empty/null input with actionable error."""
         from runpod_flash.cli.commands.build_utils.handler_generator import (
             DEPLOYED_HANDLER_TEMPLATE,
         )
 
-        # The template uses .get("input", {{}}) — double braces for f-string escaping
-        assert 'job.get("input", {{}})' in DEPLOYED_HANDLER_TEMPLATE
+        # Template now uses `or {{}}` fallback + explicit empty-input guard
+        assert 'job.get("input") or {{}}' in DEPLOYED_HANDLER_TEMPLATE
+        assert "if not job_input:" in DEPLOYED_HANDLER_TEMPLATE
+        assert "Empty or null input" in DEPLOYED_HANDLER_TEMPLATE
 
 
 # ---------------------------------------------------------------------------
