@@ -10,6 +10,7 @@ from typing import Any
 import typer
 from rich.console import Console
 
+from runpod_flash.cli.utils.formatting import print_error
 from runpod_flash.core.exceptions import RunpodAPIKeyError
 from runpod_flash.core.resources.app import FlashApp
 
@@ -85,7 +86,7 @@ def deploy_command(
     except typer.Exit:
         raise
     except RunpodAPIKeyError as e:
-        console.print(f"\n[red]Error:[/red] {e}")
+        print_error(console, str(e))
         raise typer.Exit(1)
     except Exception as e:
         _handle_deploy_error(e)
@@ -96,9 +97,9 @@ def _handle_deploy_error(exc: Exception) -> None:
     from requests.exceptions import SSLError
 
     if isinstance(exc, SSLError):
-        console.print(f"\n[red]SSL error:[/red] {exc}")
+        print_error(console, f"SSL error: {exc}")
         raise typer.Exit(1)
-    console.print(f"\n[red]Deploy failed:[/red] {exc}")
+    print_error(console, f"Deploy failed: {exc}")
     logger.exception("Deploy failed")
     raise typer.Exit(1)
 
@@ -206,7 +207,7 @@ def _launch_preview(project_dir):
     except KeyboardInterrupt:
         console.print("\n[yellow]Preview stopped by user[/yellow]")
     except Exception as e:
-        console.print(f"[red]Preview error:[/red] {e}")
+        print_error(console, f"Preview error: {e}")
         logger.exception("Preview launch failed")
         raise typer.Exit(1)
 
@@ -276,8 +277,9 @@ async def _resolve_environment(
         return app, "production"
 
     env_names = [e.get("name", "?") for e in envs]
-    console.print(
-        f"[red]Error:[/red] Multiple environments found: {', '.join(env_names)}\n"
-        f"Please specify with [bold]--env <name>[/bold]"
+    print_error(
+        console,
+        f"Multiple environments found: {', '.join(env_names)}\n"
+        f"Please specify with [bold]--env <name>[/bold]",
     )
     raise typer.Exit(1)

@@ -7,7 +7,7 @@ import typer
 from rich.console import Console
 
 from ..utils.app import discover_flash_project
-from ..utils.formatting import STATE_STYLE, format_datetime, state_dot
+from ..utils.formatting import STATE_STYLE, format_datetime, print_error, state_dot
 
 from runpod_flash.core.resources.app import FlashApp, FlashAppNotFoundError
 
@@ -219,7 +219,7 @@ def delete_command(
     try:
         env = asyncio.run(_fetch_environment_info(app_name, env_name))
     except Exception as e:
-        console.print(f"[red]✗[/red] Failed to fetch environment info: {e}")
+        print_error(console, f"Failed to fetch environment info: {e}")
         raise typer.Exit(1)
 
     console.print(f"\nDeleting [bold]{env_name}[/bold]  [dim]{env.get('id')}[/dim]")
@@ -257,5 +257,5 @@ async def _delete_environment(app_name: str, env_name: str):
     if success:
         console.print(f"[green]✓[/green] Deleted environment [bold]{env_name}[/bold]")
     else:
-        console.print(f"[red]✗[/red] Failed to delete environment '{env_name}'")
+        print_error(console, f"Failed to delete environment '{env_name}'")
         raise typer.Exit(1)
