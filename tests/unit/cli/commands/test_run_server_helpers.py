@@ -309,7 +309,7 @@ class TestCallWithBodyEmptyInputValidation:
             await call_with_body(func, body)
 
         assert exc_info.value.status_code == 422
-        assert "Empty input" in exc_info.value.detail
+        assert "Empty or null input" in exc_info.value.detail
         func.assert_not_called()
 
     @pytest.mark.asyncio
