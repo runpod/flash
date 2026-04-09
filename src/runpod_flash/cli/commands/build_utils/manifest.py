@@ -166,6 +166,7 @@ class ManifestBuilder:
 
             try:
                 resource_config = None
+                remote_cfg = None
 
                 if config_variable and hasattr(module, config_variable):
                     resource_config = getattr(module, config_variable)
@@ -181,12 +182,18 @@ class ManifestBuilder:
                     return config
 
                 # Extract max_concurrency from Endpoint facade before unwrapping.
-                # max_concurrency is a Flash concept that lives on Endpoint,
-                # not on the internal resource config (LiveServerless, etc.).
+                # For module-level Endpoint variables, read from the instance.
+                # For inline @Endpoint() decorators, the facade is gone by the
+                # time we reach here -- read from __remote_config__ instead.
                 if hasattr(resource_config, "_max_concurrency"):
                     mc = resource_config._max_concurrency
                     if mc > 1:
                         config["max_concurrency"] = mc
+                elif (
+                    isinstance(remote_cfg, dict)
+                    and remote_cfg.get("max_concurrency", 1) > 1
+                ):
+                    config["max_concurrency"] = remote_cfg["max_concurrency"]
 
                 # unwrap Endpoint facade to the internal resource config
                 if hasattr(resource_config, "_build_resource_config"):

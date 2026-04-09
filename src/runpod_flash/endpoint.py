@@ -611,13 +611,23 @@ class Endpoint:
 
         from .client import remote as remote_decorator
 
-        return remote_decorator(
+        decorated = remote_decorator(
             resource_config=resource_config,
             dependencies=self.dependencies,
             system_dependencies=self.system_dependencies,
             accelerate_downloads=self.accelerate_downloads,
             _internal=True,
         )(func_or_class)
+
+        # Persist max_concurrency into __remote_config__ so the manifest
+        # builder can read it for inline @Endpoint() decorators where the
+        # Endpoint facade is not reachable via a module-level variable.
+        if self._max_concurrency > 1:
+            remote_cfg = getattr(decorated, "__remote_config__", None)
+            if isinstance(remote_cfg, dict):
+                remote_cfg["max_concurrency"] = self._max_concurrency
+
+        return decorated
 
     # -- route decorators (lb mode) --
 

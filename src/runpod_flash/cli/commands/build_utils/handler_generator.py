@@ -378,6 +378,8 @@ class HandlerGenerator:
             else "# No function to import"
         )
 
+        # 100 is a soft upper bound: most GPU workloads saturate VRAM well
+        # below this. The warning nudges users to verify resource capacity.
         if max_concurrency > 100:
             logger.warning(
                 "High max_concurrency=%d for resource '%s'. Ensure your handler "
@@ -447,8 +449,14 @@ class HandlerGenerator:
     @staticmethod
     def _inject_concurrency_modifier(code: str, max_concurrency: int) -> str:
         """Replace the default runpod.serverless.start call with one including concurrency_modifier."""
+        start_call = 'runpod.serverless.start({"handler": handler})'
+        if start_call not in code:
+            raise ValueError(
+                "Unable to inject concurrency_modifier: expected "
+                f"{start_call!r} in generated handler code."
+            )
         return code.replace(
-            'runpod.serverless.start({"handler": handler})',
+            start_call,
             "runpod.serverless.start({\n"
             '        "handler": handler,\n'
             f'        "concurrency_modifier": lambda current: {max_concurrency},\n'

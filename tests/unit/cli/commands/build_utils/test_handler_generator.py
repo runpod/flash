@@ -814,3 +814,9 @@ def test_high_concurrency_logs_warning(caplog):
             generator = HandlerGenerator(manifest, build_dir)
             generator.generate_handlers()
         assert any("max_concurrency=150" in r.message for r in caplog.records)
+
+
+def test_inject_concurrency_modifier_raises_on_missing_start_call():
+    """_inject_concurrency_modifier raises if the start call string is absent."""
+    with pytest.raises(ValueError, match="Unable to inject concurrency_modifier"):
+        HandlerGenerator._inject_concurrency_modifier("some random code", 5)
