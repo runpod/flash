@@ -1035,12 +1035,19 @@ class ServerlessResource(DeployableResource):
 
             async with RunpodGraphQLClient() as client:
                 # Include the endpoint ID to trigger update
+                # Use the resolved templateId to decide exclusions — new_config
+                # may not have templateId set yet, but the existing endpoint does.
+                exclude = new_config._payload_exclude()
+                if resolved_template_id:
+                    exclude.add("template")
                 payload = new_config.model_dump(
-                    exclude=new_config._payload_exclude(),
+                    exclude=exclude,
                     exclude_none=True,
                     mode="json",
                 )
                 payload["id"] = self.id  # Critical: include ID for update
+                if resolved_template_id:
+                    payload["templateId"] = resolved_template_id
 
                 # inject multi-volume IDs if available
                 new_config._inject_multi_volume_payload(payload)
