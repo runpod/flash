@@ -72,7 +72,20 @@ def make_input_model(name: str, func) -> type | None:
 
 
 async def call_with_body(func, body):
-    """Call func with body kwargs, handling Pydantic models and dicts."""
+    """Call func with body kwargs, handling Pydantic models and dicts.
+
+    Rejects empty input (no fields explicitly set) to match RunPod platform
+    behavior, which does not dispatch jobs with empty/null input dicts.
+    """
+    if hasattr(body, "model_fields_set") and not body.model_fields_set:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Empty input: RunPod serverless requires at least one field "
+                "in the input dict. Use explicit values or pass null for "
+                'optional parameters, e.g. {"input": {"param_name": null}}.'
+            ),
+        )
     if hasattr(body, "model_dump"):
         return await func(**body.model_dump())
     raw = body.get("input", body) if isinstance(body, dict) else body
