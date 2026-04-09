@@ -33,7 +33,15 @@ _logger = logging.getLogger(__name__)
 
 def handler(job):
     """Handler for deployed QB endpoint. Accepts plain JSON kwargs."""
-    job_input = job.get("input", {{}})
+    job_input = job.get("input") or {{}}
+    if not job_input:
+        return {{
+            "error": (
+                "Empty or null input. RunPod serverless requires at least one "
+                "field in the input dict. Use explicit values or pass null for "
+                'optional parameters, e.g. {{\\"input\\": {{\\"param_name\\": null}}}}.'
+            )
+        }}
     try:
         result = {function_name}(**job_input)
         if inspect.iscoroutine(result):
@@ -114,7 +122,15 @@ def handler(job):
     directly as kwargs. If multiple methods exist, input must
     include a "method" key to select the target.
     """
-    job_input = job.get("input", {{}})
+    job_input = job.get("input") or {{}}
+    if not job_input:
+        return {{
+            "error": (
+                "Empty or null input. RunPod serverless requires at least one "
+                "field in the input dict. Use explicit values or pass null for "
+                'optional parameters, e.g. {{\\"input\\": {{\\"param_name\\": null}}}}.'
+            )
+        }}
     try:
         if len(_METHODS) == 1:
             method_name = next(iter(_METHODS))

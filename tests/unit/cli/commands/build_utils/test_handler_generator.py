@@ -527,3 +527,68 @@ def test_empty_functions_raises():
         generator = HandlerGenerator(manifest, build_dir)
         with pytest.raises(ValueError, match="has no functions"):
             generator.generate_handlers()
+
+
+def test_function_handler_validates_empty_input():
+    """Generated function handler rejects empty input dict."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        build_dir = Path(tmpdir)
+
+        manifest = {
+            "version": "1.0",
+            "generated_at": "2026-01-02T10:00:00Z",
+            "project_name": "test_app",
+            "resources": {
+                "gpu_config": {
+                    "resource_type": "Endpoint",
+                    "functions": [
+                        {
+                            "name": "gpu_task",
+                            "module": "workers.gpu",
+                            "is_async": False,
+                            "is_class": False,
+                        }
+                    ],
+                }
+            },
+        }
+
+        generator = HandlerGenerator(manifest, build_dir)
+        handler_paths = generator.generate_handlers()
+        content = handler_paths[0].read_text()
+
+        assert "if not job_input:" in content
+        assert "Empty or null input" in content
+
+
+def test_class_handler_validates_empty_input():
+    """Generated class handler rejects empty input dict."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        build_dir = Path(tmpdir)
+
+        manifest = {
+            "version": "1.0",
+            "generated_at": "2026-01-02T10:00:00Z",
+            "project_name": "test_app",
+            "resources": {
+                "worker": {
+                    "resource_type": "Endpoint",
+                    "functions": [
+                        {
+                            "name": "Worker",
+                            "module": "w",
+                            "is_async": False,
+                            "is_class": True,
+                            "class_methods": ["run"],
+                        }
+                    ],
+                }
+            },
+        }
+
+        generator = HandlerGenerator(manifest, build_dir)
+        handler_paths = generator.generate_handlers()
+        content = handler_paths[0].read_text()
+
+        assert "if not job_input:" in content
+        assert "Empty or null input" in content
