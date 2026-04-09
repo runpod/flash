@@ -28,8 +28,8 @@ class TestCreateDeployedHandler:
 
         assert result == 30
 
-    def test_empty_input(self):
-        """Handler passes empty kwargs when input is empty."""
+    def test_empty_input_rejected(self):
+        """Empty input is rejected even for zero-arg functions (platform behavior)."""
 
         def no_args():
             return "ok"
@@ -37,10 +37,11 @@ class TestCreateDeployedHandler:
         handler = create_deployed_handler(no_args)
         result = handler({"input": {}})
 
-        assert result == "ok"
+        assert result["success"] is False
+        assert "Empty or null input" in result["error"]
 
-    def test_missing_input_key(self):
-        """Handler defaults to empty dict when 'input' key missing."""
+    def test_missing_input_key_rejected(self):
+        """Missing input key is rejected even for zero-arg functions."""
 
         def no_args():
             return "ok"
@@ -48,16 +49,17 @@ class TestCreateDeployedHandler:
         handler = create_deployed_handler(no_args)
         result = handler({})
 
-        assert result == "ok"
+        assert result["success"] is False
+        assert "Empty or null input" in result["error"]
 
     def test_function_raises_returns_error_dict(self):
         """Handler catches exceptions and returns error dict."""
 
-        def failing():
+        def failing(x: int):
             raise ValueError("something broke")
 
         handler = create_deployed_handler(failing)
-        result = handler({"input": {}})
+        result = handler({"input": {"x": 1}})
 
         assert isinstance(result, dict)
         assert "error" in result
@@ -79,22 +81,22 @@ class TestCreateDeployedHandler:
     def test_complex_return_value(self):
         """Handler returns complex JSON-serializable types."""
 
-        def complex_result():
+        def complex_result(flag: bool):
             return {"items": [1, 2, 3], "nested": {"key": "value"}}
 
         handler = create_deployed_handler(complex_result)
-        result = handler({"input": {}})
+        result = handler({"input": {"flag": True}})
 
         assert result == {"items": [1, 2, 3], "nested": {"key": "value"}}
 
     def test_none_return_value(self):
         """Handler returns None when function returns None."""
 
-        def returns_none():
+        def returns_none(flag: bool):
             return None
 
         handler = create_deployed_handler(returns_none)
-        result = handler({"input": {}})
+        result = handler({"input": {"flag": True}})
 
         assert result is None
 
@@ -112,11 +114,11 @@ class TestCreateDeployedHandler:
     def test_async_function_raising(self):
         """Handler catches async exceptions and returns error dict."""
 
-        async def async_fail():
+        async def async_fail(x: int):
             raise RuntimeError("async error")
 
         handler = create_deployed_handler(async_fail)
-        result = handler({"input": {}})
+        result = handler({"input": {"x": 1}})
 
         assert isinstance(result, dict)
         assert "async error" in result["error"]
