@@ -199,18 +199,57 @@ class TestCreateDeployedHandler:
         assert "bad input" in result["error"]
         assert "traceback" in result
 
-    def test_empty_input(self):
+    def test_empty_input_rejected(self):
+        """Empty input is rejected even for zero-arg functions (platform behavior)."""
+
         def no_args():
             return {"status": "ok"}
 
         handler = create_deployed_handler(no_args)
         result = handler({"input": {}})
-        assert result == {"status": "ok"}
+        assert result["success"] is False
+        assert "Empty or null input" in result["error"]
 
-    def test_missing_input_key(self):
+    def test_missing_input_key_rejected(self):
+        """Missing input key is rejected even for zero-arg functions."""
+
         def no_args():
             return {"status": "ok"}
 
         handler = create_deployed_handler(no_args)
         result = handler({})
-        assert result == {"status": "ok"}
+        assert result["success"] is False
+        assert "Empty or null input" in result["error"]
+
+    def test_rejects_empty_input_dict(self):
+        """Empty input dict -> error response, not silent execution."""
+
+        def process(x: int):
+            return {"result": x}
+
+        handler = create_deployed_handler(process)
+        result = handler({"input": {}})
+        assert result["success"] is False
+        assert "Empty or null input" in result["error"]
+
+    def test_rejects_null_input(self):
+        """Null input -> error response."""
+
+        def process(x: int):
+            return {"result": x}
+
+        handler = create_deployed_handler(process)
+        result = handler({"input": None})
+        assert result["success"] is False
+        assert "Empty or null input" in result["error"]
+
+    def test_rejects_missing_input_key(self):
+        """Missing input key -> error response."""
+
+        def process(x: int):
+            return {"result": x}
+
+        handler = create_deployed_handler(process)
+        result = handler({})
+        assert result["success"] is False
+        assert "Empty or null input" in result["error"]
