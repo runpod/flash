@@ -734,19 +734,17 @@ class TestClientMode:
         assert ep.is_client is False
 
     def test_image_post_returns_awaitable(self):
-        from runpod_flash.endpoint import _ClientCoroutine
-
         ep = Endpoint(name="test", image="vllm:latest")
         result = ep.post("/v1/completions", {"prompt": "hello"})
-        assert isinstance(result, _ClientCoroutine)
+        assert type(result).__name__ == "_ClientCoroutine"
+        assert hasattr(result, "__await__")
         result._coro.close()
 
     def test_image_get_returns_awaitable(self):
-        from runpod_flash.endpoint import _ClientCoroutine
-
         ep = Endpoint(name="test", image="vllm:latest")
         result = ep.get("/v1/models")
-        assert isinstance(result, _ClientCoroutine)
+        assert type(result).__name__ == "_ClientCoroutine"
+        assert hasattr(result, "__await__")
         result._coro.close()
 
     def test_decorator_mode_post_returns_callable(self):
@@ -932,12 +930,11 @@ class TestDecoratorModeArgValidation:
         assert callable(decorator)
 
     def test_client_mode_post_with_data_ok(self):
-        from runpod_flash.endpoint import _ClientCoroutine
-
         ep = Endpoint(id="ep-123")
         # client mode should accept data without error
         result = ep.post("/predict", data={"prompt": "hello"})
-        assert isinstance(result, _ClientCoroutine)
+        assert type(result).__name__ == "_ClientCoroutine"
+        assert hasattr(result, "__await__")
         result._coro.close()
 
 
