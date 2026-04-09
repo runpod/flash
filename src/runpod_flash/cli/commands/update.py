@@ -12,6 +12,8 @@ from typing import Optional
 import typer
 from rich.console import Console
 
+from runpod_flash.cli.utils.formatting import print_error, print_warning
+
 console = Console()
 
 PYPI_URL = "https://pypi.org/pypi/runpod-flash/json"
@@ -138,16 +140,14 @@ def update_command(
         try:
             latest, releases = _fetch_pypi_metadata()
         except (ConnectionError, RuntimeError) as exc:
-            console.print(f"[red]error:[/red] {exc}")
+            print_error(console, str(exc))
             raise typer.Exit(code=1)
 
     target = version or latest
 
     # Validate target version exists on PyPI
     if target not in releases:
-        console.print(
-            f"[red]error:[/red] version [bold]{target}[/bold] not found on PyPI"
-        )
+        print_error(console, f"version [bold]{target}[/bold] not found on PyPI")
         raise typer.Exit(code=1)
 
     # Already on target
@@ -159,8 +159,9 @@ def update_command(
     if current != "unknown":
         try:
             if _compare_versions(_parse_version(target), _parse_version(current)) < 0:
-                console.print(
-                    f"[yellow]note:[/yellow] {target} is older than {current} (downgrade)"
+                print_warning(
+                    console,
+                    f"{target} is older than {current} (downgrade)",
                 )
         except ValueError:
             pass  # non-standard version string, skip comparison
@@ -171,12 +172,13 @@ def update_command(
         try:
             _run_install(target)
         except subprocess.TimeoutExpired:
-            console.print(
-                f"[red]error:[/red] install timed out after {INSTALL_TIMEOUT_SECONDS}s"
+            print_error(
+                console,
+                f"install timed out after {INSTALL_TIMEOUT_SECONDS}s",
             )
             raise typer.Exit(code=1)
         except RuntimeError as exc:
-            console.print(f"[red]error:[/red] {exc}")
+            print_error(console, str(exc))
             raise typer.Exit(code=1)
 
     console.print(f"[green]Updated runpod-flash {current} -> {target}[/green]")

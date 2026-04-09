@@ -11,6 +11,7 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
+from runpod_flash.cli.utils.formatting import print_error
 from runpod_flash.core.resources.constants import FLASH_CPU_LB_IMAGE
 
 logger = logging.getLogger(__name__)
@@ -61,7 +62,7 @@ def launch_preview(
         resources = _parse_resources_from_manifest(manifest)
 
         if not resources:
-            console.print("[red]Error:[/red] No resources found in manifest")
+            print_error(console, "No resources found in manifest")
             raise typer.Exit(1)
 
         # Create Docker network
@@ -81,7 +82,7 @@ def launch_preview(
                 containers.append(container)
         except Exception as e:
             # Cleanup on partial failure
-            console.print(f"[red]Error starting containers:[/red] {e}")
+            print_error(console, f"Error starting containers: {e}")
             _cleanup_preview(containers, network_name)
             raise typer.Exit(1)
 
@@ -101,7 +102,7 @@ def launch_preview(
     except typer.Exit:
         raise
     except Exception as e:
-        console.print(f"[red]Preview error:[/red] {e}")
+        print_error(console, f"Preview error: {e}")
         logger.exception("Preview launch failed")
         raise typer.Exit(1)
 
@@ -110,7 +111,7 @@ def _verify_docker_prerequisites() -> None:
     """Verify Docker and Docker daemon are available."""
     # Check Docker command exists
     if not shutil.which("docker"):
-        console.print("[red]Error:[/red] Docker is not installed or not in PATH")
+        print_error(console, "Docker is not installed or not in PATH")
         console.print(
             "Install Docker from: https://www.docker.com/products/docker-desktop"
         )
@@ -129,7 +130,7 @@ def _verify_docker_prerequisites() -> None:
         subprocess.TimeoutExpired,
         FileNotFoundError,
     ):
-        console.print("[red]Error:[/red] Docker daemon is not running")
+        print_error(console, "Docker daemon is not running")
         console.print("Start Docker and try again")
         raise typer.Exit(1)
 
@@ -147,14 +148,14 @@ def _load_manifest(manifest_path: Path) -> dict:
         typer.Exit: If manifest not found or invalid
     """
     if not manifest_path.exists():
-        console.print(f"[red]Error:[/red] Manifest not found at {manifest_path}")
+        print_error(console, f"Manifest not found at {manifest_path}")
         raise typer.Exit(1)
 
     try:
         with open(manifest_path) as f:
             return json.load(f)
     except json.JSONDecodeError as e:
-        console.print(f"[red]Error:[/red] Invalid manifest JSON: {e}")
+        print_error(console, f"Invalid manifest JSON: {e}")
         raise typer.Exit(1)
 
 
@@ -208,7 +209,7 @@ def _create_docker_network() -> str:
         )
         return network_name
     except subprocess.CalledProcessError as e:
-        console.print("[red]Error:[/red] Failed to create Docker network")
+        print_error(console, "Failed to create Docker network")
         error_detail = e.stderr.decode() if e.stderr else str(e)
         console.print(f"[dim]{error_detail}[/dim]")
         raise typer.Exit(1)
@@ -304,7 +305,7 @@ def _start_resource_container(
 
     except subprocess.CalledProcessError as e:
         error_msg = e.stderr if e.stderr else str(e)
-        console.print(f"[red]Error:[/red] Failed to start {resource_name} container")
+        print_error(console, f"Failed to start {resource_name} container")
         console.print(f"[dim]{error_msg}[/dim]")
         raise
 

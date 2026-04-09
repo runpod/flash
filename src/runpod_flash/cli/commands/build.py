@@ -20,6 +20,7 @@ try:
 except ImportError:
     import tomli as tomllib  # Python 3.10
 
+from runpod_flash.cli.utils.formatting import print_error, print_warning
 from runpod_flash.core.resources.constants import (
     DEFAULT_PYTHON_VERSION,
     MAX_TARBALL_SIZE_MB,
@@ -263,7 +264,7 @@ def run_build(
         typer.Exit: On build failure (including when archive exceeds 1500 MB)
     """
     if not validate_project_structure(project_dir):
-        console.print("[red]Error:[/red] Not a valid Flash project")
+        print_error(console, "Not a valid Flash project")
         console.print("Run [bold]flash init[/bold] to create a Flash project")
         raise typer.Exit(1)
 
@@ -322,16 +323,16 @@ def run_build(
         except typer.Exit:
             raise
         except (ImportError, SyntaxError) as e:
-            console.print(f"[red]Error:[/red] Code analysis failed: {e}")
+            print_error(console, f"Code analysis failed: {e}")
             logger.exception("Code analysis failed")
             raise typer.Exit(1)
         except ValueError as e:
-            console.print(f"[red]Error:[/red] {e}")
+            print_error(console, str(e))
             logger.exception("Handler generation validation failed")
             raise typer.Exit(1)
         except Exception as e:
             logger.exception("Handler generation failed")
-            console.print(f"[yellow]Warning:[/yellow] Handler generation failed: {e}")
+            print_warning(console, f"Handler generation failed: {e}")
 
     except typer.Exit:
         if build_dir.exists():
@@ -340,7 +341,7 @@ def run_build(
     except Exception as e:
         if build_dir.exists():
             shutil.rmtree(build_dir)
-        console.print(f"[red]Error:[/red] Build failed: {e}")
+        print_error(console, f"Build failed: {e}")
         logger.exception("Build failed")
         raise typer.Exit(1)
 
@@ -382,9 +383,9 @@ def run_build(
         # Only warn about unmatched user-specified packages (not auto-excludes)
         user_unmatched = set(user_excluded) - user_matched - SIZE_PROHIBITIVE_PACKAGES
         if user_unmatched:
-            console.print(
-                f"[yellow]Warning:[/yellow] No packages matched exclusions: "
-                f"{', '.join(sorted(user_unmatched))}"
+            print_warning(
+                console,
+                f"No packages matched exclusions: {', '.join(sorted(user_unmatched))}",
             )
 
     if requirements:
@@ -397,15 +398,16 @@ def run_build(
             )
 
         if not success:
-            console.print("[red]Error:[/red] Failed to install dependencies")
+            print_error(console, "Failed to install dependencies")
             raise typer.Exit(1)
 
     # Always bundle the installed runpod_flash
     flash_pkg = _find_runpod_flash(project_dir)
     if not flash_pkg:
-        console.print(
-            "[red]Error:[/red] Could not find runpod_flash.\n"
-            "  Ensure runpod-flash is installed: pip install runpod-flash"
+        print_error(
+            console,
+            "Could not find runpod_flash.\n"
+            "  Ensure runpod-flash is installed: pip install runpod-flash",
         )
         raise typer.Exit(1)
     _bundle_runpod_flash(build_dir, flash_pkg)
@@ -433,10 +435,10 @@ def run_build(
 
     # fail build if archive exceeds size limit
     if size_mb > MAX_TARBALL_SIZE_MB:
-        console.print()
-        console.print(
-            f"[red]Error:[/red] Archive exceeds RunPod limit "
-            f"({size_mb:.1f} MB / {MAX_TARBALL_SIZE_MB} MB)"
+        print_error(
+            console,
+            f"Archive exceeds RunPod limit "
+            f"({size_mb:.1f} MB / {MAX_TARBALL_SIZE_MB} MB)",
         )
         console.print(
             "  Torch packages are auto-excluded. Use --exclude for other large packages: "
@@ -501,7 +503,7 @@ def build_command(
     except typer.Exit:
         raise
     except Exception as e:
-        console.print(f"\n[red]Build failed:[/red] {e}")
+        print_error(console, f"Build failed: {e}")
         import traceback
 
         console.print(traceback.format_exc())
@@ -539,7 +541,7 @@ def validate_project_structure(project_dir: Path) -> bool:
     """
     py_files = list(project_dir.rglob("*.py"))
     if not py_files:
-        console.print(f"[red]Error:[/red] No Python files found in {project_dir}")
+        print_error(console, f"No Python files found in {project_dir}")
         return False
     return True
 
@@ -639,9 +641,7 @@ def collect_requirements(project_dir: Path, build_dir: Path) -> list[str]:
                 if line and not line.startswith("#"):
                     requirements.append(line)
         except Exception as e:
-            console.print(
-                f"[yellow]Warning:[/yellow] Failed to read requirements.txt: {e}"
-            )
+            print_warning(console, f"Failed to read requirements.txt: {e}")
 
     # Extract dependencies from @remote decorators in packaged source files
     remote_deps = extract_remote_dependencies(build_dir)
@@ -769,9 +769,7 @@ def extract_remote_dependencies(source_dir: Path) -> list[str]:
                         dependencies.extend(_extract_deps_from_call(node.value))
 
         except Exception as e:
-            console.print(
-                f"[yellow]Warning:[/yellow] Failed to parse {py_file.name}: {e}"
-            )
+            print_warning(console, f"Failed to parse {py_file.name}: {e}")
 
     return dependencies
 
@@ -853,7 +851,7 @@ def install_dependencies(
                         "[green]✓[/green] Standard pip installed successfully"
                     )
         except (subprocess.SubprocessError, FileNotFoundError) as e:
-            console.print(f"[yellow]Warning:[/yellow] Failed to install pip: {e}")
+            print_warning(console, f"Failed to install pip: {e}")
 
     # If pip still not available, try uv pip (less reliable for cross-platform)
     if not pip_available:
@@ -867,9 +865,10 @@ def install_dependencies(
             if result.returncode == 0:
                 pip_cmd = [UV_COMMAND, PIP_MODULE]
                 pip_available = True
-                console.print(
-                    f"[yellow]Warning:[/yellow] Using '{UV_COMMAND} {PIP_MODULE}' which has known issues "
-                    f"with newer manylinux tags (manylinux_2_27+)"
+                print_warning(
+                    console,
+                    f"Using '{UV_COMMAND} {PIP_MODULE}' which has known issues "
+                    f"with newer manylinux tags (manylinux_2_27+)",
                 )
                 console.print(
                     "[yellow]This may fail for Python 3.13+ with newer packages (e.g., numpy 2.4+)[/yellow]"
@@ -879,8 +878,9 @@ def install_dependencies(
 
     # If neither available, error out
     if not pip_available:
-        console.print(
-            f"[red]Error:[/red] Neither {PIP_MODULE} nor {UV_COMMAND} {PIP_MODULE} found"
+        print_error(
+            console,
+            f"Neither {PIP_MODULE} nor {UV_COMMAND} {PIP_MODULE} found",
         )
         console.print(f"\n[yellow]Install {PIP_MODULE} with one of:[/yellow]")
         console.print("  • python -m ensurepip --upgrade")
@@ -953,18 +953,19 @@ def install_dependencies(
         )
 
         if result.returncode != 0:
-            console.print(f"[red]pip install failed:[/red]\n{result.stderr}")
+            print_error(console, f"pip install failed:\n{result.stderr}")
             return False
 
         return True
 
     except subprocess.TimeoutExpired:
-        console.print(
-            f"[red]pip install timed out ({PIP_INSTALL_TIMEOUT_SECONDS} seconds)[/red]"
+        print_error(
+            console,
+            f"pip install timed out ({PIP_INSTALL_TIMEOUT_SECONDS} seconds)",
         )
         return False
     except Exception as e:
-        console.print(f"[red]pip install error:[/red] {e}")
+        print_error(console, f"pip install error: {e}")
         return False
 
 

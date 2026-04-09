@@ -5,6 +5,7 @@ from typing import Optional
 import typer
 from rich.console import Console
 
+from runpod_flash.cli.utils.formatting import print_error
 from runpod_flash.core.api.runpod import RunpodGraphQLClient
 from runpod_flash.core.credentials import (
     check_and_migrate_legacy_credentials,
@@ -85,5 +86,5 @@ def login_command(
     try:
         asyncio.run(_login(open_browser=not no_open, timeout_seconds=timeout))
     except RuntimeError as exc:
-        console.print(f"[red]error:[/red] {exc}")
+        print_error(console, str(exc))
         raise typer.Exit(code=1)
