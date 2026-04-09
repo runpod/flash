@@ -1,6 +1,7 @@
 """Deployment environment management utilities."""
 
 import asyncio
+import copy
 import json
 import logging
 from typing import Dict, Any
@@ -8,11 +9,45 @@ from datetime import datetime
 from pathlib import Path
 
 from runpod_flash.config import get_paths
+from runpod_flash.core.resources.serverless import ServerlessResource
 from runpod_flash.core.resources.app import FlashApp
 from runpod_flash.core.resources.resource_manager import ResourceManager
 from runpod_flash.runtime.resource_provisioner import create_resource_from_manifest
 
 log = logging.getLogger(__name__)
+
+RUNTIME_RESOURCE_FIELDS = set(ServerlessResource.RUNTIME_FIELDS) | {
+    "id",
+    "endpoint_id",
+}
+
+
+def _normalized_resource_attr(resource: Any, *names: str) -> str | None:
+    for name in names:
+        value = getattr(resource, name, None)
+        if isinstance(value, str) and value.strip():
+            return value
+    return None
+
+
+def _manifest_without_ai_keys(manifest: Dict[str, Any]) -> Dict[str, Any]:
+    sanitized_manifest = copy.deepcopy(manifest)
+    resources = sanitized_manifest.get("resources")
+    if not isinstance(resources, dict):
+        return sanitized_manifest
+
+    for config in resources.values():
+        if isinstance(config, dict):
+            config.pop("aiKey", None)
+
+    return sanitized_manifest
+
+
+def _resource_config_for_compare(config: Dict[str, Any]) -> Dict[str, Any]:
+    compare_config = copy.deepcopy(config)
+    for field in RUNTIME_RESOURCE_FIELDS:
+        compare_config.pop(field, None)
+    return compare_config
 
 
 async def upload_build(app_name: str, build_path: str | Path):
@@ -147,6 +182,14 @@ async def provision_resources_for_build(
 
         resources_endpoints[resource_name] = endpoint_url
 
+        endpoint_id = _normalized_resource_attr(deployed_resource, "endpoint_id", "id")
+        if endpoint_id:
+            manifest["resources"][resource_name]["endpoint_id"] = endpoint_id
+
+        ai_key = _normalized_resource_attr(deployed_resource, "aiKey", "ai_key")
+        if ai_key:
+            manifest["resources"][resource_name]["aiKey"] = ai_key
+
         # Track load balancer URL for prominent logging
         if manifest["resources"][resource_name].get("is_load_balanced"):
             lb_endpoint_url = endpoint_url
@@ -258,9 +301,15 @@ async def reconcile_and_provision_resources(
         local_config = local_manifest["resources"][resource_name]
         state_config = state_manifest.get("resources", {}).get(resource_name, {})
 
-        # Simple hash comparison for config changes
-        local_json = json.dumps(local_config, sort_keys=True)
-        state_json = json.dumps(state_config, sort_keys=True)
+        # Compare only user-managed config fields (exclude runtime metadata)
+        local_json = json.dumps(
+            _resource_config_for_compare(local_config),
+            sort_keys=True,
+        )
+        state_json = json.dumps(
+            _resource_config_for_compare(state_config),
+            sort_keys=True,
+        )
 
         # Check if endpoint exists in state manifest
         has_endpoint = resource_name in state_manifest.get("resources_endpoints", {})
@@ -282,6 +331,10 @@ async def reconcile_and_provision_resources(
                 local_manifest["resources"][resource_name]["endpoint_id"] = (
                     state_config["endpoint_id"]
                 )
+            if "aiKey" in state_config:
+                local_manifest["resources"][resource_name]["aiKey"] = state_config[
+                    "aiKey"
+                ]
             if resource_name in state_manifest.get("resources_endpoints", {}):
                 local_manifest.setdefault("resources_endpoints", {})[resource_name] = (
                     state_manifest["resources_endpoints"][resource_name]
@@ -315,13 +368,21 @@ async def reconcile_and_provision_resources(
             deployed_resource = provisioning_results[i]
 
             # Extract endpoint info
-            endpoint_id = getattr(deployed_resource, "endpoint_id", None)
+            endpoint_id = _normalized_resource_attr(
+                deployed_resource, "endpoint_id", "id"
+            )
             endpoint_url = getattr(deployed_resource, "endpoint_url", None)
-
+            if isinstance(endpoint_url, str):
+                endpoint_url = endpoint_url.strip() or None
+            else:
+                endpoint_url = None
+            ai_key = _normalized_resource_attr(deployed_resource, "aiKey", "ai_key")
             if endpoint_id:
                 local_manifest["resources"][resource_name]["endpoint_id"] = endpoint_id
             if endpoint_url:
                 local_manifest["resources_endpoints"][resource_name] = endpoint_url
+            if ai_key:
+                local_manifest["resources"][resource_name]["aiKey"] = ai_key
 
             log.debug(
                 f"{'Provisioned' if action_type == 'provision' else 'Updated'}: "
@@ -348,9 +409,11 @@ async def reconcile_and_provision_resources(
                 f"Successfully provisioned: {provisioned}"
             )
 
+    local_manifest_for_disk = _manifest_without_ai_keys(local_manifest)
+
     # Write updated manifest back to local file
     manifest_path = Path.cwd() / ".flash" / "flash_manifest.json"
-    manifest_path.write_text(json.dumps(local_manifest, indent=2))
+    manifest_path.write_text(json.dumps(local_manifest_for_disk, indent=2))
 
     log.debug(f"Local manifest updated at {manifest_path.relative_to(Path.cwd())}")
 

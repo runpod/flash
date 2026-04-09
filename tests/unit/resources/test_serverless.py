@@ -11,6 +11,7 @@ from runpod_flash.core.resources.serverless import (
     ServerlessResource,
     ServerlessEndpoint,
     ServerlessScalerType,
+    ServerlessType,
     CudaVersion,
     JobOutput,
     WorkersHealth,
@@ -22,6 +23,13 @@ from runpod_flash.core.resources.serverless_cpu import CpuServerlessEndpoint
 from runpod_flash.core.resources.gpu import GpuGroup
 from runpod_flash.core.resources.cpu import CpuInstanceType
 from runpod_flash.core.resources.network_volume import NetworkVolume, DataCenter
+from runpod_flash.core.resources.request_logs import (
+    QBRequestLogBatch,
+    QBRequestLogPhase,
+)
+from runpod_flash.core.resources.worker_availability_diagnostic import (
+    WorkerAvailabilityResult,
+)
 from runpod_flash.core.resources.template import KeyValuePair, PodTemplate
 
 
@@ -1204,6 +1212,479 @@ class TestServerlessResourceDeployment:
         assert isinstance(result, JobOutput)
         assert result.id == "job-123"
         assert result.status == "COMPLETED"
+
+    @pytest.mark.asyncio
+    async def test_run_async_dedupes_stdout_against_streamed_pod_logs(self):
+        serverless = ServerlessResource(name="test")
+        serverless.id = "endpoint-123"
+        serverless.type = ServerlessType.QB
+        serverless.aiKey = "endpoint-ai-key"
+
+        mock_job = MagicMock()
+        mock_job.job_id = "job-123"
+        mock_job.status.side_effect = ["IN_QUEUE", "COMPLETED"]
+        mock_job._fetch_job.return_value = {
+            "id": "job-123",
+            "workerId": "worker-456",
+            "status": "COMPLETED",
+            "delayTime": 1000,
+            "executionTime": 2000,
+            "output": {
+                "stdout": "2026-04-02T18:18:10.165152015Z 2026-04-02 18:18:10,164 | DEBUG | aiohttp_retry | client.py:110 | Attempt 1 out of 3\n"
+                "2026-04-02 18:18:10,164 | DEBUG | aiohttp_retry | client.py:110 | Attempt 1 out of 3\n"
+                "unique stdout line"
+            },
+        }
+
+        mock_endpoint = MagicMock()
+        mock_endpoint.run.return_value = mock_job
+
+        async def fake_emit(*, fetcher, request_id):
+            fetcher.has_streamed_logs = True
+            fetcher.seen.add(
+                "2026-04-02T18:18:10.165152015Z 2026-04-02 18:18:10,164 | DEBUG | aiohttp_retry | client.py:110 | Attempt 1 out of 3"
+            )
+            return None
+
+        with patch.object(
+            type(serverless),
+            "endpoint",
+            new_callable=lambda: property(lambda self: mock_endpoint),
+        ):
+            with patch("asyncio.sleep"):
+                with patch.object(
+                    ServerlessResource,
+                    "_emit_endpoint_logs",
+                    new=AsyncMock(side_effect=fake_emit),
+                ):
+                    with patch(
+                        "runpod_flash.core.resources.serverless.get_api_key",
+                        return_value="runpod-key-123",
+                    ):
+                        result = await serverless.run({"input": "test"})
+
+        assert isinstance(result, JobOutput)
+        assert result.output["stdout"] == (
+            "2026-04-02 18:18:10,164 | DEBUG | aiohttp_retry | client.py:110 | Attempt 1 out of 3\n"
+            "unique stdout line"
+        )
+
+    @pytest.mark.asyncio
+    async def test_run_async_keeps_stdout_unchanged_when_no_streamed_logs(self):
+        serverless = ServerlessResource(name="test")
+        serverless.id = "endpoint-123"
+        serverless.type = ServerlessType.QB
+        serverless.aiKey = "endpoint-ai-key"
+
+        original_stdout = "dup line\ndup line\n\n  spaced line"
+        mock_job = MagicMock()
+        mock_job.job_id = "job-123"
+        mock_job.status.side_effect = ["IN_QUEUE", "COMPLETED"]
+        mock_job._fetch_job.return_value = {
+            "id": "job-123",
+            "workerId": "worker-456",
+            "status": "COMPLETED",
+            "delayTime": 1000,
+            "executionTime": 2000,
+            "output": {"stdout": original_stdout},
+        }
+
+        mock_endpoint = MagicMock()
+        mock_endpoint.run.return_value = mock_job
+
+        async def fake_emit(*, fetcher, request_id):
+            fetcher.seen.add("dup line")
+            return None
+
+        with patch.object(
+            type(serverless),
+            "endpoint",
+            new_callable=lambda: property(lambda self: mock_endpoint),
+        ):
+            with patch("asyncio.sleep"):
+                with patch.object(
+                    ServerlessResource,
+                    "_emit_endpoint_logs",
+                    new=AsyncMock(side_effect=fake_emit),
+                ):
+                    result = await serverless.run({"input": "test"})
+
+        assert isinstance(result, JobOutput)
+        assert result.output["stdout"] == original_stdout
+
+    @pytest.mark.asyncio
+    async def test_run_async_fetches_endpoint_logs_while_polling(self):
+        """Test run async polls endpoint logs every cycle until completion."""
+        serverless = ServerlessResource(name="test")
+        serverless.id = "endpoint-123"
+        serverless.type = ServerlessType.QB
+        serverless.aiKey = "ai-key-123"
+
+        mock_job = MagicMock()
+        mock_job.job_id = "job-123"
+        mock_job.status.side_effect = [
+            "IN_QUEUE",
+            "IN_PROGRESS",
+            "IN_PROGRESS",
+            "COMPLETED",
+        ]
+        mock_job._fetch_job.return_value = {
+            "id": "job-123",
+            "workerId": "worker-456",
+            "status": "COMPLETED",
+            "delayTime": 1000,
+            "executionTime": 2000,
+            "output": {"result": "success"},
+        }
+
+        mock_endpoint = MagicMock()
+        mock_endpoint.run.return_value = mock_job
+
+        with patch.object(
+            type(serverless),
+            "endpoint",
+            new_callable=lambda: property(lambda self: mock_endpoint),
+        ):
+            with patch("asyncio.sleep"):
+                with patch.object(
+                    ServerlessResource,
+                    "_emit_endpoint_logs",
+                    new=AsyncMock(),
+                ) as mock_emit_logs:
+                    await serverless.run({"input": "test"})
+
+        assert mock_emit_logs.await_count == 6
+        fetchers = [call.kwargs["fetcher"] for call in mock_emit_logs.await_args_list]
+        assert len({id(fetcher) for fetcher in fetchers}) == 1
+        request_ids = [
+            call.kwargs["request_id"] for call in mock_emit_logs.await_args_list
+        ]
+        assert all(request_id == "job-123" for request_id in request_ids)
+
+    @pytest.mark.asyncio
+    async def test_run_async_announces_assigned_worker_streaming_once(self):
+        serverless = ServerlessResource(name="test")
+        serverless.id = "endpoint-123"
+        serverless.type = ServerlessType.QB
+        serverless.aiKey = "ai-key-123"
+
+        mock_job = MagicMock()
+        mock_job.job_id = "job-123"
+        mock_job.status.side_effect = [
+            "IN_PROGRESS",
+            "IN_PROGRESS",
+            "IN_PROGRESS",
+            "COMPLETED",
+        ]
+        mock_job._fetch_job.return_value = {
+            "id": "job-123",
+            "workerId": "worker-456",
+            "status": "COMPLETED",
+            "delayTime": 1000,
+            "executionTime": 2000,
+            "output": {"result": "success"},
+        }
+
+        mock_endpoint = MagicMock()
+        mock_endpoint.run.return_value = mock_job
+
+        assigned_batch = QBRequestLogBatch(
+            worker_id="worker-456",
+            lines=[],
+            matched_by_request_id=True,
+            phase=QBRequestLogPhase.STREAMING,
+        )
+
+        with patch.object(
+            type(serverless),
+            "endpoint",
+            new_callable=lambda: property(lambda self: mock_endpoint),
+        ):
+            with patch("asyncio.sleep"):
+                with patch.object(
+                    ServerlessResource,
+                    "_emit_endpoint_logs",
+                    new=AsyncMock(
+                        side_effect=[
+                            assigned_batch,
+                            assigned_batch,
+                            assigned_batch,
+                            assigned_batch,
+                            assigned_batch,
+                            assigned_batch,
+                        ]
+                    ),
+                ):
+                    with patch(
+                        "runpod_flash.core.resources.serverless.log.info"
+                    ) as mock_log_info:
+                        await serverless.run({"input": "test"})
+
+        assigned_messages = [
+            str(call.args[0])
+            for call in mock_log_info.call_args_list
+            if call.args
+            and "Request assigned to worker worker-456, streaming pod logs"
+            in str(call.args[0])
+        ]
+        assert len(assigned_messages) == 1
+
+    @pytest.mark.asyncio
+    async def test_run_async_repeats_no_gpu_availability_message_every_five_updates(
+        self,
+    ):
+        serverless = ServerlessResource(name="test")
+        serverless.id = "endpoint-123"
+        serverless.type = ServerlessType.QB
+        serverless.aiKey = "ai-key-123"
+
+        mock_job = MagicMock()
+        mock_job.job_id = "job-123"
+        mock_job.status.side_effect = [
+            "IN_QUEUE",
+            "IN_QUEUE",
+            "IN_QUEUE",
+            "IN_QUEUE",
+            "IN_QUEUE",
+            "IN_QUEUE",
+            "IN_QUEUE",
+            "IN_QUEUE",
+            "IN_QUEUE",
+            "IN_QUEUE",
+            "IN_QUEUE",
+            "IN_QUEUE",
+            "COMPLETED",
+        ]
+        mock_job._fetch_job.return_value = {
+            "id": "job-123",
+            "workerId": "worker-456",
+            "status": "COMPLETED",
+            "delayTime": 1000,
+            "executionTime": 2000,
+            "output": {"result": "success"},
+        }
+
+        waiting_batch = QBRequestLogBatch(
+            worker_id=None,
+            lines=[],
+            matched_by_request_id=False,
+            phase=QBRequestLogPhase.WAITING_FOR_WORKER,
+        )
+
+        async def emit_waiting_batch(*, fetcher, request_id):
+            return waiting_batch
+
+        mock_endpoint = MagicMock()
+        mock_endpoint.run.return_value = mock_job
+
+        with patch.object(
+            type(serverless),
+            "endpoint",
+            new_callable=lambda: property(lambda self: mock_endpoint),
+        ):
+            with patch("asyncio.sleep"):
+                with patch.object(
+                    ServerlessResource,
+                    "_emit_endpoint_logs",
+                    new=AsyncMock(side_effect=emit_waiting_batch),
+                ):
+                    with patch(
+                        "runpod_flash.core.resources.serverless.WorkerAvailabilityDiagnostic.diagnose",
+                        new=AsyncMock(
+                            return_value=WorkerAvailabilityResult(
+                                message=(
+                                    "No workers available on endpoint: no gpu availability for gpu type NVIDIA GeForce RTX 4090"
+                                ),
+                                has_availability=False,
+                                reason="no_gpu_availability",
+                            )
+                        ),
+                    ):
+                        with patch(
+                            "runpod_flash.core.resources.serverless.log.info"
+                        ) as mock_log_info:
+                            await serverless.run({"input": "test"})
+
+        no_worker_messages = [
+            str(call.args[0])
+            for call in mock_log_info.call_args_list
+            if call.args
+            and "No workers available on endpoint: no gpu availability for gpu type"
+            in str(call.args[0])
+        ]
+        assert len(no_worker_messages) == 2
+
+    @pytest.mark.asyncio
+    async def test_run_async_stops_waiting_metrics_logs_after_in_progress(self):
+        serverless = ServerlessResource(name="test")
+        serverless.id = "endpoint-123"
+        serverless.type = ServerlessType.QB
+        serverless.aiKey = "ai-key-123"
+
+        mock_job = MagicMock()
+        mock_job.job_id = "job-123"
+        mock_job.status.side_effect = [
+            "IN_QUEUE",
+            "IN_QUEUE",
+            "IN_QUEUE",
+            "IN_QUEUE",
+            "IN_QUEUE",
+            "IN_QUEUE",
+            "IN_QUEUE",
+            "IN_QUEUE",
+            "IN_QUEUE",
+            "IN_QUEUE",
+            "IN_QUEUE",
+            "IN_QUEUE",
+            "IN_PROGRESS",
+            "IN_PROGRESS",
+            "IN_PROGRESS",
+            "IN_PROGRESS",
+            "COMPLETED",
+        ]
+        mock_job._fetch_job.return_value = {
+            "id": "job-123",
+            "workerId": "worker-456",
+            "status": "COMPLETED",
+            "delayTime": 1000,
+            "executionTime": 2000,
+            "output": {"result": "success"},
+        }
+
+        waiting_batch = QBRequestLogBatch(
+            worker_id=None,
+            lines=[],
+            matched_by_request_id=False,
+            phase=QBRequestLogPhase.WAITING_FOR_WORKER,
+            worker_metrics={
+                "ready": 0,
+                "running": 0,
+                "idle": 0,
+                "initializing": 0,
+                "throttled": 2,
+                "unhealthy": 0,
+            },
+        )
+        mock_endpoint = MagicMock()
+        mock_endpoint.run.return_value = mock_job
+
+        with patch.object(
+            type(serverless),
+            "endpoint",
+            new_callable=lambda: property(lambda self: mock_endpoint),
+        ):
+            with patch("asyncio.sleep"):
+                with patch.object(
+                    ServerlessResource,
+                    "_emit_endpoint_logs",
+                    new=AsyncMock(return_value=waiting_batch),
+                ):
+                    with patch(
+                        "runpod_flash.core.resources.serverless.WorkerAvailabilityDiagnostic.diagnose",
+                        new=AsyncMock(
+                            return_value=WorkerAvailabilityResult(
+                                message="Workers are currently throttled on endpoint for selected gpu NVIDIA GeForce RTX 4090. Consider raising max workers or changing gpu type.",
+                                has_availability=True,
+                                reason="workers_throttled",
+                            )
+                        ),
+                    ):
+                        with patch(
+                            "runpod_flash.core.resources.serverless.log.info"
+                        ) as mock_log_info:
+                            await serverless.run({"input": "test"})
+
+        metrics_logs = [
+            str(call.args[0])
+            for call in mock_log_info.call_args_list
+            if call.args
+            and "Waiting for request: endpoint metrics:" in str(call.args[0])
+        ]
+        assert metrics_logs
+        assert not any("status=IN_PROGRESS" in line for line in metrics_logs)
+
+    @pytest.mark.asyncio
+    async def test_emit_endpoint_logs_uses_logger_for_worker_lines(self):
+        """Endpoint log emission logs each worker line through logger."""
+        serverless = ServerlessResource(name="test")
+        serverless.id = "endpoint-123"
+        serverless.type = ServerlessType.QB
+        serverless.aiKey = "endpoint-ai-key"
+
+        mock_fetcher = MagicMock()
+        mock_fetcher.fetch_logs = AsyncMock(
+            return_value=QBRequestLogBatch(
+                worker_id=None,
+                lines=["line-a", "line-b"],
+                matched_by_request_id=False,
+                phase=QBRequestLogPhase.STREAMING,
+            )
+        )
+
+        with patch(
+            "runpod_flash.core.resources.serverless.get_api_key",
+            return_value="runpod-key-123",
+        ):
+            with patch("runpod_flash.core.resources.serverless.log.info") as mock_info:
+                batch = await serverless._emit_endpoint_logs(
+                    fetcher=mock_fetcher,
+                    request_id="job-123",
+                )
+
+        mock_fetcher.fetch_logs.assert_awaited_once_with(
+            endpoint_id="endpoint-123",
+            request_id="job-123",
+            status_api_key="endpoint-ai-key",
+            pod_logs_api_key="runpod-key-123",
+            status_api_key_fallback="runpod-key-123",
+        )
+        assert batch is not None
+        assert batch.phase == QBRequestLogPhase.STREAMING
+        mock_info.assert_any_call("worker log: %s", "line-a")
+        mock_info.assert_any_call("worker log: %s", "line-b")
+
+    @pytest.mark.asyncio
+    async def test_emit_endpoint_logs_skips_when_missing_required_fields(self):
+        """Endpoint log fetch is skipped unless QB endpoint has id and API key."""
+        serverless = ServerlessResource(name="test")
+        mock_fetcher = MagicMock()
+        mock_fetcher.fetch_logs = AsyncMock(return_value=None)
+
+        serverless.type = ServerlessType.QB
+        serverless.id = None
+        serverless.aiKey = "endpoint-ai-key"
+        with patch(
+            "runpod_flash.core.resources.serverless.get_api_key",
+            return_value="runpod-key-123",
+        ):
+            await serverless._emit_endpoint_logs(
+                fetcher=mock_fetcher,
+                request_id="job-123",
+            )
+
+        serverless.id = "endpoint-123"
+        serverless.aiKey = None
+        with patch(
+            "runpod_flash.core.resources.serverless.get_api_key",
+            return_value=None,
+        ):
+            await serverless._emit_endpoint_logs(
+                fetcher=mock_fetcher,
+                request_id="job-123",
+            )
+
+        serverless.type = ServerlessType.LB
+        serverless.aiKey = "endpoint-ai-key"
+        with patch(
+            "runpod_flash.core.resources.serverless.get_api_key",
+            return_value="runpod-key-123",
+        ):
+            await serverless._emit_endpoint_logs(
+                fetcher=mock_fetcher,
+                request_id="job-123",
+            )
+
+        mock_fetcher.fetch_logs.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_run_async_failure_cancels_job(self):

@@ -483,3 +483,152 @@ async def test_deploy_succeeds_without_api_key_when_no_remote_calls(tmp_path):
         await reconcile_and_provision_resources(
             app, "build-123", "dev", local_manifest, show_progress=False
         )
+
+
+@pytest.mark.asyncio
+async def test_provision_resources_persists_ai_key_to_manifest(mock_flash_app):
+    manifest = {
+        "resources": {
+            "cpu": {"resource_type": "ServerlessResource"},
+        }
+    }
+    mock_flash_app.get_build_manifest.return_value = manifest
+
+    deployed = MagicMock()
+    deployed.endpoint_url = "https://example.com/endpoint"
+    deployed.id = "endpoint-123"
+    deployed.aiKey = "ai-key-123"
+
+    with (
+        patch("runpod_flash.cli.utils.deployment.ResourceManager") as mock_manager_cls,
+        patch(
+            "runpod_flash.cli.utils.deployment.create_resource_from_manifest"
+        ) as mock_create_resource,
+    ):
+        mock_manager = MagicMock()
+        mock_manager.get_or_deploy_resource = AsyncMock(return_value=deployed)
+        mock_manager_cls.return_value = mock_manager
+        mock_create_resource.return_value = MagicMock()
+
+        await provision_resources_for_build(
+            mock_flash_app,
+            "build-123",
+            "dev",
+            show_progress=False,
+        )
+
+    call_args = mock_flash_app.update_build_manifest.call_args
+    updated_manifest = call_args[0][1]
+    assert updated_manifest["resources"]["cpu"]["endpoint_id"] == "endpoint-123"
+    assert updated_manifest["resources"]["cpu"]["aiKey"] == "ai-key-123"
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_copies_ai_key_from_state_manifest(tmp_path):
+    import json
+
+    flash_dir = tmp_path / ".flash"
+    flash_dir.mkdir()
+
+    local_manifest = {
+        "resources": {
+            "worker": {
+                "resource_type": "LiveServerless",
+                "config": "same",
+                "endpoint_id": "endpoint-123",
+                "aiKey": "ai-key-123",
+            },
+        },
+        "resources_endpoints": {},
+    }
+    (flash_dir / "flash_manifest.json").write_text(json.dumps(local_manifest))
+
+    state_manifest = {
+        "resources": {
+            "worker": {
+                "resource_type": "LiveServerless",
+                "config": "same",
+                "endpoint_id": "endpoint-123",
+                "aiKey": "ai-key-123",
+            },
+        },
+        "resources_endpoints": {
+            "worker": "https://worker.api.runpod.ai",
+        },
+    }
+
+    app = AsyncMock()
+    app.get_build_manifest = AsyncMock(return_value=state_manifest)
+    app.update_build_manifest = AsyncMock()
+
+    with (
+        patch("pathlib.Path.cwd", return_value=tmp_path),
+        patch("runpod_flash.cli.utils.deployment.ResourceManager") as mock_manager_cls,
+    ):
+        mock_manager = MagicMock()
+        mock_manager.get_or_deploy_resource = AsyncMock()
+        mock_manager_cls.return_value = mock_manager
+
+        await reconcile_and_provision_resources(app, "build-123", "dev", local_manifest)
+
+    updated_manifest = app.update_build_manifest.call_args[0][1]
+    assert updated_manifest["resources"]["worker"]["endpoint_id"] == "endpoint-123"
+    assert updated_manifest["resources"]["worker"]["aiKey"] == "ai-key-123"
+    assert (
+        updated_manifest["resources_endpoints"]["worker"]
+        == "https://worker.api.runpod.ai"
+    )
+
+    with open(flash_dir / "flash_manifest.json") as f:
+        persisted_manifest = json.load(f)
+    assert "aiKey" not in persisted_manifest["resources"]["worker"]
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_ignores_runtime_fields_in_config_comparison(tmp_path):
+    import json
+
+    flash_dir = tmp_path / ".flash"
+    flash_dir.mkdir()
+
+    local_manifest = {
+        "resources": {
+            "worker": {
+                "resource_type": "LiveServerless",
+                "config": "same",
+            },
+        },
+        "resources_endpoints": {},
+    }
+    (flash_dir / "flash_manifest.json").write_text(json.dumps(local_manifest))
+
+    state_manifest = {
+        "resources": {
+            "worker": {
+                "resource_type": "LiveServerless",
+                "config": "same",
+                "aiKey": "ai-key-123",
+                "endpoint_id": "endpoint-123",
+                "templateId": "template-123",
+            },
+        },
+        "resources_endpoints": {
+            "worker": "https://worker.api.runpod.ai",
+        },
+    }
+
+    app = AsyncMock()
+    app.get_build_manifest = AsyncMock(return_value=state_manifest)
+    app.update_build_manifest = AsyncMock()
+
+    with (
+        patch("pathlib.Path.cwd", return_value=tmp_path),
+        patch("runpod_flash.cli.utils.deployment.ResourceManager") as mock_manager_cls,
+    ):
+        mock_manager = MagicMock()
+        mock_manager.get_or_deploy_resource = AsyncMock()
+        mock_manager_cls.return_value = mock_manager
+
+        await reconcile_and_provision_resources(app, "build-123", "dev", local_manifest)
+
+    mock_manager.get_or_deploy_resource.assert_not_called()
