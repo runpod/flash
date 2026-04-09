@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.12.0](https://github.com/runpod/flash/compare/v1.11.3...v1.12.0) (2026-04-09)
+
+
+### Features
+
+* AE-1225: poll request logs for qb workers ([#276](https://github.com/runpod/flash/issues/276)) ([6684ecc](https://github.com/runpod/flash/commit/6684ecce032fc94e3cef46064bf2c3c362eb9bf2))
+* **e2e:** add E2E workflow and CPU smoke test ([#300](https://github.com/runpod/flash/issues/300)) ([78abc66](https://github.com/runpod/flash/commit/78abc66aee183c2f5ca84c5844cee79c9cc147a3))
+
+
+### Bug Fixes
+
+* **tests:** use type name check instead of isinstance for _ClientCoroutine ([#303](https://github.com/runpod/flash/issues/303)) ([d1f8d93](https://github.com/runpod/flash/commit/d1f8d93e69fdb02395a8173cac7021af59a59b93))
+
 ## [1.11.3](https://github.com/runpod/flash/compare/v1.11.2...v1.11.3) (2026-04-01)
 
 
