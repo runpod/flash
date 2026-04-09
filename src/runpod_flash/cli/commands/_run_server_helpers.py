@@ -81,8 +81,8 @@ async def call_with_body(func, body):
         raise HTTPException(
             status_code=422,
             detail=(
-                "Empty input: RunPod serverless requires at least one field "
-                "in the input dict. Use explicit values or pass null for "
+                "Empty or null input. RunPod serverless requires at least one "
+                "field in the input dict. Use explicit values or pass null for "
                 'optional parameters, e.g. {"input": {"param_name": null}}.'
             ),
         )
