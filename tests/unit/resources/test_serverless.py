@@ -1113,6 +1113,138 @@ class TestServerlessResourceDeployment:
         assert updated.templateId == "template-existing"
 
     @pytest.mark.asyncio
+    async def test_update_uses_existing_template_id_instead_of_fresh_template(
+        self, mock_runpod_client
+    ):
+        """When existing endpoint has a templateId, saveEndpoint should use
+        templateId instead of sending a fresh template object.
+
+        This prevents the API from creating a new template (with empty env),
+        which would replace the deployed template that has runtime-injected
+        vars like FLASH_MODULE_PATH and platform vars (PORT, PORT_HEALTH),
+        triggering a spurious new release.
+
+        Reproduces the auto-provision bug where the child process creates a
+        fresh resource config with template set (from model validator) but
+        templateId=None, causing saveEndpoint to send a template with empty
+        env that replaces the auto-provisioned template.
+        """
+        existing = ServerlessResource(name="auto-prov", flashboot=False)
+        existing.id = "endpoint-auto"
+        existing.templateId = "template-auto"
+
+        # Fresh config as the child process would create it: template set,
+        # templateId is None (not yet assigned by API)
+        new_config = ServerlessResource(
+            name="auto-prov",
+            flashboot=False,
+            template=PodTemplate(
+                name="tpl",
+                imageName="image:v1",
+                env=[KeyValuePair(key="USER_VAR", value="1")],
+            ),
+        )
+        assert new_config.templateId is None  # precondition
+
+        mock_runpod_client.save_endpoint = AsyncMock(
+            return_value={
+                "id": "endpoint-auto",
+                "name": "auto-prov",
+                "templateId": "template-auto",
+                "gpuIds": "",
+                "allowedCudaVersions": "",
+            }
+        )
+        mock_runpod_client.update_template = AsyncMock(
+            return_value={
+                "id": "template-auto",
+                "name": "tpl",
+                "imageName": "image:v1",
+            }
+        )
+        mock_runpod_client.get_template = AsyncMock(
+            return_value={
+                "env": [
+                    {"key": "USER_VAR", "value": "1"},
+                    {"key": "FLASH_MODULE_PATH", "value": "my.module"},
+                    {"key": "PORT", "value": "8080"},
+                ]
+            }
+        )
+
+        with patch(
+            "runpod_flash.core.resources.serverless.RunpodGraphQLClient"
+        ) as mock_client_class:
+            mock_client_class.return_value.__aenter__.return_value = mock_runpod_client
+            mock_client_class.return_value.__aexit__.return_value = None
+
+            with patch.object(
+                ServerlessResource,
+                "_ensure_network_volume_deployed",
+                new=AsyncMock(),
+            ):
+                await existing.update(new_config)
+
+        # saveEndpoint should use the existing templateId, NOT a fresh template
+        endpoint_payload = mock_runpod_client.save_endpoint.call_args.args[0]
+        assert "template" not in endpoint_payload, (
+            "saveEndpoint payload must not contain 'template' when existing "
+            "endpoint has a templateId — this would create a new template and "
+            "trigger a spurious release"
+        )
+        assert endpoint_payload["templateId"] == "template-auto"
+
+        # Template env changes are handled by the separate saveTemplate call
+        mock_runpod_client.update_template.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_update_sends_template_when_no_existing_template_id(
+        self, mock_runpod_client
+    ):
+        """When existing endpoint has no templateId, saveEndpoint should
+        include the template so the API can create one."""
+        existing = ServerlessResource(name="no-tpl", flashboot=False)
+        existing.id = "endpoint-no-tpl"
+        # No templateId set
+
+        new_config = ServerlessResource(
+            name="no-tpl",
+            flashboot=False,
+            template=PodTemplate(name="tpl", imageName="image:v1"),
+        )
+
+        mock_runpod_client.save_endpoint = AsyncMock(
+            return_value={
+                "id": "endpoint-no-tpl",
+                "name": "no-tpl",
+                "templateId": "template-new",
+                "gpuIds": "",
+                "allowedCudaVersions": "",
+            }
+        )
+        mock_runpod_client.update_template = AsyncMock(
+            return_value={"id": "template-new", "name": "tpl", "imageName": "image:v1"}
+        )
+        mock_runpod_client.get_template = AsyncMock(return_value={"env": []})
+
+        with patch(
+            "runpod_flash.core.resources.serverless.RunpodGraphQLClient"
+        ) as mock_client_class:
+            mock_client_class.return_value.__aenter__.return_value = mock_runpod_client
+            mock_client_class.return_value.__aexit__.return_value = None
+
+            with patch.object(
+                ServerlessResource,
+                "_ensure_network_volume_deployed",
+                new=AsyncMock(),
+            ):
+                await existing.update(new_config)
+
+        # When no existing templateId, template should be in the payload
+        endpoint_payload = mock_runpod_client.save_endpoint.call_args.args[0]
+        assert "template" in endpoint_payload
+
+    @pytest.mark.asyncio
     async def test_deploy_failure_raises_exception(self, mock_runpod_client):
         """Test deployment failure raises exception."""
         serverless = ServerlessResource(name="test")

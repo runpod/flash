@@ -167,6 +167,10 @@ def create_handler(function_registry: Dict[str, Callable]) -> Callable:
             Response dict with 'success', 'result'/'error' keys
         """
         raw_input = job.get("input")
+        # None → {} is intentional here (unlike create_deployed_handler which
+        # rejects empty input).  Cloudpickle dispatch requires function_name
+        # inside job_input; null input will fail at the registry lookup below
+        # with a clear "Function 'None' not found" error.
         if raw_input is None:
             job_input = {}
         elif not isinstance(raw_input, dict):
@@ -237,15 +241,22 @@ def create_deployed_handler(func: Callable) -> Callable:
     """
 
     def handler(job: Dict[str, Any]) -> Any:
-        if "input" not in job or job.get("input") is None:
-            job_input = {}
-        else:
-            job_input = job.get("input")
-            if not isinstance(job_input, dict):
-                return {
-                    "success": False,
-                    "error": f"Malformed input: expected dict, got {type(job_input).__name__}",
-                }
+        raw_input = job.get("input")
+        if raw_input is None or (isinstance(raw_input, dict) and not raw_input):
+            return {
+                "success": False,
+                "error": (
+                    "Empty or null input. RunPod serverless requires at least "
+                    "one field in the input dict. Use explicit values or pass "
+                    'null for optional parameters, e.g. {"input": {"param_name": null}}.'
+                ),
+            }
+        if not isinstance(raw_input, dict):
+            return {
+                "success": False,
+                "error": f"Malformed input: expected dict, got {type(raw_input).__name__}",
+            }
+        job_input = raw_input
         try:
             result = func(**job_input)
             if inspect.iscoroutine(result):
