@@ -225,6 +225,19 @@ def create_remote_class(
                 cls, args, kwargs, self._cache_key
             )
 
+        _UNPICKLABLE_ATTRS = frozenset({"_init_lock", "_stub"})
+
+        def __getstate__(self) -> dict:
+            state = self.__dict__.copy()
+            for attr in self._UNPICKLABLE_ATTRS:
+                state.pop(attr, None)
+            state["_initialized"] = False
+            return state
+
+        def __setstate__(self, state: dict) -> None:
+            self.__dict__.update(state)
+            self._init_lock = asyncio.Lock()
+
         async def _ensure_initialized(self):
             """Ensure the remote instance is created exactly once, even under concurrent calls."""
             # Fast path: already initialized, no lock needed.
