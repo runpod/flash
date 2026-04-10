@@ -10,7 +10,11 @@ from unittest.mock import AsyncMock, Mock, patch
 import cloudpickle
 import pytest
 from runpod_flash.core.resources import ServerlessResource
-from runpod_flash.execute_class import create_remote_class, extract_class_code_simple
+from runpod_flash.execute_class import (
+    _SERIALIZED_CLASS_CACHE,
+    create_remote_class,
+    extract_class_code_simple,
+)
 from runpod_flash.protos.remote_execution import FunctionRequest
 
 
@@ -704,3 +708,97 @@ class TestExecuteClassIntegration:
         obj = ReconstructedClass("test")
         assert obj.name == "test"
         assert obj.CLASS_VAR == "class_variable"
+
+
+class TestRemoteClassWrapperPickle:
+    """Test pickle support for RemoteClassWrapper (AE-2745).
+
+    asyncio.Lock is not picklable. RemoteClassWrapper must implement
+    __getstate__/__setstate__ so ResourceManager._save_resources() can
+    persist state via cloudpickle without raising.
+    """
+
+    def setup_method(self):
+        _SERIALIZED_CLASS_CACHE.clear()
+        self.resource_config = ServerlessResource(
+            name="test-resource", image="test-image:latest", cpu=1, memory=512
+        )
+
+    def test_pickle_roundtrip(self):
+        """RemoteClassWrapper instances must survive cloudpickle roundtrip."""
+
+        class MyModel:
+            def predict(self, x):
+                return x
+
+        RemoteWrapper = create_remote_class(
+            MyModel, self.resource_config, ["numpy"], ["git"], True
+        )
+        instance = RemoteWrapper(42, name="test")
+
+        data = cloudpickle.dumps(instance)
+        restored = cloudpickle.loads(data)
+
+        assert restored._class_type == MyModel
+        assert restored._constructor_args == (42,)
+        assert restored._constructor_kwargs == {"name": "test"}
+        assert restored._dependencies == ["numpy"]
+        assert restored._system_dependencies == ["git"]
+        assert restored._instance_id == instance._instance_id
+        assert not restored._initialized
+        assert type(restored._init_lock) is type(asyncio.Lock())
+
+    def test_pickle_excludes_lock_and_stub(self):
+        """Pickle state must not contain non-picklable fields."""
+
+        class MyModel:
+            def predict(self, x):
+                return x
+
+        RemoteWrapper = create_remote_class(MyModel, self.resource_config, [], [], True)
+        instance = RemoteWrapper()
+
+        state = instance.__getstate__()
+
+        assert "_init_lock" not in state
+        assert "_stub" not in state
+        assert state["_initialized"] is False
+
+    def test_pickle_resets_initialized_flag(self):
+        """Unpickled instance must re-initialize on next use."""
+
+        class MyModel:
+            def predict(self, x):
+                return x
+
+        RemoteWrapper = create_remote_class(MyModel, self.resource_config, [], [], True)
+        instance = RemoteWrapper()
+        instance._initialized = True
+        instance._stub = "fake_stub"
+
+        data = cloudpickle.dumps(instance)
+        restored = cloudpickle.loads(data)
+
+        assert not restored._initialized
+        assert not hasattr(restored, "_stub")
+        assert type(restored._init_lock) is type(asyncio.Lock())
+
+    def test_pickle_inside_tuple_like_save_resources(self):
+        """Simulate ResourceManager._save_resources() pickle pattern."""
+
+        class MyModel:
+            def predict(self, x):
+                return x
+
+        RemoteWrapper = create_remote_class(MyModel, self.resource_config, [], [], True)
+        instance = RemoteWrapper()
+
+        resources = {"uid1": instance}
+        configs = {"uid1": "some_hash"}
+        payload = (resources, configs)
+
+        data = cloudpickle.dumps(payload)
+        restored_resources, restored_configs = cloudpickle.loads(data)
+
+        assert "uid1" in restored_resources
+        assert not restored_resources["uid1"]._initialized

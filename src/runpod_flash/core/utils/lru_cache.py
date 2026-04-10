@@ -73,3 +73,12 @@ class LRUCache:
     def __setitem__(self, key: str, value: Dict[str, Any]) -> None:
         """Set item using bracket notation."""
         self.set(key, value)
+
+    def __getstate__(self) -> Dict[str, Any]:
+        state = self.__dict__.copy()
+        del state["_lock"]
+        return state
+
+    def __setstate__(self, state: Dict[str, Any]) -> None:
+        self.__dict__.update(state)
+        self._lock = threading.RLock()
