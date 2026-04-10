@@ -16,6 +16,8 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from runpod_flash.cli.utils.formatting import print_error, print_warning
+
 try:
     from watchfiles import DefaultFilter as _WatchfilesDefaultFilter
     from watchfiles import watch as _watchfiles_watch
@@ -64,9 +66,10 @@ def _find_available_port(host: str, start_port: int) -> int:
         except OSError:
             continue
 
-    console.print(
-        f"[red]Error:[/red] No available port found in range "
-        f"{start_port}-{start_port + _MAX_PORT_ATTEMPTS - 1}."
+    print_error(
+        console,
+        f"No available port found in range "
+        f"{start_port}-{start_port + _MAX_PORT_ATTEMPTS - 1}.",
     )
     raise typer.Exit(1)
 
@@ -993,10 +996,11 @@ def _provision_resources(resources) -> None:
     try:
         loop.run_until_complete(orchestrator.deploy_all(resources, show_progress=True))
     except RunpodAPIKeyError as e:
-        console.print(f"\n[red]Error:[/red] {e}")
+        print_error(console, f"\n{e}")
         raise typer.Exit(1)
     except Exception as e:
-        console.print(f"[yellow]Warning:[/yellow] Provisioning failed: {e}")
+        logger.warning("Provisioning failed", exc_info=True)
+        print_warning(console, f"Provisioning failed: {e}")
         console.print(
             "[dim]Resources will be provisioned on-demand at first request.[/dim]"
         )
@@ -1051,7 +1055,7 @@ def run_command(
             raise
         except Exception as e:
             logger.error("Auto-provisioning failed", exc_info=True)
-            console.print(f"[yellow]Warning:[/yellow] Auto-provisioning failed: {e}")
+            print_warning(console, f"Auto-provisioning failed: {e}")
             console.print(
                 "[dim]Resources will be provisioned on-demand at first request.[/dim]"
             )
@@ -1174,7 +1178,8 @@ def run_command(
         raise typer.Exit(0)
 
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        logger.exception("Dev server failed")
+        print_error(console, f"\n{type(e).__name__}: {e}")
 
         stop_event.set()
         if watcher_thread is not None and watcher_thread.is_alive():

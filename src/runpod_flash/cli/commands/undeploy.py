@@ -7,7 +7,10 @@ from typing import TYPE_CHECKING, Dict, Optional, Tuple
 import typer
 from rich.console import Console
 from rich.prompt import Confirm
+
 import questionary
+
+from runpod_flash.cli.utils.formatting import print_error
 
 if TYPE_CHECKING:
     from ...core.resources.base import DeployableResource
@@ -246,10 +249,11 @@ def undeploy_command(
     elif name:
         _undeploy_by_name(name, resources, skip_confirm=force)
     else:
-        console.print(
-            "[red]Error:[/red] Please specify a name, use --all/--interactive, or run `flash undeploy list`"
+        print_error(
+            console,
+            "Please specify a name, use --all/--interactive, or run `flash undeploy list`",
         )
-        raise typer.Exit(0)
+        raise typer.Exit(1)
 
 
 def _undeploy_by_name(name: str, resources: dict, skip_confirm: bool = False):
@@ -266,7 +270,7 @@ def _undeploy_by_name(name: str, resources: dict, skip_confirm: bool = False):
             matches.append((resource_id, resource))
 
     if not matches:
-        console.print(f"[red]Error:[/red] No endpoint found with name '{name}'")
+        print_error(console, f"No endpoint found with name '{name}'")
         console.print("\n  [dim]flash undeploy list[/dim]  Show available endpoints")
         raise typer.Exit(1)
 
