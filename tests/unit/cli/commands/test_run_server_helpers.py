@@ -255,8 +255,8 @@ async def test_lb_execute_emits_route_label_info_logs(caplog):
 
     assert result == 42
     info_messages = [r.message for r in caplog.records if r.levelno == logging.INFO]
-    assert any("GET /images/{filename}" in m for m in info_messages)
-    assert any("Execution complete" in m for m in info_messages)
+    assert any("[REMOTE]" in m and "GET /images/{filename}" in m for m in info_messages)
+    assert any("[REMOTE]" in m and "Execution complete" in m for m in info_messages)
 
 
 @pytest.mark.asyncio
