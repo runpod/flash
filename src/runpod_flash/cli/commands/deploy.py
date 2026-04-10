@@ -86,7 +86,7 @@ def deploy_command(
     except typer.Exit:
         raise
     except RunpodAPIKeyError as e:
-        print_error(console, str(e))
+        print_error(console, f"\n{e}")
         raise typer.Exit(1)
     except Exception as e:
         _handle_deploy_error(e)
@@ -97,9 +97,9 @@ def _handle_deploy_error(exc: Exception) -> None:
     from requests.exceptions import SSLError
 
     if isinstance(exc, SSLError):
-        print_error(console, f"SSL error: {exc}")
+        print_error(console, f"\nSSL error: {exc}")
         raise typer.Exit(1)
-    print_error(console, f"Deploy failed: {exc}")
+    print_error(console, f"\nDeploy failed: {exc}")
     logger.exception("Deploy failed")
     raise typer.Exit(1)
 

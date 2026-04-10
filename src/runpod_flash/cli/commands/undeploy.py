@@ -8,8 +8,9 @@ import typer
 from rich.console import Console
 from rich.prompt import Confirm
 
-from runpod_flash.cli.utils.formatting import print_error
 import questionary
+
+from runpod_flash.cli.utils.formatting import print_error
 
 if TYPE_CHECKING:
     from ...core.resources.base import DeployableResource
