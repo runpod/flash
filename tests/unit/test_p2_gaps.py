@@ -156,9 +156,9 @@ class TestDeployedHandlerNoInput:
             DEPLOYED_HANDLER_TEMPLATE,
         )
 
-        # Template now uses `or {{}}` fallback + explicit empty-input guard
-        assert 'job.get("input") or {{}}' in DEPLOYED_HANDLER_TEMPLATE
-        assert "if not job_input:" in DEPLOYED_HANDLER_TEMPLATE
+        # Template uses explicit None/empty-dict/type checks
+        assert 'raw_input = job.get("input")' in DEPLOYED_HANDLER_TEMPLATE
+        assert "if raw_input is None" in DEPLOYED_HANDLER_TEMPLATE
         assert "Empty or null input" in DEPLOYED_HANDLER_TEMPLATE
 
 

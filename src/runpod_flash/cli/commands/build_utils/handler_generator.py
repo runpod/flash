@@ -33,8 +33,8 @@ _logger = logging.getLogger(__name__)
 
 def handler(job):
     """Handler for deployed QB endpoint. Accepts plain JSON kwargs."""
-    job_input = job.get("input") or {{}}
-    if not job_input:
+    raw_input = job.get("input")
+    if raw_input is None or (isinstance(raw_input, dict) and not raw_input):
         return {{
             "error": (
                 "Empty or null input. RunPod serverless requires at least one "
@@ -42,6 +42,9 @@ def handler(job):
                 'optional parameters, e.g. {{\\"input\\": {{\\"param_name\\": null}}}}.'
             )
         }}
+    if not isinstance(raw_input, dict):
+        return {{"error": f"Malformed input: expected dict, got {{type(raw_input).__name__}}"}}
+    job_input = raw_input
     try:
         result = {function_name}(**job_input)
         if inspect.iscoroutine(result):
@@ -122,8 +125,8 @@ def handler(job):
     directly as kwargs. If multiple methods exist, input must
     include a "method" key to select the target.
     """
-    job_input = job.get("input") or {{}}
-    if not job_input:
+    raw_input = job.get("input")
+    if raw_input is None or (isinstance(raw_input, dict) and not raw_input):
         return {{
             "error": (
                 "Empty or null input. RunPod serverless requires at least one "
@@ -131,6 +134,9 @@ def handler(job):
                 'optional parameters, e.g. {{\\"input\\": {{\\"param_name\\": null}}}}.'
             )
         }}
+    if not isinstance(raw_input, dict):
+        return {{"error": f"Malformed input: expected dict, got {{type(raw_input).__name__}}"}}
+    job_input = raw_input
     try:
         if len(_METHODS) == 1:
             method_name = next(iter(_METHODS))

@@ -557,7 +557,7 @@ def test_function_handler_validates_empty_input():
         handler_paths = generator.generate_handlers()
         content = handler_paths[0].read_text()
 
-        assert "if not job_input:" in content
+        assert "if raw_input is None" in content
         assert "Empty or null input" in content
 
 
@@ -590,5 +590,5 @@ def test_class_handler_validates_empty_input():
         handler_paths = generator.generate_handlers()
         content = handler_paths[0].read_text()
 
-        assert "if not job_input:" in content
+        assert "if raw_input is None" in content
         assert "Empty or null input" in content
