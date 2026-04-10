@@ -207,7 +207,7 @@ def _launch_preview(project_dir):
     except KeyboardInterrupt:
         console.print("\n[yellow]Preview stopped by user[/yellow]")
     except Exception as e:
-        print_error(console, f"Preview error: {e}")
+        print_error(console, f"Preview failed: {e}")
         logger.exception("Preview launch failed")
         raise typer.Exit(1)
 
