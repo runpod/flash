@@ -148,7 +148,7 @@ class TestNetworkVolumeValidation:
 # RT-DEP-003: Deployed handler with no input
 # ---------------------------------------------------------------------------
 class TestDeployedHandlerNoInput:
-    """Deployed handler template handles empty/missing input."""
+    """Deployed handler template validates and rejects empty/missing input."""
 
     def test_handler_template_validates_empty_input(self):
         """RT-DEP-003: Handler rejects empty/null input with actionable error."""

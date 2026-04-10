@@ -3,6 +3,7 @@
 import json
 from unittest.mock import patch
 
+import pytest
 
 from runpod_flash.runtime.generic_handler import (
     create_deployed_handler,
@@ -253,3 +254,19 @@ class TestCreateDeployedHandler:
         result = handler({})
         assert result["success"] is False
         assert "Empty or null input" in result["error"]
+
+    @pytest.mark.parametrize(
+        "falsy_input",
+        [0, "", False, []],
+        ids=["zero", "empty_string", "false", "empty_list"],
+    )
+    def test_rejects_falsy_non_dict_input(self, falsy_input):
+        """Falsy non-dict inputs produce 'Malformed input' error, not 'Empty or null'."""
+
+        def process(x: int):
+            return {"result": x}
+
+        handler = create_deployed_handler(process)
+        result = handler({"input": falsy_input})
+        assert result["success"] is False
+        assert "Malformed input" in result["error"]
