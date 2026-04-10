@@ -167,6 +167,10 @@ def create_handler(function_registry: Dict[str, Callable]) -> Callable:
             Response dict with 'success', 'result'/'error' keys
         """
         raw_input = job.get("input")
+        # None → {} is intentional here (unlike create_deployed_handler which
+        # rejects empty input).  Cloudpickle dispatch requires function_name
+        # inside job_input; null input will fail at the registry lookup below
+        # with a clear "Function 'None' not found" error.
         if raw_input is None:
             job_input = {}
         elif not isinstance(raw_input, dict):

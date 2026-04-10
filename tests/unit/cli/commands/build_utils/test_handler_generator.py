@@ -559,6 +559,7 @@ def test_function_handler_validates_empty_input():
 
         assert "if raw_input is None" in content
         assert "Empty or null input" in content
+        assert '"success": False' in content
 
 
 def test_class_handler_validates_empty_input():
@@ -592,3 +593,4 @@ def test_class_handler_validates_empty_input():
 
         assert "if raw_input is None" in content
         assert "Empty or null input" in content
+        assert '"success": False' in content

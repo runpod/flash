@@ -32,18 +32,19 @@ _logger = logging.getLogger(__name__)
 
 
 def handler(job):
-    """Handler for deployed QB endpoint. Accepts plain JSON kwargs."""
+    """Handler for deployed QB endpoint. Accepts plain JSON kwargs; rejects empty or null input."""
     raw_input = job.get("input")
     if raw_input is None or (isinstance(raw_input, dict) and not raw_input):
         return {{
+            "success": False,
             "error": (
                 "Empty or null input. RunPod serverless requires at least one "
                 "field in the input dict. Use explicit values or pass null for "
                 'optional parameters, e.g. {{\\"input\\": {{\\"param_name\\": null}}}}.'
-            )
+            ),
         }}
     if not isinstance(raw_input, dict):
-        return {{"error": f"Malformed input: expected dict, got {{type(raw_input).__name__}}"}}
+        return {{"success": False, "error": f"Malformed input: expected dict, got {{type(raw_input).__name__}}"}}
     job_input = raw_input
     try:
         result = {function_name}(**job_input)
@@ -66,7 +67,7 @@ def handler(job):
             e,
             exc_info=True,
         )
-        return {{"error": str(e), "traceback": traceback.format_exc()}}
+        return {{"success": False, "error": str(e), "traceback": traceback.format_exc()}}
 
 
 if __name__ == "__main__":
@@ -161,7 +162,7 @@ def _run_maybe_async(result):
 
 
 def handler(job):
-    """Handler for deployed class-based QB endpoint.
+    """Handler for deployed class-based QB endpoint; rejects empty or null input.
 
     Dispatches to a method on the singleton class instance.
     If the class has exactly one public method, input is passed
@@ -171,14 +172,15 @@ def handler(job):
     raw_input = job.get("input")
     if raw_input is None or (isinstance(raw_input, dict) and not raw_input):
         return {{
+            "success": False,
             "error": (
                 "Empty or null input. RunPod serverless requires at least one "
                 "field in the input dict. Use explicit values or pass null for "
                 'optional parameters, e.g. {{\\"input\\": {{\\"param_name\\": null}}}}.'
-            )
+            ),
         }}
     if not isinstance(raw_input, dict):
-        return {{"error": f"Malformed input: expected dict, got {{type(raw_input).__name__}}"}}
+        return {{"success": False, "error": f"Malformed input: expected dict, got {{type(raw_input).__name__}}"}}
     job_input = raw_input
     try:
         if len(_METHODS) == 1:
@@ -187,18 +189,20 @@ def handler(job):
             method_name = job_input.pop("method", None)
             if method_name is None:
                 return {{
+                    "success": False,
                     "error": (
                         "class {class_name} has multiple methods: "
                         + ", ".join(sorted(_METHODS))
                         + ". include a \\"method\\" key in the input."
-                    )
+                    ),
                 }}
             if method_name not in _METHODS:
                 return {{
+                    "success": False,
                     "error": (
                         f"unknown method '{{method_name}}' on {class_name}. "
                         f"available: {{', '.join(sorted(_METHODS))}}"
-                    )
+                    ),
                 }}
 
         method = getattr(_instance, method_name)
@@ -211,7 +215,7 @@ def handler(job):
             e,
             exc_info=True,
         )
-        return {{"error": str(e), "traceback": traceback.format_exc()}}
+        return {{"success": False, "error": str(e), "traceback": traceback.format_exc()}}
 
 
 if __name__ == "__main__":

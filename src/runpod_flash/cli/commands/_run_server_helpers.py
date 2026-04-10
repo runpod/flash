@@ -74,8 +74,10 @@ def make_input_model(name: str, func) -> type | None:
 async def call_with_body(func, body):
     """Call func with body kwargs, handling Pydantic models and dicts.
 
-    Rejects empty input (no fields explicitly set) to match RunPod platform
-    behavior, which does not dispatch jobs with empty/null input dicts.
+    Rejects empty Pydantic model input (no fields explicitly set via
+    model_fields_set) to match RunPod platform behavior.  Plain dict
+    bodies bypass this check since they originate from LB local routes
+    where zero-param functions legitimately receive empty input.
     """
     if hasattr(body, "model_fields_set") and not body.model_fields_set:
         raise HTTPException(

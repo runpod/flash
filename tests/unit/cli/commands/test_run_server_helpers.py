@@ -296,7 +296,7 @@ async def test_lb_execute_falls_back_to_func_name_without_routing(caplog):
 
 
 class TestCallWithBodyEmptyInputValidation:
-    """Verify call_with_body rejects empty input (model_fields_set is empty)."""
+    """Verify call_with_body rejects empty Pydantic model input."""
 
     @pytest.mark.asyncio
     async def test_rejects_empty_pydantic_model(self):
@@ -338,10 +338,24 @@ class TestCallWithBodyEmptyInputValidation:
 
     @pytest.mark.asyncio
     async def test_allows_plain_dict_body(self):
-        """Plain dict (no model_fields_set attr) passes through unchanged."""
+        """Non-empty plain dict passes through unchanged (no model_fields_set)."""
         body = {"key": "value"}
 
         func = AsyncMock(return_value={"ok": True})
         result = await call_with_body(func, body)
 
         assert result == {"ok": True}
+
+    @pytest.mark.asyncio
+    async def test_allows_empty_plain_dict_body(self):
+        """Empty plain dict passes through (validation only applies to Pydantic models).
+
+        LB local routes with zero-param functions legitimately receive empty dicts.
+        """
+        body = {}
+
+        func = AsyncMock(return_value={"ok": True})
+        result = await call_with_body(func, body)
+
+        assert result == {"ok": True}
+        func.assert_called_once_with()
