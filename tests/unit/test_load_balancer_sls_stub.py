@@ -482,5 +482,5 @@ class TestLoadBalancerSlsStubActivityLogs:
                 await stub._execute_via_user_route(add, "POST", "/api/add", 5, 3)
 
         info_messages = [r.message for r in caplog.records if r.levelno == logging.INFO]
-        assert any("POST /api/add" in m for m in info_messages)
-        assert any("Execution complete" in m for m in info_messages)
+        assert any("[REMOTE]" in m and "POST /api/add" in m for m in info_messages)
+        assert any("[REMOTE]" in m and "Execution complete" in m for m in info_messages)
