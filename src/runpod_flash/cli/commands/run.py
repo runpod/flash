@@ -996,9 +996,10 @@ def _provision_resources(resources) -> None:
     try:
         loop.run_until_complete(orchestrator.deploy_all(resources, show_progress=True))
     except RunpodAPIKeyError as e:
-        print_error(console, str(e))
+        print_error(console, f"\n{e}")
         raise typer.Exit(1)
     except Exception as e:
+        logger.warning("Provisioning failed", exc_info=True)
         print_warning(console, f"Provisioning failed: {e}")
         console.print(
             "[dim]Resources will be provisioned on-demand at first request.[/dim]"
@@ -1177,7 +1178,8 @@ def run_command(
         raise typer.Exit(0)
 
     except Exception as e:
-        print_error(console, str(e))
+        logger.exception("Dev server failed")
+        print_error(console, f"\n{type(e).__name__}: {e}")
 
         stop_event.set()
         if watcher_thread is not None and watcher_thread.is_alive():

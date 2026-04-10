@@ -503,7 +503,7 @@ def build_command(
     except typer.Exit:
         raise
     except Exception as e:
-        print_error(console, f"Build failed: {e}")
+        print_error(console, f"\nBuild failed: {e}")
         import traceback
 
         console.print(traceback.format_exc())

@@ -1,6 +1,15 @@
 """Tests for CLI formatting utilities."""
 
-from runpod_flash.cli.utils.formatting import format_datetime, state_dot
+from io import StringIO
+
+from rich.console import Console
+
+from runpod_flash.cli.utils.formatting import (
+    format_datetime,
+    print_error,
+    print_warning,
+    state_dot,
+)
 
 
 class TestFormatDatetime:
@@ -40,6 +49,52 @@ class TestFormatDatetime:
         # day "5" should not be zero-padded to "05"
         result = format_datetime("2025-01-05T12:00:00+00:00")
         assert " 5 " in result or " 5," in result
+
+
+class TestPrintError:
+    def _capture(self) -> tuple[Console, StringIO]:
+        buf = StringIO()
+        return Console(file=buf, force_terminal=True), buf
+
+    def test_output_contains_error_prefix(self):
+        console, buf = self._capture()
+        print_error(console, "something broke")
+        output = buf.getvalue()
+        assert "Error:" in output
+        assert "something broke" in output
+
+    def test_no_leading_newline(self):
+        console, buf = self._capture()
+        print_error(console, "fail")
+        assert not buf.getvalue().startswith("\n")
+
+    def test_uses_provided_console(self):
+        console, buf = self._capture()
+        other_buf = StringIO()
+        other_console = Console(file=other_buf, force_terminal=True)
+        print_error(console, "on first")
+        print_error(other_console, "on second")
+        assert "on first" in buf.getvalue()
+        assert "on first" not in other_buf.getvalue()
+        assert "on second" in other_buf.getvalue()
+
+
+class TestPrintWarning:
+    def _capture(self) -> tuple[Console, StringIO]:
+        buf = StringIO()
+        return Console(file=buf, force_terminal=True), buf
+
+    def test_output_contains_warning_prefix(self):
+        console, buf = self._capture()
+        print_warning(console, "heads up")
+        output = buf.getvalue()
+        assert "Warning:" in output
+        assert "heads up" in output
+
+    def test_no_leading_newline(self):
+        console, buf = self._capture()
+        print_warning(console, "watch out")
+        assert not buf.getvalue().startswith("\n")
 
 
 class TestStateDot:
