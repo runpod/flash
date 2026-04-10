@@ -75,7 +75,8 @@ class LRUCache:
         self.set(key, value)
 
     def __getstate__(self) -> Dict[str, Any]:
-        state = self.__dict__.copy()
+        with self._lock:
+            state = self.__dict__.copy()
         state.pop("_lock")
         return state
 

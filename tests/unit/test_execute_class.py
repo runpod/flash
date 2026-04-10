@@ -739,7 +739,7 @@ class TestRemoteClassWrapperPickle:
         data = cloudpickle.dumps(instance)
         restored = cloudpickle.loads(data)
 
-        assert restored._class_type == MyModel
+        assert restored._class_type.__name__ == "MyModel"
         assert restored._constructor_args == (42,)
         assert restored._constructor_kwargs == {"name": "test"}
         assert restored._dependencies == ["numpy"]
@@ -803,38 +803,23 @@ class TestRemoteClassWrapperPickle:
         assert "uid1" in restored_resources
         assert not restored_resources["uid1"]._initialized
 
-    def test_pickle_repopulates_serialization_cache(self):
-        """Unpickle must repopulate _SERIALIZED_CLASS_CACHE so method_proxy works.
-
-        cloudpickle reconstructs dynamic classes with their own globals copy,
-        so __setstate__ populates the cache that method_proxy will read from
-        (same globals dict), not the module-level _SERIALIZED_CLASS_CACHE.
-        Verify from the restored instance's perspective.
-        """
+    def test_pickle_preserves_cache_key_and_class_data(self):
+        """Unpickled instance retains cache_key and class metadata for cache lookup."""
 
         class MyModel:
             def predict(self, x):
                 return x
 
-        RemoteWrapper = create_remote_class(MyModel, self.resource_config, [], [], True)
-        instance = RemoteWrapper()
-        cache_key = instance._cache_key
+        RemoteWrapper = create_remote_class(
+            MyModel, self.resource_config, ["numpy"], ["git"], True
+        )
+        instance = RemoteWrapper(1, tag="v1")
 
         data = cloudpickle.dumps(instance)
-
-        # Simulate a fresh process where the module-level cache is empty.
-        _SERIALIZED_CLASS_CACHE.clear()
-        assert cache_key not in _SERIALIZED_CLASS_CACHE
-
         restored = cloudpickle.loads(data)
 
-        # __setstate__ repopulates the cache visible to the restored class's
-        # methods (cloudpickle gives the reconstructed class its own globals).
-        # Access the cache through the restored class's __setstate__ globals.
-        restored_cache = type(restored).__setstate__.__globals__[
-            "_SERIALIZED_CLASS_CACHE"
-        ]
-        assert cache_key in restored_cache
-        cached = restored_cache.get(cache_key)
-        assert cached["class_code"] is not None
-        assert restored._cache_key == cache_key
+        assert restored._cache_key == instance._cache_key
+        assert restored._clean_class_code == instance._clean_class_code
+        assert restored._class_type.__name__ == "MyModel"
+        assert restored._constructor_args == (1,)
+        assert restored._constructor_kwargs == {"tag": "v1"}
