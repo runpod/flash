@@ -1294,7 +1294,7 @@ class ServerlessResource(DeployableResource):
 
         try:
             # Create a job using the endpoint
-            log.info(f"{self} | API /run")
+            log.info(f"[REMOTE] {self} | API /run")
             job = await asyncio.to_thread(self.endpoint.run, request_input=payload)
 
             log_subgroup = f"Job:{job.job_id}"
