@@ -965,7 +965,7 @@ def install_dependencies(
         )
         return False
     except Exception as e:
-        print_error(console, f"pip install error: {e}")
+        print_error(console, f"pip install failed: {e}")
         return False
 
 

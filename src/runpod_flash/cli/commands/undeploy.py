@@ -252,7 +252,7 @@ def undeploy_command(
             console,
             "Please specify a name, use --all/--interactive, or run `flash undeploy list`",
         )
-        raise typer.Exit(0)
+        raise typer.Exit(1)
 
 
 def _undeploy_by_name(name: str, resources: dict, skip_confirm: bool = False):

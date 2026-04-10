@@ -82,7 +82,7 @@ def launch_preview(
                 containers.append(container)
         except Exception as e:
             # Cleanup on partial failure
-            print_error(console, f"Error starting containers: {e}")
+            print_error(console, f"Starting containers failed: {e}")
             _cleanup_preview(containers, network_name)
             raise typer.Exit(1)
 
@@ -102,7 +102,7 @@ def launch_preview(
     except typer.Exit:
         raise
     except Exception as e:
-        print_error(console, f"Preview error: {e}")
+        print_error(console, f"Preview failed: {e}")
         logger.exception("Preview launch failed")
         raise typer.Exit(1)
 
