@@ -237,6 +237,15 @@ def create_remote_class(
         def __setstate__(self, state: dict) -> None:
             self.__dict__.update(state)
             self._init_lock = asyncio.Lock()
+            # Repopulate the module-level serialization cache so method_proxy
+            # can look up class_code and constructor args after unpickle.
+            if self._cache_key not in _SERIALIZED_CLASS_CACHE:
+                get_or_cache_class_data(
+                    self._class_type,
+                    self._constructor_args,
+                    self._constructor_kwargs,
+                    self._cache_key,
+                )
 
         async def _ensure_initialized(self):
             """Ensure the remote instance is created exactly once, even under concurrent calls."""
