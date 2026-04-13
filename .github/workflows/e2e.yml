@@ -1,11 +1,9 @@
 name: E2E Tests
 
 on:
-  # Uncomment to run on every push to main / pull request:
-  # push:
-  #   branches: [main]
-  # pull_request:
-  #   branches: [main]
+  schedule:
+    # Run every weekday at 06:00 UTC
+    - cron: '0 6 * * 1-5'
   workflow_dispatch:
     inputs:
       tests:
@@ -69,7 +67,7 @@ jobs:
   e2e:
     name: E2E
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
 
     steps:
       - name: Checkout code
@@ -92,6 +90,8 @@ jobs:
       - name: Run E2E tests
         env:
           RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+          RUNPOD_NETWORK_VOLUME_ID: ${{ secrets.RUNPOD_NETWORK_VOLUME_ID }}
+          FLASH_SDK_GIT_REF: ${{ github.sha }}
         run: |
           uv run pytest e2e/ \
             ${{ inputs.tests != '' && format('-k "{0}"', inputs.tests) || '' }} \
