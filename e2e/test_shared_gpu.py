@@ -4,9 +4,9 @@ All tests share endpoints provisioned once at session start.
 Extended timeouts account for GPU cold-start latency (~5-10 min).
 
 Covered scenarios:
-  E2E-001  GPU QB function
-           GPU QB class-based worker
-           GPU load-balanced endpoint (multi-route)
+  GPU QB function
+  GPU QB class-based worker
+  GPU load-balanced endpoint (multi-route)
 """
 
 import pytest
@@ -19,7 +19,7 @@ import runpod
 
 
 class TestGpuQBFunction:
-    """E2E-001: GPU QB function endpoint deploys and responds correctly."""
+    """GPU QB function endpoint deploys and responds correctly."""
 
     def test_basic_invocation(self, provisioned: dict, api_key: str) -> None:
         if "gpu_fn" not in provisioned:

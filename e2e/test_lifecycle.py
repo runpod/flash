@@ -1,10 +1,10 @@
 """Lifecycle E2E tests — each test manages its own deploy/undeploy.
 
 These scenarios genuinely require a fresh endpoint per test:
-  E2E-009  Scale-to-zero (workers=(0, 4)) — cold-start must complete
-  E2E-010  Always-on (workers=(1, 4)) — warm worker must serve immediately
-  E2E-012  Redeploy v1 → v2 — same endpoint ID retained, v2 code live
-  E2E-007  Network volume — write/read across invocations via mounted volume
+  Scale-to-zero (workers=(0, 4)) — cold-start must complete
+  Always-on (workers=(1, 4)) — warm worker must serve immediately
+  Redeploy v1 → v2 — same endpoint ID retained, v2 code live
+  Network volume — write/read across invocations via mounted volume
 """
 
 import os
@@ -52,12 +52,12 @@ def _undeploy(name: str, cwd: Path, env: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
-# E2E-009: Scale-to-zero
+# Scale-to-zero
 # ---------------------------------------------------------------------------
 
 
 class TestScaleToZero:
-    """E2E-009: workers=(0, 4) — scale-to-zero, first call cold-starts."""
+    """workers=(0, 4) — scale-to-zero, first call cold-starts."""
 
     def test_cold_start_completes(self, tmp_path: Path, api_key: str) -> None:
         name = f"flash-qa-s2z-{uuid.uuid4().hex[:8]}"
@@ -93,12 +93,12 @@ async def echo(msg: str = "") -> dict:
 
 
 # ---------------------------------------------------------------------------
-# E2E-010: Always-on
+# Always-on
 # ---------------------------------------------------------------------------
 
 
 class TestAlwaysOn:
-    """E2E-010: workers=(1, 4) — always-on worker is warm after deploy."""
+    """workers=(1, 4) — always-on worker is warm after deploy."""
 
     def test_warm_worker_responds(self, tmp_path: Path, api_key: str) -> None:
         name = f"flash-qa-aon-{uuid.uuid4().hex[:8]}"
@@ -133,12 +133,12 @@ async def echo(msg: str = "") -> dict:
 
 
 # ---------------------------------------------------------------------------
-# E2E-012: Redeploy
+# Redeploy
 # ---------------------------------------------------------------------------
 
 
 class TestRedeploy:
-    """E2E-012: second deploy retains the same endpoint ID; v2 code goes live."""
+    """Second deploy retains the same endpoint ID; v2 code goes live."""
 
     def test_redeploy_retains_endpoint_id(self, tmp_path: Path, api_key: str) -> None:
         name = f"flash-qa-redeploy-{uuid.uuid4().hex[:8]}"
@@ -187,12 +187,12 @@ async def echo(msg: str = "") -> dict:
 
 
 # ---------------------------------------------------------------------------
-# E2E-007: Network volume
+# Network volume
 # ---------------------------------------------------------------------------
 
 
 class TestNetworkVolume:
-    """E2E-007: files written to a mounted volume persist across invocations.
+    """Files written to a mounted volume persist across invocations.
 
     RunPod mounts network volumes at /runpod-volume on serverless workers.
     """

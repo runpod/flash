@@ -4,11 +4,11 @@ All tests in this file share endpoints provisioned once at session start.
 No deploy/undeploy inside individual tests — that happens in conftest.provisioned.
 
 Covered scenarios:
-  E2E-002  CPU QB function: basic invocation, input variants
-  E2E-004  CPU QB function with dependencies (numpy, pandas)
-  E2E-006  CPU QB class-based worker
-  E2E-008  CPU load-balanced endpoint (multi-route)
-  E2E-018  Concurrent invocations
+  CPU QB function: basic invocation, input variants
+  CPU QB function with dependencies (numpy, pandas)
+  CPU QB class-based worker
+  CPU load-balanced endpoint (multi-route)
+  Concurrent invocations
 """
 
 import concurrent.futures
@@ -23,7 +23,7 @@ import runpod
 
 
 class TestCpuQBFunction:
-    """E2E-002: CPU QB function handles varied inputs correctly."""
+    """CPU QB function handles varied inputs correctly."""
 
     def test_smoke(self, provisioned: dict, api_key: str) -> None:
         if "cpu_fn" not in provisioned:
@@ -84,7 +84,7 @@ def _invoke(endpoint_id: str, index: int) -> tuple[int, object]:
 
 
 class TestCpuQBFunctionConcurrent:
-    """E2E-018: 10 parallel run_sync calls all complete with correct output."""
+    """10 parallel run_sync calls all complete with correct output."""
 
     def test_ten_parallel_calls(self, provisioned: dict, api_key: str) -> None:
         if "cpu_fn" not in provisioned:
@@ -118,7 +118,7 @@ class TestCpuQBFunctionConcurrent:
 
 
 class TestCpuQBFunctionDeps:
-    """E2E-004: numpy and pandas are importable and usable inside the worker."""
+    """numpy and pandas are importable and usable inside the worker."""
 
     def test_numpy_pandas_available(self, provisioned: dict, api_key: str) -> None:
         if "cpu_deps" not in provisioned:
@@ -139,7 +139,7 @@ class TestCpuQBFunctionDeps:
 
 
 class TestCpuQBClass:
-    """E2E-006: class-based QB endpoint (AE-2435 regression guard)."""
+    """Class-based QB endpoint (AE-2435 regression guard)."""
 
     def test_single_method_invocation(self, provisioned: dict, api_key: str) -> None:
         if "cpu_cls" not in provisioned:
@@ -159,7 +159,7 @@ class TestCpuQBClass:
 
 
 class TestCpuLBEndpoint:
-    """E2E-008: CPU LB endpoint exposes multiple HTTP routes."""
+    """CPU LB endpoint exposes multiple HTTP routes."""
 
     def test_ping(self, provisioned: dict, api_key: str) -> None:
         from conftest import call_lb
