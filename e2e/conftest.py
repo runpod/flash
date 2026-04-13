@@ -284,7 +284,7 @@ def provisioned(api_key: str) -> Generator[dict[str, str], None, None]:
     endpoint_ids: dict[str, str] = {}
     tmp_dirs: list[Path] = []
 
-    def _deploy(role: str, code_tmpl: str, extra_deps: list[str], timeout: int) -> tuple[str, str]:
+    def _deploy(role: str, code_tmpl: str, extra_deps: list[str], timeout: int) -> tuple[str, str, Path]:
         name = _n(role)
         code = code_tmpl.format(name=name)
         endpoint_id, tmp_dir = provision(

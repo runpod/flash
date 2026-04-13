@@ -11,6 +11,10 @@ on:
         required: false
         default: ''
 
+concurrency:
+  group: e2e
+  cancel-in-progress: false
+
 permissions:
   contents: read
 

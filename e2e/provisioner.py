@@ -33,7 +33,8 @@ def flash_dep() -> str:
     """Return the runpod-flash pip requirement string for worker pyproject.toml.
 
     CI (FLASH_SDK_GIT_REF set): installs the exact commit under test.
-    Local dev (unset): installs from PyPI.
+    Local dev (unset): installs the latest PyPI release — workers do NOT run
+    local code changes. Set FLASH_SDK_GIT_REF to a branch or SHA to override.
     """
     if FLASH_GIT_REF:
         return f"runpod-flash @ git+{_FLASH_REPO}@{FLASH_GIT_REF}"
@@ -93,14 +94,18 @@ def provision(
     env = os.environ.copy()
     env["RUNPOD_API_KEY"] = api_key  # explicit — does not depend on autouse fixture
 
-    result = subprocess.run(
-        ["uv", "run", "flash", "deploy"],
-        cwd=tmp_dir,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=deploy_timeout,
-    )
+    try:
+        result = subprocess.run(
+            ["uv", "run", "flash", "deploy"],
+            cwd=tmp_dir,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=deploy_timeout,
+        )
+    except Exception:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise
 
     if result.returncode != 0:
         shutil.rmtree(tmp_dir, ignore_errors=True)

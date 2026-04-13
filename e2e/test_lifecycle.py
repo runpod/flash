@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 import runpod
 
-from conftest import endpoint_id_from_state, sweep_endpoints
+from conftest import endpoint_id_from_state
 from provisioner import flash_dep, provision
 
 # ---------------------------------------------------------------------------
@@ -89,7 +89,6 @@ async def echo(msg: str = "") -> dict:
             assert output.get("status") == "ok"
         finally:
             _undeploy(name, tmp_path, env)
-            sweep_endpoints(api_key)
 
 
 # ---------------------------------------------------------------------------
@@ -129,7 +128,6 @@ async def echo(msg: str = "") -> dict:
             assert output.get("status") == "ok"
         finally:
             _undeploy(name, tmp_path, env)
-            sweep_endpoints(api_key)
 
 
 # ---------------------------------------------------------------------------
@@ -183,7 +181,6 @@ async def echo(msg: str = "") -> dict:
             assert output.get("version") == "v2", f"Expected v2, got: {output}"
         finally:
             _undeploy(name, tmp_path, env)
-            sweep_endpoints(api_key)
 
 
 # ---------------------------------------------------------------------------
@@ -248,4 +245,3 @@ async def file_ops(action: str = "write", content: str = "") -> dict:
             )
         finally:
             _undeploy(name, tmp_path, env)
-            sweep_endpoints(api_key)
