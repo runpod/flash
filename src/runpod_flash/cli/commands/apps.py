@@ -5,7 +5,12 @@ import asyncio
 import typer
 from rich.console import Console
 
-from runpod_flash.cli.utils.formatting import STATE_STYLE, format_datetime, state_dot
+from runpod_flash.cli.utils.formatting import (
+    STATE_STYLE,
+    format_datetime,
+    print_error,
+    state_dot,
+)
 from runpod_flash.core.resources.app import FlashApp
 
 console = Console()
@@ -134,7 +139,7 @@ async def delete_flash_app(app_name: str):
     if success:
         console.print(f"[green]✓[/green] Deleted app [bold]{app_name}[/bold]")
     else:
-        console.print(f"[red]✗[/red] Failed to delete app '{app_name}'")
+        print_error(console, f"Failed to delete app '{app_name}'")
         raise typer.Exit(1)
 
 
