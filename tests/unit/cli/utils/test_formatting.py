@@ -68,6 +68,14 @@ class TestPrintError:
         print_error(console, "fail")
         assert not buf.getvalue().startswith("\n")
 
+    def test_strips_leading_whitespace_from_message(self):
+        """Callers should not embed \\n in messages — but if they do, strip it."""
+        buf = StringIO()
+        console = Console(file=buf, force_terminal=False, no_color=True)
+        print_error(console, "\nfail")
+        output = buf.getvalue()
+        assert output.startswith("Error: fail")
+
     def test_uses_provided_console(self):
         console, buf = self._capture()
         other_buf = StringIO()
@@ -95,6 +103,14 @@ class TestPrintWarning:
         console, buf = self._capture()
         print_warning(console, "watch out")
         assert not buf.getvalue().startswith("\n")
+
+    def test_strips_leading_whitespace_from_message(self):
+        """Callers should not embed \\n in messages — but if they do, strip it."""
+        buf = StringIO()
+        console = Console(file=buf, force_terminal=False, no_color=True)
+        print_warning(console, "\nwatch out")
+        output = buf.getvalue()
+        assert output.startswith("Warning: watch out")
 
 
 class TestStateDot:

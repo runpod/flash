@@ -9,12 +9,12 @@ STATE_STYLE = {"HEALTHY": "green", "BUILDING": "cyan", "ERROR": "red"}
 
 def print_error(console: Console, message: str) -> None:
     """Print a standardized error message."""
-    console.print(f"[red]Error:[/red] {message}")
+    console.print(f"[red]Error:[/red] {message.lstrip()}")
 
 
 def print_warning(console: Console, message: str) -> None:
     """Print a standardized warning message."""
-    console.print(f"[yellow]Warning:[/yellow] {message}")
+    console.print(f"[yellow]Warning:[/yellow] {message.lstrip()}")
 
 
 def state_dot(state: str) -> str:
