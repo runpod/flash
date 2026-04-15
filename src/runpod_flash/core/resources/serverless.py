@@ -1264,7 +1264,7 @@ class ServerlessResource(DeployableResource):
         )
 
         def _fetch_job():
-            log.info(f"{self} | API /runsync")
+            log.info(f"[REMOTE] {self} | API /runsync")
             return self.endpoint.rp_client.post(
                 f"{self.id}/runsync", payload, timeout=timeout_s
             )
