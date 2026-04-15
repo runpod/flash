@@ -1040,7 +1040,10 @@ class ServerlessResource(DeployableResource):
                 # one.  Note: _payload_exclude() on new_config only handles the
                 # case where new_config.templateId is already set.
                 exclude = set(new_config._payload_exclude())
-                if resolved_template_id and not new_config.templateId:
+                use_existing_template = bool(
+                    resolved_template_id and not new_config.templateId
+                )
+                if use_existing_template:
                     exclude.add("template")
                     log.debug(
                         "Excluding template from saveEndpoint payload; "
@@ -1053,7 +1056,7 @@ class ServerlessResource(DeployableResource):
                     mode="json",
                 )
                 payload["id"] = self.id  # Critical: include ID for update
-                if resolved_template_id and not new_config.templateId:
+                if use_existing_template:
                     payload["templateId"] = resolved_template_id
 
                 # inject multi-volume IDs if available
