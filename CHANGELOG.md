@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.13.0](https://github.com/runpod/flash/compare/v1.12.0...v1.13.0) (2026-04-15)
+
+
+### Features
+
+* add concurrency_modifier support for QB endpoints ([#301](https://github.com/runpod/flash/issues/301)) ([5928dcb](https://github.com/runpod/flash/commit/5928dcb6169729c0fa19d89fd68bf8cc5620ad8b))
+* **terminal:** add [REMOTE] tag to dispatch log lines ([#308](https://github.com/runpod/flash/issues/308)) ([2b4e4c1](https://github.com/runpod/flash/commit/2b4e4c160334270ca6af8ae38fbbc79ba1180d8e))
+
+
+### Bug Fixes
+
+* **classes:** harden pickle with cache-miss guard and behavioral tests ([#316](https://github.com/runpod/flash/issues/316)) ([df9fc31](https://github.com/runpod/flash/commit/df9fc315d9fdc8c659d961dbea3b723090a38324))
+* **classes:** make RemoteClassWrapper and LRUCache picklable ([#306](https://github.com/runpod/flash/issues/306)) ([03e88bd](https://github.com/runpod/flash/commit/03e88bd7bb25b74c9809a491bc8fee1ee0db36ff))
+* **cli:** standardize error and warning messages ([#305](https://github.com/runpod/flash/issues/305)) ([4a4309b](https://github.com/runpod/flash/commit/4a4309ba303b3f62665f7e5e173983cb5b8fcb27))
+* reject empty/null input to match serverless platform behavior ([#302](https://github.com/runpod/flash/issues/302)) ([02058db](https://github.com/runpod/flash/commit/02058db13b03955492a93c22124f62df27346f69))
+
+
+### Documentation
+
+* add max_concurrency to SDK reference and README ([#317](https://github.com/runpod/flash/issues/317)) ([cabb2b7](https://github.com/runpod/flash/commit/cabb2b7153a4fd9ee575c7cee969c65c6d7d826b))
+
 ## [1.12.0](https://github.com/runpod/flash/compare/v1.11.3...v1.12.0) (2026-04-09)
 
 
