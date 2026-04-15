@@ -863,17 +863,51 @@ class TestRemoteClassWrapperPickle:
 
         RemoteWrapper = create_remote_class(MyModel, self.resource_config, [], [], True)
         instance = RemoteWrapper(42)
+        cache_key = instance._cache_key
 
         # Clear module-level cache to simulate cold-cache scenario
         _SERIALIZED_CLASS_CACHE.clear()
-        assert instance._cache_key not in _SERIALIZED_CLASS_CACHE
+        assert cache_key not in _SERIALIZED_CLASS_CACHE
 
         mock_stub = AsyncMock()
         mock_stub.execute_class_method.return_value = "result"
         instance._stub = mock_stub
         instance._initialized = True
 
-        result = await instance.predict(10)
+        try:
+            result = await instance.predict(10)
+            assert result == "result"
+            assert cache_key in _SERIALIZED_CLASS_CACHE
+        finally:
+            # Restore cache entry to avoid polluting other tests
+            _SERIALIZED_CLASS_CACHE.clear()
 
-        assert result == "result"
-        assert instance._cache_key in _SERIALIZED_CLASS_CACHE
+    @pytest.mark.asyncio
+    async def test_method_proxy_raises_on_failed_cache_population(self):
+        """method_proxy raises RuntimeError when cache cannot be populated."""
+
+        class MyModel:
+            def predict(self, x):
+                return x
+
+        RemoteWrapper = create_remote_class(MyModel, self.resource_config, [], [], True)
+        instance = RemoteWrapper(42)
+
+        _SERIALIZED_CLASS_CACHE.clear()
+
+        mock_stub = AsyncMock()
+        instance._stub = mock_stub
+        instance._initialized = True
+
+        try:
+            # Patch to no-op so cache stays empty after fallback
+            with patch(
+                "runpod_flash.execute_class.get_or_cache_class_data",
+                return_value="",
+            ):
+                with pytest.raises(
+                    RuntimeError, match="Failed to populate class cache"
+                ):
+                    await instance.predict(10)
+        finally:
+            _SERIALIZED_CLASS_CACHE.clear()

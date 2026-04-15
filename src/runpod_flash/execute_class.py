@@ -285,6 +285,11 @@ def create_remote_class(
                         self._cache_key,
                     )
                     cached_data = _SERIALIZED_CLASS_CACHE.get(self._cache_key)
+                    if cached_data is None:
+                        raise RuntimeError(
+                            f"Failed to populate class cache for key {self._cache_key!r} "
+                            "— class source may not be inspectable"
+                        )
 
                 # Serialize method arguments (these change per call, so no caching)
                 method_args = serialize_args(args)
