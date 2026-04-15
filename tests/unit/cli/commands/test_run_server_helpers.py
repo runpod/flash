@@ -1,11 +1,12 @@
 """Tests for _run_server_helpers: make_input_model, make_wrapped_model, call_with_body, to_dict, lb_execute."""
 
 import logging
-from typing import Any
+from typing import Any, Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from pydantic import BaseModel
+from fastapi import HTTPException
+from pydantic import BaseModel, create_model
 
 from runpod_flash.cli.commands._run_server_helpers import (
     call_with_body,
@@ -289,3 +290,72 @@ async def test_lb_execute_falls_back_to_func_name_without_routing(caplog):
     assert result == 99
     info_messages = [r.message for r in caplog.records if r.levelno == logging.INFO]
     assert any("my_handler" in m for m in info_messages)
+
+
+# --- call_with_body empty-input validation ---
+
+
+class TestCallWithBodyEmptyInputValidation:
+    """Verify call_with_body rejects empty Pydantic model input."""
+
+    @pytest.mark.asyncio
+    async def test_rejects_empty_pydantic_model(self):
+        """Empty input dict -> model_fields_set is empty -> 422."""
+        Inner = create_model("Inner", msg=(Optional[str], None))
+        body = Inner()  # no fields explicitly set
+
+        func = AsyncMock()
+        with pytest.raises(HTTPException) as exc_info:
+            await call_with_body(func, body)
+
+        assert exc_info.value.status_code == 422
+        assert "Empty or null input" in exc_info.value.detail
+        func.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_allows_explicit_null_value(self):
+        """{"msg": null} -> model_fields_set is {"msg"} -> passes."""
+        Inner = create_model("Inner", msg=(Optional[str], None))
+        body = Inner(msg=None)
+
+        func = AsyncMock(return_value={"ok": True})
+        result = await call_with_body(func, body)
+
+        assert result == {"ok": True}
+        func.assert_called_once_with(msg=None)
+
+    @pytest.mark.asyncio
+    async def test_allows_populated_fields(self):
+        """{"msg": "hello"} -> model_fields_set is {"msg"} -> passes."""
+        Inner = create_model("Inner", msg=(str, None))
+        body = Inner(msg="hello")
+
+        func = AsyncMock(return_value={"echo": "hello"})
+        result = await call_with_body(func, body)
+
+        assert result == {"echo": "hello"}
+        func.assert_called_once_with(msg="hello")
+
+    @pytest.mark.asyncio
+    async def test_allows_plain_dict_body(self):
+        """Non-empty plain dict passes through unchanged (no model_fields_set)."""
+        body = {"key": "value"}
+
+        func = AsyncMock(return_value={"ok": True})
+        result = await call_with_body(func, body)
+
+        assert result == {"ok": True}
+
+    @pytest.mark.asyncio
+    async def test_allows_empty_plain_dict_body(self):
+        """Empty plain dict passes through (validation only applies to Pydantic models).
+
+        LB local routes with zero-param functions legitimately receive empty dicts.
+        """
+        body = {}
+
+        func = AsyncMock(return_value={"ok": True})
+        result = await call_with_body(func, body)
+
+        assert result == {"ok": True}
+        func.assert_called_once_with()

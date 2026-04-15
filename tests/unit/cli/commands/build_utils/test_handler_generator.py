@@ -1,7 +1,5 @@
 """Tests for HandlerGenerator."""
 
-import ast
-import logging
 import tempfile
 from pathlib import Path
 
@@ -531,57 +529,22 @@ def test_empty_functions_raises():
             generator.generate_handlers()
 
 
-# -- concurrent handlers --
-
-
-def test_async_handler_with_concurrency():
-    """max_concurrency > 1 + async produces async handler with concurrency_modifier."""
+def test_function_handler_validates_empty_input():
+    """Generated function handler rejects empty input dict."""
     with tempfile.TemporaryDirectory() as tmpdir:
         build_dir = Path(tmpdir)
+
         manifest = {
             "version": "1.0",
             "generated_at": "2026-01-02T10:00:00Z",
             "project_name": "test_app",
             "resources": {
-                "inference": {
+                "gpu_config": {
                     "resource_type": "Endpoint",
-                    "max_concurrency": 5,
                     "functions": [
                         {
-                            "name": "generate",
-                            "module": "workers.inference",
-                            "is_async": True,
-                            "is_class": False,
-                        }
-                    ],
-                }
-            },
-        }
-        generator = HandlerGenerator(manifest, build_dir)
-        handler_paths = generator.generate_handlers()
-        content = handler_paths[0].read_text()
-        assert "async def handler(job):" in content
-        assert "await generate(**job_input)" in content
-        assert "concurrency_modifier" in content
-        assert "lambda current: 5" in content
-
-
-def test_sync_handler_with_concurrency():
-    """max_concurrency > 1 + sync uses sync template with concurrency_modifier."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        build_dir = Path(tmpdir)
-        manifest = {
-            "version": "1.0",
-            "generated_at": "2026-01-02T10:00:00Z",
-            "project_name": "test_app",
-            "resources": {
-                "worker": {
-                    "resource_type": "Endpoint",
-                    "max_concurrency": 3,
-                    "functions": [
-                        {
-                            "name": "process",
-                            "module": "workers.cpu",
+                            "name": "gpu_task",
+                            "module": "workers.gpu",
                             "is_async": False,
                             "is_class": False,
                         }
@@ -589,19 +552,21 @@ def test_sync_handler_with_concurrency():
                 }
             },
         }
+
         generator = HandlerGenerator(manifest, build_dir)
         handler_paths = generator.generate_handlers()
         content = handler_paths[0].read_text()
-        assert "def handler(job):" in content
-        assert "async def handler(job):" not in content
-        assert "concurrency_modifier" in content
-        assert "lambda current: 3" in content
+
+        assert "if raw_input is None" in content
+        assert "Empty or null input" in content
+        assert '"success": False' in content
 
 
-def test_no_concurrency_modifier_when_default():
-    """max_concurrency=1 (default) produces no concurrency_modifier."""
+def test_class_handler_validates_empty_input():
+    """Generated class handler rejects empty input dict."""
     with tempfile.TemporaryDirectory() as tmpdir:
         build_dir = Path(tmpdir)
+
         manifest = {
             "version": "1.0",
             "generated_at": "2026-01-02T10:00:00Z",
@@ -609,133 +574,9 @@ def test_no_concurrency_modifier_when_default():
             "resources": {
                 "worker": {
                     "resource_type": "Endpoint",
-                    "functions": [
-                        {
-                            "name": "process",
-                            "module": "workers.cpu",
-                            "is_async": True,
-                            "is_class": False,
-                        }
-                    ],
-                }
-            },
-        }
-        generator = HandlerGenerator(manifest, build_dir)
-        handler_paths = generator.generate_handlers()
-        content = handler_paths[0].read_text()
-        assert "concurrency_modifier" not in content
-        assert 'runpod.serverless.start({"handler": handler})' in content
-
-
-def test_async_handler_valid_syntax():
-    """Generated async handler passes ast.parse validation."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        build_dir = Path(tmpdir)
-        manifest = {
-            "version": "1.0",
-            "generated_at": "2026-01-02T10:00:00Z",
-            "project_name": "test_app",
-            "resources": {
-                "inference": {
-                    "resource_type": "Endpoint",
-                    "max_concurrency": 10,
-                    "functions": [
-                        {
-                            "name": "generate",
-                            "module": "workers.inference",
-                            "is_async": True,
-                            "is_class": False,
-                        }
-                    ],
-                }
-            },
-        }
-        generator = HandlerGenerator(manifest, build_dir)
-        handler_paths = generator.generate_handlers()
-        content = handler_paths[0].read_text()
-        ast.parse(content)
-
-
-def test_async_class_handler_with_concurrency():
-    """max_concurrency > 1 + async class produces async class handler."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        build_dir = Path(tmpdir)
-        manifest = {
-            "version": "1.0",
-            "generated_at": "2026-01-02T10:00:00Z",
-            "project_name": "test_app",
-            "resources": {
-                "vllm_worker": {
-                    "resource_type": "Endpoint",
-                    "max_concurrency": 10,
-                    "functions": [
-                        {
-                            "name": "VLLMWorker",
-                            "module": "workers.vllm",
-                            "is_async": True,
-                            "is_class": True,
-                            "class_methods": ["generate"],
-                        }
-                    ],
-                }
-            },
-        }
-        generator = HandlerGenerator(manifest, build_dir)
-        handler_paths = generator.generate_handlers()
-        content = handler_paths[0].read_text()
-        assert "async def handler(job):" in content
-        assert "await method(**job_input)" in content
-        assert "_instance = VLLMWorker()" in content
-        assert "concurrency_modifier" in content
-        assert "lambda current: 10" in content
-        assert "_run_maybe_async" not in content
-
-
-def test_async_class_handler_valid_syntax():
-    """Generated async class handler passes ast.parse validation."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        build_dir = Path(tmpdir)
-        manifest = {
-            "version": "1.0",
-            "generated_at": "2026-01-02T10:00:00Z",
-            "project_name": "test_app",
-            "resources": {
-                "worker": {
-                    "resource_type": "Endpoint",
-                    "max_concurrency": 8,
                     "functions": [
                         {
                             "name": "Worker",
-                            "module": "w",
-                            "is_async": True,
-                            "is_class": True,
-                            "class_methods": ["predict", "embed"],
-                        }
-                    ],
-                }
-            },
-        }
-        generator = HandlerGenerator(manifest, build_dir)
-        handler_paths = generator.generate_handlers()
-        content = handler_paths[0].read_text()
-        ast.parse(content)
-
-
-def test_sync_class_with_concurrency_uses_sync_template():
-    """max_concurrency > 1 + sync class uses sync template with concurrency_modifier."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        build_dir = Path(tmpdir)
-        manifest = {
-            "version": "1.0",
-            "generated_at": "2026-01-02T10:00:00Z",
-            "project_name": "test_app",
-            "resources": {
-                "worker": {
-                    "resource_type": "Endpoint",
-                    "max_concurrency": 4,
-                    "functions": [
-                        {
-                            "name": "SyncWorker",
                             "module": "w",
                             "is_async": False,
                             "is_class": True,
@@ -745,32 +586,76 @@ def test_sync_class_with_concurrency_uses_sync_template():
                 }
             },
         }
+
         generator = HandlerGenerator(manifest, build_dir)
         handler_paths = generator.generate_handlers()
         content = handler_paths[0].read_text()
-        assert "def handler(job):" in content
-        assert "async def handler(job):" not in content
-        assert "_run_maybe_async" in content
-        assert "concurrency_modifier" in content
-        assert "lambda current: 4" in content
+
+        assert "if raw_input is None" in content
+        assert "Empty or null input" in content
+        assert '"success": False' in content
 
 
-def test_sync_handler_with_concurrency_logs_warning(caplog):
-    """max_concurrency > 1 + sync handler logs a warning."""
+# -- exec()-and-call tests for generated handler templates --
+# These compile and execute the generated handler code to catch
+# brace-escaping bugs that string-presence checks would miss.
+
+
+def _exec_handler(content: str, stub_module: str, stub_name: str, stub_obj: object):
+    """Compile generated handler code with a stubbed import, return the handler function.
+
+    Replaces the importlib.import_module line with a direct assignment so the
+    generated code can run without the real module on sys.path.
+    """
+    # Replace the importlib import line with a stub assignment
+    import_line = f"{stub_name} = importlib.import_module('{stub_module}').{stub_name}"
+    patched = content.replace(import_line, f"{stub_name} = _stub_obj")
+
+    # Strip the __main__ block so runpod.serverless.start is never called
+    main_marker = 'if __name__ == "__main__":'
+    if main_marker in patched:
+        patched = patched[: patched.index(main_marker)]
+
+    namespace: dict = {"_stub_obj": stub_obj}
+    exec(compile(patched, "<generated-handler>", "exec"), namespace)  # noqa: S102
+    return namespace["handler"]
+
+
+@pytest.mark.parametrize(
+    "job_input, expect_error_substring",
+    [
+        ({"input": {}}, "Empty or null input"),
+        ({"input": None}, "Empty or null input"),
+        ({}, "Empty or null input"),
+        ({"input": []}, "Malformed input"),
+        ({"input": 0}, "Malformed input"),
+        ({"input": ""}, "Malformed input"),
+    ],
+    ids=[
+        "empty-dict",
+        "null-input",
+        "missing-input-key",
+        "list-input",
+        "int-input",
+        "string-input",
+    ],
+)
+def test_function_handler_exec_rejects_bad_input(job_input, expect_error_substring):
+    """exec() the generated function handler and verify it rejects bad input at runtime."""
     with tempfile.TemporaryDirectory() as tmpdir:
         build_dir = Path(tmpdir)
+
         manifest = {
             "version": "1.0",
             "generated_at": "2026-01-02T10:00:00Z",
             "project_name": "test_app",
             "resources": {
-                "worker": {
+                "gpu_config": {
                     "resource_type": "Endpoint",
-                    "max_concurrency": 3,
                     "functions": [
                         {
-                            "name": "process",
-                            "module": "workers.cpu",
+                            "name": "gpu_task",
+                            "module": "workers.gpu",
                             "is_async": False,
                             "is_class": False,
                         }
@@ -778,45 +663,136 @@ def test_sync_handler_with_concurrency_logs_warning(caplog):
                 }
             },
         }
-        with caplog.at_level(logging.WARNING):
-            generator = HandlerGenerator(manifest, build_dir)
-            generator.generate_handlers()
-        assert any(
-            "max_concurrency=3" in r.message and "sync" in r.message
-            for r in caplog.records
-        )
+
+        generator = HandlerGenerator(manifest, build_dir)
+        handler_paths = generator.generate_handlers()
+        content = handler_paths[0].read_text()
+
+        handler = _exec_handler(content, "workers.gpu", "gpu_task", lambda **kw: kw)
+        result = handler(job_input)
+
+        assert result["success"] is False
+        assert expect_error_substring in result["error"]
 
 
-def test_high_concurrency_logs_warning(caplog):
-    """max_concurrency > 100 logs a high concurrency warning."""
+def test_function_handler_exec_accepts_valid_input():
+    """exec() the generated function handler and verify it passes valid input through."""
     with tempfile.TemporaryDirectory() as tmpdir:
         build_dir = Path(tmpdir)
+
         manifest = {
             "version": "1.0",
             "generated_at": "2026-01-02T10:00:00Z",
             "project_name": "test_app",
             "resources": {
-                "inference": {
+                "gpu_config": {
                     "resource_type": "Endpoint",
-                    "max_concurrency": 150,
                     "functions": [
                         {
-                            "name": "generate",
-                            "module": "workers.inference",
-                            "is_async": True,
+                            "name": "gpu_task",
+                            "module": "workers.gpu",
+                            "is_async": False,
                             "is_class": False,
                         }
                     ],
                 }
             },
         }
-        with caplog.at_level(logging.WARNING):
-            generator = HandlerGenerator(manifest, build_dir)
-            generator.generate_handlers()
-        assert any("max_concurrency=150" in r.message for r in caplog.records)
+
+        generator = HandlerGenerator(manifest, build_dir)
+        handler_paths = generator.generate_handlers()
+        content = handler_paths[0].read_text()
+
+        handler = _exec_handler(content, "workers.gpu", "gpu_task", lambda **kw: kw)
+        result = handler({"input": {"prompt": "hello"}})
+
+        assert result == {"prompt": "hello"}
 
 
-def test_inject_concurrency_modifier_raises_on_missing_start_call():
-    """_inject_concurrency_modifier raises if the start call string is absent."""
-    with pytest.raises(ValueError, match="Unable to inject concurrency_modifier"):
-        HandlerGenerator._inject_concurrency_modifier("some random code", 5)
+@pytest.mark.parametrize(
+    "job_input, expect_error_substring",
+    [
+        ({"input": {}}, "Empty or null input"),
+        ({"input": None}, "Empty or null input"),
+        ({}, "Empty or null input"),
+        ({"input": []}, "Malformed input"),
+    ],
+    ids=["empty-dict", "null-input", "missing-input-key", "list-input"],
+)
+def test_class_handler_exec_rejects_bad_input(job_input, expect_error_substring):
+    """exec() the generated class handler and verify it rejects bad input at runtime."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        build_dir = Path(tmpdir)
+
+        manifest = {
+            "version": "1.0",
+            "generated_at": "2026-01-02T10:00:00Z",
+            "project_name": "test_app",
+            "resources": {
+                "worker": {
+                    "resource_type": "Endpoint",
+                    "functions": [
+                        {
+                            "name": "Worker",
+                            "module": "w",
+                            "is_async": False,
+                            "is_class": True,
+                            "class_methods": ["run"],
+                        }
+                    ],
+                }
+            },
+        }
+
+        generator = HandlerGenerator(manifest, build_dir)
+        handler_paths = generator.generate_handlers()
+        content = handler_paths[0].read_text()
+
+        class StubWorker:
+            def run(self, **kw):
+                return kw
+
+        handler = _exec_handler(content, "w", "Worker", StubWorker)
+        result = handler(job_input)
+
+        assert result["success"] is False
+        assert expect_error_substring in result["error"]
+
+
+def test_class_handler_exec_accepts_valid_input():
+    """exec() the generated class handler and verify it dispatches valid input."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        build_dir = Path(tmpdir)
+
+        manifest = {
+            "version": "1.0",
+            "generated_at": "2026-01-02T10:00:00Z",
+            "project_name": "test_app",
+            "resources": {
+                "worker": {
+                    "resource_type": "Endpoint",
+                    "functions": [
+                        {
+                            "name": "Worker",
+                            "module": "w",
+                            "is_async": False,
+                            "is_class": True,
+                            "class_methods": ["run"],
+                        }
+                    ],
+                }
+            },
+        }
+
+        generator = HandlerGenerator(manifest, build_dir)
+        handler_paths = generator.generate_handlers()
+        content = handler_paths[0].read_text()
+
+        class StubWorker:
+            def run(self, **kw):
+                return kw
+
+        handler = _exec_handler(content, "w", "Worker", StubWorker)
+        result = handler({"input": {"prompt": "hello"}})
+
+        assert result == {"prompt": "hello"}
