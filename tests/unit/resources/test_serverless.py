@@ -1214,6 +1214,87 @@ class TestServerlessResourceDeployment:
         assert result.status == "COMPLETED"
 
     @pytest.mark.asyncio
+    async def test_run_logs_remote_prefix_on_dispatch(self):
+        """run() must emit [REMOTE] prefix so users know execution is on Runpod cloud."""
+        serverless = ServerlessResource(name="test")
+        serverless.id = "endpoint-123"
+
+        mock_job = MagicMock()
+        mock_job.job_id = "job-123"
+        mock_job.status.return_value = "COMPLETED"
+        mock_job._fetch_job.return_value = {
+            "id": "job-123",
+            "workerId": "worker-456",
+            "status": "COMPLETED",
+            "delayTime": 1000,
+            "executionTime": 2000,
+            "output": {"result": "success"},
+        }
+
+        mock_endpoint = MagicMock()
+        mock_endpoint.run.return_value = mock_job
+
+        with patch.object(
+            type(serverless),
+            "endpoint",
+            new_callable=lambda: property(lambda self: mock_endpoint),
+        ):
+            with patch("asyncio.sleep"):
+                with patch("runpod_flash.core.resources.serverless.log") as mock_log:
+                    await serverless.run({"input": "test data"})
+
+        dispatch_calls = [
+            call for call in mock_log.info.call_args_list if "API /run" in str(call)
+        ]
+        assert len(dispatch_calls) == 1, "Expected exactly one 'API /run' log call"
+        log_message = dispatch_calls[0].args[0]
+        assert "[REMOTE]" in log_message, (
+            f"Expected [REMOTE] in log message, got: {log_message!r}"
+        )
+        assert "API /run" in log_message, (
+            f"Expected 'API /run' in log message, got: {log_message!r}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_runsync_logs_remote_prefix_on_dispatch(self):
+        """runsync() must emit [REMOTE] prefix so users know execution is on Runpod cloud."""
+        serverless = ServerlessResource(name="test")
+        serverless.id = "endpoint-123"
+
+        mock_rp_client = MagicMock()
+        mock_rp_client.post.return_value = {
+            "id": "job-123",
+            "workerId": "worker-456",
+            "status": "COMPLETED",
+            "delayTime": 1000,
+            "executionTime": 2000,
+            "output": {"result": "success"},
+        }
+
+        mock_endpoint = MagicMock()
+        mock_endpoint.rp_client = mock_rp_client
+
+        with patch.object(
+            type(serverless),
+            "endpoint",
+            new_callable=lambda: property(lambda self: mock_endpoint),
+        ):
+            with patch("runpod_flash.core.resources.serverless.log") as mock_log:
+                await serverless.runsync({"input": "test data"})
+
+        dispatch_calls = [
+            call for call in mock_log.info.call_args_list if "API /runsync" in str(call)
+        ]
+        assert len(dispatch_calls) == 1, "Expected exactly one 'API /runsync' log call"
+        log_message = dispatch_calls[0].args[0]
+        assert "[REMOTE]" in log_message, (
+            f"Expected [REMOTE] in log message, got: {log_message!r}"
+        )
+        assert "API /runsync" in log_message, (
+            f"Expected 'API /runsync' in log message, got: {log_message!r}"
+        )
+
+    @pytest.mark.asyncio
     async def test_run_async_dedupes_stdout_against_streamed_pod_logs(self):
         serverless = ServerlessResource(name="test")
         serverless.id = "endpoint-123"
