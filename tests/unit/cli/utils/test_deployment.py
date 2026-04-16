@@ -632,3 +632,195 @@ async def test_reconciliation_ignores_runtime_fields_in_config_comparison(tmp_pa
         await reconcile_and_provision_resources(app, "build-123", "dev", local_manifest)
 
     mock_manager.get_or_deploy_resource.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_source_fingerprint_injected_into_resource_env(tmp_path):
+    """Source fingerprint from manifest is injected into each resource's env."""
+    import json
+
+    flash_dir = tmp_path / ".flash"
+    flash_dir.mkdir()
+
+    local_manifest = {
+        "source_fingerprint": "abc123def456",
+        "resources": {
+            "worker": {
+                "resource_type": "LiveServerless",
+                "config": "same",
+            },
+            "lb_endpoint": {
+                "resource_type": "CpuLiveLoadBalancer",
+                "config": "same",
+                "env": {"USER_VAR": "value"},
+            },
+        },
+        "resources_endpoints": {},
+    }
+    (flash_dir / "flash_manifest.json").write_text(json.dumps(local_manifest))
+
+    # State manifest has SAME config but DIFFERENT fingerprint in env
+    state_manifest = {
+        "resources": {
+            "worker": {
+                "resource_type": "LiveServerless",
+                "config": "same",
+                "env": {"_FLASH_SOURCE_FINGERPRINT": "old_fingerprint_000"},
+            },
+            "lb_endpoint": {
+                "resource_type": "CpuLiveLoadBalancer",
+                "config": "same",
+                "env": {
+                    "USER_VAR": "value",
+                    "_FLASH_SOURCE_FINGERPRINT": "old_fingerprint_000",
+                },
+            },
+        },
+        "resources_endpoints": {
+            "worker": "https://worker.api.runpod.ai",
+            "lb_endpoint": "https://lb.api.runpod.ai",
+        },
+    }
+
+    app = AsyncMock()
+    app.get_build_manifest = AsyncMock(return_value=state_manifest)
+    app.update_build_manifest = AsyncMock()
+
+    mock_resource = MagicMock()
+    mock_resource.endpoint_url = "https://new.api.runpod.ai"
+    mock_resource.endpoint_id = "new-endpoint-id"
+
+    with (
+        patch("pathlib.Path.cwd", return_value=tmp_path),
+        patch("runpod_flash.cli.utils.deployment.ResourceManager") as mock_manager_cls,
+        patch(
+            "runpod_flash.cli.utils.deployment.create_resource_from_manifest"
+        ) as mock_create_resource,
+    ):
+        mock_manager = MagicMock()
+        mock_manager.get_or_deploy_resource = AsyncMock(return_value=mock_resource)
+        mock_manager_cls.return_value = mock_manager
+        mock_create_resource.return_value = MagicMock()
+
+        await reconcile_and_provision_resources(
+            app, "build-123", "dev", local_manifest, show_progress=False
+        )
+
+    # Fingerprint changed -> both resources should have been updated
+    assert mock_manager.get_or_deploy_resource.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_source_fingerprint_unchanged_takes_reuse_path(tmp_path):
+    """When source fingerprint matches state, reuse path is taken (no update)."""
+    import json
+
+    flash_dir = tmp_path / ".flash"
+    flash_dir.mkdir()
+
+    local_manifest = {
+        "source_fingerprint": "same_fingerprint_abc",
+        "resources": {
+            "worker": {
+                "resource_type": "LiveServerless",
+                "config": "same",
+            },
+        },
+        "resources_endpoints": {},
+    }
+    (flash_dir / "flash_manifest.json").write_text(json.dumps(local_manifest))
+
+    # State manifest has SAME fingerprint (code unchanged)
+    state_manifest = {
+        "resources": {
+            "worker": {
+                "resource_type": "LiveServerless",
+                "config": "same",
+                "env": {"_FLASH_SOURCE_FINGERPRINT": "same_fingerprint_abc"},
+            },
+        },
+        "resources_endpoints": {
+            "worker": "https://worker.api.runpod.ai",
+        },
+    }
+
+    app = AsyncMock()
+    app.get_build_manifest = AsyncMock(return_value=state_manifest)
+    app.update_build_manifest = AsyncMock()
+
+    with (
+        patch("pathlib.Path.cwd", return_value=tmp_path),
+        patch("runpod_flash.cli.utils.deployment.ResourceManager") as mock_manager_cls,
+    ):
+        mock_manager = MagicMock()
+        mock_manager.get_or_deploy_resource = AsyncMock()
+        mock_manager_cls.return_value = mock_manager
+
+        await reconcile_and_provision_resources(
+            app, "build-123", "dev", local_manifest, show_progress=False
+        )
+
+    # Fingerprint unchanged -> reuse path, no provisioning
+    mock_manager.get_or_deploy_resource.assert_not_called()
+
+    # Endpoint info copied from state
+    assert (
+        local_manifest["resources_endpoints"]["worker"]
+        == "https://worker.api.runpod.ai"
+    )
+
+
+@pytest.mark.asyncio
+async def test_missing_source_fingerprint_backward_compatible(tmp_path):
+    """Manifests without source_fingerprint behave as before (reuse when config matches)."""
+    import json
+
+    flash_dir = tmp_path / ".flash"
+    flash_dir.mkdir()
+
+    # No source_fingerprint key -- older flash version
+    local_manifest = {
+        "resources": {
+            "worker": {
+                "resource_type": "LiveServerless",
+                "config": "same",
+            },
+        },
+        "resources_endpoints": {},
+    }
+    (flash_dir / "flash_manifest.json").write_text(json.dumps(local_manifest))
+
+    state_manifest = {
+        "resources": {
+            "worker": {
+                "resource_type": "LiveServerless",
+                "config": "same",
+            },
+        },
+        "resources_endpoints": {
+            "worker": "https://worker.api.runpod.ai",
+        },
+    }
+
+    app = AsyncMock()
+    app.get_build_manifest = AsyncMock(return_value=state_manifest)
+    app.update_build_manifest = AsyncMock()
+
+    with (
+        patch("pathlib.Path.cwd", return_value=tmp_path),
+        patch("runpod_flash.cli.utils.deployment.ResourceManager") as mock_manager_cls,
+    ):
+        mock_manager = MagicMock()
+        mock_manager.get_or_deploy_resource = AsyncMock()
+        mock_manager_cls.return_value = mock_manager
+
+        await reconcile_and_provision_resources(
+            app, "build-123", "dev", local_manifest, show_progress=False
+        )
+
+    # No fingerprint -> no injection -> config matches -> reuse path
+    mock_manager.get_or_deploy_resource.assert_not_called()
+    assert (
+        local_manifest["resources_endpoints"]["worker"]
+        == "https://worker.api.runpod.ai"
+    )
