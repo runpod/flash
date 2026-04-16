@@ -37,6 +37,31 @@ logger = logging.getLogger(__name__)
 
 console = Console()
 
+
+def compute_source_fingerprint(project_dir: Path, files: list[Path]) -> str:
+    """Compute a SHA-256 fingerprint of project source files.
+
+    Produces a deterministic hash that changes if and only if the user's
+    source files change. Used to detect code-only changes that should
+    trigger a rolling release even when resource config is unchanged.
+
+    Args:
+        project_dir: Project root for computing relative paths.
+        files: List of source file paths (from get_file_tree).
+
+    Returns:
+        Hex digest of the SHA-256 hash.
+    """
+    import hashlib
+
+    h = hashlib.sha256()
+    for f in sorted(files, key=lambda p: str(p.relative_to(project_dir))):
+        rel = str(f.relative_to(project_dir))
+        h.update(rel.encode())
+        h.update(f.read_bytes())
+    return h.hexdigest()
+
+
 # Constants
 # Timeout for pip install operations (large packages like torch can take 5-10 minutes)
 PIP_INSTALL_TIMEOUT_SECONDS = 600

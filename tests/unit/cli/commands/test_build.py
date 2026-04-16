@@ -865,3 +865,76 @@ class TestInstallDependenciesTargetVersion:
                 break
         else:
             pytest.fail("--python-version not found in pip command")
+
+
+class TestComputeSourceFingerprint:
+    """Tests for compute_source_fingerprint function."""
+
+    def test_deterministic_output(self, tmp_path):
+        """Same files produce same hash across calls."""
+        from runpod_flash.cli.commands.build import compute_source_fingerprint
+
+        f1 = tmp_path / "app.py"
+        f1.write_text("print('hello')")
+        f2 = tmp_path / "utils.py"
+        f2.write_text("x = 1")
+
+        files = [f1, f2]
+        hash1 = compute_source_fingerprint(tmp_path, files)
+        hash2 = compute_source_fingerprint(tmp_path, files)
+        assert hash1 == hash2
+        assert len(hash1) == 64  # SHA-256 hex digest length
+
+    def test_content_sensitive(self, tmp_path):
+        """Changing file content changes the hash."""
+        from runpod_flash.cli.commands.build import compute_source_fingerprint
+
+        f1 = tmp_path / "app.py"
+        f1.write_text("print('hello')")
+        hash1 = compute_source_fingerprint(tmp_path, [f1])
+
+        f1.write_text("print('world')")
+        hash2 = compute_source_fingerprint(tmp_path, [f1])
+        assert hash1 != hash2
+
+    def test_path_sensitive(self, tmp_path):
+        """Renaming a file (same content) changes the hash."""
+        from runpod_flash.cli.commands.build import compute_source_fingerprint
+
+        f1 = tmp_path / "app.py"
+        f1.write_text("content")
+        hash1 = compute_source_fingerprint(tmp_path, [f1])
+
+        f2 = tmp_path / "main.py"
+        f2.write_text("content")
+        hash2 = compute_source_fingerprint(tmp_path, [f2])
+        assert hash1 != hash2
+
+    def test_order_independent(self, tmp_path):
+        """Shuffled input order produces same hash (function sorts internally)."""
+        from runpod_flash.cli.commands.build import compute_source_fingerprint
+
+        f1 = tmp_path / "a.py"
+        f1.write_text("aaa")
+        f2 = tmp_path / "b.py"
+        f2.write_text("bbb")
+
+        hash1 = compute_source_fingerprint(tmp_path, [f1, f2])
+        hash2 = compute_source_fingerprint(tmp_path, [f2, f1])
+        assert hash1 == hash2
+
+    def test_empty_file_list(self, tmp_path):
+        """Empty file list returns a valid SHA-256 hash."""
+        from runpod_flash.cli.commands.build import compute_source_fingerprint
+
+        result = compute_source_fingerprint(tmp_path, [])
+        assert len(result) == 64
+
+    def test_handles_binary_files(self, tmp_path):
+        """Binary files are hashed without error."""
+        from runpod_flash.cli.commands.build import compute_source_fingerprint
+
+        f1 = tmp_path / "data.bin"
+        f1.write_bytes(b"\x00\x01\x02\xff")
+        result = compute_source_fingerprint(tmp_path, [f1])
+        assert len(result) == 64
