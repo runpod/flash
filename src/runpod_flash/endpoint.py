@@ -832,11 +832,35 @@ class Endpoint:
     ) -> Any:
         """make an HTTP request to a deployed LB endpoint.
 
-        uses the LB-style subdomain url (https://{id}.api.runpod.ai).
+        in a deployed flash context, routes through the flash sentinel
+        so ai-api resolves the real endpoint. otherwise, uses the
+        LB-style subdomain url (https://{id}.api.runpod.ai) directly.
         """
+        timeout = kwargs.pop("timeout", 60.0)
+
+        # sentinel path: route through flash sentinel for deployed envs
+        if self.name:
+            from .flash_context import get_flash_context
+
+            ctx = get_flash_context()
+            if ctx:
+                from .client import _normalize_resource_name
+                from .flash_sentinel import sentinel_lb_request
+
+                app_name, env_name = ctx
+                return await sentinel_lb_request(
+                    app_name,
+                    env_name,
+                    _normalize_resource_name(self.name),
+                    method,
+                    path,
+                    body=data,
+                    timeout=timeout,
+                )
+
+        # direct path: call endpoint by resolved ID
         url = await self._ensure_endpoint_ready(lb=True)
         full_url = f"{url}{path}"
-        timeout = kwargs.pop("timeout", 60.0)
 
         from .core.utils.http import get_authenticated_httpx_client
 

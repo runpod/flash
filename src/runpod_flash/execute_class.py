@@ -19,6 +19,8 @@ import cloudpickle
 from .core.resources import ResourceManager, ServerlessResource
 from .core.utils.constants import HASH_TRUNCATE_LENGTH, UUID_FALLBACK_LENGTH
 from .core.utils.lru_cache import LRUCache
+from .flash_context import get_flash_context
+from .flash_sentinel import sentinel_qb_class_execute
 from .protos.remote_execution import FunctionRequest
 from .runtime.exceptions import SerializationError
 from .runtime.serialization import serialize_args, serialize_kwargs
@@ -244,6 +246,38 @@ def create_remote_class(
                 self._stub = stub_resource(remote_resource)
                 self._initialized = True
 
+        def _build_class_request(
+            self, method_name: str, args: tuple, kwargs: dict
+        ) -> FunctionRequest:
+            """Build a FunctionRequest for class method execution."""
+            cached_data = _SERIALIZED_CLASS_CACHE.get(self._cache_key)
+
+            method_args = serialize_args(args)
+            method_kwargs = serialize_kwargs(kwargs)
+
+            if cached_data["constructor_args"] is not None:
+                constructor_args = cached_data["constructor_args"]
+                constructor_kwargs = cached_data["constructor_kwargs"]
+            else:
+                constructor_args = serialize_args(self._constructor_args)
+                constructor_kwargs = serialize_kwargs(self._constructor_kwargs)
+
+            return FunctionRequest(
+                execution_type="class",
+                class_name=self._class_type.__name__,
+                class_code=cached_data["class_code"],
+                method_name=method_name,
+                args=method_args,
+                kwargs=method_kwargs,
+                constructor_args=constructor_args,
+                constructor_kwargs=constructor_kwargs,
+                dependencies=self._dependencies,
+                system_dependencies=self._system_dependencies,
+                accelerate_downloads=self._accelerate_downloads,
+                instance_id=self._instance_id,
+                create_new_instance=not hasattr(self, "_stub"),
+            )
+
         def __getattr__(self, name):
             """Dynamically create method proxies for all class methods."""
             if name.startswith("_"):
@@ -252,45 +286,21 @@ def create_remote_class(
                 )
 
             async def method_proxy(*args, **kwargs):
+                ctx = get_flash_context()
+                if ctx:
+                    from .client import _normalize_resource_name
+
+                    app_name, env_name = ctx
+                    request = self._build_class_request(name, args, kwargs)
+                    return await sentinel_qb_class_execute(
+                        app_name,
+                        env_name,
+                        _normalize_resource_name(self._resource_config.name),
+                        request,
+                    )
+
                 await self._ensure_initialized()
-
-                # Get cached data
-                cached_data = _SERIALIZED_CLASS_CACHE.get(self._cache_key)
-
-                # Serialize method arguments (these change per call, so no caching)
-                method_args = serialize_args(args)
-                method_kwargs = serialize_kwargs(kwargs)
-
-                # Handle constructor args - use cached if available, else serialize fresh
-                if cached_data["constructor_args"] is not None:
-                    # Use cached constructor args
-                    constructor_args = cached_data["constructor_args"]
-                    constructor_kwargs = cached_data["constructor_kwargs"]
-                else:
-                    # Constructor args couldn't be cached due to serialization issues
-                    # Serialize them fresh for each method call (fallback behavior)
-                    constructor_args = serialize_args(self._constructor_args)
-                    constructor_kwargs = serialize_kwargs(self._constructor_kwargs)
-
-                request = FunctionRequest(
-                    execution_type="class",
-                    class_name=self._class_type.__name__,
-                    class_code=cached_data["class_code"],
-                    method_name=name,
-                    args=method_args,
-                    kwargs=method_kwargs,
-                    constructor_args=constructor_args,
-                    constructor_kwargs=constructor_kwargs,
-                    dependencies=self._dependencies,
-                    system_dependencies=self._system_dependencies,
-                    accelerate_downloads=self._accelerate_downloads,
-                    instance_id=self._instance_id,
-                    create_new_instance=not hasattr(
-                        self, "_stub"
-                    ),  # Create new only on first call
-                )
-
-                # Execute via stub
+                request = self._build_class_request(name, args, kwargs)
                 return await self._stub.execute_class_method(request)  # type: ignore
 
             return method_proxy

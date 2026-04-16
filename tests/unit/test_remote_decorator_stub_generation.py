@@ -85,17 +85,17 @@ class TestRemoteDecoratorStubBehavior:
         assert result == 42
 
     @pytest.mark.asyncio
-    @patch.dict(os.environ, {"RUNPOD_ENDPOINT_ID": "ep_123"})
-    @patch("runpod_flash.runtime._flash_resource_config.is_local_function")
+    @patch.dict(
+        os.environ,
+        {"RUNPOD_ENDPOINT_ID": "ep_123", "FLASH_RESOURCE_NAME": "other-resource"},
+    )
+    @patch("runpod_flash.client.get_flash_context", return_value=None)
     @patch("runpod_flash.client.ResourceManager")
     async def test_deployed_remote_function_uses_stub(
-        self, mock_rm_class, mock_is_local, sample_resource
+        self, mock_rm_class, mock_ctx, sample_resource
     ):
         """In deployed env, remote functions create stubs."""
         from runpod_flash.client import remote
-
-        # Configure as remote function (not local)
-        mock_is_local.return_value = False
 
         # Mock ResourceManager
         mock_rm_instance = AsyncMock()

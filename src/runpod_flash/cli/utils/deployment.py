@@ -144,6 +144,8 @@ async def provision_resources_for_build(
             resource_name,
             resource_config,
             python_version=manifest_python_version,
+            flash_app_name=app.name,
+            flash_env_name=environment_name,
         )
         resources_to_provision.append((resource_name, resource))
 
@@ -291,6 +293,8 @@ async def reconcile_and_provision_resources(
             resource_config,
             flash_environment_id=environment_id,
             python_version=manifest_python_version,
+            flash_app_name=app.name,
+            flash_env_name=environment_name,
         )
         actions.append(
             ("provision", resource_name, manager.get_or_deploy_resource(resource))
@@ -321,6 +325,8 @@ async def reconcile_and_provision_resources(
                 local_config,
                 flash_environment_id=environment_id,
                 python_version=manifest_python_version,
+                flash_app_name=app.name,
+                flash_env_name=environment_name,
             )
             actions.append(
                 ("update", resource_name, manager.get_or_deploy_resource(resource))

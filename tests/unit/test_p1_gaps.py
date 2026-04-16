@@ -302,12 +302,12 @@ class TestDependenciesPassedToStub:
     """@remote passes dependencies and system_dependencies to stub."""
 
     @patch.dict(os.environ, {}, clear=True)
-    @patch("runpod_flash.client._resolve_deployed_endpoint_id", return_value=None)
+    @patch("runpod_flash.client.get_flash_context", return_value=None)
     @patch("runpod_flash.client.ResourceManager")
     @patch("runpod_flash.client.stub_resource")
     @pytest.mark.asyncio
     async def test_dependencies_passed_to_stub_call(
-        self, mock_stub_resource, mock_rm_cls, mock_resolve
+        self, mock_stub_resource, mock_rm_cls, mock_ctx
     ):
         """REM-FN-006: dependencies list forwarded to stub invocation."""
         from runpod_flash.client import remote
