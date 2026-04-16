@@ -3444,6 +3444,23 @@ class TestCreateNewTemplateEnvFieldSet:
 
         assert "env" not in template.model_fields_set
 
+    def test_create_new_template_env_in_fields_set_when_env_empty_dict(self):
+        """When self.env is explicitly {}, 'env' MUST appear in template.model_fields_set.
+
+        env={} is an intentional explicit override (clear all env vars), distinct from
+        env=None (default, no opinion). Using 'is not None' preserves this distinction.
+        """
+        resource = ServerlessEndpoint(
+            name="test",
+            imageName="test:latest",
+            env={},
+        )
+        assert resource.env == {}
+
+        template = resource._create_new_template()
+
+        assert "env" in template.model_fields_set
+
     def test_create_new_template_env_in_fields_set_when_env_set(self):
         """When self.env is populated, 'env' MUST appear in template.model_fields_set."""
         resource = ServerlessEndpoint(
