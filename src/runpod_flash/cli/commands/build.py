@@ -332,6 +332,9 @@ def run_build(
                 python_version=python_version,
             )
             manifest = manifest_builder.build()
+            manifest["source_fingerprint"] = compute_source_fingerprint(
+                project_dir, files
+            )
             manifest_path = build_dir / "flash_manifest.json"
             manifest_path.write_text(json.dumps(manifest, indent=2))
 
