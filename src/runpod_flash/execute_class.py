@@ -235,6 +235,13 @@ def create_remote_class(
             return state
 
         def __setstate__(self, state: dict) -> None:
+            """Restore instance after unpickling.
+
+            Only _init_lock needs explicit restoration here. The _stub is
+            intentionally omitted — _ensure_initialized() recreates it on
+            first method call. The serialization cache is preserved by
+            cloudpickle's globals capture of the dynamic class methods.
+            """
             self.__dict__.update(state)
             self._init_lock = asyncio.Lock()
 
@@ -267,8 +274,22 @@ def create_remote_class(
             async def method_proxy(*args, **kwargs):
                 await self._ensure_initialized()
 
-                # Get cached data
+                # Get cached data (normally preserved via cloudpickle globals capture;
+                # fallback re-populates if the cache was evicted or module reloaded)
                 cached_data = _SERIALIZED_CLASS_CACHE.get(self._cache_key)
+                if cached_data is None:
+                    get_or_cache_class_data(
+                        self._class_type,
+                        self._constructor_args,
+                        self._constructor_kwargs,
+                        self._cache_key,
+                    )
+                    cached_data = _SERIALIZED_CLASS_CACHE.get(self._cache_key)
+                    if cached_data is None:
+                        raise RuntimeError(
+                            f"Failed to populate class cache for key {self._cache_key!r} "
+                            "— class source may not be inspectable"
+                        )
 
                 # Serialize method arguments (these change per call, so no caching)
                 method_args = serialize_args(args)

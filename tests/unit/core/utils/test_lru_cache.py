@@ -311,4 +311,4 @@ class TestLRUCache:
         assert restored.get("a") == {"value": 1}
         assert restored.get("b") == {"value": 2}
         assert restored.max_size == 5
-        assert type(restored._lock) is type(threading.RLock())
+        assert isinstance(restored._lock, type(threading.RLock()))

@@ -823,3 +823,91 @@ class TestRemoteClassWrapperPickle:
         assert restored._class_type.__name__ == "MyModel"
         assert restored._constructor_args == (1,)
         assert restored._constructor_kwargs == {"tag": "v1"}
+
+    @pytest.mark.asyncio
+    async def test_pickle_method_invocation_with_warm_cache(self):
+        """Calling a method on an unpickled instance works via cloudpickle globals capture."""
+
+        class MyModel:
+            def predict(self, x):
+                return x
+
+        RemoteWrapper = create_remote_class(MyModel, self.resource_config, [], [], True)
+        instance = RemoteWrapper(42)
+
+        data = cloudpickle.dumps(instance)
+        restored = cloudpickle.loads(data)
+
+        mock_stub = AsyncMock()
+        mock_stub.execute_class_method.return_value = "result"
+        restored._stub = mock_stub
+        restored._initialized = True
+
+        result = await restored.predict(10)
+
+        assert result == "result"
+        mock_stub.execute_class_method.assert_called_once()
+        request = mock_stub.execute_class_method.call_args[0][0]
+        assert isinstance(request, FunctionRequest)
+        assert request.class_name == "MyModel"
+        assert request.method_name == "predict"
+        assert request.create_new_instance is False
+
+    @pytest.mark.asyncio
+    async def test_method_proxy_repopulates_cold_cache(self):
+        """method_proxy re-populates cache on cache miss (LRU eviction, module reload)."""
+
+        class MyModel:
+            def predict(self, x):
+                return x
+
+        RemoteWrapper = create_remote_class(MyModel, self.resource_config, [], [], True)
+        instance = RemoteWrapper(42)
+        cache_key = instance._cache_key
+
+        # Clear module-level cache to simulate cold-cache scenario
+        _SERIALIZED_CLASS_CACHE.clear()
+        assert cache_key not in _SERIALIZED_CLASS_CACHE
+
+        mock_stub = AsyncMock()
+        mock_stub.execute_class_method.return_value = "result"
+        instance._stub = mock_stub
+        instance._initialized = True
+
+        try:
+            result = await instance.predict(10)
+            assert result == "result"
+            assert cache_key in _SERIALIZED_CLASS_CACHE
+        finally:
+            # Restore cache entry to avoid polluting other tests
+            _SERIALIZED_CLASS_CACHE.clear()
+
+    @pytest.mark.asyncio
+    async def test_method_proxy_raises_on_failed_cache_population(self):
+        """method_proxy raises RuntimeError when cache cannot be populated."""
+
+        class MyModel:
+            def predict(self, x):
+                return x
+
+        RemoteWrapper = create_remote_class(MyModel, self.resource_config, [], [], True)
+        instance = RemoteWrapper(42)
+
+        _SERIALIZED_CLASS_CACHE.clear()
+
+        mock_stub = AsyncMock()
+        instance._stub = mock_stub
+        instance._initialized = True
+
+        try:
+            # Patch to no-op so cache stays empty after fallback
+            with patch(
+                "runpod_flash.execute_class.get_or_cache_class_data",
+                return_value="",
+            ):
+                with pytest.raises(
+                    RuntimeError, match="Failed to populate class cache"
+                ):
+                    await instance.predict(10)
+        finally:
+            _SERIALIZED_CLASS_CACHE.clear()
