@@ -433,6 +433,13 @@ class ServerlessResource(DeployableResource):
         # networkVolumeId is derived from volume deployment, not user config
         config_dict.pop("networkVolumeId", None)
 
+        # instanceIds=[] (API response) and instanceIds=None (user default) are
+        # semantically identical — normalize both to absent so they don't cause
+        # false drift on GPU endpoints where instanceIds is always None locally
+        # but the RunPod API may return [] after deployment.
+        if not config_dict.get("instanceIds"):
+            config_dict.pop("instanceIds", None)
+
         # Convert to JSON string for hashing
         config_str = json.dumps(config_dict, sort_keys=True)
         hash_obj = hashlib.md5(f"{resource_type}:{config_str}".encode())
@@ -615,11 +622,10 @@ class ServerlessResource(DeployableResource):
 
     def _create_new_template(self) -> PodTemplate:
         """Create a new PodTemplate with standard configuration."""
-        return PodTemplate(
-            name=self.resource_id,
-            imageName=self.imageName,
-            env=KeyValuePair.from_dict(self.env or {}),
-        )
+        kwargs: dict = {"name": self.resource_id, "imageName": self.imageName}
+        if self.env is not None:
+            kwargs["env"] = KeyValuePair.from_dict(self.env)
+        return PodTemplate(**kwargs)
 
     def _configure_existing_template(self) -> None:
         """Configure an existing template with necessary overrides."""

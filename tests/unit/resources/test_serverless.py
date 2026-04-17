@@ -3389,3 +3389,96 @@ class TestServerlessRunsyncTimeout:
         mock_rp_client.post.assert_called_once_with(
             "ep-none/runsync", {"input": "data"}, timeout=60
         )
+
+
+class TestInstanceIdsFalseDrift:
+    """Regression tests for instanceIds=[] vs None causing false drift on GPU endpoints.
+
+    The RunPod API may return instanceIds=[] for GPU endpoints that were deployed
+    without any instanceIds restriction. Locally the user never sets instanceIds,
+    so it stays None. Without normalization, exclude_none=True removes None but
+    keeps [] — producing a different hash and triggering a spurious update (new
+    release / cold start) on every subsequent run.
+    """
+
+    def test_instance_ids_none_and_empty_list_hash_equal(self):
+        """GPU endpoint: instanceIds=None and instanceIds=[] produce the same hash."""
+        s_none = ServerlessResource(name="test", instanceIds=None)
+        s_empty = ServerlessResource(name="test", instanceIds=[])
+
+        assert s_none.config_hash == s_empty.config_hash
+
+    def test_instance_ids_none_and_absent_hash_equal(self):
+        """GPU endpoint: not setting instanceIds at all equals instanceIds=None."""
+        s_absent = ServerlessResource(name="test")
+        s_none = ServerlessResource(name="test", instanceIds=None)
+
+        assert s_absent.config_hash == s_none.config_hash
+
+    def test_instance_ids_non_empty_still_detected_as_drift(self):
+        """Non-empty instanceIds must still change the hash so real drift is caught."""
+        s_no_restriction = ServerlessResource(name="test")
+        s_restricted = ServerlessResource(
+            name="test", instanceIds=[CpuInstanceType.CPU3C_2_4]
+        )
+
+        assert s_no_restriction.config_hash != s_restricted.config_hash
+
+
+class TestCreateNewTemplateEnvFieldSet:
+    """Regression tests for _create_new_template() spuriously marking 'env' as set.
+
+    When env=None (default), the old code passed env=[] explicitly to PodTemplate,
+    which put 'env' into Pydantic's model_fields_set. The update() logic then saw
+    has_explicit_template_env=True and set env_needs_update=True, causing
+    _inject_runtime_template_vars() to run and RUNPOD_API_KEY to oscillate between
+    being added and removed on every run.
+    """
+
+    def test_create_new_template_env_not_in_fields_set_when_env_none(self):
+        """When self.env is None, 'env' must NOT appear in template.model_fields_set."""
+        resource = ServerlessEndpoint(name="test", imageName="test:latest")
+        assert resource.env is None
+
+        template = resource._create_new_template()
+
+        assert "env" not in template.model_fields_set
+
+    def test_create_new_template_env_in_fields_set_when_env_empty_dict(self):
+        """When self.env is explicitly {}, 'env' MUST appear in template.model_fields_set.
+
+        env={} is an intentional explicit override (clear all env vars), distinct from
+        env=None (default, no opinion). Using 'is not None' preserves this distinction.
+        """
+        resource = ServerlessEndpoint(
+            name="test",
+            imageName="test:latest",
+            env={},
+        )
+        assert resource.env == {}
+
+        template = resource._create_new_template()
+
+        assert "env" in template.model_fields_set
+
+    def test_create_new_template_env_in_fields_set_when_env_set(self):
+        """When self.env is populated, 'env' MUST appear in template.model_fields_set."""
+        resource = ServerlessEndpoint(
+            name="test",
+            imageName="test:latest",
+            env={"MY_VAR": "value"},
+        )
+
+        template = resource._create_new_template()
+
+        assert "env" in template.model_fields_set
+        assert any(kv.key == "MY_VAR" for kv in template.env)
+
+    def test_create_new_template_env_not_in_fields_set_cpu_endpoint(self):
+        """CpuServerlessEndpoint: same fix applies — env=None must not set 'env' field."""
+        resource = CpuServerlessEndpoint(name="test", imageName="test:latest")
+        assert resource.env is None
+
+        template = resource._create_new_template()
+
+        assert "env" not in template.model_fields_set
