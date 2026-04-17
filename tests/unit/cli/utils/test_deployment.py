@@ -709,6 +709,15 @@ async def test_source_fingerprint_injected_into_resource_env(tmp_path):
     # Fingerprint changed -> both resources should have been updated
     assert mock_manager.get_or_deploy_resource.call_count == 2
 
+    # Verify fingerprint was injected into each resource's env
+    worker_env = local_manifest["resources"]["worker"]["env"]
+    assert worker_env["_FLASH_SOURCE_FINGERPRINT"] == "abc123def456"
+
+    lb_env = local_manifest["resources"]["lb_endpoint"]["env"]
+    assert lb_env["_FLASH_SOURCE_FINGERPRINT"] == "abc123def456"
+    # User-defined env vars preserved after injection
+    assert lb_env["USER_VAR"] == "value"
+
 
 @pytest.mark.asyncio
 async def test_source_fingerprint_unchanged_takes_reuse_path(tmp_path):

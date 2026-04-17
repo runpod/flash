@@ -1,6 +1,7 @@
 """Flash build command - Package Flash applications for deployment."""
 
 import ast
+import hashlib
 import importlib.util
 import json
 import logging
@@ -52,8 +53,6 @@ def compute_source_fingerprint(project_dir: Path, files: list[Path]) -> str:
     Returns:
         Hex digest of the SHA-256 hash.
     """
-    import hashlib
-
     h = hashlib.sha256()
     for f in sorted(files, key=lambda p: str(p.relative_to(project_dir))):
         rel = str(f.relative_to(project_dir))
