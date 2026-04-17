@@ -1,6 +1,7 @@
 """Flash build command - Package Flash applications for deployment."""
 
 import ast
+import hashlib
 import importlib.util
 import json
 import logging
@@ -36,6 +37,36 @@ from .build_utils.scanner import RuntimeScanner
 logger = logging.getLogger(__name__)
 
 console = Console()
+
+
+def compute_source_fingerprint(project_dir: Path, files: list[Path]) -> str:
+    """Compute a SHA-256 fingerprint of project source files.
+
+    Produces a deterministic hash that changes if and only if the user's
+    source files change. Used to detect code-only changes that should
+    trigger a rolling release even when resource config is unchanged.
+
+    Args:
+        project_dir: Project root for computing relative paths.
+        files: List of source file paths (from get_file_tree).
+
+    Returns:
+        Hex digest of the SHA-256 hash.
+    """
+    h = hashlib.sha256()
+    # Normalize to POSIX form so Windows and POSIX builds of the same project
+    # produce the same fingerprint. Use length-prefix framing between path and
+    # content to prevent concatenation ambiguity (e.g., rel='a'+content='bc'
+    # vs rel='ab'+content='c' would otherwise collide).
+    for f in sorted(files, key=lambda p: p.relative_to(project_dir).as_posix()):
+        rel_bytes = f.relative_to(project_dir).as_posix().encode("utf-8")
+        file_bytes = f.read_bytes()
+        h.update(len(rel_bytes).to_bytes(8, "big"))
+        h.update(rel_bytes)
+        h.update(len(file_bytes).to_bytes(8, "big"))
+        h.update(file_bytes)
+    return h.hexdigest()
+
 
 # Constants
 # Timeout for pip install operations (large packages like torch can take 5-10 minutes)
@@ -307,6 +338,9 @@ def run_build(
                 python_version=python_version,
             )
             manifest = manifest_builder.build()
+            manifest["source_fingerprint"] = compute_source_fingerprint(
+                project_dir, files
+            )
             manifest_path = build_dir / "flash_manifest.json"
             manifest_path.write_text(json.dumps(manifest, indent=2))
 

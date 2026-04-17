@@ -283,6 +283,16 @@ async def reconcile_and_provision_resources(
     actions = []
     manifest_python_version = local_manifest.get("python_version")
 
+    # Inject source fingerprint into each resource's env so that code-only
+    # changes (no resource config diff) still trigger a rolling release.
+    # The fingerprint is computed during flash build from user source files.
+    # Mutation intentional: persisted to state manifest via update_build_manifest below.
+    source_fingerprint = local_manifest.get("source_fingerprint")
+    if source_fingerprint:
+        for resource_config in local_manifest.get("resources", {}).values():
+            env = resource_config.setdefault("env", {})
+            env["_FLASH_SOURCE_FINGERPRINT"] = source_fingerprint
+
     # Provision new resources
     for resource_name in sorted(to_provision):
         resource_config = local_manifest["resources"][resource_name]
