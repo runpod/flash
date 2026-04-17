@@ -54,10 +54,17 @@ def compute_source_fingerprint(project_dir: Path, files: list[Path]) -> str:
         Hex digest of the SHA-256 hash.
     """
     h = hashlib.sha256()
-    for f in sorted(files, key=lambda p: str(p.relative_to(project_dir))):
-        rel = str(f.relative_to(project_dir))
-        h.update(rel.encode())
-        h.update(f.read_bytes())
+    # Normalize to POSIX form so Windows and POSIX builds of the same project
+    # produce the same fingerprint. Use length-prefix framing between path and
+    # content to prevent concatenation ambiguity (e.g., rel='a'+content='bc'
+    # vs rel='ab'+content='c' would otherwise collide).
+    for f in sorted(files, key=lambda p: p.relative_to(project_dir).as_posix()):
+        rel_bytes = f.relative_to(project_dir).as_posix().encode("utf-8")
+        file_bytes = f.read_bytes()
+        h.update(len(rel_bytes).to_bytes(8, "big"))
+        h.update(rel_bytes)
+        h.update(len(file_bytes).to_bytes(8, "big"))
+        h.update(file_bytes)
     return h.hexdigest()
 
 

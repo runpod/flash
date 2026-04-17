@@ -636,18 +636,26 @@ async def test_reconciliation_ignores_runtime_fields_in_config_comparison(tmp_pa
 
 @pytest.mark.asyncio
 async def test_source_fingerprint_injected_into_resource_env(tmp_path):
-    """Source fingerprint from manifest is injected into each resource's env."""
+    """Source fingerprint from manifest is injected into each resource's env.
+
+    Both manifests have identical config and env except for the fingerprint
+    value. This isolates the fingerprint as the sole driver of the update path.
+    """
     import json
 
     flash_dir = tmp_path / ".flash"
     flash_dir.mkdir()
 
+    # Local and state manifests are structurally identical except for the
+    # fingerprint value in env. If any other field differs, the test would
+    # not prove the injection is what triggered the update.
     local_manifest = {
-        "source_fingerprint": "abc123def456",
+        "source_fingerprint": "new_fingerprint_abc",
         "resources": {
             "worker": {
                 "resource_type": "LiveServerless",
                 "config": "same",
+                "env": {},
             },
             "lb_endpoint": {
                 "resource_type": "CpuLiveLoadBalancer",
@@ -659,7 +667,6 @@ async def test_source_fingerprint_injected_into_resource_env(tmp_path):
     }
     (flash_dir / "flash_manifest.json").write_text(json.dumps(local_manifest))
 
-    # State manifest has SAME config but DIFFERENT fingerprint in env
     state_manifest = {
         "resources": {
             "worker": {
@@ -706,15 +713,15 @@ async def test_source_fingerprint_injected_into_resource_env(tmp_path):
             app, "build-123", "dev", local_manifest, show_progress=False
         )
 
-    # Fingerprint changed -> both resources should have been updated
+    # Fingerprint is the only diff -> both resources should have been updated
     assert mock_manager.get_or_deploy_resource.call_count == 2
 
-    # Verify fingerprint was injected into each resource's env
+    # Verify injection overwrote the fingerprint with the new value
     worker_env = local_manifest["resources"]["worker"]["env"]
-    assert worker_env["_FLASH_SOURCE_FINGERPRINT"] == "abc123def456"
+    assert worker_env["_FLASH_SOURCE_FINGERPRINT"] == "new_fingerprint_abc"
 
     lb_env = local_manifest["resources"]["lb_endpoint"]["env"]
-    assert lb_env["_FLASH_SOURCE_FINGERPRINT"] == "abc123def456"
+    assert lb_env["_FLASH_SOURCE_FINGERPRINT"] == "new_fingerprint_abc"
     # User-defined env vars preserved after injection
     assert lb_env["USER_VAR"] == "value"
 
