@@ -1098,7 +1098,7 @@ class ServerlessResource(DeployableResource):
             resolved_template_id = self.templateId or new_config.templateId
             # Check for version-triggering changes
             if not self._has_structural_changes(new_config):
-                log.info(f"Updating endpoint '{self.name}' (ID: {self.id})")
+                log.debug(f"updating endpoint '%s' (ID: %s)", self.name, self.id)
 
             # Ensure network volumes are deployed if specified
             await new_config._ensure_network_volume_deployed()

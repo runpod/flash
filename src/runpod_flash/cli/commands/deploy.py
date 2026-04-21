@@ -116,7 +116,7 @@ def _print_curl_example(url: str, method: str = "POST") -> None:
     if method == "POST":
         lines.append(f"""{indent}    -d '{{"input": {{}}}}'""")
     curl_cmd = " \\\n".join(lines)
-    console.print("\n    [bold]Try it:[/bold]")
+    console.print("\n    try it:")
     console.print(curl_cmd)
 
 
@@ -138,14 +138,15 @@ def _display_post_deployment_guidance(
             qb_entries.append((resource_name, url))
 
     if lb_entries:
-        console.print("\n  [bold]Load-balanced endpoints:[/bold]")
+        console.print("\n  load-balanced endpoints:")
         for i, (name, url, lb_routes) in enumerate(lb_entries):
             if i > 0:
                 console.print()
-            console.print(f"    [bold]{url}[/bold]  [dim]({name})[/dim]")
+            console.print(f"    {name}")
+            console.print(f"      {url}")
             for route_key in sorted(lb_routes.keys()):
                 method, path = route_key.split(" ", 1)
-                console.print(f"      {method:6s} {path}")
+                console.print(f"      [dim]{method:6s} {path}[/dim]")
 
         # One curl example using the first LB endpoint's first route (prefer POST, fall back to GET)
         curl_shown = False
@@ -172,9 +173,10 @@ def _display_post_deployment_guidance(
                     break
 
     if qb_entries:
-        console.print("\n  [bold]Queue-based endpoints:[/bold]")
+        console.print("\n  queue-based endpoints:")
         for name, url in qb_entries:
-            console.print(f"    [bold]{url}[/bold]  [dim]({name})[/dim]")
+            console.print(f"    {name}")
+            console.print(f"      {url}/runsync")
 
         # One curl example using the first QB endpoint
         first_qb_url = qb_entries[0][1]
@@ -185,7 +187,7 @@ def _display_post_deployment_guidance(
 
 def _launch_preview(project_dir):
     build_dir = project_dir / ".flash" / ".build"
-    console.print("\n[bold cyan]Launching multi-container preview...[/bold cyan]")
+    console.print("\nlaunching preview...")
     console.print("[dim]Starting all endpoints locally in Docker...[/dim]\n")
 
     try:
@@ -216,7 +218,7 @@ async def _resolve_and_deploy(
             app, build["id"], resolved_env_name, local_manifest
         )
 
-    console.print(f"\n[green]Deployed[/green] to [bold]{resolved_env_name}[/bold]")
+    console.print(f"\n[green]\u2713[/green] deployed to {resolved_env_name}")
 
     resources_endpoints = result.get("resources_endpoints", {})
     manifest = result.get("local_manifest", {})

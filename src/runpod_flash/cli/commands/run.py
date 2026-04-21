@@ -705,7 +705,10 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
 
 def _print_startup_table(workers: List[WorkerInfo], host: str, port: int) -> None:
     """Print the startup info showing routes and endpoints."""
-    console.print(f"\n[bold]flash dev[/bold]  [dim]localhost:{port}[/dim]\n")
+    console.print(f"\nflash dev  [dim]localhost:{port}[/dim]\n")
+
+    # collect all rows first so we can align columns
+    rows: list[tuple[str, str, str, str]] = []  # (method, path, name, tag)
 
     for worker in workers:
         if worker.worker_type == "QB":
@@ -719,7 +722,7 @@ def _print_startup_table(workers: List[WorkerInfo], host: str, port: int) -> Non
                     if use_multi
                     else f"{worker.url_prefix}/runsync"
                 )
-                console.print(f"  [cyan]POST[/cyan] {path}  [dim]{fn}  QB[/dim]")
+                rows.append(("POST", path, fn, "QB"))
 
             for cls_info in worker.class_remotes:
                 for method in cls_info["methods"]:
@@ -728,18 +731,22 @@ def _print_startup_table(workers: List[WorkerInfo], host: str, port: int) -> Non
                         if use_multi
                         else f"{worker.url_prefix}/runsync"
                     )
-                    console.print(
-                        f"  [cyan]POST[/cyan] {path}  [dim]{method}  QB[/dim]"
-                    )
+                    rows.append(("POST", path, method, "QB"))
         elif worker.worker_type == "LB":
             for route in worker.lb_routes:
                 sub_path = route["path"].lstrip("/")
                 full_path = f"{worker.url_prefix}/{sub_path}"
                 tag = "LB (local)" if route.get("local") else "LB"
-                console.print(
-                    f"  [cyan]{route['method']:6s}[/cyan] {full_path}"
-                    f"  [dim]{route['fn_name']}  {tag}[/dim]"
-                )
+                rows.append((route["method"], full_path, route["fn_name"], tag))
+
+    if rows:
+        max_method = max(len(r[0]) for r in rows)
+        max_path = max(len(r[1]) for r in rows)
+        for method, path, name, tag in rows:
+            console.print(
+                f"  {method:<{max_method}}  {path:<{max_path}}"
+                f"  [dim]{name}  {tag}[/dim]"
+            )
 
     console.print(f"\n  [dim]http://{host}:{port}/docs[/dim]")
     console.print("  [dim]ctrl+c to stop[/dim]\n")
@@ -938,12 +945,7 @@ def _discover_resources(project_root: Path):
                 pass
 
     if resources:
-        console.print(f"\n[dim]Discovered {len(resources)} resource(s):[/dim]")
-        for res in resources:
-            res_name = getattr(res, "name", "Unknown")
-            res_type = res.__class__.__name__
-            console.print(f"  [dim]- {res_name} ({res_type})[/dim]")
-        console.print()
+        console.print(f"\n[dim]discovered {len(resources)} endpoint(s)[/dim]")
 
     return resources
 
@@ -959,7 +961,7 @@ def _provision_resources(resources) -> None:
     from ...core.deployment import DeploymentOrchestrator
     from ...core.exceptions import RunpodAPIKeyError
 
-    console.print(f"[bold]Provisioning {len(resources)} resource(s)...[/bold]")
+    console.print(f"provisioning {len(resources)} endpoint(s)...")
     orchestrator = DeploymentOrchestrator(max_concurrent=3)
 
     loop = asyncio.new_event_loop()
@@ -1061,7 +1063,7 @@ def run_command(
     actual_port = _find_available_port(host, port)
     if actual_port != port:
         console.print(
-            f"[yellow]Port {port} is in use, using {actual_port} instead.[/yellow]"
+            f"[dim]port {port} in use, using {actual_port}[/dim]"
         )
     port = actual_port
 
@@ -1120,7 +1122,7 @@ def run_command(
         process.wait()
 
     except KeyboardInterrupt:
-        console.print("\n[yellow]Stopping server and cleaning up...[/yellow]")
+        console.print("\n[dim]stopping...[/dim]")
 
         stop_event.set()
         if watcher_thread is not None and watcher_thread.is_alive():
@@ -1146,7 +1148,7 @@ def run_command(
                 pass
 
         _cleanup_live_endpoints()
-        console.print("[green]Server stopped[/green]")
+        console.print("[dim]stopped[/dim]")
         raise typer.Exit(0)
 
     except Exception as e:

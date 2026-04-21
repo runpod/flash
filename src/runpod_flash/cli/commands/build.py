@@ -1086,7 +1086,7 @@ def _display_build_summary(
 ):
     """Display build summary."""
     console.print(
-        f"[green]Built[/green] [bold]{app_name}[/bold]  "
+        f"[green]\u2713[/green] built {app_name}  "
         f"[dim]{file_count} files, {dep_count} deps, {size_mb:.1f} MB[/dim]"
     )
     if verbose:
