@@ -118,6 +118,7 @@ First run takes 30-60 seconds (provisioning). Subsequent runs take 2-3 seconds.
 - **Auto-scaling**: Workers scale from 0 to N based on demand
 - **Dependency management**: Packages install automatically on remote workers
 - **Two patterns**: Queue-based (`@Endpoint`) for batch work, load-balanced (`Endpoint()` + routes) for REST APIs
+- **Concurrency control**: `max_concurrency` lets each worker process multiple jobs simultaneously
 
 ## Documentation
 

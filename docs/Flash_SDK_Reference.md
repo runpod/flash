@@ -31,6 +31,7 @@ Endpoint(
     scaler_value: int = 4,
     template: Optional[PodTemplate] = None,
     min_cuda_version: Optional[CudaVersion | str] = None,
+    max_concurrency: int = 1,
 )
 ```
 
@@ -58,6 +59,7 @@ Endpoint(
 | `scaler_value`         | `int`                                | `4`      | Scaling threshold value.                                                                                                                                         |
 | `template`             | `PodTemplate`                        | `None`   | Pod template overrides (e.g., `PodTemplate(containerDiskInGb=100)`).                                                                                             |
 | `min_cuda_version`     | `str`                                | `None`   | Minimum CUDA version for GPU host selection. GPU endpoints default to `"12.8"` when not set. Has no effect on CPU endpoints.                                     |
+| `max_concurrency`      | `int`                                | `1`      | Max concurrent jobs per worker (QB endpoints only). Values >1 only achieve true concurrency with async handlers; sync handlers log a build-time warning. Ignored on LB endpoints. |
 
 **Validation rules:**
 
@@ -65,6 +67,7 @@ Endpoint(
 - `id` and `image` are mutually exclusive
 - `name` or `id` is required
 - `workers` rejects negative values and `min > max`
+- `max_concurrency` must be >= 1
 
 ### Usage Patterns
 
@@ -98,6 +101,28 @@ class MyModel:
 ```
 
 The class is instantiated once per worker (singleton). For single-method classes, input is auto-dispatched to the method. For multi-method classes, include `"method"` in the input payload.
+
+> **Concurrency:** Use `max_concurrency` to let a single worker handle multiple jobs at once. See the example below.
+
+```python
+@Endpoint(name="batch-inference", gpu=GpuGroup.AMPERE_80, max_concurrency=4)
+async def infer(prompt: str) -> dict:
+    result = await run_model(prompt)  # your model inference call
+    return {"output": result}
+```
+
+`max_concurrency` controls how many jobs a single worker processes simultaneously. Each worker pulls up to `max_concurrency` jobs from the queue at once.
+
+**Behavior by handler type:**
+
+- **Async handlers** (`async def`): True concurrent execution. Multiple jobs interleave on the event loop. This is the intended usage.
+- **Sync handlers** (`def`): The runtime pulls multiple jobs from the queue, but the sync handler processes them one at a time. A warning is logged at build time. Consider making the handler async.
+
+**Warnings:**
+
+- `max_concurrency > 1` on a sync handler logs a build-time warning
+- `max_concurrency > 100` logs a capacity warning (most GPU workloads saturate well below this)
+- `max_concurrency` on LB endpoints is ignored (FastAPI/uvicorn manages its own concurrency)
 
 #### Load-Balanced (LB) -- instance with route decorators
 

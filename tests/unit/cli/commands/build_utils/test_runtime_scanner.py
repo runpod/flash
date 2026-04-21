@@ -739,3 +739,71 @@ class TestSubdirectorySupport:
         functions = scanner.discover_remote_functions()
         assert len(functions) == 1
         assert functions[0].module_path == "workers.gpu_worker"
+
+
+class TestClassAsyncDetection:
+    """scanner detects is_async for class-based workers."""
+
+    def test_sync_class_not_async(self, tmp_path):
+        _write_worker(
+            tmp_path,
+            "sync_cls.py",
+            """\
+            from runpod_flash import remote, LiveServerless
+            cfg = LiveServerless(name="sync-cls")
+
+            @remote(cfg)
+            class SyncWorker:
+                def predict(self, x):
+                    return x
+            """,
+        )
+        scanner = RuntimeScanner(tmp_path)
+        functions = scanner.discover_remote_functions()
+        assert len(functions) == 1
+        assert functions[0].is_class is True
+        assert functions[0].is_async is False
+
+    def test_async_class_detected(self, tmp_path):
+        _write_worker(
+            tmp_path,
+            "async_cls.py",
+            """\
+            from runpod_flash import remote, LiveServerless
+            cfg = LiveServerless(name="async-cls")
+
+            @remote(cfg)
+            class AsyncWorker:
+                async def predict(self, x):
+                    return x
+            """,
+        )
+        scanner = RuntimeScanner(tmp_path)
+        functions = scanner.discover_remote_functions()
+        assert len(functions) == 1
+        assert functions[0].is_class is True
+        assert functions[0].is_async is True
+
+    def test_mixed_class_detected_as_async(self, tmp_path):
+        """Class with both sync and async methods is detected as async."""
+        _write_worker(
+            tmp_path,
+            "mixed_cls.py",
+            """\
+            from runpod_flash import remote, LiveServerless
+            cfg = LiveServerless(name="mixed-cls")
+
+            @remote(cfg)
+            class MixedWorker:
+                def setup(self):
+                    pass
+
+                async def predict(self, x):
+                    return x
+            """,
+        )
+        scanner = RuntimeScanner(tmp_path)
+        functions = scanner.discover_remote_functions()
+        assert len(functions) == 1
+        assert functions[0].is_class is True
+        assert functions[0].is_async is True

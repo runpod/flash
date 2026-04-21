@@ -1018,3 +1018,45 @@ class TestIsLiveProvisioning:
         from runpod_flash.endpoint import _is_live_provisioning
 
         assert _is_live_provisioning() is False
+
+
+class TestMaxConcurrency:
+    def test_default_is_one(self):
+        ep = Endpoint(name="test")
+        assert ep._max_concurrency == 1
+
+    def test_explicit_value(self):
+        ep = Endpoint(name="test", max_concurrency=5)
+        assert ep._max_concurrency == 5
+
+    def test_rejects_zero(self):
+        with pytest.raises(ValueError, match="max_concurrency must be >= 1"):
+            Endpoint(name="test", max_concurrency=0)
+
+    def test_rejects_negative(self):
+        with pytest.raises(ValueError, match="max_concurrency must be >= 1"):
+            Endpoint(name="test", max_concurrency=-1)
+
+    def test_inline_decorator_persists_max_concurrency(self):
+        """Inline @Endpoint() persists max_concurrency into __remote_config__."""
+        ep = Endpoint(name="test", gpu=GpuGroup.ANY, max_concurrency=5)
+
+        async def generate(prompt: str) -> str:
+            return prompt
+
+        decorated = ep(generate)
+        remote_cfg = getattr(decorated, "__remote_config__", None)
+        assert remote_cfg is not None
+        assert remote_cfg["max_concurrency"] == 5
+
+    def test_inline_decorator_omits_default_max_concurrency(self):
+        """Inline @Endpoint() with default max_concurrency=1 does not add the key."""
+        ep = Endpoint(name="test", gpu=GpuGroup.ANY)
+
+        async def generate(prompt: str) -> str:
+            return prompt
+
+        decorated = ep(generate)
+        remote_cfg = getattr(decorated, "__remote_config__", None)
+        assert remote_cfg is not None
+        assert "max_concurrency" not in remote_cfg

@@ -186,6 +186,7 @@ class TestUndeployCommand:
             result = runner.invoke(app, ["undeploy"])
 
         assert "please specify a name" in result.stdout.lower()
+        assert result.exit_code == 1
 
     def test_undeploy_nonexistent_name(self, runner, sample_resources):
         """Test undeploy with nonexistent name."""

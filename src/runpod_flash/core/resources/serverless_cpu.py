@@ -161,11 +161,10 @@ class CpuServerlessEndpoint(CpuEndpointMixin, ServerlessEndpoint):
 
     def _create_new_template(self) -> PodTemplate:
         """Create a new PodTemplate with CPU-appropriate disk sizing."""
-        template = PodTemplate(
-            name=self.resource_id,
-            imageName=self.imageName,
-            env=KeyValuePair.from_dict(self.env or {}),
-        )
+        kwargs: dict = {"name": self.resource_id, "imageName": self.imageName}
+        if self.env is not None:
+            kwargs["env"] = KeyValuePair.from_dict(self.env)
+        template = PodTemplate(**kwargs)
         # Apply CPU-specific disk sizing
         self._apply_cpu_disk_sizing(template)
         return template

@@ -228,6 +228,26 @@ def create_remote_class(
                 cls, args, kwargs, self._cache_key
             )
 
+        _UNPICKLABLE_ATTRS = frozenset({"_init_lock", "_stub"})
+
+        def __getstate__(self) -> dict:
+            state = self.__dict__.copy()
+            for attr in self._UNPICKLABLE_ATTRS:
+                state.pop(attr, None)
+            state["_initialized"] = False
+            return state
+
+        def __setstate__(self, state: dict) -> None:
+            """Restore instance after unpickling.
+
+            Only _init_lock needs explicit restoration here. The _stub is
+            intentionally omitted — _ensure_initialized() recreates it on
+            first method call. The serialization cache is preserved by
+            cloudpickle's globals capture of the dynamic class methods.
+            """
+            self.__dict__.update(state)
+            self._init_lock = asyncio.Lock()
+
         async def _ensure_initialized(self):
             """Ensure the remote instance is created exactly once, even under concurrent calls."""
             # Fast path: already initialized, no lock needed.
@@ -299,6 +319,22 @@ def create_remote_class(
                         _normalize_resource_name(self._resource_config.name),
                         request,
                     )
+
+                # re-populate cache if evicted or module reloaded
+                cached_data = _SERIALIZED_CLASS_CACHE.get(self._cache_key)
+                if cached_data is None:
+                    get_or_cache_class_data(
+                        self._class_type,
+                        self._constructor_args,
+                        self._constructor_kwargs,
+                        self._cache_key,
+                    )
+                    cached_data = _SERIALIZED_CLASS_CACHE.get(self._cache_key)
+                    if cached_data is None:
+                        raise RuntimeError(
+                            f"Failed to populate class cache for key {self._cache_key!r} "
+                            "- class source may not be inspectable"
+                        )
 
                 if os.getenv("FLASH_IS_LIVE_PROVISIONING", "").lower() == "true":
                     await self._ensure_initialized()

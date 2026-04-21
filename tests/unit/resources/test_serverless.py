@@ -1113,6 +1113,138 @@ class TestServerlessResourceDeployment:
         assert updated.templateId == "template-existing"
 
     @pytest.mark.asyncio
+    async def test_update_uses_existing_template_id_instead_of_fresh_template(
+        self, mock_runpod_client
+    ):
+        """When existing endpoint has a templateId, saveEndpoint should use
+        templateId instead of sending a fresh template object.
+
+        This prevents the API from creating a new template (with empty env),
+        which would replace the deployed template that has runtime-injected
+        vars like FLASH_MODULE_PATH and platform vars (PORT, PORT_HEALTH),
+        triggering a spurious new release.
+
+        Reproduces the auto-provision bug where the child process creates a
+        fresh resource config with template set (from model validator) but
+        templateId=None, causing saveEndpoint to send a template with empty
+        env that replaces the auto-provisioned template.
+        """
+        existing = ServerlessResource(name="auto-prov", flashboot=False)
+        existing.id = "endpoint-auto"
+        existing.templateId = "template-auto"
+
+        # Fresh config as the child process would create it: template set,
+        # templateId is None (not yet assigned by API)
+        new_config = ServerlessResource(
+            name="auto-prov",
+            flashboot=False,
+            template=PodTemplate(
+                name="tpl",
+                imageName="image:v1",
+                env=[KeyValuePair(key="USER_VAR", value="1")],
+            ),
+        )
+        assert new_config.templateId is None  # precondition
+
+        mock_runpod_client.save_endpoint = AsyncMock(
+            return_value={
+                "id": "endpoint-auto",
+                "name": "auto-prov",
+                "templateId": "template-auto",
+                "gpuIds": "",
+                "allowedCudaVersions": "",
+            }
+        )
+        mock_runpod_client.update_template = AsyncMock(
+            return_value={
+                "id": "template-auto",
+                "name": "tpl",
+                "imageName": "image:v1",
+            }
+        )
+        mock_runpod_client.get_template = AsyncMock(
+            return_value={
+                "env": [
+                    {"key": "USER_VAR", "value": "1"},
+                    {"key": "FLASH_MODULE_PATH", "value": "my.module"},
+                    {"key": "PORT", "value": "8080"},
+                ]
+            }
+        )
+
+        with patch(
+            "runpod_flash.core.resources.serverless.RunpodGraphQLClient"
+        ) as mock_client_class:
+            mock_client_class.return_value.__aenter__.return_value = mock_runpod_client
+            mock_client_class.return_value.__aexit__.return_value = None
+
+            with patch.object(
+                ServerlessResource,
+                "_ensure_network_volume_deployed",
+                new=AsyncMock(),
+            ):
+                await existing.update(new_config)
+
+        # saveEndpoint should use the existing templateId, NOT a fresh template
+        endpoint_payload = mock_runpod_client.save_endpoint.call_args.args[0]
+        assert "template" not in endpoint_payload, (
+            "saveEndpoint payload must not contain 'template' when existing "
+            "endpoint has a templateId — this would create a new template and "
+            "trigger a spurious release"
+        )
+        assert endpoint_payload["templateId"] == "template-auto"
+
+        # Template env changes are handled by the separate saveTemplate call
+        mock_runpod_client.update_template.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_update_sends_template_when_no_existing_template_id(
+        self, mock_runpod_client
+    ):
+        """When existing endpoint has no templateId, saveEndpoint should
+        include the template so the API can create one."""
+        existing = ServerlessResource(name="no-tpl", flashboot=False)
+        existing.id = "endpoint-no-tpl"
+        # No templateId set
+
+        new_config = ServerlessResource(
+            name="no-tpl",
+            flashboot=False,
+            template=PodTemplate(name="tpl", imageName="image:v1"),
+        )
+
+        mock_runpod_client.save_endpoint = AsyncMock(
+            return_value={
+                "id": "endpoint-no-tpl",
+                "name": "no-tpl",
+                "templateId": "template-new",
+                "gpuIds": "",
+                "allowedCudaVersions": "",
+            }
+        )
+        mock_runpod_client.update_template = AsyncMock(
+            return_value={"id": "template-new", "name": "tpl", "imageName": "image:v1"}
+        )
+        mock_runpod_client.get_template = AsyncMock(return_value={"env": []})
+
+        with patch(
+            "runpod_flash.core.resources.serverless.RunpodGraphQLClient"
+        ) as mock_client_class:
+            mock_client_class.return_value.__aenter__.return_value = mock_runpod_client
+            mock_client_class.return_value.__aexit__.return_value = None
+
+            with patch.object(
+                ServerlessResource,
+                "_ensure_network_volume_deployed",
+                new=AsyncMock(),
+            ):
+                await existing.update(new_config)
+
+        # When no existing templateId, template should be in the payload
+        endpoint_payload = mock_runpod_client.save_endpoint.call_args.args[0]
+        assert "template" in endpoint_payload
+
+    @pytest.mark.asyncio
     async def test_deploy_failure_raises_exception(self, mock_runpod_client):
         """Test deployment failure raises exception."""
         serverless = ServerlessResource(name="test")
@@ -1212,6 +1344,87 @@ class TestServerlessResourceDeployment:
         assert isinstance(result, JobOutput)
         assert result.id == "job-123"
         assert result.status == "COMPLETED"
+
+    @pytest.mark.asyncio
+    async def test_run_logs_remote_prefix_on_dispatch(self):
+        """run() must emit [REMOTE] prefix so users know execution is on Runpod cloud."""
+        serverless = ServerlessResource(name="test")
+        serverless.id = "endpoint-123"
+
+        mock_job = MagicMock()
+        mock_job.job_id = "job-123"
+        mock_job.status.return_value = "COMPLETED"
+        mock_job._fetch_job.return_value = {
+            "id": "job-123",
+            "workerId": "worker-456",
+            "status": "COMPLETED",
+            "delayTime": 1000,
+            "executionTime": 2000,
+            "output": {"result": "success"},
+        }
+
+        mock_endpoint = MagicMock()
+        mock_endpoint.run.return_value = mock_job
+
+        with patch.object(
+            type(serverless),
+            "endpoint",
+            new_callable=lambda: property(lambda self: mock_endpoint),
+        ):
+            with patch("asyncio.sleep"):
+                with patch("runpod_flash.core.resources.serverless.log") as mock_log:
+                    await serverless.run({"input": "test data"})
+
+        dispatch_calls = [
+            call for call in mock_log.info.call_args_list if "API /run" in str(call)
+        ]
+        assert len(dispatch_calls) == 1, "Expected exactly one 'API /run' log call"
+        log_message = dispatch_calls[0].args[0]
+        assert "[REMOTE]" in log_message, (
+            f"Expected [REMOTE] in log message, got: {log_message!r}"
+        )
+        assert "API /run" in log_message, (
+            f"Expected 'API /run' in log message, got: {log_message!r}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_runsync_logs_remote_prefix_on_dispatch(self):
+        """runsync() must emit [REMOTE] prefix so users know execution is on Runpod cloud."""
+        serverless = ServerlessResource(name="test")
+        serverless.id = "endpoint-123"
+
+        mock_rp_client = MagicMock()
+        mock_rp_client.post.return_value = {
+            "id": "job-123",
+            "workerId": "worker-456",
+            "status": "COMPLETED",
+            "delayTime": 1000,
+            "executionTime": 2000,
+            "output": {"result": "success"},
+        }
+
+        mock_endpoint = MagicMock()
+        mock_endpoint.rp_client = mock_rp_client
+
+        with patch.object(
+            type(serverless),
+            "endpoint",
+            new_callable=lambda: property(lambda self: mock_endpoint),
+        ):
+            with patch("runpod_flash.core.resources.serverless.log") as mock_log:
+                await serverless.runsync({"input": "test data"})
+
+        dispatch_calls = [
+            call for call in mock_log.info.call_args_list if "API /runsync" in str(call)
+        ]
+        assert len(dispatch_calls) == 1, "Expected exactly one 'API /runsync' log call"
+        log_message = dispatch_calls[0].args[0]
+        assert "[REMOTE]" in log_message, (
+            f"Expected [REMOTE] in log message, got: {log_message!r}"
+        )
+        assert "API /runsync" in log_message, (
+            f"Expected 'API /runsync' in log message, got: {log_message!r}"
+        )
 
     @pytest.mark.asyncio
     async def test_run_async_dedupes_stdout_against_streamed_pod_logs(self):
@@ -3176,3 +3389,96 @@ class TestServerlessRunsyncTimeout:
         mock_rp_client.post.assert_called_once_with(
             "ep-none/runsync", {"input": "data"}, timeout=60
         )
+
+
+class TestInstanceIdsFalseDrift:
+    """Regression tests for instanceIds=[] vs None causing false drift on GPU endpoints.
+
+    The RunPod API may return instanceIds=[] for GPU endpoints that were deployed
+    without any instanceIds restriction. Locally the user never sets instanceIds,
+    so it stays None. Without normalization, exclude_none=True removes None but
+    keeps [] — producing a different hash and triggering a spurious update (new
+    release / cold start) on every subsequent run.
+    """
+
+    def test_instance_ids_none_and_empty_list_hash_equal(self):
+        """GPU endpoint: instanceIds=None and instanceIds=[] produce the same hash."""
+        s_none = ServerlessResource(name="test", instanceIds=None)
+        s_empty = ServerlessResource(name="test", instanceIds=[])
+
+        assert s_none.config_hash == s_empty.config_hash
+
+    def test_instance_ids_none_and_absent_hash_equal(self):
+        """GPU endpoint: not setting instanceIds at all equals instanceIds=None."""
+        s_absent = ServerlessResource(name="test")
+        s_none = ServerlessResource(name="test", instanceIds=None)
+
+        assert s_absent.config_hash == s_none.config_hash
+
+    def test_instance_ids_non_empty_still_detected_as_drift(self):
+        """Non-empty instanceIds must still change the hash so real drift is caught."""
+        s_no_restriction = ServerlessResource(name="test")
+        s_restricted = ServerlessResource(
+            name="test", instanceIds=[CpuInstanceType.CPU3C_2_4]
+        )
+
+        assert s_no_restriction.config_hash != s_restricted.config_hash
+
+
+class TestCreateNewTemplateEnvFieldSet:
+    """Regression tests for _create_new_template() spuriously marking 'env' as set.
+
+    When env=None (default), the old code passed env=[] explicitly to PodTemplate,
+    which put 'env' into Pydantic's model_fields_set. The update() logic then saw
+    has_explicit_template_env=True and set env_needs_update=True, causing
+    _inject_runtime_template_vars() to run and RUNPOD_API_KEY to oscillate between
+    being added and removed on every run.
+    """
+
+    def test_create_new_template_env_not_in_fields_set_when_env_none(self):
+        """When self.env is None, 'env' must NOT appear in template.model_fields_set."""
+        resource = ServerlessEndpoint(name="test", imageName="test:latest")
+        assert resource.env is None
+
+        template = resource._create_new_template()
+
+        assert "env" not in template.model_fields_set
+
+    def test_create_new_template_env_in_fields_set_when_env_empty_dict(self):
+        """When self.env is explicitly {}, 'env' MUST appear in template.model_fields_set.
+
+        env={} is an intentional explicit override (clear all env vars), distinct from
+        env=None (default, no opinion). Using 'is not None' preserves this distinction.
+        """
+        resource = ServerlessEndpoint(
+            name="test",
+            imageName="test:latest",
+            env={},
+        )
+        assert resource.env == {}
+
+        template = resource._create_new_template()
+
+        assert "env" in template.model_fields_set
+
+    def test_create_new_template_env_in_fields_set_when_env_set(self):
+        """When self.env is populated, 'env' MUST appear in template.model_fields_set."""
+        resource = ServerlessEndpoint(
+            name="test",
+            imageName="test:latest",
+            env={"MY_VAR": "value"},
+        )
+
+        template = resource._create_new_template()
+
+        assert "env" in template.model_fields_set
+        assert any(kv.key == "MY_VAR" for kv in template.env)
+
+    def test_create_new_template_env_not_in_fields_set_cpu_endpoint(self):
+        """CpuServerlessEndpoint: same fix applies — env=None must not set 'env' field."""
+        resource = CpuServerlessEndpoint(name="test", imageName="test:latest")
+        assert resource.env is None
+
+        template = resource._create_new_template()
+
+        assert "env" not in template.model_fields_set

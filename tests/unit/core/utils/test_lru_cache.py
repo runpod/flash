@@ -1,7 +1,9 @@
 """Tests for LRU cache implementation."""
 
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+import cloudpickle
 import pytest
 
 from runpod_flash.core.utils.lru_cache import LRUCache
@@ -296,3 +298,17 @@ class TestLRUCache:
 
         assert not errors
         assert len(cache) == 100
+
+    def test_pickle_roundtrip(self):
+        """LRUCache must survive cloudpickle roundtrip (AE-2745)."""
+        cache = LRUCache(max_size=5)
+        cache.set("a", {"value": 1})
+        cache.set("b", {"value": 2})
+
+        data = cloudpickle.dumps(cache)
+        restored = cloudpickle.loads(data)
+
+        assert restored.get("a") == {"value": 1}
+        assert restored.get("b") == {"value": 2}
+        assert restored.max_size == 5
+        assert isinstance(restored._lock, type(threading.RLock()))

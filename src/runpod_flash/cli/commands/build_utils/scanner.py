@@ -274,6 +274,15 @@ def _metadata_from_remote_config(
         is_async = inspect.iscoroutinefunction(original) or inspect.iscoroutinefunction(
             obj
         )
+    elif is_class and target_class is not None:
+        # A class is async if any of its public methods are coroutines.
+        # This drives handler template selection for concurrent endpoints.
+        is_async = any(
+            inspect.iscoroutinefunction(m)
+            for name, m in vars(target_class).items()
+            if not name.startswith("_")
+            and (inspect.isfunction(m) or inspect.iscoroutinefunction(m))
+        )
 
     # function/class name: for classes, use the original class name.
     # for functions, use __name__ from the unwrapped function.

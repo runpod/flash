@@ -433,6 +433,13 @@ class ServerlessResource(DeployableResource):
         # networkVolumeId is derived from volume deployment, not user config
         config_dict.pop("networkVolumeId", None)
 
+        # instanceIds=[] (API response) and instanceIds=None (user default) are
+        # semantically identical — normalize both to absent so they don't cause
+        # false drift on GPU endpoints where instanceIds is always None locally
+        # but the RunPod API may return [] after deployment.
+        if not config_dict.get("instanceIds"):
+            config_dict.pop("instanceIds", None)
+
         # Convert to JSON string for hashing
         config_str = json.dumps(config_dict, sort_keys=True)
         hash_obj = hashlib.md5(f"{resource_type}:{config_str}".encode())
@@ -615,11 +622,10 @@ class ServerlessResource(DeployableResource):
 
     def _create_new_template(self) -> PodTemplate:
         """Create a new PodTemplate with standard configuration."""
-        return PodTemplate(
-            name=self.resource_id,
-            imageName=self.imageName,
-            env=KeyValuePair.from_dict(self.env or {}),
-        )
+        kwargs: dict = {"name": self.resource_id, "imageName": self.imageName}
+        if self.env is not None:
+            kwargs["env"] = KeyValuePair.from_dict(self.env)
+        return PodTemplate(**kwargs)
 
     def _configure_existing_template(self) -> None:
         """Configure an existing template with necessary overrides."""
@@ -1035,12 +1041,29 @@ class ServerlessResource(DeployableResource):
 
             async with RunpodGraphQLClient() as client:
                 # Include the endpoint ID to trigger update
+                # When the existing endpoint has a templateId but new_config does
+                # not, exclude template from the payload to avoid creating a fresh
+                # one.  Note: _payload_exclude() on new_config only handles the
+                # case where new_config.templateId is already set.
+                exclude = set(new_config._payload_exclude())
+                use_existing_template = bool(
+                    resolved_template_id and not new_config.templateId
+                )
+                if use_existing_template:
+                    exclude.add("template")
+                    log.debug(
+                        "Excluding template from saveEndpoint payload; "
+                        "using existing templateId '%s' instead",
+                        resolved_template_id,
+                    )
                 payload = new_config.model_dump(
-                    exclude=new_config._payload_exclude(),
+                    exclude=exclude,
                     exclude_none=True,
                     mode="json",
                 )
                 payload["id"] = self.id  # Critical: include ID for update
+                if use_existing_template:
+                    payload["templateId"] = resolved_template_id
 
                 # inject multi-volume IDs if available
                 new_config._inject_multi_volume_payload(payload)
@@ -1264,7 +1287,7 @@ class ServerlessResource(DeployableResource):
         )
 
         def _fetch_job():
-            log.info(f"{self} | API /runsync")
+            log.info(f"[REMOTE] {self} | API /runsync")
             return self.endpoint.rp_client.post(
                 f"{self.id}/runsync", payload, timeout=timeout_s
             )
@@ -1294,7 +1317,7 @@ class ServerlessResource(DeployableResource):
 
         try:
             # Create a job using the endpoint
-            log.info(f"{self} | API /run")
+            log.info(f"[REMOTE] {self} | API /run")
             job = await asyncio.to_thread(self.endpoint.run, request_input=payload)
 
             log_subgroup = f"Job:{job.job_id}"
