@@ -63,6 +63,68 @@ def _normalize_stream_log_line(line: str) -> str:
     return normalized
 
 
+# patterns for worker log lines that are infrastructure noise
+_DOCKER_PULL_RE = re.compile(
+    r"^[0-9a-f]{12}\s+(Pulling|Extracting|Verifying|Download|Pull complete|Digest:|Status:)"
+)
+_DOCKER_CREATE_RE = re.compile(r"^(create container|Pulling from)\s")
+_WORKER_READY_RE = re.compile(r"^worker is ready$")
+_FITNESS_CHECK_RE = re.compile(
+    r"(Memory check passed|Disk space check passed|Network connectivity passed|"
+    r"fitness check|All fitness checks passed)"
+)
+_SERVERLESS_BANNER_RE = re.compile(r"^-+ Starting Serverless Worker")
+
+
+def _format_worker_log_line(raw_line: str) -> str | None:
+    """format a raw worker log line for display.
+
+    strips container timestamps, JSON wrapping, and docker/infrastructure
+    noise. returns None for lines that should be hidden.
+    """
+    line = _normalize_stream_log_line(raw_line)
+    if not line:
+        return None
+
+    # strip container ID prefix (12 hex chars + space)
+    line = re.sub(r"^[0-9a-f]{12}\s+", "", line)
+
+    # hide docker pull layer progress (arrives as a batch, useless)
+    if _DOCKER_PULL_RE.match(line):
+        return None
+
+    # hide docker create/pull-from lines
+    if _DOCKER_CREATE_RE.match(line):
+        return None
+
+    # hide "worker is ready" (we announce this separately)
+    if _WORKER_READY_RE.match(line):
+        return None
+
+    # hide fitness checks
+    if _FITNESS_CHECK_RE.search(line):
+        return None
+
+    # hide serverless worker banner
+    if _SERVERLESS_BANNER_RE.match(line):
+        return None
+
+    # unwrap JSON log messages from the worker runtime
+    # format: {"requestId": "...", "message": "...", "level": "..."}
+    if line.startswith("{") and '"message"' in line:
+        try:
+            import json as _json
+
+            parsed = _json.loads(line)
+            msg = parsed.get("message", "").strip()
+            if msg:
+                return msg
+        except (ValueError, KeyError):
+            pass
+
+    return line
+
+
 class ServerlessScalerType(Enum):
     QUEUE_DELAY = "QUEUE_DELAY"
     REQUEST_COUNT = "REQUEST_COUNT"
@@ -261,7 +323,9 @@ class ServerlessResource(DeployableResource):
 
         if batch.lines:
             for line in batch.lines:
-                log.info("worker log: %s", line)
+                formatted = _format_worker_log_line(line)
+                if formatted is not None:
+                    log.info("    %s", formatted)
 
         return batch
 
@@ -1287,7 +1351,7 @@ class ServerlessResource(DeployableResource):
         )
 
         def _fetch_job():
-            log.info(f"[REMOTE] {self} | API /runsync")
+            log.debug(f"{self} | runsync")
             return self.endpoint.rp_client.post(
                 f"{self.id}/runsync", payload, timeout=timeout_s
             )
@@ -1317,12 +1381,12 @@ class ServerlessResource(DeployableResource):
 
         try:
             # Create a job using the endpoint
-            log.info(f"[REMOTE] {self} | API /run")
+            log.info(f"  → {self.name}")
             job = await asyncio.to_thread(self.endpoint.run, request_input=payload)
 
             log_subgroup = f"Job:{job.job_id}"
 
-            log.info(f"{self} | Started {log_subgroup}")
+            log.debug(f"{self} | started {log_subgroup}")
 
             current_pace = 0
             attempt = 0
@@ -1356,10 +1420,10 @@ class ServerlessResource(DeployableResource):
                     attempt += 1
                     if job_status != "IN_PROGRESS" and attempt % 2 == 0:
                         emit_regular_update = True
-                        log.info(f"{log_subgroup} | {'.' * (attempt // 2)}")
+                        log.debug(f"{log_subgroup} | {'.' * (attempt // 2)}")
                 else:
                     # status changed, reset the gap
-                    log.info(f"{log_subgroup} | Status: {job_status}")
+                    log.debug(f"{log_subgroup} | status: {job_status}")
                     attempt = 0
 
                 batch = await self._emit_endpoint_logs(
@@ -1384,7 +1448,7 @@ class ServerlessResource(DeployableResource):
                         waiting_update_count = 0
                         if assigned_streaming_announced_worker != batch.worker_id:
                             log.info(
-                                f"{log_subgroup} | Request assigned to worker {batch.worker_id}, streaming pod logs"
+                                "    worker %s ready", batch.worker_id
                             )
                             assigned_streaming_announced_worker = batch.worker_id
                     elif state_changed:
@@ -1393,7 +1457,7 @@ class ServerlessResource(DeployableResource):
                                 self,
                                 worker_metrics=batch.worker_metrics,
                             )
-                            log.info(f"{log_subgroup} | {diagnostic.message}")
+                            log.info("    %s", diagnostic.message)
                             if diagnostic.reason in (
                                 "no_gpu_availability",
                                 "workers_throttled",
@@ -1415,8 +1479,8 @@ class ServerlessResource(DeployableResource):
                                     if batch.matched_by_request_id
                                     else "unassigned"
                                 )
-                                log.info(
-                                    f"{log_subgroup} | Waiting for request: endpoint metrics: worker={worker_state}, assignment={assignment_state}, status={job_status}, workers={{ready:{worker_metrics.get('ready', 0)}, running:{worker_metrics.get('running', 0)}, idle:{worker_metrics.get('idle', 0)}, initializing:{worker_metrics.get('initializing', 0)}, throttled:{worker_metrics.get('throttled', 0)}, unhealthy:{worker_metrics.get('unhealthy', 0)}}}, readyWorkers={batch.ready_worker_ids}"
+                                log.debug(
+                                    f"{log_subgroup} | waiting: worker={worker_state}, assignment={assignment_state}, status={job_status}, workers={{ready:{worker_metrics.get('ready', 0)}, running:{worker_metrics.get('running', 0)}, idle:{worker_metrics.get('idle', 0)}, initializing:{worker_metrics.get('initializing', 0)}, throttled:{worker_metrics.get('throttled', 0)}, unhealthy:{worker_metrics.get('unhealthy', 0)}}}"
                                 )
                                 emitted_initial_wait_metrics = True
                         elif (
@@ -1428,22 +1492,22 @@ class ServerlessResource(DeployableResource):
                             emitted_initial_wait_metrics = False
                             if batch.matched_by_request_id and batch.worker_id:
                                 log.info(
-                                    f"{log_subgroup} | Request assigned to worker {batch.worker_id}, waiting for worker initialization/image pull logs"
+                                    "    worker %s starting...", batch.worker_id
                                 )
                             elif batch.worker_id:
                                 log.info(
-                                    f"{log_subgroup} | Worker capacity detected, waiting for request assignment and worker initialization/image pull"
+                                    "    worker starting..."
                                 )
                             else:
                                 log.info(
-                                    f"{log_subgroup} | Waiting for worker initialization/image pull"
+                                    "    worker starting..."
                                 )
                         elif batch.phase == QBRequestLogPhase.STREAMING:
                             repeated_no_worker_message = None
                             waiting_update_count = 0
                             emitted_initial_wait_metrics = False
-                            log.info(
-                                f"{log_subgroup} | Streaming endpoint startup logs while waiting for request assignment"
+                            log.debug(
+                                f"{log_subgroup} | streaming startup logs"
                             )
 
                     last_log_state = current_log_state
@@ -1460,11 +1524,12 @@ class ServerlessResource(DeployableResource):
                             if batch and batch.matched_by_request_id
                             else "unassigned"
                         )
-                        log.info(
-                            f"{log_subgroup} | Waiting for request: endpoint metrics: worker={worker_state}, assignment={assignment_state}, status={job_status}, workers={{ready:{worker_metrics.get('ready', 0)}, running:{worker_metrics.get('running', 0)}, idle:{worker_metrics.get('idle', 0)}, initializing:{worker_metrics.get('initializing', 0)}, throttled:{worker_metrics.get('throttled', 0)}, unhealthy:{worker_metrics.get('unhealthy', 0)}}}, readyWorkers={batch.ready_worker_ids if batch else []}"
+                        log.debug(
+                            f"{log_subgroup} | waiting: worker={worker_state}, "
+                            f"assignment={assignment_state}, status={job_status}"
                         )
                         if repeated_no_worker_message:
-                            log.info(f"{log_subgroup} | {repeated_no_worker_message}")
+                            log.info("    %s", repeated_no_worker_message)
 
                 last_status = job_status
 
@@ -1478,6 +1543,22 @@ class ServerlessResource(DeployableResource):
                             request_id=job.job_id,
                         )
                     response = await asyncio.to_thread(job._fetch_job)
+                    elapsed = response.get("executionTime")
+                    delay = response.get("delayTime")
+                    timing = ""
+                    if elapsed is not None:
+                        timing = f"  {elapsed/1000:.1f}s"
+                        if delay and delay > 1000:
+                            timing += f" (queued {delay/1000:.1f}s)"
+                    if job_status == "COMPLETED":
+                        log.info("  \u2713 %s  %s%s", self.name, job_status, timing)
+                    elif job_status == "FAILED":
+                        err = response.get("error", "")
+                        log.info("  \u2717 %s  %s%s", self.name, job_status, timing)
+                        if err:
+                            log.info("    %s", err)
+                    else:
+                        log.info("  %s  %s%s", self.name, job_status, timing)
                     output = response.get("output")
                     if isinstance(output, dict):
                         stdout = output.get("stdout")

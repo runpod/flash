@@ -113,7 +113,7 @@ def init_command(
     step_num += 1
     steps_table.add_row(f"{step_num}.", "flash login")
     step_num += 1
-    steps_table.add_row(f"{step_num}.", "flash run")
+    steps_table.add_row(f"{step_num}.", "flash dev")
 
     console.print(steps_table)
 

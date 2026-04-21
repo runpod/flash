@@ -59,7 +59,7 @@ async def _sentinel_qb_post(
     url = f"{runpod.endpoint_url_base}/{FLASH_SENTINEL_ID}/runsync"
     headers = _flash_headers(app, env, endpoint_name)
 
-    log.info("sentinel QB -> %s/%s/%s", app, env, endpoint_name)
+    log.debug("sentinel QB -> %s/%s/%s", app, env, endpoint_name)
 
     async with _http.get_authenticated_httpx_client(timeout=timeout) as client:
         response = await client.post(url, json=payload, headers=headers)
@@ -195,7 +195,7 @@ async def sentinel_lb_request(
     url = f"https://{FLASH_SENTINEL_ID}.{ENDPOINT_DOMAIN}{path}"
     headers = _flash_headers(app, env, endpoint_name)
 
-    log.info("sentinel LB -> %s %s/%s/%s%s", method, app, env, endpoint_name, path)
+    log.debug("sentinel LB -> %s %s/%s/%s%s", method, app, env, endpoint_name, path)
 
     async with _http.get_authenticated_httpx_client(timeout=timeout) as client:
         response = await client.request(method, url, json=body, headers=headers)

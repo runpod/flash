@@ -167,7 +167,7 @@ def _bundle_runpod_flash(build_dir: Path, flash_pkg: Path) -> None:
         ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".pytest_cache"),
     )
 
-    console.print(f"[cyan]Bundled runpod_flash from {flash_pkg}[/cyan]")
+    logger.debug("bundled runpod_flash from %s", flash_pkg)
 
 
 def _extract_runpod_flash_dependencies(flash_pkg_dir: Path) -> list[str]:

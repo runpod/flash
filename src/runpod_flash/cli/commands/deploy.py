@@ -180,20 +180,7 @@ def _display_post_deployment_guidance(
         first_qb_url = qb_entries[0][1]
         _print_curl_example(f"{first_qb_url}/runsync")
 
-    console.print("\n[bold]Useful commands:[/bold]")
-    console.print(
-        f"  [cyan]flash env get {env_name}[/cyan]       View environment status"
-    )
-    console.print(f"  [cyan]flash deploy --env {env_name}[/cyan]  Update deployment")
-    console.print(f"  [cyan]flash env delete {env_name}[/cyan]    Remove deployment")
 
-    if lb_entries or qb_entries:
-        console_url = "https://console.runpod.io/serverless"
-        docs_requests = "https://docs.runpod.io/serverless/endpoints/send-requests"
-        docs_lb = "https://docs.runpod.io/serverless/load-balancing/overview"
-        console.print(f"\n  Console: [link={console_url}]{console_url}[/link]")
-        console.print(f"  Docs:    [link={docs_requests}]{docs_requests}[/link]")
-        console.print(f"           [link={docs_lb}]{docs_lb}[/link]")
 
 
 def _launch_preview(project_dir):

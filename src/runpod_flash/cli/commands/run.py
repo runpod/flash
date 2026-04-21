@@ -14,7 +14,7 @@ from typing import List
 
 import typer
 from rich.console import Console
-from rich.table import Table
+
 
 from runpod_flash.cli.utils.formatting import print_error, print_warning
 
@@ -704,19 +704,8 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
 
 
 def _print_startup_table(workers: List[WorkerInfo], host: str, port: int) -> None:
-    """Print the startup table showing local paths, resource names, and types."""
-    console.print(f"\n[bold green]Flash Dev Server[/bold green]  localhost:{port}")
-    console.print()
-
-    table = Table(show_header=True, header_style="bold")
-    table.add_column("Local path", style="cyan")
-    table.add_column("Description", style="white")
-    table.add_column("Type", style="yellow")
-
-    def _truncate(text: str, max_len: int = 60) -> str:
-        if len(text) <= max_len:
-            return text
-        return text[: max_len - 3] + "..."
+    """Print the startup info showing routes and endpoints."""
+    console.print(f"\n[bold]flash dev[/bold]  [dim]localhost:{port}[/dim]\n")
 
     for worker in workers:
         if worker.worker_type == "QB":
@@ -725,53 +714,35 @@ def _print_startup_table(workers: List[WorkerInfo], host: str, port: int) -> Non
             use_multi = total_callables > 1
 
             for fn in worker.functions:
-                desc = _truncate(worker.function_docstrings.get(fn, fn))
-                if use_multi:
-                    table.add_row(
-                        f"POST  {worker.url_prefix}/{fn}/runsync",
-                        desc,
-                        "QB",
-                    )
-                else:
-                    table.add_row(
-                        f"POST  {worker.url_prefix}/runsync",
-                        desc,
-                        "QB",
-                    )
+                path = (
+                    f"{worker.url_prefix}/{fn}/runsync"
+                    if use_multi
+                    else f"{worker.url_prefix}/runsync"
+                )
+                console.print(f"  [cyan]POST[/cyan] {path}  [dim]{fn}  QB[/dim]")
 
             for cls_info in worker.class_remotes:
-                methods = cls_info["methods"]
-                for method in methods:
-                    desc = _truncate(worker.function_docstrings.get(method, method))
-                    if use_multi:
-                        table.add_row(
-                            f"POST  {worker.url_prefix}/{method}/runsync",
-                            desc,
-                            "QB",
-                        )
-                    else:
-                        table.add_row(
-                            f"POST  {worker.url_prefix}/runsync",
-                            desc,
-                            "QB",
-                        )
+                for method in cls_info["methods"]:
+                    path = (
+                        f"{worker.url_prefix}/{method}/runsync"
+                        if use_multi
+                        else f"{worker.url_prefix}/runsync"
+                    )
+                    console.print(
+                        f"  [cyan]POST[/cyan] {path}  [dim]{method}  QB[/dim]"
+                    )
         elif worker.worker_type == "LB":
             for route in worker.lb_routes:
                 sub_path = route["path"].lstrip("/")
                 full_path = f"{worker.url_prefix}/{sub_path}"
-                desc = _truncate(route.get("docstring") or route["fn_name"])
-                route_type = "LB (local)" if route.get("local") else "LB"
-                table.add_row(
-                    f"{route['method']}  {full_path}",
-                    desc,
-                    route_type,
+                tag = "LB (local)" if route.get("local") else "LB"
+                console.print(
+                    f"  [cyan]{route['method']:6s}[/cyan] {full_path}"
+                    f"  [dim]{route['fn_name']}  {tag}[/dim]"
                 )
 
-    console.print(table)
-    console.print(f"\n  Visit [bold]http://{host}:{port}/docs[/bold] for Swagger UI")
-    console.print(
-        "  Press [bold]Ctrl+C[/bold] to stop — provisioned endpoints are cleaned up automatically\n"
-    )
+    console.print(f"\n  [dim]http://{host}:{port}/docs[/dim]")
+    console.print("  [dim]ctrl+c to stop[/dim]\n")
 
 
 def _cleanup_live_endpoints() -> None:

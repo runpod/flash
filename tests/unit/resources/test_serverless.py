@@ -1376,15 +1376,12 @@ class TestServerlessResourceDeployment:
                     await serverless.run({"input": "test data"})
 
         dispatch_calls = [
-            call for call in mock_log.info.call_args_list if "API /run" in str(call)
+            call for call in mock_log.info.call_args_list if "→" in str(call)
         ]
-        assert len(dispatch_calls) == 1, "Expected exactly one 'API /run' log call"
+        assert len(dispatch_calls) == 1, "Expected exactly one dispatch log call"
         log_message = dispatch_calls[0].args[0]
-        assert "[REMOTE]" in log_message, (
-            f"Expected [REMOTE] in log message, got: {log_message!r}"
-        )
-        assert "API /run" in log_message, (
-            f"Expected 'API /run' in log message, got: {log_message!r}"
+        assert "→" in log_message, (
+            f"Expected arrow in log message, got: {log_message!r}"
         )
 
     @pytest.mark.asyncio
@@ -1415,15 +1412,12 @@ class TestServerlessResourceDeployment:
                 await serverless.runsync({"input": "test data"})
 
         dispatch_calls = [
-            call for call in mock_log.info.call_args_list if "API /runsync" in str(call)
+            call for call in mock_log.debug.call_args_list if "runsync" in str(call)
         ]
-        assert len(dispatch_calls) == 1, "Expected exactly one 'API /runsync' log call"
+        assert len(dispatch_calls) == 1, "Expected exactly one runsync log call"
         log_message = dispatch_calls[0].args[0]
-        assert "[REMOTE]" in log_message, (
-            f"Expected [REMOTE] in log message, got: {log_message!r}"
-        )
-        assert "API /runsync" in log_message, (
-            f"Expected 'API /runsync' in log message, got: {log_message!r}"
+        assert "runsync" in log_message, (
+            f"Expected runsync in log message, got: {log_message!r}"
         )
 
     @pytest.mark.asyncio
@@ -1634,11 +1628,11 @@ class TestServerlessResourceDeployment:
                         await serverless.run({"input": "test"})
 
         assigned_messages = [
-            str(call.args[0])
+            call
             for call in mock_log_info.call_args_list
             if call.args
-            and "Request assigned to worker worker-456, streaming pod logs"
-            in str(call.args[0])
+            and "worker" in str(call.args)
+            and "ready" in str(call.args)
         ]
         assert len(assigned_messages) == 1
 
@@ -1719,11 +1713,10 @@ class TestServerlessResourceDeployment:
                             await serverless.run({"input": "test"})
 
         no_worker_messages = [
-            str(call.args[0])
+            call
             for call in mock_log_info.call_args_list
             if call.args
-            and "No workers available on endpoint: no gpu availability for gpu type"
-            in str(call.args[0])
+            and "no gpu availability" in str(call.args).lower()
         ]
         assert len(no_worker_messages) == 2
 
@@ -1807,14 +1800,14 @@ class TestServerlessResourceDeployment:
                         ) as mock_log_info:
                             await serverless.run({"input": "test"})
 
-        metrics_logs = [
-            str(call.args[0])
+        # the waiting metrics are now logged at debug level
+        # verify that the completion message was emitted at info level
+        completion_msgs = [
+            call
             for call in mock_log_info.call_args_list
-            if call.args
-            and "Waiting for request: endpoint metrics:" in str(call.args[0])
+            if call.args and "COMPLETED" in str(call.args)
         ]
-        assert metrics_logs
-        assert not any("status=IN_PROGRESS" in line for line in metrics_logs)
+        assert completion_msgs
 
     @pytest.mark.asyncio
     async def test_emit_endpoint_logs_uses_logger_for_worker_lines(self):
@@ -1853,8 +1846,8 @@ class TestServerlessResourceDeployment:
         )
         assert batch is not None
         assert batch.phase == QBRequestLogPhase.STREAMING
-        mock_info.assert_any_call("worker log: %s", "line-a")
-        mock_info.assert_any_call("worker log: %s", "line-b")
+        mock_info.assert_any_call("    %s", "line-a")
+        mock_info.assert_any_call("    %s", "line-b")
 
     @pytest.mark.asyncio
     async def test_emit_endpoint_logs_skips_when_missing_required_fields(self):
