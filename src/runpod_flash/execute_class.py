@@ -10,6 +10,7 @@ import asyncio
 import hashlib
 import inspect
 import logging
+import os
 import textwrap
 import uuid
 from typing import List, Optional, Type
@@ -299,9 +300,19 @@ def create_remote_class(
                         request,
                     )
 
-                await self._ensure_initialized()
-                request = self._build_class_request(name, args, kwargs)
-                return await self._stub.execute_class_method(request)  # type: ignore
+                if os.getenv("FLASH_IS_LIVE_PROVISIONING", "").lower() == "true":
+                    await self._ensure_initialized()
+                    request = self._build_class_request(name, args, kwargs)
+                    return await self._stub.execute_class_method(request)  # type: ignore
+
+                raise RuntimeError(
+                    f"no flash context for endpoint "
+                    f"'{self._resource_config.name}'. "
+                    f"either:\n"
+                    f"  - use 'flash dev' for local development\n"
+                    f"  - set FLASH_APP and FLASH_ENV to target a "
+                    f"deployed environment"
+                )
 
             return method_proxy
 

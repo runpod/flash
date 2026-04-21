@@ -858,7 +858,15 @@ class Endpoint:
                     timeout=timeout,
                 )
 
-        # direct path: call endpoint by resolved ID
+        # direct path: only for client mode (id= or image=) or flash dev
+        if not self.is_client and os.getenv("FLASH_IS_LIVE_PROVISIONING", "").lower() != "true":
+            raise RuntimeError(
+                f"no flash context for endpoint '{self.name}'. "
+                f"either:\n"
+                f"  - use 'flash dev' for local development\n"
+                f"  - set FLASH_APP and FLASH_ENV to target a deployed environment"
+            )
+
         url = await self._ensure_endpoint_ready(lb=True)
         full_url = f"{url}{path}"
 

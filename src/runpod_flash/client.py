@@ -7,8 +7,6 @@ from typing import Any, List, Optional
 
 from .core.resources import LoadBalancerSlsResource, ResourceManager, ServerlessResource
 from .execute_class import create_remote_class
-from .flash_context import get_flash_context
-from .flash_sentinel import sentinel_qb_execute
 from .stubs import stub_resource
 
 log = logging.getLogger(__name__)
@@ -237,9 +235,13 @@ def remote(
             # Handle function decoration
             @wraps(func_or_class)
             async def wrapper(*args, **kwargs):
+                from .flash_context import get_flash_context
+
                 ctx = get_flash_context()
                 if ctx:
                     # sentinel path: call deployed endpoint via flash headers
+                    from .flash_sentinel import sentinel_qb_execute
+
                     app_name, env_name = ctx
                     return await sentinel_qb_execute(
                         app_name,
@@ -250,20 +252,30 @@ def remote(
                         **kwargs,
                     )
 
-                # live path: provision ephemeral endpoint
-                resource_manager = ResourceManager()
-                remote_resource = await resource_manager.get_or_deploy_resource(
-                    resource_config
-                )
+                if os.getenv("FLASH_IS_LIVE_PROVISIONING", "").lower() == "true":
+                    # live path: only available via flash dev
+                    resource_manager = ResourceManager()
+                    remote_resource = (
+                        await resource_manager.get_or_deploy_resource(
+                            resource_config
+                        )
+                    )
 
-                stub = stub_resource(remote_resource)
-                return await stub(
-                    func_or_class,
-                    dependencies,
-                    system_dependencies,
-                    accelerate_downloads,
-                    *args,
-                    **kwargs,
+                    stub = stub_resource(remote_resource)
+                    return await stub(
+                        func_or_class,
+                        dependencies,
+                        system_dependencies,
+                        accelerate_downloads,
+                        *args,
+                        **kwargs,
+                    )
+
+                raise RuntimeError(
+                    f"no flash context for endpoint '{resource_config.name}'. "
+                    f"either:\n"
+                    f"  - use 'flash dev' for local development\n"
+                    f"  - set FLASH_APP and FLASH_ENV to target a deployed environment"
                 )
 
             # Store routing metadata on wrapper for scanner

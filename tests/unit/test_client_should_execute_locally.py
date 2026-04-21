@@ -189,11 +189,11 @@ class TestWrapperDispatch:
 
         with (
             patch(
-                "runpod_flash.client.get_flash_context",
+                "runpod_flash.flash_context.get_flash_context",
                 return_value=("myapp", "prod"),
             ),
             patch(
-                "runpod_flash.client.sentinel_qb_execute",
+                "runpod_flash.flash_sentinel.sentinel_qb_execute",
                 new_callable=AsyncMock,
                 return_value={"result": 42},
             ) as mock_sentinel,
@@ -218,8 +218,24 @@ class TestWrapperDispatch:
 
     @patch.dict(os.environ, {}, clear=True)
     @pytest.mark.asyncio
-    async def test_live_path_when_no_flash_context(self):
-        """when get_flash_context returns None, uses ResourceManager."""
+    async def test_raises_when_no_context_and_not_live(self):
+        """when no flash context and not live provisioning, raises."""
+        from runpod_flash.client import remote
+        from runpod_flash.core.resources import ServerlessResource
+
+        resource = ServerlessResource(name="gpu-worker", gpu="A100", workers=1)
+
+        @remote(resource)
+        async def my_func(x: int) -> int:
+            return x * 2
+
+        with pytest.raises(RuntimeError, match="no flash context"):
+            await my_func(5)
+
+    @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "true"}, clear=True)
+    @pytest.mark.asyncio
+    async def test_live_path_when_flash_dev(self):
+        """when FLASH_IS_LIVE_PROVISIONING=true, uses ResourceManager."""
         from runpod_flash.client import remote
         from runpod_flash.core.resources import ServerlessResource
 
@@ -230,7 +246,6 @@ class TestWrapperDispatch:
         mock_stub = AsyncMock(return_value={"result": 42})
 
         with (
-            patch("runpod_flash.client.get_flash_context", return_value=None),
             patch("runpod_flash.client.stub_resource", return_value=mock_stub),
             patch(
                 "runpod_flash.client.ResourceManager", return_value=mock_rm
