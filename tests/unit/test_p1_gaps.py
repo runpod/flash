@@ -301,8 +301,8 @@ class TestCpuDiskSizeValidation:
 class TestDependenciesPassedToStub:
     """@remote passes dependencies and system_dependencies to stub."""
 
-    @patch.dict(os.environ, {}, clear=True)
-    @patch("runpod_flash.client.get_flash_context", return_value=None)
+    @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "true"}, clear=True)
+    @patch("runpod_flash.flash_context.get_flash_context", return_value=None)
     @patch("runpod_flash.client.ResourceManager")
     @patch("runpod_flash.client.stub_resource")
     @pytest.mark.asyncio
