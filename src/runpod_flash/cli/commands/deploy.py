@@ -108,16 +108,13 @@ def _handle_deploy_error(exc: Exception) -> None:
 
 def _print_curl_example(url: str, method: str = "POST") -> None:
     """Print a curl example for the given URL."""
-    indent = "      "
-    lines = [f"{indent}curl -X {method} {url}"]
+    lines = [f"curl -X {method} {url}"]
     if method == "POST":
-        lines.append(f'{indent}    -H "Content-Type: application/json"')
-    lines.append(f'{indent}    -H "Authorization: Bearer $RUNPOD_API_KEY"')
+        lines.append(f'  -H "Content-Type: application/json"')
+    lines.append(f'  -H "Authorization: Bearer $RUNPOD_API_KEY"')
     if method == "POST":
-        lines.append(f"""{indent}    -d '{{"input": {{}}}}'""")
-    curl_cmd = " \\\n".join(lines)
-    console.print("\n    try it:")
-    console.print(curl_cmd)
+        lines.append(f"""  -d '{{"input": {{}}}}'""")
+    console.print("[dim]" + " \\\n".join(lines) + "[/dim]")
 
 
 def _display_post_deployment_guidance(
@@ -137,50 +134,39 @@ def _display_post_deployment_guidance(
         else:
             qb_entries.append((resource_name, url))
 
-    if lb_entries:
-        console.print("\n  load-balanced endpoints:")
-        for i, (name, url, lb_routes) in enumerate(lb_entries):
-            if i > 0:
-                console.print()
-            console.print(f"    {name}")
-            console.print(f"      {url}")
-            for route_key in sorted(lb_routes.keys()):
-                method, path = route_key.split(" ", 1)
-                console.print(f"      [dim]{method:6s} {path}[/dim]")
+    for name, url in qb_entries:
+        console.print(f"\n{name}  [dim]QB[/dim]")
+        console.print(f"{url}/runsync")
 
-        # One curl example using the first LB endpoint's first route (prefer POST, fall back to GET)
-        curl_shown = False
-        for _name, curl_url, lb_routes in lb_entries:
-            post_routes = [
-                k.split(" ", 1)[1]
-                for k in sorted(lb_routes.keys())
-                if k.startswith("POST ")
-            ]
-            if post_routes:
-                _print_curl_example(f"{curl_url}{post_routes[0]}")
-                curl_shown = True
-                break
+    for name, url, lb_routes in lb_entries:
+        console.print(f"\n{name}  [dim]LB[/dim]")
+        for route_key in sorted(lb_routes.keys()):
+            method, path = route_key.split(" ", 1)
+            console.print(f"{method:6s} {url}{path}")
 
-        if not curl_shown:
-            for _name, curl_url, lb_routes in lb_entries:
-                get_routes = [
-                    k.split(" ", 1)[1]
-                    for k in sorted(lb_routes.keys())
-                    if k.startswith("GET ")
-                ]
-                if get_routes:
-                    _print_curl_example(f"{curl_url}{get_routes[0]}", method="GET")
-                    break
-
+    # one curl example
     if qb_entries:
-        console.print("\n  queue-based endpoints:")
-        for name, url in qb_entries:
-            console.print(f"    {name}")
-            console.print(f"      {url}/runsync")
-
-        # One curl example using the first QB endpoint
-        first_qb_url = qb_entries[0][1]
-        _print_curl_example(f"{first_qb_url}/runsync")
+        first_url = qb_entries[0][1]
+        console.print()
+        _print_curl_example(f"{first_url}/runsync")
+    elif lb_entries:
+        _name, curl_url, lb_routes = lb_entries[0]
+        post_routes = [
+            k.split(" ", 1)[1]
+            for k in sorted(lb_routes.keys())
+            if k.startswith("POST ")
+        ]
+        get_routes = [
+            k.split(" ", 1)[1]
+            for k in sorted(lb_routes.keys())
+            if k.startswith("GET ")
+        ]
+        if post_routes:
+            console.print()
+            _print_curl_example(f"{curl_url}{post_routes[0]}")
+        elif get_routes:
+            console.print()
+            _print_curl_example(f"{curl_url}{get_routes[0]}", method="GET")
 
 
 
