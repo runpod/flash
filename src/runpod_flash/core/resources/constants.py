@@ -19,22 +19,25 @@ def _endpoint_domain_from_base_url(base_url: str) -> str:
 ENDPOINT_DOMAIN = _endpoint_domain_from_base_url(runpod.endpoint_url_base)
 
 
-# worker runtime Python versions. all flash workers run Python 3.12.
-# one tarball serves every resource type (GPU and CPU), so packages,
-# images, and the runtime must all target 3.12.
+# Worker runtime Python versions. One tarball serves every resource in an app,
+# so all resources must share a single Python version. GPU images ship 3.12
+# with torch pre-installed; 3.10 and 3.11 are available via side-by-side
+# install (~7 GB alt-Python overhead) in the same base image.
 WORKER_PYTHON_VERSION: str = "3.12"
-GPU_PYTHON_VERSIONS: tuple[str, ...] = ("3.12",)
-CPU_PYTHON_VERSIONS: tuple[str, ...] = ("3.12",)
+GPU_PYTHON_VERSIONS: tuple[str, ...] = ("3.10", "3.11", "3.12")
+CPU_PYTHON_VERSIONS: tuple[str, ...] = ("3.10", "3.11", "3.12")
 
+# Base image ships 3.12 with torch pre-installed; non-3.12 targets reinstall
+# torch side-by-side for the selected interpreter.
 GPU_BASE_IMAGE_PYTHON_VERSION: str = "3.12"
 DEFAULT_PYTHON_VERSION: str = "3.12"
 
-# python versions that can run the flash SDK locally (for flash build, etc.)
+# Python versions that can run the flash SDK locally (for flash build, etc.)
 SUPPORTED_PYTHON_VERSIONS: tuple[str, ...] = ("3.10", "3.11", "3.12")
 
 
 def local_python_version() -> str:
-    """Return the Python version used by flash workers (always 3.12)."""
+    """Return the default worker Python version."""
     return DEFAULT_PYTHON_VERSION
 
 
