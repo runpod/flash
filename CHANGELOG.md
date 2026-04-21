@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.14.0](https://github.com/runpod/flash/compare/v1.13.0...v1.14.0) (2026-04-17)
+
+
+### Features
+
+* trigger rolling releases on code-only deploys via source fingerprint ([#320](https://github.com/runpod/flash/issues/320)) ([5b5d404](https://github.com/runpod/flash/commit/5b5d404f27e6ee11192fb16923e4992ae4916db9))
+
+
+### Bug Fixes
+
+* **drift:** prevent false config drift on unchanged GPU endpoints ([#319](https://github.com/runpod/flash/issues/319)) ([f5884f2](https://github.com/runpod/flash/commit/f5884f2a1e1122838753932f30a315a7b91f6797))
+
 ## [1.13.0](https://github.com/runpod/flash/compare/v1.12.0...v1.13.0) (2026-04-15)
 
 
