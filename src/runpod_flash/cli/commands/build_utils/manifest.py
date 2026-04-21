@@ -60,6 +60,7 @@ class ManifestBuilder:
         self._python_version_override = python_version
         # Effective app-level version; set by build() via _reconcile_python_version.
         self.python_version: Optional[str] = None
+        self.python_version = python_version or DEFAULT_PYTHON_VERSION
 
     def _import_module(self, file_path: Path):
         """Import a module from file path, returning (module, cleanup_fn).
