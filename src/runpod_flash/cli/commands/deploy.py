@@ -43,6 +43,14 @@ def deploy_command(
         "--preview",
         help="Build and launch local preview environment instead of deploying",
     ),
+    python_version: str | None = typer.Option(
+        None,
+        "--python-version",
+        help=(
+            "Target Python version for worker images (3.10, 3.11, or 3.12). "
+            "Overrides per-resource python_version declarations."
+        ),
+    ),
 ):
     """
     Build and deploy Flash application.
@@ -56,6 +64,7 @@ def deploy_command(
       flash deploy --app my-app --env prod      # deploy a different app
       flash deploy --preview                    # build + launch local preview
       flash deploy --exclude transformers        # exclude additional packages from build
+      flash deploy --python-version 3.11        # target Python 3.11 workers
     """
     try:
         project_dir, discovered_app_name = discover_flash_project()
@@ -68,6 +77,7 @@ def deploy_command(
             no_deps=no_deps,
             output_name=output_name,
             exclude=exclude,
+            python_version=python_version,
         )
 
         if preview:

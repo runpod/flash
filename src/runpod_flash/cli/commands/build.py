@@ -22,10 +22,7 @@ except ImportError:
     import tomli as tomllib  # Python 3.10
 
 from runpod_flash.cli.utils.formatting import print_error, print_warning
-from runpod_flash.core.resources.constants import (
-    DEFAULT_PYTHON_VERSION,
-    MAX_TARBALL_SIZE_MB,
-)
+from runpod_flash.core.resources.constants import MAX_TARBALL_SIZE_MB
 
 from ..utils.ignore import get_file_tree, load_ignore_patterns
 from .build_utils.handler_generator import HandlerGenerator
@@ -273,6 +270,7 @@ def run_build(
     output_name: str | None = None,
     exclude: str | None = None,
     verbose: bool = False,
+    python_version: str | None = None,
 ) -> Path:
     """Run the build process and return the artifact path.
 
@@ -287,6 +285,10 @@ def run_build(
         output_name: Custom archive name (default: artifact.tar.gz)
         exclude: Comma-separated packages to exclude
         verbose: Show archive and build directory paths in summary
+        python_version: Optional app-level Python version override. When None,
+            inferred from resource configs (defaulting to DEFAULT_PYTHON_VERSION
+            if none declare one). One tarball serves every resource in an app,
+            so all resources must agree on one version.
 
     Returns:
         Path to the created artifact archive
@@ -311,10 +313,9 @@ def run_build(
     spec = load_ignore_patterns(project_dir)
     files = get_file_tree(project_dir, spec)
 
-    # all packaging and image selection targets 3.12 regardless of local python.
-    # pip downloads wheels for 3.12 via --python-version, and all worker images
-    # run 3.12, so the local interpreter version does not affect the build output.
-    python_version = DEFAULT_PYTHON_VERSION
+    # Resolved later by ManifestBuilder from resource configs (or the override
+    # above). Pip wheel selection re-reads this via _resolve_pip_python_version.
+    manifest_python_version_override = python_version
 
     try:
         copy_project_files(files, project_dir, build_dir)
@@ -335,7 +336,7 @@ def run_build(
                 remote_functions,
                 scanner,
                 build_dir=build_dir,
-                python_version=python_version,
+                python_version=manifest_python_version_override,
             )
             manifest = manifest_builder.build()
             manifest["source_fingerprint"] = compute_source_fingerprint(
@@ -513,6 +514,15 @@ def build_command(
         "--exclude",
         help="Comma-separated additional packages to exclude (torch packages are auto-excluded)",
     ),
+    python_version: str | None = typer.Option(
+        None,
+        "--python-version",
+        help=(
+            "Target Python version for worker images (3.10, 3.11, or 3.12). "
+            "Overrides per-resource python_version declarations. "
+            "Defaults to the version declared on resource configs, or 3.12 if none set."
+        ),
+    ),
 ):
     """
     Build Flash application for debugging (build only, no deploy).
@@ -525,6 +535,7 @@ def build_command(
       flash build --no-deps                    # Skip transitive dependencies
       flash build -o my-app.tar.gz             # Custom archive name
       flash build --exclude transformers       # Exclude additional large packages
+      flash build --python-version 3.11        # Target Python 3.11 workers
     """
     try:
         project_dir, app_name = discover_flash_project()
@@ -536,6 +547,7 @@ def build_command(
             output_name=output_name,
             exclude=exclude,
             verbose=True,
+            python_version=python_version,
         )
 
     except KeyboardInterrupt:

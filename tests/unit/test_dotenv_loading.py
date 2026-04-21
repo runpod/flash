@@ -9,6 +9,37 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
+
+@pytest.fixture
+def preserve_runpod_flash_modules():
+    """Save and restore ``runpod_flash.*`` entries in ``sys.modules``.
+
+    Tests that force a fresh import of ``runpod_flash`` delete entries from
+    ``sys.modules``. Without this fixture, subsequent tests import freshly-
+    created module objects while earlier imports (in other test modules) still
+    hold references to the now-orphaned originals. The split breaks any code
+    that touches module-level singletons — e.g. the autouse conftest fixture
+    clears the new ``_SERIALIZED_CLASS_CACHE`` while test code holds a reference
+    to the old one.
+    """
+    saved = {
+        name: module
+        for name, module in sys.modules.items()
+        if name == "runpod_flash" or name.startswith("runpod_flash.")
+    }
+    try:
+        yield
+    finally:
+        for name in [
+            n
+            for n in sys.modules
+            if n == "runpod_flash" or n.startswith("runpod_flash.")
+        ]:
+            del sys.modules[name]
+        sys.modules.update(saved)
+
 
 class TestDotenvLoading:
     """Test environment variable loading from .env files and shell environment."""
@@ -151,7 +182,7 @@ CUSTOM_TEST_VAR=file_value
                 elif "TEST_OVERRIDE_VAR" in os.environ:
                     del os.environ["TEST_OVERRIDE_VAR"]
 
-    def test_env_vars_available_after_flash_import(self):
+    def test_env_vars_available_after_flash_import(self, preserve_runpod_flash_modules):
         """Test that env vars are available when runpod_flash modules are imported."""
 
         # Set up test environment variables
@@ -275,7 +306,7 @@ ANOTHER_VALID=another_value
                     if var in os.environ:
                         del os.environ[var]
 
-    def test_env_vars_used_by_key_modules(self):
+    def test_env_vars_used_by_key_modules(self, preserve_runpod_flash_modules):
         """Test that key modules properly use environment variables loaded by dotenv."""
 
         # Test environment variables - set before any imports

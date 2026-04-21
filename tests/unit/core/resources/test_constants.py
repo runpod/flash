@@ -22,10 +22,10 @@ class TestSupportedPythonVersions:
         assert SUPPORTED_PYTHON_VERSIONS == ("3.10", "3.11", "3.12")
 
     def test_gpu_python_versions(self):
-        assert GPU_PYTHON_VERSIONS == ("3.12",)
+        assert GPU_PYTHON_VERSIONS == ("3.10", "3.11", "3.12")
 
     def test_cpu_python_versions(self):
-        assert CPU_PYTHON_VERSIONS == ("3.12",)
+        assert CPU_PYTHON_VERSIONS == ("3.10", "3.11", "3.12")
 
     def test_default_python_version_is_3_12(self):
         assert DEFAULT_PYTHON_VERSION == "3.12"
@@ -40,51 +40,33 @@ class TestGetImageName:
             get_image_name("gpu", "3.12", tag="latest") == "runpod/flash:py3.12-latest"
         )
 
-    def test_gpu_3_11_raises(self):
-        with pytest.raises(ValueError, match="GPU endpoints require"):
-            get_image_name("gpu", "3.11", tag="latest")
-
-    def test_gpu_3_10_raises(self):
-        with pytest.raises(ValueError, match="GPU endpoints require"):
-            get_image_name("gpu", "3.10", tag="latest")
-
-    def test_cpu_3_12(self):
+    @pytest.mark.parametrize("version", ["3.10", "3.11", "3.12"])
+    def test_gpu_all_supported_versions(self, version):
         assert (
-            get_image_name("cpu", "3.12", tag="latest")
-            == "runpod/flash-cpu:py3.12-latest"
+            get_image_name("gpu", version, tag="latest")
+            == f"runpod/flash:py{version}-latest"
         )
 
-    def test_cpu_3_11_raises(self):
-        with pytest.raises(ValueError, match="CPU endpoints require"):
-            get_image_name("cpu", "3.11", tag="latest")
-
-    def test_cpu_3_10_raises(self):
-        with pytest.raises(ValueError, match="CPU endpoints require"):
-            get_image_name("cpu", "3.10", tag="latest")
-
-    def test_lb_3_11_raises(self):
-        with pytest.raises(ValueError, match="GPU endpoints require"):
-            get_image_name("lb", "3.11", tag="latest")
-
-    def test_lb_3_10_raises(self):
-        with pytest.raises(ValueError, match="GPU endpoints require"):
-            get_image_name("lb", "3.10", tag="latest")
-
-    def test_lb_3_12(self):
+    @pytest.mark.parametrize("version", ["3.10", "3.11", "3.12"])
+    def test_cpu_all_supported_versions(self, version):
         assert (
-            get_image_name("lb", "3.12", tag="latest")
-            == "runpod/flash-lb:py3.12-latest"
+            get_image_name("cpu", version, tag="latest")
+            == f"runpod/flash-cpu:py{version}-latest"
         )
 
-    def test_lb_cpu_3_12(self):
+    @pytest.mark.parametrize("version", ["3.10", "3.11", "3.12"])
+    def test_lb_all_supported_versions(self, version):
         assert (
-            get_image_name("lb-cpu", "3.12", tag="latest")
-            == "runpod/flash-lb-cpu:py3.12-latest"
+            get_image_name("lb", version, tag="latest")
+            == f"runpod/flash-lb:py{version}-latest"
         )
 
-    def test_lb_cpu_3_10_raises(self):
-        with pytest.raises(ValueError, match="CPU endpoints require"):
-            get_image_name("lb-cpu", "3.10", tag="latest")
+    @pytest.mark.parametrize("version", ["3.10", "3.11", "3.12"])
+    def test_lb_cpu_all_supported_versions(self, version):
+        assert (
+            get_image_name("lb-cpu", version, tag="latest")
+            == f"runpod/flash-lb-cpu:py{version}-latest"
+        )
 
     def test_default_tag_reads_flash_image_tag_env(self):
         with patch.dict(os.environ, {"FLASH_IMAGE_TAG": "v1.0"}):
