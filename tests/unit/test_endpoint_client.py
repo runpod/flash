@@ -327,7 +327,7 @@ class TestEnsureEndpointReadyIdMode:
         with patch(
             "runpod_flash.endpoint.ENDPOINT_DOMAIN", "api.runpod.ai", create=True
         ):
-            from runpod_flash.core.resources.constants import ENDPOINT_DOMAIN
+            from runpod_flash.core.urls import ENDPOINT_DOMAIN
 
             with patch.object(
                 ep,

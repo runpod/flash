@@ -292,14 +292,13 @@ ANOTHER_VALID=another_value
 
         try:
             # Clear any cached modules to ensure fresh import. URL constants
-            # now live in runpod_flash.core.resources.constants (captured at import),
-            # so that module must also be cleared for the env override to
-            # take effect on re-import.
+            # are captured at import time in runpod_flash.core.urls, so that
+            # module must also be cleared for the env override to take effect.
             modules_to_clear = [
                 name
                 for name in sys.modules.keys()
                 if name.startswith("runpod_flash.core.api")
-                or name == "runpod_flash.core.resources.constants"
+                or name == "runpod_flash.core.urls"
             ]
             for module_name in modules_to_clear:
                 del sys.modules[module_name]
@@ -315,7 +314,7 @@ ANOTHER_VALID=another_value
                 assert os.environ.get("RUNPOD_API_KEY") == "test_api_key_12345"
 
             # Test RUNPOD_API_BASE_URL is used (now imports with fresh env)
-            from runpod_flash.core.resources.constants import RUNPOD_API_BASE_URL
+            from runpod_flash.core.urls import RUNPOD_API_BASE_URL
 
             assert RUNPOD_API_BASE_URL == "https://custom-api.runpod.io"
 

@@ -752,7 +752,7 @@ class Endpoint:
 
     def _resolve_lb_url(self, endpoint_id: str) -> str:
         """build an LB-style url: https://{id}.{domain}"""
-        from .core.resources.constants import ENDPOINT_DOMAIN
+        from .core.urls import ENDPOINT_DOMAIN
 
         return f"https://{endpoint_id}.{ENDPOINT_DOMAIN}"
 
