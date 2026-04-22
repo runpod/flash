@@ -237,6 +237,7 @@ class TestLoadBalancerSlsStubCall:
     async def test_call_success(self):
         """Test successful stub execution."""
         mock_resource = MagicMock()
+        mock_resource.name = "test-lb"
         stub = LoadBalancerSlsStub(mock_resource)
 
         def add(x, y):
@@ -255,6 +256,7 @@ class TestLoadBalancerSlsStubCall:
     async def test_call_with_dependencies(self):
         """Test stub execution with dependencies."""
         mock_resource = MagicMock()
+        mock_resource.name = "test-lb"
         stub = LoadBalancerSlsStub(mock_resource)
 
         def use_requests():

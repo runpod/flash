@@ -86,6 +86,7 @@ class TestLiveServerlessStub:
     @pytest.fixture
     def mock_server(self):
         server = MagicMock()
+        server.name = "test-worker"
         server.run = AsyncMock()
         server.runsync = AsyncMock()
         return server
