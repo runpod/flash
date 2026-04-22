@@ -14,10 +14,13 @@ console = Console(highlight=False)
 # indentation: 2 spaces for top-level (→/✓/✗), 4 spaces for nested
 _L1 = "  "
 _L2 = "    "
+# middle dot separator for structured info
+_DOT = "[dim]·[/dim]"
 
 
 def print_dispatch(name: str) -> None:
-    console.print(f"{_L1}[white]→[/white] [bold]{name}[/bold]")
+    console.print()
+    console.print(f"{_L1}[bold white]→ {name}[/bold white]")
 
 
 def print_pulling(image: str, worker_id: str | None = None) -> "PullProgress":
@@ -26,11 +29,12 @@ def print_pulling(image: str, worker_id: str | None = None) -> "PullProgress":
 
 
 def print_worker_ready(worker_id: str) -> None:
-    console.print(f"{_L2}[dim]worker {worker_id} ready[/dim]")
+    short_id = worker_id[:8] if len(worker_id) > 8 else worker_id
+    console.print(f"{_L2}[green]●[/green] [dim]ready {_DOT} {short_id}[/dim]")
 
 
 def print_diagnostic(message: str) -> None:
-    console.print(f"{_L2}[dim]{message}[/dim]")
+    console.print(f"{_L2}[yellow]○[/yellow] [dim]{message}[/dim]")
 
 
 def print_worker_log(line: str) -> None:
@@ -39,7 +43,7 @@ def print_worker_log(line: str) -> None:
 
 def print_completed(name: str, elapsed_ms: int | None, delay_ms: int | None) -> None:
     timing = _format_timing(elapsed_ms, delay_ms)
-    console.print(f"{_L1}[green]✓[/green] [bold]{name}[/bold]  [dim]{timing}[/dim]")
+    console.print(f"{_L1}[green]✓ {name}[/green]  {timing}")
 
 
 def print_failed(
@@ -49,62 +53,71 @@ def print_failed(
     error: str | None = None,
 ) -> None:
     timing = _format_timing(elapsed_ms, delay_ms)
-    console.print(f"{_L1}[red]✗[/red] [bold]{name}[/bold]  [dim]{timing}[/dim]")
+    console.print(f"{_L1}[red]✗ {name}[/red]  {timing}")
     if error:
         console.print(f"{_L2}[dim]{error}[/dim]")
 
 
 def print_cancelled(name: str, elapsed_ms: int | None, delay_ms: int | None) -> None:
     timing = _format_timing(elapsed_ms, delay_ms)
-    console.print(
-        f"{_L1}[yellow]–[/yellow] [bold]{name}[/bold]  [dim]cancelled{timing}[/dim]"
-    )
+    console.print(f"{_L1}[yellow]– {name}[/yellow]  [dim]cancelled[/dim]  {timing}")
 
 
 def print_lb_request(name: str, method: str, path: str) -> None:
+    console.print()
     console.print(
-        f"{_L1}[white]→[/white] [bold]{name}[/bold]  [dim]{method} {path}[/dim]"
+        f"{_L1}[bold white]→ {name}[/bold white]  [dim]{method} {path}[/dim]"
     )
 
 
 def print_lb_completed(name: str, elapsed_s: float) -> None:
-    console.print(
-        f"{_L1}[green]✓[/green] [bold]{name}[/bold]  [dim]{elapsed_s:.1f}s[/dim]"
-    )
+    console.print(f"{_L1}[green]✓ {name}[/green]  [dim]{elapsed_s:.1f}s[/dim]")
 
 
 def print_lb_failed(name: str, error: str) -> None:
-    console.print(f"{_L1}[red]✗[/red] [bold]{name}[/bold]")
+    console.print(f"{_L1}[red]✗ {name}[/red]")
     console.print(f"{_L2}[dim]{error}[/dim]")
 
 
 def _format_timing(elapsed_ms: int | None, delay_ms: int | None) -> str:
     if elapsed_ms is None:
         return ""
-    parts = [f"{elapsed_ms / 1000:.1f}s"]
+    exec_s = elapsed_ms / 1000
     if delay_ms and delay_ms > 1000:
-        parts.append(f"queued {delay_ms / 1000:.1f}s")
-    return "  ".join(parts)
+        queue_s = delay_ms / 1000
+        return f"[dim]{exec_s:.1f}s[/dim] {_DOT} [dim]queued {queue_s:.1f}s[/dim]"
+    return f"[dim]{exec_s:.1f}s[/dim]"
 
 
 class PullProgress:
     """tracks elapsed time for an image pull.
 
-    prints a one-time "pulling <image>" line on creation.
-    call done() to print the final "pulled <image>  Ns" line.
-    safe to use with multiple concurrent requests since it does
-    not use Live/Status (which fight over the terminal).
+    prints a one-time message on creation. call done() to print
+    the finalized line with elapsed time. safe for concurrent
+    requests (no Live/Status).
     """
 
     def __init__(self, image: str, worker_id: str | None = None):
         self.image = image
         self.worker_id = worker_id
         self._start = time.monotonic()
-        console.print(f"{_L2}[dim]pulling {self.image}[/dim]")
+        short = _short_image(image)
+        console.print(f"{_L2}[dim]◌ pulling {short}[/dim]")
 
     def update(self) -> None:
         pass
 
     def done(self) -> None:
         elapsed = int(time.monotonic() - self._start)
-        console.print(f"{_L2}[dim]pulled {self.image}  {elapsed}s[/dim]")
+        short = _short_image(self.image)
+        console.print(f"{_L2}[dim]● pulled {short}[/dim] {_DOT} [dim]{elapsed}s[/dim]")
+
+
+def _short_image(image: str) -> str:
+    """shorten a docker image name for display.
+
+    'runpod/flash-cpu:py3.12-latest' -> 'flash-cpu:py3.12-latest'
+    """
+    if "/" in image:
+        return image.split("/", 1)[1]
+    return image
