@@ -70,6 +70,12 @@ def restore_urls_module():
 
 
 class TestEnvUrlHelper:
+import warnings
+
+
+class TestEnvUrlHelper:
+    """Tests for the _env_url helper in core/urls.py."""
+
     def test_new_name_read_when_set(self, monkeypatch):
         monkeypatch.setenv("FLASH_TEST_NEW", "https://new.example.com")
         monkeypatch.delenv("FLASH_TEST_OLD", raising=False)
@@ -102,6 +108,12 @@ class TestEnvUrlHelper:
             and "FLASH_TEST_NEW" in str(w.message)
         ]
         assert len(deprecations) == 1
+        assert any(
+            issubclass(w.category, DeprecationWarning)
+            and "FLASH_TEST_OLD" in str(w.message)
+            and "FLASH_TEST_NEW" in str(w.message)
+            for w in captured
+        )
 
     def test_new_wins_over_old_and_no_warning(self, monkeypatch):
         monkeypatch.setenv("FLASH_TEST_NEW", "https://new.example.com")
