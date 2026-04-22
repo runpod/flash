@@ -3,7 +3,7 @@ from typing import ClassVar
 
 from pydantic import model_validator
 
-from ..constants import (
+from .constants import (
     DEFAULT_PYTHON_VERSION,
     get_image_name,
 )
