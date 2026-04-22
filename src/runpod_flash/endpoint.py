@@ -193,11 +193,20 @@ def _normalize_workers(
 def _is_live_provisioning() -> bool:
     """determine if we should use live (on-demand) resource classes.
 
-    returns True only when flash dev explicitly sets
-    FLASH_IS_LIVE_PROVISIONING=true. running a script directly
-    always uses sentinel resolution, never live provisioning.
+    returns True for flash dev (FLASH_IS_LIVE_PROVISIONING=true) and
+    for normal script execution (sentinel mode). Live* classes accept
+    bare name+gpu config without requiring imageName.
+
+    returns False only during flash build/deploy, which explicitly sets
+    FLASH_IS_LIVE_PROVISIONING=false to select deploy resource classes
+    that require imageName/template.
     """
-    return os.getenv("FLASH_IS_LIVE_PROVISIONING", "").lower() == "true"
+    val = os.getenv("FLASH_IS_LIVE_PROVISIONING", "").lower()
+    if val == "false":
+        return False
+    # flash dev sets "true", normal scripts have no value set.
+    # both use Live* classes (no imageName required).
+    return True
 
 
 def _is_cpu_config(
