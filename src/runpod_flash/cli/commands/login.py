@@ -13,6 +13,7 @@ from runpod_flash.core.credentials import (
 )
 from runpod_flash.core.urls import RUNPOD_CONSOLE_URL
 from runpod_flash.core.constants import CONSOLE_BASE_URL
+from runpod_flash.core.resources.constants import CONSOLE_BASE_URL
 
 console = Console()
 

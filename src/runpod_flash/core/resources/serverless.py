@@ -28,6 +28,7 @@ from .cloud import runpod
 from ..urls import CONSOLE_URL
 from .constants import (
 from ..constants import (
+from .constants import (
     CONSOLE_URL,
     DEFAULT_WORKERS_MAX,
     DEFAULT_WORKERS_MIN,

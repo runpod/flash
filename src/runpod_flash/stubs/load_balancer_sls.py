@@ -16,7 +16,7 @@ from runpod_flash.runtime.serialization import (
     serialize_args,
     serialize_kwargs,
 )
-from runpod_flash.core.constants import DEFAULT_LB_STUB_TIMEOUT
+from runpod_flash.core.resources.constants import DEFAULT_LB_STUB_TIMEOUT
 
 from .live_serverless import get_function_source
 
