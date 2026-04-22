@@ -11,7 +11,7 @@ from runpod_flash.core.credentials import (
     check_and_migrate_legacy_credentials,
     save_api_key,
 )
-from runpod_flash.core.resources.constants import CONSOLE_BASE_URL
+from runpod_flash.core.constants import CONSOLE_BASE_URL
 
 console = Console()
 

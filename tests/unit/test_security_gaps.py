@@ -140,7 +140,7 @@ class TestCloudpickleDeserializationSafety:
 
     def test_rest_api_uses_https(self):
         """Verify REST API endpoints default to HTTPS."""
-        from runpod_flash.core.api.runpod import RUNPOD_REST_API_URL
+        from runpod_flash.core.constants import RUNPOD_REST_API_URL
 
         assert RUNPOD_REST_API_URL.startswith("https://")
 
