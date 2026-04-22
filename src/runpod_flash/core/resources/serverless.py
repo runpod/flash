@@ -48,7 +48,9 @@ DEFAULT_RUNSYNC_TIMEOUT_S = 60
 
 
 log = logging.getLogger(__name__)
-POD_LOG_PREFIX_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\s+")
+POD_LOG_PREFIX_RE = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})\s+"
+)
 
 
 def _normalize_stream_log_line(line: str) -> str:
@@ -85,11 +87,28 @@ _SERVERLESS_BANNER_RE = re.compile(r"^-*\s*(Starting Serverless Worker|Starting 
 _WORKER_JOB_QUEUE_RE = re.compile(r"^Jobs in (queue|progress):")
 _WORKER_TIMING_RE = re.compile(r"^Worker:[^\s]+\s+\|\s+(Delay|Execution) Time:")
 
-# ansi codes for user-facing print() output
-_DIM = "\033[2m"
-_GREEN = "\033[32m"
-_RED = "\033[31m"
-_RESET = "\033[0m"
+
+
+
+def _is_noise(line: str) -> bool:
+    """return True if the line is infrastructure noise that should be hidden."""
+    if _DOCKER_PULL_RE.match(line):
+        return True
+    if _DOCKER_CREATE_RE.match(line):
+        return True
+    if _DOCKER_START_RE.match(line):
+        return True
+    if _WORKER_READY_RE.match(line):
+        return True
+    if _FITNESS_CHECK_RE.search(line):
+        return True
+    if _SERVERLESS_BANNER_RE.match(line):
+        return True
+    if _WORKER_JOB_QUEUE_RE.match(line):
+        return True
+    if _WORKER_TIMING_RE.match(line):
+        return True
+    return False
 
 
 def _format_worker_log_line(raw_line: str) -> str | None:
@@ -102,20 +121,7 @@ def _format_worker_log_line(raw_line: str) -> str | None:
     if not line:
         return None
 
-    # hide infrastructure noise
-    if _DOCKER_PULL_RE.match(line):
-        return None
-    if _DOCKER_CREATE_RE.match(line):
-        return None
-    if _DOCKER_START_RE.match(line):
-        return None
-    if _WORKER_READY_RE.match(line):
-        return None
-    if _FITNESS_CHECK_RE.search(line):
-        return None
-    if _SERVERLESS_BANNER_RE.match(line):
-        return None
-    if _WORKER_JOB_QUEUE_RE.match(line):
+    if _is_noise(line):
         return None
 
     # unwrap JSON log messages from the worker runtime
@@ -126,19 +132,25 @@ def _format_worker_log_line(raw_line: str) -> str | None:
 
             parsed = _json.loads(line)
             msg = parsed.get("message", "").strip()
-            if msg:
-                # hide internal worker lifecycle messages
-                if msg in ("Started.", "Finished."):
-                    return None
-                return msg
+            if not msg or msg in ("Started.", "Finished."):
+                return None
+            # re-filter the unwrapped message
+            if _is_noise(msg):
+                return None
+            line = msg
         except (ValueError, KeyError):
             pass
 
     # strip embedded container timestamp from user log lines
     # e.g. "2026-04-22 00:09:05,332 | INFO | this is a message"
-    line = re.sub(
+    stripped = re.sub(
         r"^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2},\d+\s+\|\s+\w+\s+\|\s+", "", line
     )
+    if stripped != line:
+        # the stripped content might also be noise
+        if _is_noise(stripped):
+            return None
+        line = stripped
 
     return line
 
@@ -340,10 +352,12 @@ class ServerlessResource(DeployableResource):
             return None
 
         if batch.lines:
+            from runpod_flash.dev_console import print_worker_log
+
             for line in batch.lines:
                 formatted = _format_worker_log_line(line)
                 if formatted is not None:
-                    print(f"    {formatted}", flush=True)
+                    print_worker_log(formatted)
 
         return batch
 
@@ -1399,7 +1413,18 @@ class ServerlessResource(DeployableResource):
 
         try:
             # Create a job using the endpoint
-            print(f"  {_DIM}→ {self.name}{_RESET}", flush=True)
+            from runpod_flash.dev_console import (
+                print_cancelled,
+                print_completed,
+                print_diagnostic,
+                print_failed,
+                print_pulling,
+                print_dispatch,
+                print_worker_log,
+                print_worker_ready,
+            )
+
+            print_dispatch(self.name)
             job = await asyncio.to_thread(self.endpoint.run, request_input=payload)
 
             log_subgroup = f"Job:{job.job_id}"
@@ -1424,6 +1449,7 @@ class ServerlessResource(DeployableResource):
             repeated_no_worker_message: Optional[str] = None
             waiting_update_count = 0
             emitted_initial_wait_metrics = False
+            _pull_progress = None
 
             # Poll for job status
             while True:
@@ -1465,7 +1491,10 @@ class ServerlessResource(DeployableResource):
                         repeated_no_worker_message = None
                         waiting_update_count = 0
                         if assigned_streaming_announced_worker != batch.worker_id:
-                            print(f"    {_DIM}worker {batch.worker_id} ready{_RESET}", flush=True)
+                            if _pull_progress:
+                                _pull_progress.done()
+                                _pull_progress = None
+                            print_worker_ready(batch.worker_id)
                             assigned_streaming_announced_worker = batch.worker_id
                     elif state_changed:
                         if batch.phase == QBRequestLogPhase.WAITING_FOR_WORKER:
@@ -1473,7 +1502,7 @@ class ServerlessResource(DeployableResource):
                                 self,
                                 worker_metrics=batch.worker_metrics,
                             )
-                            print(f"    {_DIM}{diagnostic.message}{_RESET}", flush=True)
+                            print_diagnostic(diagnostic.message)
                             if diagnostic.reason in (
                                 "no_gpu_availability",
                                 "workers_throttled",
@@ -1509,10 +1538,7 @@ class ServerlessResource(DeployableResource):
                             image = getattr(
                                 getattr(self, "template", None), "imageName", None
                             ) or "image"
-                            if batch.matched_by_request_id and batch.worker_id:
-                                print(f"    {_DIM}pulling {image} on {batch.worker_id}{_RESET}", flush=True)
-                            else:
-                                print(f"    {_DIM}pulling {image}{_RESET}", flush=True)
+                            _pull_progress = print_pulling(image, batch.worker_id)
                         elif batch.phase == QBRequestLogPhase.STREAMING:
                             repeated_no_worker_message = None
                             waiting_update_count = 0
@@ -1540,9 +1566,12 @@ class ServerlessResource(DeployableResource):
                             f"assignment={assignment_state}, status={job_status}"
                         )
                         if repeated_no_worker_message:
-                            print(f"    {_DIM}{repeated_no_worker_message}{_RESET}", flush=True)
+                            print_diagnostic(repeated_no_worker_message)
 
                 last_status = job_status
+
+                if _pull_progress:
+                    _pull_progress.update()
 
                 # Adjust polling pace appropriately
                 current_pace = get_backoff_delay(attempt, max_seconds=5)
@@ -1553,6 +1582,10 @@ class ServerlessResource(DeployableResource):
                             fetcher=fetcher,
                             request_id=job.job_id,
                         )
+                    if _pull_progress:
+                        _pull_progress.done()
+                        _pull_progress = None
+
                     response = await asyncio.to_thread(job._fetch_job)
 
                     # dedupe and print stdout before the completion line
@@ -1560,7 +1593,6 @@ class ServerlessResource(DeployableResource):
                     if isinstance(output, dict):
                         stdout = output.get("stdout")
                         if stdout and isinstance(stdout, str):
-                            # remove lines already seen via streaming
                             if (
                                 self.type == ServerlessType.QB
                                 and fetcher.has_streamed_logs
@@ -1595,29 +1627,20 @@ class ServerlessResource(DeployableResource):
                                     kept.append(raw_line)
                                 stdout = "".join(kept)
 
-                            # print user output indented under the request
                             for line in stdout.splitlines():
-                                print(f"    {line}", flush=True)
+                                print_worker_log(line)
 
-                            # clear so the stub doesn't re-print
                             output["stdout"] = ""
 
                     elapsed = response.get("executionTime")
                     delay = response.get("delayTime")
-                    timing = ""
-                    if elapsed is not None:
-                        timing = f"  {elapsed/1000:.1f}s"
-                        if delay and delay > 1000:
-                            timing += f" (queued {delay/1000:.1f}s)"
                     if job_status == "COMPLETED":
-                        print(f"  {_GREEN}\u2713{_RESET} {self.name}  {_DIM}{job_status}{timing}{_RESET}", flush=True)
+                        print_completed(self.name, elapsed, delay)
                     elif job_status == "FAILED":
                         err = response.get("error", "")
-                        print(f"  {_RED}\u2717{_RESET} {self.name}  {_DIM}{job_status}{timing}{_RESET}", flush=True)
-                        if err:
-                            print(f"    {_DIM}{err}{_RESET}", flush=True)
+                        print_failed(self.name, elapsed, delay, err)
                     else:
-                        print(f"  {self.name}  {_DIM}{job_status}{timing}{_RESET}", flush=True)
+                        print_cancelled(self.name, elapsed, delay)
                     return JobOutput(**response)
 
         except Exception as e:

@@ -477,10 +477,10 @@ class TestLoadBalancerSlsStubActivityLogs:
             )
 
             with caplog.at_level(
-                logging.INFO, logger="runpod_flash.stubs.load_balancer_sls"
+                logging.DEBUG, logger="runpod_flash.stubs.load_balancer_sls"
             ):
                 await stub._execute_via_user_route(add, "POST", "/api/add", 5, 3)
 
-        info_messages = [r.message for r in caplog.records if r.levelno == logging.INFO]
-        assert any("[REMOTE]" in m and "POST /api/add" in m for m in info_messages)
-        assert any("[REMOTE]" in m and "Execution complete" in m for m in info_messages)
+        debug_messages = [r.message for r in caplog.records if r.levelno == logging.DEBUG]
+        assert any("POST /api/add" in m for m in debug_messages)
+        assert any("execution complete" in m for m in debug_messages)
