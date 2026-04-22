@@ -10,16 +10,20 @@ CONSOLE_URL = f"{CONSOLE_BASE_URL}/serverless/user/endpoint/%s"
 # ---------------------------------------------------------------------------
 # Runpod API URLs
 #
-# Two distinct planes, do not conflate them:
-#   - Control plane  (RUNPOD_API_BASE_URL, default https://api.runpod.io)
+# Distinct hosts; do not conflate them. Each is overridable via env var so
+# dev / staging / local-mock setups can redirect independently.
+#
+#   - Control plane  (RUNPOD_API_BASE_URL,      default https://api.runpod.io)
 #       GraphQL mgmt: pods, endpoints, templates, auth.
 #   - Data plane     (RUNPOD_ENDPOINT_BASE_URL, default https://api.runpod.ai/v2)
 #       Endpoint invocations: /runsync, /run, /status, /health, /metrics.
-#   - REST mgmt      (RUNPOD_REST_API_URL, default https://rest.runpod.io/v1)
+#   - REST mgmt      (RUNPOD_REST_API_URL,      default https://rest.runpod.io/v1)
 #       REST subset of the control plane.
+#   - HAPI           (RUNPOD_HAPI_BASE_URL,     default https://hapi.runpod.net)
+#       Request-log aggregation service.
 #
-# Sourced via runpod-python where possible so a single env var change
-# (RUNPOD_ENDPOINT_BASE_URL → runpod.endpoint_url_base) propagates here.
+# Data-plane URL is sourced via runpod-python (runpod.endpoint_url_base),
+# which reads RUNPOD_ENDPOINT_BASE_URL internally.
 # ---------------------------------------------------------------------------
 
 RUNPOD_API_BASE_URL: str = os.environ.get(
@@ -33,9 +37,11 @@ ENDPOINT_BASE_URL: str = runpod.endpoint_url_base.rstrip("/")
 
 GRAPHQL_URL: str = f"{RUNPOD_API_BASE_URL}/graphql"
 
-# HAPI (request log aggregation service) host. dev/prod split.
-HAPI_BASE_URL: str = "https://hapi.runpod.net"
-DEV_HAPI_BASE_URL: str = "https://dev-hapi.runpod.net"
+# HAPI (request log aggregation service) host. Override per environment via
+# RUNPOD_HAPI_BASE_URL (e.g. https://dev-hapi.runpod.net for dev).
+HAPI_BASE_URL: str = os.environ.get(
+    "RUNPOD_HAPI_BASE_URL", "https://hapi.runpod.net"
+).rstrip("/")
 
 
 def _endpoint_domain_from_base_url(base_url: str) -> str:
