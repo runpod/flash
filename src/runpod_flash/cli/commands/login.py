@@ -11,7 +11,7 @@ from runpod_flash.core.credentials import (
     check_and_migrate_legacy_credentials,
     save_api_key,
 )
-from runpod_flash.core.urls import CONSOLE_BASE_URL
+from runpod_flash.core.urls import RUNPOD_CONSOLE_URL
 
 console = Console()
 
@@ -35,7 +35,7 @@ async def _login(open_browser: bool, timeout_seconds: float) -> None:
         if not request_id:
             raise RuntimeError("auth request failed to initialize")
 
-        auth_url = f"{CONSOLE_BASE_URL}/flash/login?request={request_id}"
+        auth_url = f"{RUNPOD_CONSOLE_URL}/flash/login?request={request_id}"
 
         console.print()
         console.print("[bold]Authorize flash in your browser:[/bold]")

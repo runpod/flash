@@ -6,14 +6,18 @@ different roles.
 
   - Control plane  (RUNPOD_API_BASE_URL,      default https://api.runpod.io)
       GraphQL mgmt: pods, endpoints, templates, auth.
+      Exposed as Python constant ``RUNPOD_API_URL``.
   - Data plane     (RUNPOD_ENDPOINT_BASE_URL, default https://api.runpod.ai/v2)
       Endpoint invocations: /runsync, /run, /status, /health, /metrics.
+      Sourced from runpod-python's ``endpoint_url_base``.
+      Exposed as Python constant ``RUNPOD_ENDPOINT_URL``.
   - REST mgmt      (RUNPOD_REST_API_URL,      default https://rest.runpod.io/v1)
       REST subset of the control plane.
-  - HAPI           (RUNPOD_HAPI_BASE_URL,     default https://hapi.runpod.net)
+  - HAPI           (RUNPOD_HAPI_URL,          default https://hapi.runpod.net)
       Request-log aggregation service.
-  - Console        (CONSOLE_BASE_URL,         default https://console.runpod.io)
-      User-facing web console.
+  - Console        (RUNPOD_CONSOLE_URL,       default https://console.runpod.io)
+      User-facing web console. Accepts legacy ``CONSOLE_BASE_URL`` for
+      backward compatibility (deprecated).
 
 Data-plane URL is sourced via runpod-python (``runpod.endpoint_url_base``),
 which reads ``RUNPOD_ENDPOINT_BASE_URL`` internally.
@@ -51,21 +55,18 @@ def _env_url(new: str, old: str | None, default: str) -> str:
     return default.rstrip("/")
 
 
-RUNPOD_API_BASE_URL: str = os.environ.get(
-    "RUNPOD_API_BASE_URL", "https://api.runpod.io"
-).rstrip("/")
-RUNPOD_REST_API_URL: str = os.environ.get(
-    "RUNPOD_REST_API_URL", "https://rest.runpod.io/v1"
-).rstrip("/")
-ENDPOINT_BASE_URL: str = runpod.endpoint_url_base.rstrip("/")
-GRAPHQL_URL: str = f"{RUNPOD_API_BASE_URL}/graphql"
-HAPI_BASE_URL: str = os.environ.get(
-    "RUNPOD_HAPI_BASE_URL", "https://hapi.runpod.net"
-).rstrip("/")
-CONSOLE_BASE_URL: str = os.environ.get(
-    "CONSOLE_BASE_URL", "https://console.runpod.io"
-).rstrip("/")
-CONSOLE_URL: str = f"{CONSOLE_BASE_URL}/serverless/user/endpoint/%s"
+RUNPOD_API_URL: str = _env_url("RUNPOD_API_BASE_URL", None, "https://api.runpod.io")
+RUNPOD_ENDPOINT_URL: str = runpod.endpoint_url_base.rstrip("/")
+RUNPOD_REST_API_URL: str = _env_url(
+    "RUNPOD_REST_API_URL", None, "https://rest.runpod.io/v1"
+)
+RUNPOD_HAPI_URL: str = _env_url("RUNPOD_HAPI_URL", None, "https://hapi.runpod.net")
+RUNPOD_CONSOLE_URL: str = _env_url(
+    "RUNPOD_CONSOLE_URL", "CONSOLE_BASE_URL", "https://console.runpod.io"
+)
+
+GRAPHQL_URL: str = f"{RUNPOD_API_URL}/graphql"
+CONSOLE_URL: str = f"{RUNPOD_CONSOLE_URL}/serverless/user/endpoint/%s"
 
 
 def _endpoint_domain_from_base_url(base_url: str) -> str:
@@ -77,4 +78,4 @@ def _endpoint_domain_from_base_url(base_url: str) -> str:
     return parsed.netloc or "api.runpod.ai"
 
 
-ENDPOINT_DOMAIN: str = _endpoint_domain_from_base_url(runpod.endpoint_url_base)
+ENDPOINT_DOMAIN: str = _endpoint_domain_from_base_url(RUNPOD_ENDPOINT_URL)
