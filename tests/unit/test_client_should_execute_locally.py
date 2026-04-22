@@ -218,8 +218,8 @@ class TestWrapperDispatch:
 
     @patch.dict(os.environ, {}, clear=True)
     @pytest.mark.asyncio
-    async def test_raises_when_no_context_and_not_live(self):
-        """when no flash context and not live provisioning, raises."""
+    async def test_sentinel_path_when_no_live_provisioning(self):
+        """without FLASH_IS_LIVE_PROVISIONING, uses sentinel resolution."""
         from runpod_flash.client import remote
         from runpod_flash.core.resources import ServerlessResource
 
@@ -229,8 +229,15 @@ class TestWrapperDispatch:
         async def my_func(x: int) -> int:
             return x * 2
 
-        with pytest.raises(RuntimeError, match="no flash context"):
-            await my_func(5)
+        with patch(
+            "runpod_flash.flash_sentinel.sentinel_qb_execute",
+            new_callable=AsyncMock,
+            return_value=10,
+        ) as mock_sentinel:
+            result = await my_func(5)
+
+        assert result == 10
+        mock_sentinel.assert_called_once()
 
     @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "true"}, clear=True)
     @pytest.mark.asyncio

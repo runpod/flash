@@ -250,28 +250,20 @@ def remote(
                         **kwargs,
                     )
 
-                if os.getenv("FLASH_IS_LIVE_PROVISIONING", "").lower() == "true":
-                    # live path: only available via flash dev
-                    resource_manager = ResourceManager()
-                    remote_resource = await resource_manager.get_or_deploy_resource(
-                        resource_config
-                    )
+                # live path: flash dev sets FLASH_IS_LIVE_PROVISIONING=true
+                resource_manager = ResourceManager()
+                remote_resource = await resource_manager.get_or_deploy_resource(
+                    resource_config
+                )
 
-                    stub = stub_resource(remote_resource)
-                    return await stub(
-                        func_or_class,
-                        dependencies,
-                        system_dependencies,
-                        accelerate_downloads,
-                        *args,
-                        **kwargs,
-                    )
-
-                raise RuntimeError(
-                    f"no flash context for endpoint '{resource_config.name}'. "
-                    f"either:\n"
-                    f"  - use 'flash dev' for local development\n"
-                    f"  - set FLASH_APP and FLASH_ENV to target a deployed environment"
+                stub = stub_resource(remote_resource)
+                return await stub(
+                    func_or_class,
+                    dependencies,
+                    system_dependencies,
+                    accelerate_downloads,
+                    *args,
+                    **kwargs,
                 )
 
             # Store routing metadata on wrapper for scanner

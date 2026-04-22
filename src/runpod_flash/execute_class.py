@@ -320,6 +320,8 @@ def create_remote_class(
                         request,
                     )
 
+                # live path: flash dev sets FLASH_IS_LIVE_PROVISIONING=true
+
                 # re-populate cache if evicted or module reloaded
                 cached_data = _SERIALIZED_CLASS_CACHE.get(self._cache_key)
                 if cached_data is None:
@@ -336,19 +338,9 @@ def create_remote_class(
                             "- class source may not be inspectable"
                         )
 
-                if os.getenv("FLASH_IS_LIVE_PROVISIONING", "").lower() == "true":
-                    await self._ensure_initialized()
-                    request = self._build_class_request(name, args, kwargs)
-                    return await self._stub.execute_class_method(request)  # type: ignore
-
-                raise RuntimeError(
-                    f"no flash context for endpoint "
-                    f"'{self._resource_config.name}'. "
-                    f"either:\n"
-                    f"  - use 'flash dev' for local development\n"
-                    f"  - set FLASH_APP and FLASH_ENV to target a "
-                    f"deployed environment"
-                )
+                await self._ensure_initialized()
+                request = self._build_class_request(name, args, kwargs)
+                return await self._stub.execute_class_method(request)  # type: ignore
 
             return method_proxy
 

@@ -1,15 +1,19 @@
 """tests for flash_context module."""
 
+from pathlib import Path
+
 from runpod_flash.flash_context import get_flash_app, get_flash_context
 
 
 class TestGetFlashContext:
-    def test_returns_none_when_no_env(self, monkeypatch):
+    def test_defaults_when_no_env(self, monkeypatch):
         monkeypatch.delenv("FLASH_APP", raising=False)
         monkeypatch.delenv("FLASH_ENV", raising=False)
         monkeypatch.delenv("FLASH_IS_LIVE_PROVISIONING", raising=False)
 
-        assert get_flash_context() is None
+        app, env = get_flash_context()
+        assert app == Path.cwd().name
+        assert env == "production"
 
     def test_returns_none_when_live_provisioning(self, monkeypatch):
         monkeypatch.setenv("FLASH_IS_LIVE_PROVISIONING", "true")
@@ -25,19 +29,21 @@ class TestGetFlashContext:
 
         assert get_flash_context() == ("myapp", "production")
 
-    def test_returns_none_when_only_app_set(self, monkeypatch):
+    def test_defaults_env_when_only_app_set(self, monkeypatch):
         monkeypatch.setenv("FLASH_APP", "myapp")
         monkeypatch.delenv("FLASH_ENV", raising=False)
         monkeypatch.delenv("FLASH_IS_LIVE_PROVISIONING", raising=False)
 
-        assert get_flash_context() is None
+        assert get_flash_context() == ("myapp", "production")
 
-    def test_returns_none_when_only_env_set(self, monkeypatch):
+    def test_defaults_app_when_only_env_set(self, monkeypatch):
         monkeypatch.delenv("FLASH_APP", raising=False)
-        monkeypatch.setenv("FLASH_ENV", "prod")
+        monkeypatch.setenv("FLASH_ENV", "staging")
         monkeypatch.delenv("FLASH_IS_LIVE_PROVISIONING", raising=False)
 
-        assert get_flash_context() is None
+        app, env = get_flash_context()
+        assert app == Path.cwd().name
+        assert env == "staging"
 
     def test_live_provisioning_case_insensitive(self, monkeypatch):
         monkeypatch.setenv("FLASH_IS_LIVE_PROVISIONING", "TRUE")

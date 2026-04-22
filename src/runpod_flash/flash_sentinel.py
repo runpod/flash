@@ -53,7 +53,7 @@ async def _sentinel_qb_post(
     env: str,
     endpoint_name: str,
     payload: Dict[str, Any],
-    timeout: float = 60,
+    timeout: float = 300,
 ) -> Dict[str, Any]:
     """post a payload to the sentinel runsync URL and return the raw response dict."""
     url = f"{runpod.endpoint_url_base}/{FLASH_SENTINEL_ID}/runsync"
@@ -63,6 +63,11 @@ async def _sentinel_qb_post(
 
     async with _http.get_authenticated_httpx_client(timeout=timeout) as client:
         response = await client.post(url, json=payload, headers=headers)
+        if response.status_code == 404:
+            raise RuntimeError(
+                f"endpoint '{endpoint_name}' not found in app '{app}' "
+                f"environment '{env}'. deploy it first with 'flash deploy'."
+            )
         response.raise_for_status()
         return response.json()
 
@@ -110,6 +115,11 @@ async def sentinel_qb_execute(
         RuntimeError: if remote execution fails
     """
     body = _args_to_kwargs(func, args, kwargs)
+    # runpod strips empty input dicts from jobs, which breaks the worker's
+    # job polling ("Job has missing field(s): id or input."). always include
+    # at least one field so the input dict is preserved.
+    if not body:
+        body = {"__empty": True}
     payload = {"input": body}
 
     data = await _sentinel_qb_post(app, env, endpoint_name, payload)
@@ -199,5 +209,10 @@ async def sentinel_lb_request(
 
     async with _http.get_authenticated_httpx_client(timeout=timeout) as client:
         response = await client.request(method, url, json=body, headers=headers)
+        if response.status_code == 404:
+            raise RuntimeError(
+                f"endpoint '{endpoint_name}' not found in app '{app}' "
+                f"environment '{env}'. deploy it first with 'flash deploy'."
+            )
         response.raise_for_status()
         return response.json()

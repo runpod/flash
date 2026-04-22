@@ -188,6 +188,21 @@ class TestSentinelQBClassExecute:
         assert sent_payload == {"input": {"method": "predict", "x": 5}}
 
 
+    @pytest.mark.asyncio
+    async def test_raises_on_404(self, mock_httpx):
+        from runpod_flash.flash_sentinel import sentinel_qb_execute
+
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+        mock_httpx.return_value = _make_mock_client(mock_response)
+
+        async def my_func():
+            pass
+
+        with pytest.raises(RuntimeError, match="not found.*deploy"):
+            await sentinel_qb_execute("myapp", "prod", "gpu-worker", my_func)
+
+
 class TestSentinelLBRequest:
     @pytest.mark.asyncio
     async def test_sends_correct_request(self, mock_httpx):
@@ -219,3 +234,16 @@ class TestSentinelLBRequest:
         assert headers["X-Flash-App"] == "myapp"
         assert headers["X-Flash-Environment"] == "prod"
         assert headers["X-Flash-Endpoint"] == "my-api"
+
+    @pytest.mark.asyncio
+    async def test_raises_on_404(self, mock_httpx):
+        from runpod_flash.flash_sentinel import sentinel_lb_request
+
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+        mock_httpx.return_value = _make_mock_client(mock_response)
+
+        with pytest.raises(RuntimeError, match="not found.*deploy"):
+            await sentinel_lb_request(
+                "myapp", "prod", "my-api", "POST", "/api/compute"
+            )
