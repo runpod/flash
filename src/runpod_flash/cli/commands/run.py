@@ -1079,7 +1079,7 @@ def run_command(
 
     from runpod_flash.dev_console import set_name_width
 
-    set_name_width([w.name for w in workers])
+    set_name_width([w.resource_name for w in workers])
 
     _print_startup_table(workers, host, port)
 
