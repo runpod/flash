@@ -215,12 +215,41 @@ async def _resolve_and_deploy(
 
     local_manifest = validate_local_manifest()
 
+    from rich.progress import (
+        BarColumn,
+        DownloadColumn,
+        Progress,
+        TextColumn,
+        TransferSpeedColumn,
+    )
+
+    archive_size = archive_path.stat().st_size
     t0 = _time.monotonic()
-    with console.status("[dim]uploading...[/dim]"):
-        build = await app.upload_build(archive_path)
+
+    with Progress(
+        TextColumn("[dim]uploading[/dim]"),
+        BarColumn(bar_width=30),
+        DownloadColumn(),
+        TransferSpeedColumn(),
+        console=console,
+        transient=True,
+    ) as progress:
+        task = progress.add_task("upload", total=archive_size)
+
+        def _on_progress(n: int):
+            progress.advance(task, n)
+
+        app._upload_progress_callback = _on_progress
+        try:
+            build = await app.upload_build(archive_path)
+        finally:
+            app._upload_progress_callback = None
+
     upload_s = _time.monotonic() - t0
+    size_mb = archive_size / (1024 * 1024)
     console.print(
-        f"[green]\u2713[/green] uploaded  [dim]{upload_s:.1f}s[/dim]"
+        f"[green]\u2713[/green] uploaded  "
+        f"[dim]{size_mb:.1f} MB  {upload_s:.1f}s[/dim]"
     )
 
     t0 = _time.monotonic()
