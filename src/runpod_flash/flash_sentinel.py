@@ -53,7 +53,7 @@ async def _sentinel_qb_post(
     env: str,
     endpoint_name: str,
     payload: Dict[str, Any],
-    timeout: float = 30,
+    timeout: float = 90,
 ) -> Dict[str, Any]:
     """post a payload to the sentinel runsync URL and return the raw response dict."""
     url = f"{runpod.endpoint_url_base}/{FLASH_SENTINEL_ID}/runsync"
