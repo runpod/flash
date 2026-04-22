@@ -79,6 +79,7 @@ import through ``core/resources/__init__.py``.
 """
 
 import os
+import warnings
 from urllib.parse import urlparse
 
 import runpod
@@ -153,6 +154,27 @@ def _endpoint_domain_from_base_url(base_url: str) -> str:
     to parse into a netloc raises ``ValueError`` — a typo should be loud, not
     silently route to production.
     """
+
+def _env_url(new: str, old: str | None, default: str) -> str:
+    """Read a URL env var.
+
+    Prefer the ``new`` name. Fall back to the ``old`` name (if provided) and
+    emit a :class:`DeprecationWarning` so downstream users get a clear
+    migration signal. Trailing slashes are stripped from whichever value is
+    returned.
+    """
+    if new in os.environ:
+        return os.environ[new].rstrip("/")
+    if old and old in os.environ:
+        warnings.warn(
+            f"{old} is deprecated; use {new} instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return os.environ[old].rstrip("/")
+    return default.rstrip("/")
+
+
 RUNPOD_API_BASE_URL: str = os.environ.get(
     "RUNPOD_API_BASE_URL", "https://api.runpod.io"
 ).rstrip("/")
