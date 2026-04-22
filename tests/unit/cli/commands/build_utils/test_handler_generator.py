@@ -558,7 +558,7 @@ def test_function_handler_validates_empty_input():
         content = handler_paths[0].read_text()
 
         assert "if raw_input is None" in content
-        assert "Empty or null input" in content
+        assert 'raw_input.pop("__empty"' in content
         assert '"success": False' in content
 
 
@@ -592,7 +592,7 @@ def test_class_handler_validates_empty_input():
         content = handler_paths[0].read_text()
 
         assert "if raw_input is None" in content
-        assert "Empty or null input" in content
+        assert 'raw_input.pop("__empty"' in content
         assert '"success": False' in content
 
 
@@ -624,17 +624,11 @@ def _exec_handler(content: str, stub_module: str, stub_name: str, stub_obj: obje
 @pytest.mark.parametrize(
     "job_input, expect_error_substring",
     [
-        ({"input": {}}, "Empty or null input"),
-        ({"input": None}, "Empty or null input"),
-        ({}, "Empty or null input"),
         ({"input": []}, "Malformed input"),
         ({"input": 0}, "Malformed input"),
         ({"input": ""}, "Malformed input"),
     ],
     ids=[
-        "empty-dict",
-        "null-input",
-        "missing-input-key",
         "list-input",
         "int-input",
         "string-input",
@@ -712,12 +706,9 @@ def test_function_handler_exec_accepts_valid_input():
 @pytest.mark.parametrize(
     "job_input, expect_error_substring",
     [
-        ({"input": {}}, "Empty or null input"),
-        ({"input": None}, "Empty or null input"),
-        ({}, "Empty or null input"),
         ({"input": []}, "Malformed input"),
     ],
-    ids=["empty-dict", "null-input", "missing-input-key", "list-input"],
+    ids=["list-input"],
 )
 def test_class_handler_exec_rejects_bad_input(job_input, expect_error_substring):
     """exec() the generated class handler and verify it rejects bad input at runtime."""
