@@ -136,7 +136,7 @@ class LiveServerlessStub(RemoteExecutorStub):
 
         if response.stdout:
             for line in response.stdout.splitlines():
-                print(line)
+                print(f"    {line}")
 
         if response.success:
             if response.result is not None:

@@ -1554,6 +1554,54 @@ class ServerlessResource(DeployableResource):
                             request_id=job.job_id,
                         )
                     response = await asyncio.to_thread(job._fetch_job)
+
+                    # dedupe and print stdout before the completion line
+                    output = response.get("output")
+                    if isinstance(output, dict):
+                        stdout = output.get("stdout")
+                        if stdout and isinstance(stdout, str):
+                            # remove lines already seen via streaming
+                            if (
+                                self.type == ServerlessType.QB
+                                and fetcher.has_streamed_logs
+                                and fetcher.seen
+                            ):
+                                seen_normalized_counts = Counter(
+                                    normalized
+                                    for line in fetcher.seen
+                                    if (
+                                        normalized
+                                        := _normalize_stream_log_line(line)
+                                    )
+                                )
+                                kept = []
+                                for raw_line in stdout.splitlines(
+                                    keepends=True
+                                ):
+                                    normalized_raw = (
+                                        _normalize_stream_log_line(raw_line)
+                                    )
+                                    if (
+                                        normalized_raw
+                                        and seen_normalized_counts.get(
+                                            normalized_raw, 0
+                                        )
+                                        > 0
+                                    ):
+                                        seen_normalized_counts[
+                                            normalized_raw
+                                        ] -= 1
+                                        continue
+                                    kept.append(raw_line)
+                                stdout = "".join(kept)
+
+                            # print user output indented under the request
+                            for line in stdout.splitlines():
+                                print(f"    {line}", flush=True)
+
+                            # clear so the stub doesn't re-print
+                            output["stdout"] = ""
+
                     elapsed = response.get("executionTime")
                     delay = response.get("delayTime")
                     timing = ""
@@ -1562,40 +1610,14 @@ class ServerlessResource(DeployableResource):
                         if delay and delay > 1000:
                             timing += f" (queued {delay/1000:.1f}s)"
                     if job_status == "COMPLETED":
-                        print(f"  \u2713 {self.name}  {job_status}{timing}", flush=True)
+                        print(f"  {_GREEN}\u2713{_RESET} {self.name}  {_DIM}{job_status}{timing}{_RESET}", flush=True)
                     elif job_status == "FAILED":
                         err = response.get("error", "")
-                        print(f"  \u2717 {self.name}  {job_status}{timing}", flush=True)
+                        print(f"  {_RED}\u2717{_RESET} {self.name}  {_DIM}{job_status}{timing}{_RESET}", flush=True)
                         if err:
                             print(f"    {_DIM}{err}{_RESET}", flush=True)
                     else:
-                        print(f"  {self.name}  {job_status}{timing}", flush=True)
-                    output = response.get("output")
-                    if isinstance(output, dict):
-                        stdout = output.get("stdout")
-                        should_dedupe_stdout = (
-                            self.type == ServerlessType.QB
-                            and fetcher.has_streamed_logs
-                            and bool(fetcher.seen)
-                        )
-                        if should_dedupe_stdout and isinstance(stdout, str):
-                            seen_normalized_counts = Counter(
-                                normalized
-                                for line in fetcher.seen
-                                if (normalized := _normalize_stream_log_line(line))
-                            )
-                            kept = []
-                            for raw_line in stdout.splitlines(keepends=True):
-                                normalized_raw = _normalize_stream_log_line(raw_line)
-                                if (
-                                    normalized_raw
-                                    and seen_normalized_counts.get(normalized_raw, 0)
-                                    > 0
-                                ):
-                                    seen_normalized_counts[normalized_raw] -= 1
-                                    continue
-                                kept.append(raw_line)
-                            output["stdout"] = "".join(kept)
+                        print(f"  {self.name}  {_DIM}{job_status}{timing}{_RESET}", flush=True)
                     return JobOutput(**response)
 
         except Exception as e:
