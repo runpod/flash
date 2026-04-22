@@ -166,7 +166,7 @@ class LiveServerlessStub(RemoteExecutorStub):
                 return FunctionResponse(
                     success=False,
                     error=job.error,
-                    stdout=job.output.get("stdout", ""),
+                    stdout=job.output.get("stdout", "") if job.output else None,
                 )
 
             return FunctionResponse(**job.output)
