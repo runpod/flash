@@ -187,7 +187,6 @@ class TestSentinelQBClassExecute:
         sent_payload = call_kwargs.kwargs["json"]
         assert sent_payload == {"input": {"method": "predict", "x": 5}}
 
-
     @pytest.mark.asyncio
     async def test_raises_on_404(self, mock_httpx):
         from runpod_flash.flash_sentinel import sentinel_qb_execute
@@ -244,6 +243,4 @@ class TestSentinelLBRequest:
         mock_httpx.return_value = _make_mock_client(mock_response)
 
         with pytest.raises(RuntimeError, match="not found.*deploy"):
-            await sentinel_lb_request(
-                "myapp", "prod", "my-api", "POST", "/api/compute"
-            )
+            await sentinel_lb_request("myapp", "prod", "my-api", "POST", "/api/compute")
