@@ -321,7 +321,7 @@ class LoadBalancerSlsStub:
 
         # Construct full URL
         url = f"{self.server.endpoint_url}{path}"
-        log.info(f"[REMOTE] {self.server} | {method} {path}")
+        log.debug(f"{self.server} | {method} {path}")
 
         try:
             async with get_authenticated_httpx_client(
@@ -330,7 +330,7 @@ class LoadBalancerSlsStub:
                 response = await client.request(method, url, json=body)
                 response.raise_for_status()
                 result = response.json()
-                log.info(f"[REMOTE] {self.server} | Execution complete")
+                log.debug(f"{self.server} | execution complete")
                 log.debug(
                     f"User route execution successful (type={type(result).__name__})"
                 )

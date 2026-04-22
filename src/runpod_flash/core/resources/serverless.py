@@ -63,17 +63,26 @@ def _normalize_stream_log_line(line: str) -> str:
     return normalized
 
 
-# patterns for worker log lines that are infrastructure noise
+# patterns for worker log lines that are infrastructure noise.
+# lines may or may not still have a 12-char hex container ID prefix
+# after normalization, so patterns match with an optional prefix.
+_HEX_PREFIX = r"(?:[0-9a-f]{12}\s+)?"
 _DOCKER_PULL_RE = re.compile(
-    r"^[0-9a-f]{12}\s+(Pulling|Extracting|Verifying|Download|Pull complete|Digest:|Status:)"
+    _HEX_PREFIX
+    + r"(Pulling|Extracting|Verifying|Download|Pull complete|Digest:|Status:|Already exists)"
 )
-_DOCKER_CREATE_RE = re.compile(r"^(create container|Pulling from)\s")
+_DOCKER_CREATE_RE = re.compile(
+    _HEX_PREFIX + r"(create container|Pulling from|py[\d.]+ Pulling from)\s"
+)
+_DOCKER_START_RE = re.compile(r"^start container for\s")
 _WORKER_READY_RE = re.compile(r"^worker is ready$")
 _FITNESS_CHECK_RE = re.compile(
     r"(Memory check passed|Disk space check passed|Network connectivity passed|"
-    r"fitness check|All fitness checks passed)"
+    r"fitness check|All fitness checks passed|Running \d+ fitness)"
 )
 _SERVERLESS_BANNER_RE = re.compile(r"^-+ Starting Serverless Worker")
+_WORKER_JOB_QUEUE_RE = re.compile(r"^Jobs in (queue|progress):")
+_WORKER_TIMING_RE = re.compile(r"^Worker:[^\s]+\s+\|\s+(Delay|Execution) Time:")
 
 
 def _format_worker_log_line(raw_line: str) -> str | None:
@@ -86,27 +95,20 @@ def _format_worker_log_line(raw_line: str) -> str | None:
     if not line:
         return None
 
-    # strip container ID prefix (12 hex chars + space)
-    line = re.sub(r"^[0-9a-f]{12}\s+", "", line)
-
-    # hide docker pull layer progress (arrives as a batch, useless)
+    # hide infrastructure noise
     if _DOCKER_PULL_RE.match(line):
         return None
-
-    # hide docker create/pull-from lines
     if _DOCKER_CREATE_RE.match(line):
         return None
-
-    # hide "worker is ready" (we announce this separately)
+    if _DOCKER_START_RE.match(line):
+        return None
     if _WORKER_READY_RE.match(line):
         return None
-
-    # hide fitness checks
     if _FITNESS_CHECK_RE.search(line):
         return None
-
-    # hide serverless worker banner
     if _SERVERLESS_BANNER_RE.match(line):
+        return None
+    if _WORKER_JOB_QUEUE_RE.match(line):
         return None
 
     # unwrap JSON log messages from the worker runtime
@@ -118,9 +120,18 @@ def _format_worker_log_line(raw_line: str) -> str | None:
             parsed = _json.loads(line)
             msg = parsed.get("message", "").strip()
             if msg:
+                # hide internal worker lifecycle messages
+                if msg in ("Started.", "Finished."):
+                    return None
                 return msg
         except (ValueError, KeyError):
             pass
+
+    # strip embedded container timestamp from user log lines
+    # e.g. "2026-04-22 00:09:05,332 | INFO | this is a message"
+    line = re.sub(
+        r"^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2},\d+\s+\|\s+\w+\s+\|\s+", "", line
+    )
 
     return line
 
@@ -325,7 +336,7 @@ class ServerlessResource(DeployableResource):
             for line in batch.lines:
                 formatted = _format_worker_log_line(line)
                 if formatted is not None:
-                    log.info("    %s", formatted)
+                    print(f"    {formatted}", flush=True)
 
         return batch
 
@@ -1381,7 +1392,7 @@ class ServerlessResource(DeployableResource):
 
         try:
             # Create a job using the endpoint
-            log.info(f"  → {self.name}")
+            print(f"  → {self.name}", flush=True)
             job = await asyncio.to_thread(self.endpoint.run, request_input=payload)
 
             log_subgroup = f"Job:{job.job_id}"
@@ -1447,9 +1458,7 @@ class ServerlessResource(DeployableResource):
                         repeated_no_worker_message = None
                         waiting_update_count = 0
                         if assigned_streaming_announced_worker != batch.worker_id:
-                            log.info(
-                                "    worker %s ready", batch.worker_id
-                            )
+                            print(f"    worker {batch.worker_id} ready", flush=True)
                             assigned_streaming_announced_worker = batch.worker_id
                     elif state_changed:
                         if batch.phase == QBRequestLogPhase.WAITING_FOR_WORKER:
@@ -1457,7 +1466,7 @@ class ServerlessResource(DeployableResource):
                                 self,
                                 worker_metrics=batch.worker_metrics,
                             )
-                            log.info("    %s", diagnostic.message)
+                            print(f"    {diagnostic.message}", flush=True)
                             if diagnostic.reason in (
                                 "no_gpu_availability",
                                 "workers_throttled",
@@ -1491,17 +1500,11 @@ class ServerlessResource(DeployableResource):
                             waiting_update_count = 0
                             emitted_initial_wait_metrics = False
                             if batch.matched_by_request_id and batch.worker_id:
-                                log.info(
-                                    "    worker %s starting...", batch.worker_id
-                                )
+                                print(f"    worker {batch.worker_id} starting...", flush=True)
                             elif batch.worker_id:
-                                log.info(
-                                    "    worker starting..."
-                                )
+                                print("    worker starting...", flush=True)
                             else:
-                                log.info(
-                                    "    worker starting..."
-                                )
+                                print("    worker starting...", flush=True)
                         elif batch.phase == QBRequestLogPhase.STREAMING:
                             repeated_no_worker_message = None
                             waiting_update_count = 0
@@ -1529,7 +1532,7 @@ class ServerlessResource(DeployableResource):
                             f"assignment={assignment_state}, status={job_status}"
                         )
                         if repeated_no_worker_message:
-                            log.info("    %s", repeated_no_worker_message)
+                            print(f"    {repeated_no_worker_message}", flush=True)
 
                 last_status = job_status
 
@@ -1551,14 +1554,14 @@ class ServerlessResource(DeployableResource):
                         if delay and delay > 1000:
                             timing += f" (queued {delay/1000:.1f}s)"
                     if job_status == "COMPLETED":
-                        log.info("  \u2713 %s  %s%s", self.name, job_status, timing)
+                        print(f"  \u2713 {self.name}  {job_status}{timing}", flush=True)
                     elif job_status == "FAILED":
                         err = response.get("error", "")
-                        log.info("  \u2717 %s  %s%s", self.name, job_status, timing)
+                        print(f"  \u2717 {self.name}  {job_status}{timing}", flush=True)
                         if err:
-                            log.info("    %s", err)
+                            print(f"    {err}", flush=True)
                     else:
-                        log.info("  %s  %s%s", self.name, job_status, timing)
+                        print(f"  {self.name}  {job_status}{timing}", flush=True)
                     output = response.get("output")
                     if isinstance(output, dict):
                         stdout = output.get("stdout")
@@ -1661,9 +1664,10 @@ class JobOutput(BaseModel):
     error: Optional[str] = ""
 
     def model_post_init(self, _: Any) -> None:
-        log_group = f"Worker:{self.workerId}"
-        log.info(f"{log_group} | Delay Time: {self.delayTime} ms")
-        log.info(f"{log_group} | Execution Time: {self.executionTime} ms")
+        log.debug(
+            "worker:%s delay=%dms exec=%dms",
+            self.workerId, self.delayTime, self.executionTime,
+        )
 
 
 class Status(str, Enum):

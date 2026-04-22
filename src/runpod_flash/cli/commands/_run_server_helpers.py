@@ -138,13 +138,13 @@ async def lb_execute(resource_config, func, body: dict):
         if routing and routing.get("method")
         else func.__name__
     )
-    log.info(f"[REMOTE] {resource_config} | {route_label}")
+    log.debug(f"{resource_config} | {route_label}")
 
     try:
         result = await stub(
             func, dependencies, system_dependencies, accelerate_downloads, **kwargs
         )
-        log.info(f"[REMOTE] {resource_config} | Execution complete")
+        log.debug(f"{resource_config} | execution complete")
         return result
     except TimeoutError as e:
         raise HTTPException(status_code=504, detail=str(e))
