@@ -12,8 +12,8 @@ from pydantic import (
 )
 
 from ..api.runpod import RunpodRestClient
+from ..urls import CONSOLE_BASE_URL
 from .base import DeployableResource
-from .constants import CONSOLE_BASE_URL
 from .resource_manager import ResourceManager
 
 log = logging.getLogger(__name__)

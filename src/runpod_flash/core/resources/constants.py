@@ -1,9 +1,5 @@
 import os
 
-CONSOLE_BASE_URL = os.environ.get("CONSOLE_BASE_URL", "https://console.runpod.io")
-CONSOLE_URL = f"{CONSOLE_BASE_URL}/serverless/user/endpoint/%s"
-
-
 # worker runtime Python versions. all flash workers run Python 3.12.
 # one tarball serves every resource type (GPU and CPU), so packages,
 # images, and the runtime must all target 3.12.

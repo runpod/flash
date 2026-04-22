@@ -12,6 +12,8 @@ different roles.
       REST subset of the control plane.
   - HAPI           (RUNPOD_HAPI_BASE_URL,     default https://hapi.runpod.net)
       Request-log aggregation service.
+  - Console        (CONSOLE_BASE_URL,         default https://console.runpod.io)
+      User-facing web console.
 
 Data-plane URL is sourced via runpod-python (``runpod.endpoint_url_base``),
 which reads ``RUNPOD_ENDPOINT_BASE_URL`` internally.
@@ -38,6 +40,10 @@ GRAPHQL_URL: str = f"{RUNPOD_API_BASE_URL}/graphql"
 HAPI_BASE_URL: str = os.environ.get(
     "RUNPOD_HAPI_BASE_URL", "https://hapi.runpod.net"
 ).rstrip("/")
+CONSOLE_BASE_URL: str = os.environ.get(
+    "CONSOLE_BASE_URL", "https://console.runpod.io"
+).rstrip("/")
+CONSOLE_URL: str = f"{CONSOLE_BASE_URL}/serverless/user/endpoint/%s"
 
 
 def _endpoint_domain_from_base_url(base_url: str) -> str:
