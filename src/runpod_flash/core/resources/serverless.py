@@ -86,6 +86,7 @@ _FITNESS_CHECK_RE = re.compile(
 _SERVERLESS_BANNER_RE = re.compile(r"^-*\s*(Starting Serverless Worker|Starting Flash Worker)")
 _WORKER_JOB_QUEUE_RE = re.compile(r"^Jobs in (queue|progress):")
 _WORKER_TIMING_RE = re.compile(r"^Worker:[^\s]+\s+\|\s+(Delay|Execution) Time:")
+_INSTALLING_DEPS_RE = re.compile(r"^Installing Python dependencies:")
 
 
 
@@ -107,6 +108,8 @@ def _is_noise(line: str) -> bool:
     if _WORKER_JOB_QUEUE_RE.match(line):
         return True
     if _WORKER_TIMING_RE.match(line):
+        return True
+    if _INSTALLING_DEPS_RE.match(line):
         return True
     return False
 
