@@ -71,7 +71,7 @@ async def list_flash_apps():
 
 async def create_flash_app(app_name: str):
     with console.status("[dim]creating...[/dim]"):
-        app = await FlashApp.create(app_name)
+        await FlashApp.create(app_name)
     console.print(f"[green]\u2713[/green] created app [bold]{app_name}[/bold]")
 
 

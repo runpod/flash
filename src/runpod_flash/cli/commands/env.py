@@ -202,7 +202,7 @@ def delete_command(
         _, app_name = discover_flash_project()
 
     try:
-        env = asyncio.run(_fetch_environment_info(app_name, env_name))
+        asyncio.run(_fetch_environment_info(app_name, env_name))
     except Exception as e:
         print_error(console, f"failed to fetch environment info: {e}")
         raise typer.Exit(1)
