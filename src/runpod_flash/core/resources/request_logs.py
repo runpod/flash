@@ -9,6 +9,11 @@ from typing import Any, List, Optional
 import httpx
 
 from ..urls import RUNPOD_ENDPOINT_URL, RUNPOD_HAPI_URL
+from runpod_flash.core.constants import (
+    DEV_HAPI_BASE_URL,
+    ENDPOINT_BASE_URL,
+    HAPI_BASE_URL,
+)
 from runpod_flash.core.utils.http import get_authenticated_httpx_client
 
 log = logging.getLogger(__name__)
@@ -16,6 +21,17 @@ log = logging.getLogger(__name__)
 LOG_PREFIX_TIMESTAMP_RE = re.compile(
     r"^(?P<timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}))"
 )
+
+
+def _resolve_hapi_base_url() -> str:
+    if os.getenv("RUNPOD_ENV", "").lower() == "dev":
+        return DEV_HAPI_BASE_URL
+    # fall back to inspecting the data-plane base: dev endpoints live at
+    # dev-api.runpod.ai, so callers that point RUNPOD_ENDPOINT_BASE_URL there
+    # should also see the dev HAPI host.
+    if "dev-api." in ENDPOINT_BASE_URL:
+        return DEV_HAPI_BASE_URL
+    return HAPI_BASE_URL
 
 
 class QBRequestLogPhase(str, Enum):
@@ -156,6 +172,7 @@ class QBRequestLogFetcher:
         status_api_key_fallback: Optional[str],
     ) -> Optional[dict[str, Any]]:
         url = f"{RUNPOD_ENDPOINT_URL}/{endpoint_id}/status/{request_id}"
+        url = f"{ENDPOINT_BASE_URL}/{endpoint_id}/status/{request_id}"
         auth_keys = self._auth_candidates(status_api_key, status_api_key_fallback)
 
         for auth_key in auth_keys:
@@ -190,6 +207,7 @@ class QBRequestLogFetcher:
     ) -> Optional[dict[str, Any]]:
         auth_keys = self._auth_candidates(status_api_key, status_api_key_fallback)
         url = f"{RUNPOD_ENDPOINT_URL}/{endpoint_id}/metrics"
+        url = f"{ENDPOINT_BASE_URL}/{endpoint_id}/metrics"
 
         for auth_key in auth_keys:
             try:

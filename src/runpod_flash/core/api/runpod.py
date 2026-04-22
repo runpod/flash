@@ -10,6 +10,10 @@ from typing import Any, Dict, Optional, List
 
 import aiohttp
 
+from runpod_flash.core.constants import (
+    GRAPHQL_URL as _GRAPHQL_URL,
+    RUNPOD_REST_API_URL,
+)
 from runpod_flash.core.credentials import get_api_key
 from runpod_flash.core.exceptions import RunpodAPIKeyError
 from runpod_flash.core.urls import GRAPHQL_URL, RUNPOD_REST_API_URL
@@ -108,6 +112,8 @@ class RunpodGraphQLClient:
     Runpod GraphQL client for Runpod API.
     Communicates directly with Runpod's GraphQL endpoint without SDK limitations.
     """
+
+    GRAPHQL_URL = _GRAPHQL_URL
 
     def __init__(self, api_key: Optional[str] = None, require_api_key: bool = True):
         # skip loading stored credentials for unauthenticated flows (e.g. login)
