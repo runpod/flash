@@ -20,7 +20,14 @@ from runpod_flash.core.resources import ServerlessResource
 from runpod_flash.execute_class import create_remote_class
 
 
-@patch.dict(os.environ, {"RUNPOD_ENDPOINT_ID": "", "RUNPOD_POD_ID": ""})
+@patch.dict(
+    os.environ,
+    {
+        "RUNPOD_ENDPOINT_ID": "",
+        "RUNPOD_POD_ID": "",
+        "FLASH_IS_LIVE_PROVISIONING": "true",
+    },
+)
 class TestRemoteClassDecoratorIntegration:
     """Test remote class decorator integration."""
 
@@ -169,6 +176,14 @@ class TestRemoteClassDecoratorIntegration:
         assert "def status(self):" in class_code
 
 
+@patch.dict(
+    os.environ,
+    {
+        "RUNPOD_ENDPOINT_ID": "",
+        "RUNPOD_POD_ID": "",
+        "FLASH_IS_LIVE_PROVISIONING": "true",
+    },
+)
 class TestMultipleMethodCallsOnSameInstance:
     """Test multiple method calls on the same remote class instance."""
 
@@ -319,6 +334,14 @@ class TestMultipleMethodCallsOnSameInstance:
             assert all(id == instance_ids[0] for id in instance_ids)
 
 
+@patch.dict(
+    os.environ,
+    {
+        "RUNPOD_ENDPOINT_ID": "",
+        "RUNPOD_POD_ID": "",
+        "FLASH_IS_LIVE_PROVISIONING": "true",
+    },
+)
 class TestComplexConstructorArguments:
     """Test remote class execution with complex constructor arguments."""
 
@@ -522,6 +545,14 @@ class TestComplexConstructorArguments:
             assert deserialized_cache.ttl == 7200
 
 
+@patch.dict(
+    os.environ,
+    {
+        "RUNPOD_ENDPOINT_ID": "",
+        "RUNPOD_POD_ID": "",
+        "FLASH_IS_LIVE_PROVISIONING": "true",
+    },
+)
 class TestErrorHandlingInRemoteClassExecution:
     """Test error handling scenarios in remote class execution."""
 
