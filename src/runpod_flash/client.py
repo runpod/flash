@@ -21,8 +21,6 @@ def _normalize_resource_name(name: str) -> str:
     return name
 
 
-
-
 def _should_execute_locally(resource_config: ServerlessResource) -> bool:
     """determine if a @remote function should execute locally.
 
@@ -255,10 +253,8 @@ def remote(
                 if os.getenv("FLASH_IS_LIVE_PROVISIONING", "").lower() == "true":
                     # live path: only available via flash dev
                     resource_manager = ResourceManager()
-                    remote_resource = (
-                        await resource_manager.get_or_deploy_resource(
-                            resource_config
-                        )
+                    remote_resource = await resource_manager.get_or_deploy_resource(
+                        resource_config
                     )
 
                     stub = stub_resource(remote_resource)

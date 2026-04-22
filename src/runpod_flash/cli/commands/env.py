@@ -117,8 +117,7 @@ async def _list_environments(app_name: str):
         created = format_datetime(env.get("createdAt"))
 
         console.print(
-            f"  [white]{name:<{mn}}[/white]"
-            f"  [dim]{short_build}  {created}[/dim]"
+            f"  [white]{name:<{mn}}[/white]  [dim]{short_build}  {created}[/dim]"
         )
 
     console.print()
@@ -141,9 +140,7 @@ def create_command(
 
 async def _create_environment(app_name: str, env_name: str):
     app, env = await FlashApp.create_environment_and_app(app_name, env_name)
-    console.print(
-        f"[green]\u2713[/green] created environment [bold]{env_name}[/bold]"
-    )
+    console.print(f"[green]\u2713[/green] created environment [bold]{env_name}[/bold]")
 
 
 def get_command(
@@ -176,9 +173,7 @@ async def _get_environment(app_name: str, env_name: str):
         for ep in endpoints:
             ep_name = ep.get("name", "-")
             ep_id = ep.get("id", "")
-            console.print(
-                f"  [white]{ep_name:<{mn}}[/white]  [dim]{ep_id}[/dim]"
-            )
+            console.print(f"  [white]{ep_name:<{mn}}[/white]  [dim]{ep_id}[/dim]")
 
     if network_volumes:
         console.print()
@@ -244,7 +239,9 @@ async def _delete_environment(app_name: str, env_name: str):
         success = await app.delete_environment(env_name)
 
     if success:
-        console.print(f"[green]\u2713[/green] deleted environment [bold]{env_name}[/bold]")
+        console.print(
+            f"[green]\u2713[/green] deleted environment [bold]{env_name}[/bold]"
+        )
     else:
         print_error(console, f"failed to delete environment '{env_name}'")
         raise typer.Exit(1)

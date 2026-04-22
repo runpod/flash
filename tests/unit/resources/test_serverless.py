@@ -1630,9 +1630,7 @@ class TestServerlessResourceDeployment:
         assigned_messages = [
             call
             for call in mock_log_info.call_args_list
-            if call.args
-            and "worker" in str(call.args)
-            and "ready" in str(call.args)
+            if call.args and "worker" in str(call.args) and "ready" in str(call.args)
         ]
         assert len(assigned_messages) == 1
 
@@ -1715,8 +1713,7 @@ class TestServerlessResourceDeployment:
         no_worker_messages = [
             call
             for call in mock_log_info.call_args_list
-            if call.args
-            and "no gpu availability" in str(call.args).lower()
+            if call.args and "no gpu availability" in str(call.args).lower()
         ]
         assert len(no_worker_messages) == 2
 

@@ -67,8 +67,7 @@ def list_command():
     console.print()
     for name, eid, color, status in rows:
         console.print(
-            f"  [{color}]\u25cf[/{color}] [white]{name:<{mn}}[/white]"
-            f"  [dim]{eid}[/dim]"
+            f"  [{color}]\u25cf[/{color}] [white]{name:<{mn}}[/white]  [dim]{eid}[/dim]"
         )
     console.print()
 
@@ -176,7 +175,8 @@ def undeploy_command(
 
 def _undeploy_by_name(name: str, resources: dict, skip_confirm: bool = False):
     matches = [
-        (rid, r) for rid, r in resources.items()
+        (rid, r)
+        for rid, r in resources.items()
         if hasattr(r, "name") and r.name == name
     ]
 
@@ -224,9 +224,7 @@ def _undeploy_all(resources: dict, skip_confirm: bool = False):
     if not skip_confirm:
         console.print()
         try:
-            if not questionary.confirm(
-                f"delete all {len(resources)} endpoints?"
-            ).ask():
+            if not questionary.confirm(f"delete all {len(resources)} endpoints?").ask():
                 console.print("[dim]cancelled[/dim]")
                 raise typer.Exit(0)
 
@@ -274,9 +272,7 @@ def _interactive_undeploy(resources: dict, skip_confirm: bool = False):
             raise typer.Exit(0)
 
         if not skip_confirm:
-            if not questionary.confirm(
-                f"delete {len(selected)} endpoint(s)?"
-            ).ask():
+            if not questionary.confirm(f"delete {len(selected)} endpoint(s)?").ask():
                 console.print("[dim]cancelled[/dim]")
                 raise typer.Exit(0)
     except KeyboardInterrupt:

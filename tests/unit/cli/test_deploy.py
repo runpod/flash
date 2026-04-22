@@ -606,7 +606,6 @@ class TestDisplayPostDeploymentGuidance:
         assert "Load-balanced endpoints:" in output
         assert "/transform" in output
 
-
     def test_qb_endpoint_shows_url(self, patched_console):
         from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
 
@@ -619,8 +618,6 @@ class TestDisplayPostDeploymentGuidance:
         output = self._collect_output(patched_console)
         assert "Queue-based endpoints:" in output
         assert "https://api.runpod.ai/v2/abc123" in output
-
-
 
     def test_empty_deployment(self, patched_console):
         from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance

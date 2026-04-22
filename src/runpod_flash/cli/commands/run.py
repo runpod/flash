@@ -711,7 +711,9 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
 
 def _print_startup_table(workers: List[WorkerInfo], host: str, port: int) -> None:
     """Print the startup info showing routes and endpoints."""
-    console.print(f"\n[green]✓[/green] [bold]flash dev[/bold]  [dim]localhost:{port}[/dim]\n")
+    console.print(
+        f"\n[green]✓[/green] [bold]flash dev[/bold]  [dim]localhost:{port}[/dim]\n"
+    )
 
     # collect all rows first so we can align columns
     rows: list[tuple[str, str, str, str]] = []  # (method, path, name, tag)
@@ -817,9 +819,13 @@ def _cleanup_live_endpoints() -> None:
                     console.print(f"  [dim]deprovisioned[/dim] {display}")
                     undeployed += 1
                 else:
-                    console.print(f"  [yellow]![/yellow] failed to deprovision {display}")
+                    console.print(
+                        f"  [yellow]![/yellow] failed to deprovision {display}"
+                    )
             except Exception as e:
-                console.print(f"  [yellow]![/yellow] error deprovisioning {display}: {e}")
+                console.print(
+                    f"  [yellow]![/yellow] error deprovisioning {display}: {e}"
+                )
         return undeployed
 
     t0 = time.monotonic()
@@ -1074,9 +1080,7 @@ def run_command(
     # find a free port, counting up from the requested one
     actual_port = _find_available_port(host, port)
     if actual_port != port:
-        console.print(
-            f"[dim]port {port} in use, using {actual_port}[/dim]"
-        )
+        console.print(f"[dim]port {port} in use, using {actual_port}[/dim]")
     port = actual_port
 
     # Generate .flash/server.py

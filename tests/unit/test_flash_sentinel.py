@@ -88,7 +88,12 @@ class TestSentinelQBExecute:
             return x + y
 
         result = await sentinel_qb_execute(
-            "myapp", "prod", "gpu-worker", my_func, 10, y=32,
+            "myapp",
+            "prod",
+            "gpu-worker",
+            my_func,
+            10,
+            y=32,
         )
 
         assert result == {"result": 42}
@@ -170,7 +175,10 @@ class TestSentinelQBClassExecute:
         )
 
         result = await sentinel_qb_class_execute(
-            "myapp", "prod", "gpu-worker", request,
+            "myapp",
+            "prod",
+            "gpu-worker",
+            request,
         )
 
         assert result == {"prediction": [1, 2, 3]}
@@ -191,8 +199,11 @@ class TestSentinelLBRequest:
         mock_httpx.return_value = _make_mock_client(mock_response)
 
         result = await sentinel_lb_request(
-            "myapp", "prod", "my-api",
-            "POST", "/api/compute",
+            "myapp",
+            "prod",
+            "my-api",
+            "POST",
+            "/api/compute",
             body={"x": 1},
         )
 

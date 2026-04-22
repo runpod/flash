@@ -187,9 +187,7 @@ def _upload_tarball(
         try:
             with tar_path.open("rb") as fh:
                 data = (
-                    _ProgressReader(fh, progress_callback)
-                    if progress_callback
-                    else fh
+                    _ProgressReader(fh, progress_callback) if progress_callback else fh
                 )
                 resp = _requests.put(
                     url,
@@ -590,7 +588,9 @@ class FlashApp:
         object_key = result["objectKey"]
 
         _upload_tarball(
-            tar_path, url, tarball_size,
+            tar_path,
+            url,
+            tarball_size,
             progress_callback=self._upload_progress_callback,
         )
 

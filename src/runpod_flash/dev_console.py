@@ -58,10 +58,14 @@ def print_dispatch(name: str, method: str = "POST", path: str | None = None) -> 
 
 
 def print_diagnostic(name: str, message: str) -> None:
-    console.print(f"{_ts()} {_pipe(name)} [yellow]waiting[/yellow] [dim]{message}[/dim]")
+    console.print(
+        f"{_ts()} {_pipe(name)} [yellow]waiting[/yellow] [dim]{message}[/dim]"
+    )
 
 
-def print_pulling(name: str, image: str, worker_id: str | None = None) -> "PullProgress":
+def print_pulling(
+    name: str, image: str, worker_id: str | None = None
+) -> "PullProgress":
     return PullProgress(name, image, worker_id)
 
 
@@ -93,7 +97,9 @@ def print_failed(
 
 def print_cancelled(name: str, elapsed_ms: int | None, delay_ms: int | None) -> None:
     timing = _format_timing(elapsed_ms, delay_ms)
-    console.print(f"{_ts()} [yellow]–[/yellow] {_padded(name)} [dim]cancelled[/dim] {timing}")
+    console.print(
+        f"{_ts()} [yellow]–[/yellow] {_padded(name)} [dim]cancelled[/dim] {timing}"
+    )
 
 
 # -- load balancer requests --
@@ -104,7 +110,9 @@ def print_lb_request(name: str, method: str, path: str) -> None:
 
 
 def print_lb_completed(name: str, elapsed_s: float) -> None:
-    console.print(f"{_ts()} [green]✓[/green] {_padded(name)} [dim]{elapsed_s:.1f}s[/dim]")
+    console.print(
+        f"{_ts()} [green]✓[/green] {_padded(name)} [dim]{elapsed_s:.1f}s[/dim]"
+    )
 
 
 def print_lb_failed(name: str, error: str) -> None:

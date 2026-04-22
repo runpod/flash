@@ -90,8 +90,7 @@ async def get_flash_app(app_name: str):
             short_build = build_id[:12] if len(build_id) > 12 else build_id
             created = format_datetime(env.get("createdAt"))
             console.print(
-                f"  [white]{name:<{mn}}[/white]"
-                f"  [dim]{short_build}  {created}[/dim]"
+                f"  [white]{name:<{mn}}[/white]  [dim]{short_build}  {created}[/dim]"
             )
     else:
         console.print("  [dim]no environments[/dim]")

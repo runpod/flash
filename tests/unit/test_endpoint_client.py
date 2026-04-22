@@ -473,9 +473,13 @@ class TestClientRequestSentinelPath:
 
         assert result == {"result": "ok"}
         mock_sentinel.assert_called_once_with(
-            "myapp", "prod", "my-api",
-            "POST", "/api/compute",
-            body={"x": 1}, timeout=60.0,
+            "myapp",
+            "prod",
+            "my-api",
+            "POST",
+            "/api/compute",
+            body={"x": 1},
+            timeout=60.0,
         )
 
     @pytest.mark.asyncio

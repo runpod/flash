@@ -89,7 +89,9 @@ class TestRemoteDecoratorStubBehavior:
         os.environ,
         {"RUNPOD_ENDPOINT_ID": "ep_123", "FLASH_RESOURCE_NAME": "other-resource"},
     )
-    @patch("runpod_flash.flash_context.get_flash_context", return_value=("myapp", "prod"))
+    @patch(
+        "runpod_flash.flash_context.get_flash_context", return_value=("myapp", "prod")
+    )
     @patch("runpod_flash.flash_sentinel.sentinel_qb_execute", new_callable=AsyncMock)
     async def test_deployed_remote_function_uses_stub(
         self, mock_sentinel, mock_ctx, sample_resource

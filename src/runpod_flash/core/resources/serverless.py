@@ -74,8 +74,7 @@ _DOCKER_PULL_RE = re.compile(
     + r"(Pulling|Extracting|Verifying|Download|Pull complete|Digest:|Status:|Already exists)"
 )
 _DOCKER_CREATE_RE = re.compile(
-    _HEX_PREFIX
-    + r"(create container|Pulling from|py[\d.][\w.-]* Pulling from)\s"
+    _HEX_PREFIX + r"(create container|Pulling from|py[\d.][\w.-]* Pulling from)\s"
 )
 _DOCKER_START_RE = re.compile(r"^(start|create) container[\s:]")
 _WORKER_READY_RE = re.compile(r"^worker is ready$|^worker \w+ ready$")
@@ -83,12 +82,12 @@ _FITNESS_CHECK_RE = re.compile(
     r"(Memory check passed|Disk space check passed|Network connectivity passed|"
     r"fitness check|All fitness checks passed|Running \d+ fitness)"
 )
-_SERVERLESS_BANNER_RE = re.compile(r"^-*\s*(Starting Serverless Worker|Starting Flash Worker)")
+_SERVERLESS_BANNER_RE = re.compile(
+    r"^-*\s*(Starting Serverless Worker|Starting Flash Worker)"
+)
 _WORKER_JOB_QUEUE_RE = re.compile(r"^Jobs in (queue|progress):")
 _WORKER_TIMING_RE = re.compile(r"^Worker:[^\s]+\s+\|\s+(Delay|Execution) Time:")
 _INSTALLING_DEPS_RE = re.compile(r"^Installing Python dependencies:")
-
-
 
 
 def _is_noise(line: str) -> bool:
@@ -1538,17 +1537,20 @@ class ServerlessResource(DeployableResource):
                             repeated_no_worker_message = None
                             waiting_update_count = 0
                             emitted_initial_wait_metrics = False
-                            image = getattr(
-                                getattr(self, "template", None), "imageName", None
-                            ) or "image"
-                            _pull_progress = print_pulling(self.name, image, batch.worker_id)
+                            image = (
+                                getattr(
+                                    getattr(self, "template", None), "imageName", None
+                                )
+                                or "image"
+                            )
+                            _pull_progress = print_pulling(
+                                self.name, image, batch.worker_id
+                            )
                         elif batch.phase == QBRequestLogPhase.STREAMING:
                             repeated_no_worker_message = None
                             waiting_update_count = 0
                             emitted_initial_wait_metrics = False
-                            log.debug(
-                                f"{log_subgroup} | streaming startup logs"
-                            )
+                            log.debug(f"{log_subgroup} | streaming startup logs")
 
                     last_log_state = current_log_state
 
@@ -1604,17 +1606,12 @@ class ServerlessResource(DeployableResource):
                                 seen_normalized_counts = Counter(
                                     normalized
                                     for line in fetcher.seen
-                                    if (
-                                        normalized
-                                        := _normalize_stream_log_line(line)
-                                    )
+                                    if (normalized := _normalize_stream_log_line(line))
                                 )
                                 kept = []
-                                for raw_line in stdout.splitlines(
-                                    keepends=True
-                                ):
-                                    normalized_raw = (
-                                        _normalize_stream_log_line(raw_line)
+                                for raw_line in stdout.splitlines(keepends=True):
+                                    normalized_raw = _normalize_stream_log_line(
+                                        raw_line
                                     )
                                     if (
                                         normalized_raw
@@ -1623,9 +1620,7 @@ class ServerlessResource(DeployableResource):
                                         )
                                         > 0
                                     ):
-                                        seen_normalized_counts[
-                                            normalized_raw
-                                        ] -= 1
+                                        seen_normalized_counts[normalized_raw] -= 1
                                         continue
                                     kept.append(raw_line)
                                 stdout = "".join(kept)
@@ -1722,7 +1717,9 @@ class JobOutput(BaseModel):
     def model_post_init(self, _: Any) -> None:
         log.debug(
             "worker:%s delay=%dms exec=%dms",
-            self.workerId, self.delayTime, self.executionTime,
+            self.workerId,
+            self.delayTime,
+            self.executionTime,
         )
 
 

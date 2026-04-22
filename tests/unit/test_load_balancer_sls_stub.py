@@ -481,6 +481,8 @@ class TestLoadBalancerSlsStubActivityLogs:
             ):
                 await stub._execute_via_user_route(add, "POST", "/api/add", 5, 3)
 
-        debug_messages = [r.message for r in caplog.records if r.levelno == logging.DEBUG]
+        debug_messages = [
+            r.message for r in caplog.records if r.levelno == logging.DEBUG
+        ]
         assert any("POST /api/add" in m for m in debug_messages)
         assert any("execution complete" in m for m in debug_messages)

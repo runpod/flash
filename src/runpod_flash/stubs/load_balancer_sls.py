@@ -169,7 +169,11 @@ class LoadBalancerSlsStub:
             t0 = _time.monotonic()
             try:
                 result = await self._execute_via_user_route(
-                    func, method, path, *args, **kwargs,
+                    func,
+                    method,
+                    path,
+                    *args,
+                    **kwargs,
                 )
                 print_lb_completed(self.server.name, _time.monotonic() - t0)
                 return result

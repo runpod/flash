@@ -158,9 +158,7 @@ def _display_post_deployment_guidance(
     for name, url, route_list in rows:
         console.print(f"  [white]{name:<{max_name}}[/white]  [dim]{url}[/dim]")
         for method, path in route_list:
-            console.print(
-                f"  {' ' * max_name}  [dim]{method:6s}{path}[/dim]"
-            )
+            console.print(f"  {' ' * max_name}  [dim]{method:6s}{path}[/dim]")
 
     # one curl example
     curl_url = None
@@ -184,8 +182,6 @@ def _display_post_deployment_guidance(
     if curl_url:
         console.print()
         _print_curl_example(curl_url, method=curl_method)
-
-
 
 
 def _launch_preview(project_dir):
@@ -248,8 +244,7 @@ async def _resolve_and_deploy(
     upload_s = _time.monotonic() - t0
     size_mb = archive_size / (1024 * 1024)
     console.print(
-        f"[green]\u2713[/green] uploaded  "
-        f"[dim]{size_mb:.1f} MB  {upload_s:.1f}s[/dim]"
+        f"[green]\u2713[/green] uploaded  [dim]{size_mb:.1f} MB  {upload_s:.1f}s[/dim]"
     )
 
     t0 = _time.monotonic()

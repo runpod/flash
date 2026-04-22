@@ -874,7 +874,10 @@ class Endpoint:
                 )
 
         # direct path: only for client mode (id= or image=) or flash dev
-        if not self.is_client and os.getenv("FLASH_IS_LIVE_PROVISIONING", "").lower() != "true":
+        if (
+            not self.is_client
+            and os.getenv("FLASH_IS_LIVE_PROVISIONING", "").lower() != "true"
+        ):
             raise RuntimeError(
                 f"no flash context for endpoint '{self.name}'. "
                 f"either:\n"
