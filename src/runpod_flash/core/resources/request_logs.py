@@ -1,5 +1,4 @@
 import logging
-import os
 import re
 from dataclasses import dataclass
 from dataclasses import field
@@ -9,11 +8,7 @@ from typing import Any, List, Optional
 
 import httpx
 
-from .constants import (
-    DEV_HAPI_BASE_URL,
-    ENDPOINT_BASE_URL,
-    HAPI_BASE_URL,
-)
+from .constants import ENDPOINT_BASE_URL, HAPI_BASE_URL
 from runpod_flash.core.utils.http import get_authenticated_httpx_client
 
 log = logging.getLogger(__name__)
@@ -21,17 +16,6 @@ log = logging.getLogger(__name__)
 LOG_PREFIX_TIMESTAMP_RE = re.compile(
     r"^(?P<timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}))"
 )
-
-
-def _resolve_hapi_base_url() -> str:
-    if os.getenv("RUNPOD_ENV", "").lower() == "dev":
-        return DEV_HAPI_BASE_URL
-    # fall back to inspecting the data-plane base: dev endpoints live at
-    # dev-api.runpod.ai, so callers that point RUNPOD_ENDPOINT_BASE_URL there
-    # should also see the dev HAPI host.
-    if "dev-api." in ENDPOINT_BASE_URL:
-        return DEV_HAPI_BASE_URL
-    return HAPI_BASE_URL
 
 
 class QBRequestLogPhase(str, Enum):
@@ -305,7 +289,7 @@ class QBRequestLogFetcher:
         worker_id: str,
         runpod_api_key: str,
     ) -> Optional[dict[str, Any]]:
-        url = f"{_resolve_hapi_base_url()}/v1/pod/{worker_id}/logs"
+        url = f"{HAPI_BASE_URL}/v1/pod/{worker_id}/logs"
 
         try:
             async with get_authenticated_httpx_client(
