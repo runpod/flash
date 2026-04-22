@@ -706,7 +706,7 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
 
 def _print_startup_table(workers: List[WorkerInfo], host: str, port: int) -> None:
     """Print the startup info showing routes and endpoints."""
-    console.print(f"\nflash dev  [dim]localhost:{port}[/dim]\n")
+    console.print(f"\n[green]✓[/green] flash dev  [dim]localhost:{port}[/dim]\n")
 
     # collect all rows first so we can align columns
     rows: list[tuple[str, str, str, str]] = []  # (method, path, name, tag)
@@ -743,14 +743,16 @@ def _print_startup_table(workers: List[WorkerInfo], host: str, port: int) -> Non
     if rows:
         max_method = max(len(r[0]) for r in rows)
         max_path = max(len(r[1]) for r in rows)
-        for method, path, name, tag in rows:
+        for i, (method, path, name, tag) in enumerate(rows):
+            is_last = i == len(rows) - 1
+            prefix = "└──" if is_last else "├──"
             console.print(
-                f"  {method:<{max_method}}  {path:<{max_path}}"
+                f"  {prefix} [dim]{method:<{max_method}}[/dim]  {path}"
                 f"  [dim]{name}  {tag}[/dim]"
             )
 
-    console.print(f"\n  [dim]http://{host}:{port}/docs[/dim]")
-    console.print("  [dim]ctrl+c to stop[/dim]\n")
+    console.print(f"\n  [dim]docs [/dim] http://{host}:{port}/docs")
+    console.print("  [dim]stop  ctrl+c[/dim]\n")
 
 
 def _cleanup_live_endpoints() -> None:
@@ -799,16 +801,17 @@ def _cleanup_live_endpoints() -> None:
     async def _do_cleanup():
         undeployed = 0
         for key, resource in live_items.items():
-            name = getattr(resource, "name", key)
+            raw_name = getattr(resource, "name", key)
+            display = raw_name.removeprefix("live-")
             try:
                 success = await resource._do_undeploy()
                 if success:
-                    console.print(f"  Deprovisioned: {name}")
+                    console.print(f"  [dim]deprovisioned[/dim] {display}")
                     undeployed += 1
                 else:
-                    logger.warning(f"Failed to deprovision: {name}")
+                    console.print(f"  [yellow]![/yellow] failed to deprovision {display}")
             except Exception as e:
-                logger.warning(f"Error deprovisioning {name}: {e}")
+                console.print(f"  [yellow]![/yellow] error deprovisioning {display}: {e}")
         return undeployed
 
     t0 = time.monotonic()
@@ -819,8 +822,8 @@ def _cleanup_live_endpoints() -> None:
         loop.close()
     elapsed = time.monotonic() - t0
     console.print(
-        f"  Cleanup completed: {undeployed}/{len(live_items)} "
-        f"resource(s) undeployed in {elapsed:.1f}s"
+        f"\n[green]✓[/green] {undeployed}/{len(live_items)} "
+        f"endpoints cleaned up  [dim]{elapsed:.1f}s[/dim]"
     )
 
     # Remove live- entries from persisted state so they don't linger.
@@ -1123,7 +1126,7 @@ def run_command(
         process.wait()
 
     except KeyboardInterrupt:
-        console.print("\n[dim]stopping...[/dim]")
+        console.print("\n[dim]stopping...[/dim]\n")
 
         stop_event.set()
         if watcher_thread is not None and watcher_thread.is_alive():
@@ -1149,7 +1152,6 @@ def run_command(
                 pass
 
         _cleanup_live_endpoints()
-        console.print("[dim]stopped[/dim]")
         raise typer.Exit(0)
 
     except Exception as e:
