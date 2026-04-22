@@ -21,6 +21,7 @@ from pydantic import model_validator
 from ..api.runpod import RunpodGraphQLClient
 from ..urls import ENDPOINT_DOMAIN
 from ..constants import ENDPOINT_DOMAIN
+from .constants import ENDPOINT_DOMAIN
 from .cpu import CpuInstanceType
 from .serverless import ServerlessResource, ServerlessType, ServerlessScalerType
 from .serverless_cpu import CpuEndpointMixin

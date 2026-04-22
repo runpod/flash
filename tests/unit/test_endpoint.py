@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from runpod_flash.core.constants import (
+from runpod_flash.core.resources.constants import (
     DEFAULT_WORKERS_MAX,
     DEFAULT_WORKERS_MIN,
 )

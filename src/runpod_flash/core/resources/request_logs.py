@@ -10,6 +10,7 @@ import httpx
 
 from ..urls import RUNPOD_ENDPOINT_URL, RUNPOD_HAPI_URL
 from runpod_flash.core.constants import (
+from .constants import (
     DEV_HAPI_BASE_URL,
     ENDPOINT_BASE_URL,
     HAPI_BASE_URL,
