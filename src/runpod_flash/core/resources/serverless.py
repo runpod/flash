@@ -360,7 +360,7 @@ class ServerlessResource(DeployableResource):
             for line in batch.lines:
                 formatted = _format_worker_log_line(line)
                 if formatted is not None:
-                    print_worker_log(formatted)
+                    print_worker_log(self.name, formatted)
 
         return batch
 
@@ -1497,7 +1497,7 @@ class ServerlessResource(DeployableResource):
                             if _pull_progress:
                                 _pull_progress.done()
                                 _pull_progress = None
-                            print_worker_ready(batch.worker_id)
+                            print_worker_ready(self.name, batch.worker_id)
                             assigned_streaming_announced_worker = batch.worker_id
                     elif state_changed:
                         if batch.phase == QBRequestLogPhase.WAITING_FOR_WORKER:
@@ -1505,7 +1505,7 @@ class ServerlessResource(DeployableResource):
                                 self,
                                 worker_metrics=batch.worker_metrics,
                             )
-                            print_diagnostic(diagnostic.message)
+                            print_diagnostic(self.name, diagnostic.message)
                             if diagnostic.reason in (
                                 "no_gpu_availability",
                                 "workers_throttled",
@@ -1541,7 +1541,7 @@ class ServerlessResource(DeployableResource):
                             image = getattr(
                                 getattr(self, "template", None), "imageName", None
                             ) or "image"
-                            _pull_progress = print_pulling(image, batch.worker_id)
+                            _pull_progress = print_pulling(self.name, image, batch.worker_id)
                         elif batch.phase == QBRequestLogPhase.STREAMING:
                             repeated_no_worker_message = None
                             waiting_update_count = 0
@@ -1569,7 +1569,7 @@ class ServerlessResource(DeployableResource):
                             f"assignment={assignment_state}, status={job_status}"
                         )
                         if repeated_no_worker_message:
-                            print_diagnostic(repeated_no_worker_message)
+                            print_diagnostic(self.name, repeated_no_worker_message)
 
                 last_status = job_status
 
@@ -1631,7 +1631,7 @@ class ServerlessResource(DeployableResource):
                                 stdout = "".join(kept)
 
                             for line in stdout.splitlines():
-                                print_worker_log(line)
+                                print_worker_log(self.name, line)
 
                             output["stdout"] = ""
 

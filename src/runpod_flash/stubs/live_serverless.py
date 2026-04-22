@@ -137,8 +137,9 @@ class LiveServerlessStub(RemoteExecutorStub):
         if response.stdout:
             from runpod_flash.dev_console import print_worker_log
 
+            name = getattr(self.server, "name", "worker")
             for line in response.stdout.splitlines():
-                print_worker_log(line)
+                print_worker_log(name, line)
 
         if response.success:
             if response.result is not None:
