@@ -1,6 +1,15 @@
 """Unit tests for runpod_flash.core.urls."""
 
+import importlib
+import sys
 import warnings
+
+
+def _reload_urls_module():
+    """Reload core.urls so module-level env reads pick up the current env."""
+    if "runpod_flash.core.urls" in sys.modules:
+        del sys.modules["runpod_flash.core.urls"]
+    return importlib.import_module("runpod_flash.core.urls")
 
 
 class TestEnvUrlHelper:
@@ -79,3 +88,33 @@ class TestEnvUrlHelper:
 
         result = _env_url("FLASH_TEST_NEW", None, "https://default.example.com")
         assert result == "https://new.example.com"
+
+
+class TestConsoleDeprecationShim:
+    """CONSOLE_BASE_URL is the only env var with a deprecation shim today."""
+
+    def test_new_console_url_honored(self, monkeypatch):
+        monkeypatch.setenv("RUNPOD_CONSOLE_URL", "https://new-console.example.com")
+        monkeypatch.delenv("CONSOLE_BASE_URL", raising=False)
+        mod = _reload_urls_module()
+        assert mod.RUNPOD_CONSOLE_URL == "https://new-console.example.com"
+
+    def test_old_console_url_still_works_with_warning(self, monkeypatch):
+        monkeypatch.delenv("RUNPOD_CONSOLE_URL", raising=False)
+        monkeypatch.setenv("CONSOLE_BASE_URL", "https://old-console.example.com")
+        with warnings.catch_warnings(record=True) as captured:
+            warnings.simplefilter("always")
+            mod = _reload_urls_module()
+        assert mod.RUNPOD_CONSOLE_URL == "https://old-console.example.com"
+        assert any(
+            issubclass(w.category, DeprecationWarning)
+            and "CONSOLE_BASE_URL" in str(w.message)
+            and "RUNPOD_CONSOLE_URL" in str(w.message)
+            for w in captured
+        )
+
+    def test_default_console_when_neither_set(self, monkeypatch):
+        monkeypatch.delenv("RUNPOD_CONSOLE_URL", raising=False)
+        monkeypatch.delenv("CONSOLE_BASE_URL", raising=False)
+        mod = _reload_urls_module()
+        assert mod.RUNPOD_CONSOLE_URL == "https://console.runpod.io"

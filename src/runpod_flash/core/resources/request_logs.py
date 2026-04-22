@@ -8,7 +8,7 @@ from typing import Any, List, Optional
 
 import httpx
 
-from ..urls import ENDPOINT_BASE_URL, HAPI_BASE_URL
+from ..urls import RUNPOD_ENDPOINT_URL, RUNPOD_HAPI_URL
 from runpod_flash.core.utils.http import get_authenticated_httpx_client
 
 log = logging.getLogger(__name__)
@@ -155,7 +155,7 @@ class QBRequestLogFetcher:
         status_api_key: str,
         status_api_key_fallback: Optional[str],
     ) -> Optional[dict[str, Any]]:
-        url = f"{ENDPOINT_BASE_URL}/{endpoint_id}/status/{request_id}"
+        url = f"{RUNPOD_ENDPOINT_URL}/{endpoint_id}/status/{request_id}"
         auth_keys = self._auth_candidates(status_api_key, status_api_key_fallback)
 
         for auth_key in auth_keys:
@@ -189,7 +189,7 @@ class QBRequestLogFetcher:
         status_api_key_fallback: Optional[str],
     ) -> Optional[dict[str, Any]]:
         auth_keys = self._auth_candidates(status_api_key, status_api_key_fallback)
-        url = f"{ENDPOINT_BASE_URL}/{endpoint_id}/metrics"
+        url = f"{RUNPOD_ENDPOINT_URL}/{endpoint_id}/metrics"
 
         for auth_key in auth_keys:
             try:
@@ -289,7 +289,7 @@ class QBRequestLogFetcher:
         worker_id: str,
         runpod_api_key: str,
     ) -> Optional[dict[str, Any]]:
-        url = f"{HAPI_BASE_URL}/v1/pod/{worker_id}/logs"
+        url = f"{RUNPOD_HAPI_URL}/v1/pod/{worker_id}/logs"
 
         try:
             async with get_authenticated_httpx_client(

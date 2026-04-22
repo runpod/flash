@@ -314,9 +314,9 @@ ANOTHER_VALID=another_value
                 assert os.environ.get("RUNPOD_API_KEY") == "test_api_key_12345"
 
             # Test RUNPOD_API_BASE_URL is used (now imports with fresh env)
-            from runpod_flash.core.urls import RUNPOD_API_BASE_URL
+            from runpod_flash.core.urls import RUNPOD_API_URL
 
-            assert RUNPOD_API_BASE_URL == "https://custom-api.runpod.io"
+            assert RUNPOD_API_URL == "https://custom-api.runpod.io"
 
             # Test LOG_LEVEL affects logging setup
             # Since setup_logging is called in __init__.py, we need to check if level is respected
