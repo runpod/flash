@@ -40,7 +40,7 @@ if TYPE_CHECKING:
         ServerlessType,
         FlashApp,
     )
-    from .core.resources.constants import (
+    from .core.constants import (
         DEFAULT_WORKERS_MAX,
         DEFAULT_WORKERS_MIN,
     )
@@ -162,7 +162,7 @@ def __getattr__(name):
 
         return attrs[name]
     elif name in ("DEFAULT_WORKERS_MIN", "DEFAULT_WORKERS_MAX"):
-        from .core.resources.constants import (
+        from .core.constants import (
             DEFAULT_WORKERS_MAX,
             DEFAULT_WORKERS_MIN,
         )

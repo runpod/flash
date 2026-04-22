@@ -2418,7 +2418,7 @@ class TestServerlessResourcePythonVersion:
         assert endpoint.python_version is None
 
     def test_python_version_accepts_valid_values(self):
-        from runpod_flash.core.resources.constants import SUPPORTED_PYTHON_VERSIONS
+        from runpod_flash.core.constants import SUPPORTED_PYTHON_VERSIONS
 
         for version in SUPPORTED_PYTHON_VERSIONS:
             endpoint = ServerlessEndpoint(

@@ -13,7 +13,7 @@ from pydantic import (
 
 from ..api.runpod import RunpodRestClient
 from .base import DeployableResource
-from .constants import CONSOLE_BASE_URL
+from ..constants import CONSOLE_BASE_URL
 from .resource_manager import ResourceManager
 
 log = logging.getLogger(__name__)

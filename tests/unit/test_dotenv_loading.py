@@ -190,7 +190,7 @@ CUSTOM_TEST_VAR=file_value
 
             # Import specific modules that use environment variables
             from runpod_flash.core.api.runpod import RunpodGraphQLClient
-            from runpod_flash.core.resources.constants import (
+            from runpod_flash.core.constants import (
                 FLASH_GPU_IMAGE,
                 FLASH_CPU_IMAGE,
             )
@@ -291,11 +291,15 @@ ANOTHER_VALID=another_value
             os.environ[var] = value
 
         try:
-            # Clear any cached modules to ensure fresh import
+            # Clear any cached modules to ensure fresh import. URL constants
+            # now live in runpod_flash.core.constants (captured at import),
+            # so that module must also be cleared for the env override to
+            # take effect on re-import.
             modules_to_clear = [
                 name
                 for name in sys.modules.keys()
                 if name.startswith("runpod_flash.core.api")
+                or name == "runpod_flash.core.constants"
             ]
             for module_name in modules_to_clear:
                 del sys.modules[module_name]
@@ -311,7 +315,7 @@ ANOTHER_VALID=another_value
                 assert os.environ.get("RUNPOD_API_KEY") == "test_api_key_12345"
 
             # Test RUNPOD_API_BASE_URL is used (now imports with fresh env)
-            from runpod_flash.core.api.runpod import RUNPOD_API_BASE_URL
+            from runpod_flash.core.constants import RUNPOD_API_BASE_URL
 
             assert RUNPOD_API_BASE_URL == "https://custom-api.runpod.io"
 
