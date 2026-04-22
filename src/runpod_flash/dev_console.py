@@ -16,9 +16,18 @@ _L1 = "  "
 _L2 = "    "
 # middle dot separator for structured info
 _DOT = "[dim]·[/dim]"
+_LIVE_PREFIX = "live-"
+
+
+def _display_name(name: str) -> str:
+    """strip internal 'live-' prefix from endpoint names for display."""
+    if name.startswith(_LIVE_PREFIX):
+        return name[len(_LIVE_PREFIX) :]
+    return name
 
 
 def print_dispatch(name: str) -> None:
+    name = _display_name(name)
     console.print()
     console.print(f"{_L1}[bold white]→ {name}[/bold white]")
 
@@ -42,6 +51,7 @@ def print_worker_log(line: str) -> None:
 
 
 def print_completed(name: str, elapsed_ms: int | None, delay_ms: int | None) -> None:
+    name = _display_name(name)
     timing = _format_timing(elapsed_ms, delay_ms)
     console.print(f"{_L1}[green]✓ {name}[/green]  {timing}")
 
@@ -52,6 +62,7 @@ def print_failed(
     delay_ms: int | None,
     error: str | None = None,
 ) -> None:
+    name = _display_name(name)
     timing = _format_timing(elapsed_ms, delay_ms)
     console.print(f"{_L1}[red]✗ {name}[/red]  {timing}")
     if error:
@@ -59,11 +70,13 @@ def print_failed(
 
 
 def print_cancelled(name: str, elapsed_ms: int | None, delay_ms: int | None) -> None:
+    name = _display_name(name)
     timing = _format_timing(elapsed_ms, delay_ms)
     console.print(f"{_L1}[yellow]– {name}[/yellow]  [dim]cancelled[/dim]  {timing}")
 
 
 def print_lb_request(name: str, method: str, path: str) -> None:
+    name = _display_name(name)
     console.print()
     console.print(
         f"{_L1}[bold white]→ {name}[/bold white]  [dim]{method} {path}[/dim]"
@@ -71,10 +84,12 @@ def print_lb_request(name: str, method: str, path: str) -> None:
 
 
 def print_lb_completed(name: str, elapsed_s: float) -> None:
+    name = _display_name(name)
     console.print(f"{_L1}[green]✓ {name}[/green]  [dim]{elapsed_s:.1f}s[/dim]")
 
 
 def print_lb_failed(name: str, error: str) -> None:
+    name = _display_name(name)
     console.print(f"{_L1}[red]✗ {name}[/red]")
     console.print(f"{_L2}[dim]{error}[/dim]")
 
