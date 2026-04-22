@@ -853,9 +853,8 @@ class Endpoint:
         """
         timeout = kwargs.pop("timeout", 60.0)
 
-        # sentinel path: route through flash sentinel for deployed envs.
-        # only for decorator-mode endpoints (not image= or id= clients).
-        if self.name and not self.is_client:
+        # sentinel path: route through flash sentinel for deployed envs
+        if self.name:
             from .flash_context import get_flash_context
 
             ctx = get_flash_context()

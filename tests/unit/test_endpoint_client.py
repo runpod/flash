@@ -1,6 +1,7 @@
 """tests for Endpoint client mode and EndpointJob."""
 
 import pytest
+import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from runpod_flash.endpoint import Endpoint, EndpointJob
@@ -579,6 +580,7 @@ class TestEndToEndFlow:
         assert job.output == "done"
 
     @pytest.mark.asyncio
+    @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "true"})
     async def test_image_mode_provisions_then_calls(self):
         ep = Endpoint(name="vllm", image="vllm:latest")
 
