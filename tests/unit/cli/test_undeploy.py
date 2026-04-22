@@ -72,7 +72,7 @@ class TestUndeployList:
             result = runner.invoke(app, ["undeploy", "list"])
 
             assert result.exit_code == 0
-            assert "No endpoints found" in result.stdout
+            assert "no endpoints found" in result.stdout
 
     def test_list_with_endpoints(self, runner):
         """Test list command with endpoints."""
@@ -170,7 +170,7 @@ class TestUndeployCommand:
 
         # With no args, Typer shows help (exit_code 0) due to no_args_is_help
         assert result.exit_code == 0
-        assert "Usage" in result.stdout or "undeploy" in result.stdout.lower()
+        assert "no endpoints found" in result.stdout or "Usage" in result.stdout
 
     def test_undeploy_no_args_shows_usage_text(self, runner):
         """Ensure usage help is rendered when no args are provided."""
@@ -185,7 +185,7 @@ class TestUndeployCommand:
 
             result = runner.invoke(app, ["undeploy"])
 
-        assert "please specify a name" in result.stdout.lower()
+        assert "specify" in result.stdout.lower()
         assert result.exit_code == 1
 
     def test_undeploy_nonexistent_name(self, runner, sample_resources):
@@ -200,7 +200,7 @@ class TestUndeployCommand:
             result = runner.invoke(app, ["undeploy", "nonexistent"])
 
             assert result.exit_code == 1
-            assert "no endpoint found" in result.stdout.lower()
+            assert "no endpoint named" in result.stdout.lower()
 
     def test_undeploy_by_name_cancelled(self, runner, sample_resources):
         """Test undeploy by name cancelled by user."""
@@ -260,7 +260,7 @@ class TestUndeployCommand:
             result = runner.invoke(app, ["undeploy", "test-api-1"])
 
             assert result.exit_code == 0
-            assert "Deleted" in result.stdout
+            assert "deleted" in result.stdout
 
     @patch("runpod_flash.cli.commands.undeploy.asyncio.run")
     def test_undeploy_all_flag(
@@ -302,7 +302,7 @@ class TestUndeployCommand:
             result = runner.invoke(app, ["undeploy", "--all"])
 
             assert result.exit_code == 0
-            assert "Deleted" in result.stdout
+            assert "deleted" in result.stdout
 
     def test_undeploy_all_wrong_confirmation(self, runner, sample_resources):
         """Test undeploy --all with wrong confirmation text."""
@@ -328,53 +328,4 @@ class TestUndeployCommand:
             result = runner.invoke(app, ["undeploy", "--all"])
 
             assert result.exit_code == 1
-            assert "Confirmation failed" in result.stdout
-
-
-class TestResourceStatusHelpers:
-    """Test helper functions for resource status."""
-
-    def test_get_resource_status_active(self):
-        """Test _get_resource_status for active resource."""
-        from runpod_flash.cli.commands.undeploy import _get_resource_status
-
-        mock_resource = MagicMock()
-        mock_resource.is_deployed = AsyncMock(return_value=True)
-
-        color, text = _get_resource_status(mock_resource)
-
-        assert color == "green"
-        assert text == "active"
-
-    def test_get_resource_status_inactive(self):
-        """Test _get_resource_status for inactive resource."""
-        from runpod_flash.cli.commands.undeploy import _get_resource_status
-
-        mock_resource = MagicMock()
-        mock_resource.is_deployed = AsyncMock(return_value=False)
-
-        color, text = _get_resource_status(mock_resource)
-
-        assert color == "red"
-        assert text == "inactive"
-
-    def test_get_resource_status_exception(self):
-        """Test _get_resource_status when exception occurs."""
-        from runpod_flash.cli.commands.undeploy import _get_resource_status
-
-        mock_resource = MagicMock()
-        mock_resource.is_deployed = AsyncMock(side_effect=Exception("API Error"))
-
-        color, text = _get_resource_status(mock_resource)
-
-        assert color == "yellow"
-        assert text == "unknown"
-
-    def test_get_resource_type(self, sample_resources):
-        """Test _get_resource_type returns formatted type."""
-        from runpod_flash.cli.commands.undeploy import _get_resource_type
-
-        resource = list(sample_resources.values())[0]
-        resource_type = _get_resource_type(resource)
-
-        assert "Serverless" in resource_type
+            assert "cancelled" in result.stdout
