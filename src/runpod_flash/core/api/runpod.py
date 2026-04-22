@@ -12,11 +12,7 @@ import aiohttp
 
 from runpod_flash.core.credentials import get_api_key
 from runpod_flash.core.exceptions import RunpodAPIKeyError
-from runpod_flash.core.urls import (
-    GRAPHQL_URL as _GRAPHQL_URL,
-    RUNPOD_API_BASE_URL,
-    RUNPOD_REST_API_URL,
-)
+from runpod_flash.core.urls import GRAPHQL_URL, RUNPOD_API_BASE_URL, RUNPOD_REST_API_URL
 from runpod_flash.core.utils.backoff import BackoffStrategy, get_backoff_delay
 from runpod_flash.runtime.exceptions import GraphQLMutationError, GraphQLQueryError
 
@@ -116,8 +112,6 @@ class RunpodGraphQLClient:
     Communicates directly with Runpod's GraphQL endpoint without SDK limitations.
     """
 
-    GRAPHQL_URL = _GRAPHQL_URL
-
     def __init__(self, api_key: Optional[str] = None, require_api_key: bool = True):
         # skip loading stored credentials for unauthenticated flows (e.g. login)
         # so an expired key is never sent to the server
@@ -154,7 +148,7 @@ class RunpodGraphQLClient:
         # log.debug(f"GraphQL Variables: {json.dumps(sanitized_vars, indent=2)}")
 
         try:
-            async with session.post(self.GRAPHQL_URL, json=payload) as response:
+            async with session.post(GRAPHQL_URL, json=payload) as response:
                 response_data = await response.json()
 
                 # log.debug(f"GraphQL Response Status: {response.status}")
