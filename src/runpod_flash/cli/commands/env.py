@@ -7,7 +7,7 @@ import typer
 from rich.console import Console
 
 from ..utils.app import discover_flash_project
-from ..utils.formatting import format_datetime, print_error, state_dot
+from ..utils.formatting import format_datetime, print_error
 
 from runpod_flash.core.resources.app import FlashApp, FlashAppNotFoundError
 
@@ -108,20 +108,17 @@ async def _list_environments(app_name: str):
 
     console.print(f"\n  [bold]{app_name}[/bold]\n")
 
-    max_name = max(len(e.get("name", "") or "") for e in envs)
+    mn = max(len(e.get("name", "") or "") for e in envs)
 
-    console.print(
-        f"  [dim]  {'name':<{max_name}}  state         deployed[/dim]"
-    )
     for env in envs:
         name = env.get("name", "(unnamed)")
-        state = env.get("state", "UNKNOWN")
+        build_id = env.get("activeBuildId") or "-"
+        short_build = build_id[:12] if len(build_id) > 12 else build_id
         created = format_datetime(env.get("createdAt"))
 
         console.print(
-            f"  {state_dot(state)} [white]{name:<{max_name}}[/white]  "
-            f"[dim]{state.lower():<12}[/dim]  "
-            f"[dim]{created}[/dim]"
+            f"  [white]{name:<{mn}}[/white]"
+            f"  [dim]{short_build}  {created}[/dim]"
         )
 
     console.print()
@@ -163,40 +160,32 @@ async def _get_environment(app_name: str, env_name: str):
     app = await FlashApp.from_name(app_name)
     env = await app.get_environment_by_name(env_name)
 
-    state = env.get("state", "UNKNOWN")
     build_id = env.get("activeBuildId") or "-"
     short_build = build_id[:12] if len(build_id) > 12 else build_id
 
-    console.print(
-        f"\n  {state_dot(state)} [bold]{env.get('name')}[/bold]  "
-        f"[dim]{state.lower()}[/dim]"
-    )
-    console.print()
+    console.print(f"\n  [bold]{env.get('name')}[/bold]\n")
     console.print(f"  [dim]app    [/dim] {app_name}")
     console.print(f"  [dim]build  [/dim] {short_build}")
 
-    # endpoints table
     endpoints = env.get("endpoints") or []
     network_volumes = env.get("networkVolumes") or []
 
     if endpoints:
         console.print()
-        max_ep = max(len(ep.get("name", "") or "") for ep in endpoints)
-        console.print(f"  [dim]{'endpoint':<{max_ep}}  id[/dim]")
+        mn = max(len(ep.get("name", "") or "") for ep in endpoints)
         for ep in endpoints:
             ep_name = ep.get("name", "-")
             ep_id = ep.get("id", "")
             console.print(
-                f"  [white]{ep_name:<{max_ep}}[/white]  [dim]{ep_id}[/dim]"
+                f"  [white]{ep_name:<{mn}}[/white]  [dim]{ep_id}[/dim]"
             )
 
     if network_volumes:
         console.print()
-        max_nv = max(len(nv.get("name", "") or "") for nv in network_volumes)
-        console.print(f"  [dim]{'volume':<{max_nv}}  id[/dim]")
+        mn = max(len(nv.get("name", "") or "") for nv in network_volumes)
         for nv in network_volumes:
             console.print(
-                f"  [white]{nv.get('name', '-'):<{max_nv}}[/white]  [dim]{nv.get('id', '')}[/dim]"
+                f"  [white]{nv.get('name', '-'):<{mn}}[/white]  [dim]{nv.get('id', '')}[/dim]"
             )
 
     if not endpoints and not network_volumes:
