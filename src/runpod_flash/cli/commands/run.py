@@ -218,12 +218,13 @@ def _sanitize_fn_name(name: str) -> str:
 
 
 def _has_numeric_module_segments(module_path: str) -> bool:
-    """Check if any segment in a dotted module path starts with a digit.
+    """Check if any segment in a dotted module path is not a valid Python identifier.
 
-    Python identifiers cannot start with digits, so ``from 01_foo import bar``
-    is a SyntaxError. Callers should use ``importlib.import_module()`` instead.
+    Segments starting with digits or containing hyphens (e.g. ``01_foo``,
+    ``log-polling-examples``) cause SyntaxErrors in ``from … import …``
+    statements. Callers should use ``importlib.import_module()`` instead.
     """
-    return any(seg and seg[0].isdigit() for seg in module_path.split("."))
+    return any(seg and not seg.isidentifier() for seg in module_path.split("."))
 
 
 def _module_parent_subdir(module_path: str) -> str | None:
