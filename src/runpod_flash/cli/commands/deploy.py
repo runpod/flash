@@ -110,10 +110,10 @@ def _print_curl_example(url: str, method: str = "POST") -> None:
     """Print a curl example for the given URL."""
     lines = [f"curl -X {method} {url}"]
     if method == "POST":
-        lines.append(f'  -H "Content-Type: application/json"')
-    lines.append(f'  -H "Authorization: Bearer $RUNPOD_API_KEY"')
+        lines.append('  -H "Content-Type: application/json"')
+    lines.append('  -H "Authorization: Bearer $RUNPOD_API_KEY"')
     if method == "POST":
-        lines.append(f"""  -d '{{"input": {{}}}}'""")
+        lines.append("""  -d '{"input": {}}'""")
     console.print("[dim]" + " \\\n".join(lines) + "[/dim]")
 
 

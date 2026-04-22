@@ -761,7 +761,7 @@ def _print_startup_table(workers: List[WorkerInfo], host: str, port: int) -> Non
 
     console.print()
     console.print(f"  [dim]docs[/dim]  http://{host}:{port}/docs")
-    console.print(f"  [dim]stop[/dim]  ctrl+c")
+    console.print("  [dim]stop[/dim]  ctrl+c")
     console.print()
 
 

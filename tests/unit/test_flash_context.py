@@ -1,7 +1,5 @@
 """tests for flash_context module."""
 
-import pytest
-
 from runpod_flash.flash_context import get_flash_app, get_flash_context
 
 
