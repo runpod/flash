@@ -10,6 +10,7 @@ import asyncio
 import hashlib
 import inspect
 import logging
+import os
 import textwrap
 import uuid
 from typing import List, Optional, Type
@@ -319,7 +320,13 @@ def create_remote_class(
                         request,
                     )
 
-                # live path: flash dev sets FLASH_IS_LIVE_PROVISIONING=true
+                # live path: only reachable when flash dev sets
+                # FLASH_IS_LIVE_PROVISIONING=true
+                if os.getenv("FLASH_IS_LIVE_PROVISIONING", "").lower() != "true":
+                    raise RuntimeError(
+                        f"endpoint '{self._resource_config.name}' cannot be "
+                        f"called outside flash dev without a deployed environment"
+                    )
 
                 # re-populate cache if evicted or module reloaded
                 cached_data = _SERIALIZED_CLASS_CACHE.get(self._cache_key)

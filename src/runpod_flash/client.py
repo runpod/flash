@@ -250,7 +250,15 @@ def remote(
                         **kwargs,
                     )
 
-                # live path: flash dev sets FLASH_IS_LIVE_PROVISIONING=true
+                # live path: only reachable when flash dev sets
+                # FLASH_IS_LIVE_PROVISIONING=true (which makes
+                # get_flash_context return None)
+                if os.getenv("FLASH_IS_LIVE_PROVISIONING", "").lower() != "true":
+                    raise RuntimeError(
+                        f"endpoint '{resource_config.name}' cannot be called "
+                        f"outside flash dev without a deployed environment"
+                    )
+
                 resource_manager = ResourceManager()
                 remote_resource = await resource_manager.get_or_deploy_resource(
                     resource_config
