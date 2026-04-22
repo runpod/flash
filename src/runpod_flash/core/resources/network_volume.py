@@ -13,8 +13,8 @@ from .datacenter import DataCenter
 
 from ..api.runpod import RunpodRestClient
 from ..urls import RUNPOD_CONSOLE_URL
+from ..urls import CONSOLE_BASE_URL
 from .base import DeployableResource
-from .constants import CONSOLE_BASE_URL
 from .resource_manager import ResourceManager
 from ..cli_context import cli_only
 

@@ -29,7 +29,6 @@ from ..urls import CONSOLE_URL
 from .constants import (
 from ..constants import (
 from .constants import (
-    CONSOLE_URL,
     DEFAULT_WORKERS_MAX,
     DEFAULT_WORKERS_MIN,
     validate_python_version as _validate_python_version,

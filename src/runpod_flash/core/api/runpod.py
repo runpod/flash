@@ -22,9 +22,6 @@ from runpod_flash.core.urls import GRAPHQL_URL, RUNPOD_API_BASE_URL, RUNPOD_REST
 from runpod_flash.core.utils.backoff import BackoffStrategy, get_backoff_delay
 from runpod_flash.runtime.exceptions import GraphQLMutationError, GraphQLQueryError
 
-# Re-exported for backward compat with tests that import these from here.
-__all__ = ["RUNPOD_API_BASE_URL", "RUNPOD_REST_API_URL", "RunpodGraphQLClient"]
-
 log = logging.getLogger(__name__)
 
 # Sensitive fields that should be redacted from logs (pre-signed URLs, tokens, etc.)
