@@ -706,7 +706,7 @@ def _generate_flash_server(project_root: Path, workers: List[WorkerInfo]) -> Pat
 
 def _print_startup_table(workers: List[WorkerInfo], host: str, port: int) -> None:
     """Print the startup info showing routes and endpoints."""
-    console.print(f"\n[green]✓[/green] flash dev  [dim]localhost:{port}[/dim]\n")
+    console.print(f"\n[green]✓[/green] [bold]flash dev[/bold]  [dim]localhost:{port}[/dim]\n")
 
     # collect all rows first so we can align columns
     rows: list[tuple[str, str, str, str]] = []  # (method, path, name, tag)
@@ -743,16 +743,19 @@ def _print_startup_table(workers: List[WorkerInfo], host: str, port: int) -> Non
     if rows:
         max_method = max(len(r[0]) for r in rows)
         max_path = max(len(r[1]) for r in rows)
-        for i, (method, path, name, tag) in enumerate(rows):
-            is_last = i == len(rows) - 1
-            prefix = "└──" if is_last else "├──"
+        max_name = max(len(r[2]) for r in rows)
+        for method, path, name, tag in rows:
             console.print(
-                f"  {prefix} [dim]{method:<{max_method}}[/dim]  {path}"
-                f"  [dim]{name}  {tag}[/dim]"
+                f"  [white]{method:<{max_method}}[/white]"
+                f"  [dim]{path:<{max_path}}[/dim]"
+                f"  [white]{name:<{max_name}}[/white]"
+                f"  [dim]{tag}[/dim]"
             )
 
-    console.print(f"\n  [dim]docs [/dim] http://{host}:{port}/docs")
-    console.print("  [dim]stop  ctrl+c[/dim]\n")
+    console.print()
+    console.print(f"  [dim]docs[/dim]  http://{host}:{port}/docs")
+    console.print(f"  [dim]stop[/dim]  ctrl+c")
+    console.print()
 
 
 def _cleanup_live_endpoints() -> None:
