@@ -72,17 +72,24 @@ _DOCKER_PULL_RE = re.compile(
     + r"(Pulling|Extracting|Verifying|Download|Pull complete|Digest:|Status:|Already exists)"
 )
 _DOCKER_CREATE_RE = re.compile(
-    _HEX_PREFIX + r"(create container|Pulling from|py[\d.]+ Pulling from)\s"
+    _HEX_PREFIX
+    + r"(create container|Pulling from|py[\d.][\w.-]* Pulling from)\s"
 )
-_DOCKER_START_RE = re.compile(r"^start container for\s")
-_WORKER_READY_RE = re.compile(r"^worker is ready$")
+_DOCKER_START_RE = re.compile(r"^(start|create) container[\s:]")
+_WORKER_READY_RE = re.compile(r"^worker is ready$|^worker \w+ ready$")
 _FITNESS_CHECK_RE = re.compile(
     r"(Memory check passed|Disk space check passed|Network connectivity passed|"
     r"fitness check|All fitness checks passed|Running \d+ fitness)"
 )
-_SERVERLESS_BANNER_RE = re.compile(r"^-+ Starting Serverless Worker")
+_SERVERLESS_BANNER_RE = re.compile(r"^-*\s*(Starting Serverless Worker|Starting Flash Worker)")
 _WORKER_JOB_QUEUE_RE = re.compile(r"^Jobs in (queue|progress):")
 _WORKER_TIMING_RE = re.compile(r"^Worker:[^\s]+\s+\|\s+(Delay|Execution) Time:")
+
+# ansi codes for user-facing print() output
+_DIM = "\033[2m"
+_GREEN = "\033[32m"
+_RED = "\033[31m"
+_RESET = "\033[0m"
 
 
 def _format_worker_log_line(raw_line: str) -> str | None:
@@ -1392,7 +1399,7 @@ class ServerlessResource(DeployableResource):
 
         try:
             # Create a job using the endpoint
-            print(f"  → {self.name}", flush=True)
+            print(f"  {_DIM}→ {self.name}{_RESET}", flush=True)
             job = await asyncio.to_thread(self.endpoint.run, request_input=payload)
 
             log_subgroup = f"Job:{job.job_id}"
@@ -1458,7 +1465,7 @@ class ServerlessResource(DeployableResource):
                         repeated_no_worker_message = None
                         waiting_update_count = 0
                         if assigned_streaming_announced_worker != batch.worker_id:
-                            print(f"    worker {batch.worker_id} ready", flush=True)
+                            print(f"    {_DIM}worker {batch.worker_id} ready{_RESET}", flush=True)
                             assigned_streaming_announced_worker = batch.worker_id
                     elif state_changed:
                         if batch.phase == QBRequestLogPhase.WAITING_FOR_WORKER:
@@ -1466,7 +1473,7 @@ class ServerlessResource(DeployableResource):
                                 self,
                                 worker_metrics=batch.worker_metrics,
                             )
-                            print(f"    {diagnostic.message}", flush=True)
+                            print(f"    {_DIM}{diagnostic.message}{_RESET}", flush=True)
                             if diagnostic.reason in (
                                 "no_gpu_availability",
                                 "workers_throttled",
@@ -1499,12 +1506,13 @@ class ServerlessResource(DeployableResource):
                             repeated_no_worker_message = None
                             waiting_update_count = 0
                             emitted_initial_wait_metrics = False
+                            image = getattr(
+                                getattr(self, "template", None), "imageName", None
+                            ) or "image"
                             if batch.matched_by_request_id and batch.worker_id:
-                                print(f"    worker {batch.worker_id} starting...", flush=True)
-                            elif batch.worker_id:
-                                print("    worker starting...", flush=True)
+                                print(f"    {_DIM}pulling {image} on {batch.worker_id}{_RESET}", flush=True)
                             else:
-                                print("    worker starting...", flush=True)
+                                print(f"    {_DIM}pulling {image}{_RESET}", flush=True)
                         elif batch.phase == QBRequestLogPhase.STREAMING:
                             repeated_no_worker_message = None
                             waiting_update_count = 0
@@ -1532,7 +1540,7 @@ class ServerlessResource(DeployableResource):
                             f"assignment={assignment_state}, status={job_status}"
                         )
                         if repeated_no_worker_message:
-                            print(f"    {repeated_no_worker_message}", flush=True)
+                            print(f"    {_DIM}{repeated_no_worker_message}{_RESET}", flush=True)
 
                 last_status = job_status
 
@@ -1559,7 +1567,7 @@ class ServerlessResource(DeployableResource):
                         err = response.get("error", "")
                         print(f"  \u2717 {self.name}  {job_status}{timing}", flush=True)
                         if err:
-                            print(f"    {err}", flush=True)
+                            print(f"    {_DIM}{err}{_RESET}", flush=True)
                     else:
                         print(f"  {self.name}  {job_status}{timing}", flush=True)
                     output = response.get("output")
