@@ -423,7 +423,10 @@ def run_build(
             )
 
     if requirements:
-        with console.status(f"Installing {len(requirements)} packages..."):
+        import time as _time
+
+        t0 = _time.monotonic()
+        with console.status("[dim]installing dependencies...[/dim]"):
             success = install_dependencies(
                 build_dir,
                 requirements,
@@ -434,6 +437,10 @@ def run_build(
         if not success:
             print_error(console, "Failed to install dependencies")
             raise typer.Exit(1)
+        console.print(
+            f"[green]\u2713[/green] installed {len(requirements)} packages  "
+            f"[dim]{_time.monotonic() - t0:.1f}s[/dim]"
+        )
 
     # Always bundle the installed runpod_flash
     flash_pkg = _find_runpod_flash(project_dir)
@@ -460,7 +467,7 @@ def run_build(
     archive_name = output_name or "artifact.tar.gz"
     archive_path = project_dir / ".flash" / archive_name
 
-    with console.status("Creating archive..."):
+    with console.status("[dim]creating archive...[/dim]"):
         create_tarball(
             build_dir, archive_path, app_name, excluded_packages=excluded_packages
         )
