@@ -12,6 +12,7 @@ from runpod_flash.core.credentials import (
     save_api_key,
 )
 from runpod_flash.core.urls import RUNPOD_CONSOLE_URL
+from runpod_flash.core.constants import CONSOLE_BASE_URL
 
 console = Console()
 

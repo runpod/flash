@@ -8,6 +8,7 @@ from ..api.runpod import RunpodGraphQLClient
 from ..cli_context import cli_only
 
 from .constants import (
+from ..constants import (
     TARBALL_CONTENT_TYPE,
     MAX_TARBALL_SIZE_MB,
     VALID_TARBALL_EXTENSIONS,

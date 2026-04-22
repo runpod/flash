@@ -454,6 +454,11 @@ class TestEnsureEndpointReadyIdMode:
     async def test_lb_flag_returns_subdomain_url(self):
         ep = Endpoint(id="ep-abc123")
         with patch("runpod_flash.core.urls.ENDPOINT_DOMAIN", "api.runpod.ai"):
+        with patch(
+            "runpod_flash.endpoint.ENDPOINT_DOMAIN", "api.runpod.ai", create=True
+        ):
+            from runpod_flash.core.constants import ENDPOINT_DOMAIN
+
             with patch.object(
                 ep,
                 "_resolve_lb_url",

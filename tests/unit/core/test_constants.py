@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from runpod_flash.core.resources.constants import (
+from runpod_flash.core.constants import (
     CPU_PYTHON_VERSIONS,
     DEFAULT_PYTHON_VERSION,
     GPU_PYTHON_VERSIONS,

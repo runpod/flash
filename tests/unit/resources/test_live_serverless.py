@@ -5,6 +5,8 @@ Unit tests for LiveServerless and CpuLiveServerless classes.
 import pytest
 from runpod_flash.core.resources.constants import (
     DEFAULT_PYTHON_VERSION,
+from runpod_flash.core.constants import (
+    GPU_BASE_IMAGE_PYTHON_VERSION,
 )
 from runpod_flash.core.resources.cpu import CpuInstanceType
 from runpod_flash.core.resources.live_serverless import (

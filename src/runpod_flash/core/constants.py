@@ -4,6 +4,61 @@ import os
 # so all resources must share a single Python version. The GPU base image
 # ships every supported interpreter (3.10-3.13) side-by-side via the deadsnakes
 # PPA, but torch and CUDA-linked packages are pre-installed only for 3.12.
+# so all resources must share a single Python version. GPU images ship 3.12
+# with torch pre-installed; 3.10 and 3.11 are available via side-by-side
+# install (~7 GB alt-Python overhead) in the same base image.
+import runpod
+
+CONSOLE_BASE_URL = os.environ.get("CONSOLE_BASE_URL", "https://console.runpod.io")
+CONSOLE_URL = f"{CONSOLE_BASE_URL}/serverless/user/endpoint/%s"
+
+
+# ---------------------------------------------------------------------------
+# Runpod API URLs
+#
+# Two distinct planes, do not conflate them:
+#   - Control plane  (RUNPOD_API_BASE_URL, default https://api.runpod.io)
+#       GraphQL mgmt: pods, endpoints, templates, auth.
+#   - Data plane     (RUNPOD_ENDPOINT_BASE_URL, default https://api.runpod.ai/v2)
+#       Endpoint invocations: /runsync, /run, /status, /health, /metrics.
+#   - REST mgmt      (RUNPOD_REST_API_URL, default https://rest.runpod.io/v1)
+#       REST subset of the control plane.
+#
+# Sourced via runpod-python where possible so a single env var change
+# (RUNPOD_ENDPOINT_BASE_URL → runpod.endpoint_url_base) propagates here.
+# ---------------------------------------------------------------------------
+
+RUNPOD_API_BASE_URL: str = os.environ.get(
+    "RUNPOD_API_BASE_URL", "https://api.runpod.io"
+).rstrip("/")
+RUNPOD_REST_API_URL: str = os.environ.get(
+    "RUNPOD_REST_API_URL", "https://rest.runpod.io/v1"
+).rstrip("/")
+# runpod.endpoint_url_base honors RUNPOD_ENDPOINT_BASE_URL and already includes /v2.
+ENDPOINT_BASE_URL: str = runpod.endpoint_url_base.rstrip("/")
+
+GRAPHQL_URL: str = f"{RUNPOD_API_BASE_URL}/graphql"
+
+# HAPI (request log aggregation service) host. dev/prod split.
+HAPI_BASE_URL: str = "https://hapi.runpod.net"
+DEV_HAPI_BASE_URL: str = "https://dev-hapi.runpod.net"
+
+
+def _endpoint_domain_from_base_url(base_url: str) -> str:
+    if not base_url:
+        return "api.runpod.ai"
+    if "://" not in base_url:
+        base_url = f"https://{base_url}"
+    parsed = urlparse(base_url)
+    return parsed.netloc or "api.runpod.ai"
+
+
+ENDPOINT_DOMAIN = _endpoint_domain_from_base_url(runpod.endpoint_url_base)
+
+
+# worker runtime Python versions. all flash workers run Python 3.12.
+# one tarball serves every resource type (GPU and CPU), so packages,
+# images, and the runtime must all target 3.12.
 WORKER_PYTHON_VERSION: str = "3.12"
 GPU_PYTHON_VERSIONS: tuple[str, ...] = ("3.10", "3.11", "3.12", "3.13")
 CPU_PYTHON_VERSIONS: tuple[str, ...] = ("3.10", "3.11", "3.12", "3.13")

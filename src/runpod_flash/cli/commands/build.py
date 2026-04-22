@@ -18,6 +18,10 @@ from rich.console import Console
 
 from runpod_flash.cli.utils.formatting import print_error, print_warning
 from runpod_flash.core.resources.constants import MAX_TARBALL_SIZE_MB
+from runpod_flash.core.constants import (
+    DEFAULT_PYTHON_VERSION,
+    MAX_TARBALL_SIZE_MB,
+)
 
 from ..utils.ignore import get_file_tree, load_ignore_patterns
 from .build_utils.handler_generator import HandlerGenerator

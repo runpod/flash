@@ -369,6 +369,10 @@ def generate_stub_code(dep: RemoteDependency) -> str:
         f"{I}_base = _os.environ.get("
         f'"RUNPOD_ENDPOINT_BASE_URL", {repr(DEFAULT_ENDPOINT_URL)}).rstrip("/")',
         f'{I}_url = f"{{_base}}/{{_endpoint_id}}/runsync"',
+        f"{I}_endpoint_base = _os.environ.get(",
+        f'{I}{I}"RUNPOD_ENDPOINT_BASE_URL", "https://api.runpod.ai/v2"',
+        f"{I}).rstrip('/')",
+        f'{I}_url = f"{{_endpoint_base}}/{{_endpoint_id}}/runsync"',
         f'{I}_headers = {{"Content-Type": "application/json"}}',
         f"{I}if _api_key:",
         f'{I}{I}_headers["Authorization"] = f"Bearer {{_api_key}}"',
