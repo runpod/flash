@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from runpod_flash.core.constants import (
+from runpod_flash.core.resources.constants import (
     DEFAULT_PYTHON_VERSION,
     GPU_BASE_IMAGE_PYTHON_VERSION,
 )

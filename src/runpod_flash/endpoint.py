@@ -4,7 +4,7 @@ import logging
 import os
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from .core.constants import DEFAULT_WORKERS_MAX, DEFAULT_WORKERS_MIN
+from .core.resources.constants import DEFAULT_WORKERS_MAX, DEFAULT_WORKERS_MIN
 from .core.resources.cpu import CpuInstanceType
 from .core.resources.gpu import GpuGroup, GpuType
 from .core.resources.network_volume import DataCenter, NetworkVolume
@@ -752,7 +752,7 @@ class Endpoint:
 
     def _resolve_lb_url(self, endpoint_id: str) -> str:
         """build an LB-style url: https://{id}.{domain}"""
-        from .core.constants import ENDPOINT_DOMAIN
+        from .core.resources.constants import ENDPOINT_DOMAIN
 
         return f"https://{endpoint_id}.{ENDPOINT_DOMAIN}"
 

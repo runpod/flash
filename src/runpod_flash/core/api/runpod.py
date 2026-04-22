@@ -6,20 +6,28 @@ Bypasses the outdated runpod-python SDK limitations.
 import asyncio
 import json  # noqa: F401 - used in commented debug logs
 import logging
+import os
 from typing import Any, Dict, Optional, List
 
 import aiohttp
 
-from runpod_flash.core.constants import (
-    GRAPHQL_URL as _GRAPHQL_URL,
-    RUNPOD_REST_API_URL,
-)
 from runpod_flash.core.credentials import get_api_key
 from runpod_flash.core.exceptions import RunpodAPIKeyError
 from runpod_flash.core.utils.backoff import BackoffStrategy, get_backoff_delay
 from runpod_flash.runtime.exceptions import GraphQLMutationError, GraphQLQueryError
 
 log = logging.getLogger(__name__)
+
+# Env reads are duplicated here (also in core/resources/constants.py) to avoid
+# a circular import: core.resources.constants lives under core.resources,
+# whose __init__.py eagerly imports modules that re-enter this file.
+# Defaults MUST stay in sync with core/resources/constants.py.
+RUNPOD_API_BASE_URL = os.environ.get(
+    "RUNPOD_API_BASE_URL", "https://api.runpod.io"
+).rstrip("/")
+RUNPOD_REST_API_URL = os.environ.get(
+    "RUNPOD_REST_API_URL", "https://rest.runpod.io/v1"
+).rstrip("/")
 
 # Sensitive fields that should be redacted from logs (pre-signed URLs, tokens, etc.)
 SENSITIVE_FIELDS = {"uploadUrl", "downloadUrl", "presignedUrl"}
@@ -112,7 +120,7 @@ class RunpodGraphQLClient:
     Communicates directly with Runpod's GraphQL endpoint without SDK limitations.
     """
 
-    GRAPHQL_URL = _GRAPHQL_URL
+    GRAPHQL_URL = f"{RUNPOD_API_BASE_URL}/graphql"
 
     def __init__(self, api_key: Optional[str] = None, require_api_key: bool = True):
         # skip loading stored credentials for unauthenticated flows (e.g. login)

@@ -24,7 +24,7 @@ from ..exceptions import RunpodAPIKeyError
 from ..utils.backoff import get_backoff_delay
 from .base import DeployableResource
 from .cloud import runpod
-from ..constants import (
+from .constants import (
     CONSOLE_URL,
     DEFAULT_WORKERS_MAX,
     DEFAULT_WORKERS_MIN,

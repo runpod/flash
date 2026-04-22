@@ -12,7 +12,7 @@ import typer
 from rich.console import Console
 
 from runpod_flash.cli.utils.formatting import print_error
-from runpod_flash.core.constants import FLASH_CPU_LB_IMAGE
+from runpod_flash.core.resources.constants import FLASH_CPU_LB_IMAGE
 
 logger = logging.getLogger(__name__)
 console = Console()

@@ -24,7 +24,7 @@ class TestLiveLoadBalancer:
         monkeypatch.setenv("FLASH_IMAGE_TAG", "local")
         # Need to reload modules to pick up new env var
         import importlib
-        import runpod_flash.core.constants as const_module
+        import runpod_flash.core.resources.constants as const_module
         import runpod_flash.core.resources.live_serverless as ls_module
 
         importlib.reload(const_module)
@@ -190,7 +190,7 @@ class TestCpuLiveLoadBalancer:
         monkeypatch.setenv("FLASH_IMAGE_TAG", "local")
         # Need to reload modules to pick up new env var
         import importlib
-        import runpod_flash.core.constants as const_module
+        import runpod_flash.core.resources.constants as const_module
         import runpod_flash.core.resources.live_serverless as ls_module
 
         importlib.reload(const_module)

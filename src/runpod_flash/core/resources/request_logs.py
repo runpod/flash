@@ -9,7 +9,7 @@ from typing import Any, List, Optional
 
 import httpx
 
-from runpod_flash.core.constants import (
+from .constants import (
     DEV_HAPI_BASE_URL,
     ENDPOINT_BASE_URL,
     HAPI_BASE_URL,

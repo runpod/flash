@@ -22,7 +22,7 @@ except ImportError:
     import tomli as tomllib  # Python 3.10
 
 from runpod_flash.cli.utils.formatting import print_error, print_warning
-from runpod_flash.core.constants import (
+from runpod_flash.core.resources.constants import (
     DEFAULT_PYTHON_VERSION,
     MAX_TARBALL_SIZE_MB,
 )
