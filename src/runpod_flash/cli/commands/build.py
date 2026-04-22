@@ -409,9 +409,9 @@ def run_build(
         requirements = filtered_requirements
 
         if auto_matched:
-            console.print(
-                f"[dim]Auto-excluded size-prohibitive packages: "
-                f"{', '.join(sorted(auto_matched))}[/dim]"
+            logger.debug(
+                "auto-excluded size-prohibitive packages: %s",
+                ", ".join(sorted(auto_matched)),
             )
 
         # Only warn about unmatched user-specified packages (not auto-excludes)
@@ -928,8 +928,9 @@ def install_dependencies(
     local_version = f"{sys.version_info.major}.{sys.version_info.minor}"
     pip_python_version = target_python_version or local_version
     if target_python_version and target_python_version != local_version:
-        console.print(
-            f"[dim]Downloading wheels for Python {target_python_version} (container runtime)[/dim]"
+        logger.debug(
+            "downloading wheels for python %s (container runtime)",
+            target_python_version,
         )
 
     # Build pip command with platform-specific flags for RunPod serverless

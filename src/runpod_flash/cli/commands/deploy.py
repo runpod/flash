@@ -123,7 +123,7 @@ def _display_post_deployment_guidance(
     resources: dict[str, Any],
     routes: dict[str, dict[str, str]],
 ) -> None:
-    """Display helpful next steps after successful deployment."""
+    """Display endpoint list and curl example after deployment."""
     lb_entries: list[tuple[str, str, dict[str, str]]] = []
     qb_entries: list[tuple[str, str]] = []
 
@@ -137,26 +137,30 @@ def _display_post_deployment_guidance(
     if not qb_entries and not lb_entries:
         return
 
-    # merge into a single ordered list for the tree
-    all_entries: list[tuple[str, str, dict[str, str] | None]] = []
+    console.print()
+
+    # collect rows for alignment: (name, url_display, routes_info)
+    max_name = 0
+    rows: list[tuple[str, str, list[tuple[str, str]]]] = []
+
     for name, url in qb_entries:
-        all_entries.append((name, url, None))
+        max_name = max(max_name, len(name))
+        rows.append((name, f"{url}/runsync", []))
+
     for name, url, lb_routes in lb_entries:
-        all_entries.append((name, url, lb_routes))
+        max_name = max(max_name, len(name))
+        route_list = []
+        for k in sorted(lb_routes.keys()):
+            m, p = k.split(" ", 1)
+            route_list.append((m, p))
+        rows.append((name, url, route_list))
 
-    for i, (name, url, lb_routes) in enumerate(all_entries):
-        is_last = i == len(all_entries) - 1
-        prefix = "\u2514\u2500\u2500" if is_last else "\u251c\u2500\u2500"
-        cont = "   " if is_last else "\u2502  "
-
-        if lb_routes:
-            console.print(f"{prefix} {name}  {url}")
-            sorted_routes = sorted(lb_routes.keys())
-            for j, route_key in enumerate(sorted_routes):
-                method, path = route_key.split(" ", 1)
-                console.print(f"{cont} [dim]{method:6s}{path}[/dim]")
-        else:
-            console.print(f"{prefix} {name}  {url}/runsync")
+    for name, url, route_list in rows:
+        console.print(f"  [white]{name:<{max_name}}[/white]  [dim]{url}[/dim]")
+        for method, path in route_list:
+            console.print(
+                f"  {' ' * max_name}  [dim]{method:6s}{path}[/dim]"
+            )
 
     # one curl example
     curl_url = None
@@ -205,19 +209,30 @@ def _launch_preview(project_dir):
 async def _resolve_and_deploy(
     app_name: str, env_name: str | None, archive_path
 ) -> None:
+    import time as _time
+
     app, resolved_env_name = await _resolve_environment(app_name, env_name)
 
     local_manifest = validate_local_manifest()
 
-    with console.status("Uploading build..."):
+    t0 = _time.monotonic()
+    with console.status("[dim]uploading...[/dim]"):
         build = await app.upload_build(archive_path)
+    upload_s = _time.monotonic() - t0
+    console.print(
+        f"[green]\u2713[/green] uploaded  [dim]{upload_s:.1f}s[/dim]"
+    )
 
-    with console.status("Deploying resources..."):
+    t0 = _time.monotonic()
+    with console.status("[dim]deploying...[/dim]"):
         result = await deploy_from_uploaded_build(
             app, build["id"], resolved_env_name, local_manifest
         )
-
-    console.print(f"\n[green]\u2713[/green] deployed to {resolved_env_name}")
+    deploy_s = _time.monotonic() - t0
+    console.print(
+        f"[green]\u2713[/green] deployed to [bold]{resolved_env_name}[/bold]  "
+        f"[dim]{deploy_s:.1f}s[/dim]"
+    )
 
     resources_endpoints = result.get("resources_endpoints", {})
     manifest = result.get("local_manifest", {})
