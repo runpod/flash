@@ -134,9 +134,9 @@ class TestCloudpickleDeserializationSafety:
 
     def test_api_endpoints_use_https(self):
         """Verify API endpoints default to HTTPS (TLS transport)."""
-        from runpod_flash.core.api.runpod import RunpodGraphQLClient
+        from runpod_flash.core.urls import GRAPHQL_URL
 
-        assert RunpodGraphQLClient.GRAPHQL_URL.startswith("https://")
+        assert GRAPHQL_URL.startswith("https://")
 
     def test_rest_api_uses_https(self):
         """Verify REST API endpoints default to HTTPS."""
