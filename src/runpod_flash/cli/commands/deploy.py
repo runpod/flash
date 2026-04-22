@@ -134,39 +134,52 @@ def _display_post_deployment_guidance(
         else:
             qb_entries.append((resource_name, url))
 
-    for name, url in qb_entries:
-        console.print(f"\n{name}  [dim]QB[/dim]")
-        console.print(f"{url}/runsync")
+    if not qb_entries and not lb_entries:
+        return
 
+    # merge into a single ordered list for the tree
+    all_entries: list[tuple[str, str, dict[str, str] | None]] = []
+    for name, url in qb_entries:
+        all_entries.append((name, url, None))
     for name, url, lb_routes in lb_entries:
-        console.print(f"\n{name}  [dim]LB[/dim]")
-        for route_key in sorted(lb_routes.keys()):
-            method, path = route_key.split(" ", 1)
-            console.print(f"{method:6s} {url}{path}")
+        all_entries.append((name, url, lb_routes))
+
+    for i, (name, url, lb_routes) in enumerate(all_entries):
+        is_last = i == len(all_entries) - 1
+        prefix = "\u2514\u2500\u2500" if is_last else "\u251c\u2500\u2500"
+        cont = "   " if is_last else "\u2502  "
+
+        if lb_routes:
+            console.print(f"{prefix} {name}  {url}")
+            sorted_routes = sorted(lb_routes.keys())
+            for j, route_key in enumerate(sorted_routes):
+                method, path = route_key.split(" ", 1)
+                console.print(f"{cont} [dim]{method:6s}{path}[/dim]")
+        else:
+            console.print(f"{prefix} {name}  {url}/runsync")
 
     # one curl example
+    curl_url = None
+    curl_method = "POST"
     if qb_entries:
-        first_url = qb_entries[0][1]
-        console.print()
-        _print_curl_example(f"{first_url}/runsync")
+        curl_url = f"{qb_entries[0][1]}/runsync"
     elif lb_entries:
-        _name, curl_url, lb_routes = lb_entries[0]
-        post_routes = [
-            k.split(" ", 1)[1]
-            for k in sorted(lb_routes.keys())
-            if k.startswith("POST ")
-        ]
-        get_routes = [
-            k.split(" ", 1)[1]
-            for k in sorted(lb_routes.keys())
-            if k.startswith("GET ")
-        ]
-        if post_routes:
-            console.print()
-            _print_curl_example(f"{curl_url}{post_routes[0]}")
-        elif get_routes:
-            console.print()
-            _print_curl_example(f"{curl_url}{get_routes[0]}", method="GET")
+        _name, base_url, lb_routes = lb_entries[0]
+        for k in sorted(lb_routes.keys()):
+            m, p = k.split(" ", 1)
+            if m == "POST":
+                curl_url = f"{base_url}{p}"
+                break
+        if not curl_url:
+            for k in sorted(lb_routes.keys()):
+                m, p = k.split(" ", 1)
+                curl_url = f"{base_url}{p}"
+                curl_method = m
+                break
+
+    if curl_url:
+        console.print()
+        _print_curl_example(curl_url, method=curl_method)
 
 
 
