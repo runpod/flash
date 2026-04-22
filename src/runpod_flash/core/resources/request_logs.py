@@ -8,7 +8,7 @@ from typing import Any, List, Optional
 
 import httpx
 
-from .constants import ENDPOINT_BASE_URL, HAPI_BASE_URL
+from ..urls import ENDPOINT_BASE_URL, HAPI_BASE_URL
 from runpod_flash.core.utils.http import get_authenticated_httpx_client
 
 log = logging.getLogger(__name__)
