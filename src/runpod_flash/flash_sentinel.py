@@ -53,7 +53,7 @@ async def _sentinel_qb_post(
     env: str,
     endpoint_name: str,
     payload: Dict[str, Any],
-    timeout: float = 300,
+    timeout: float = 30,
 ) -> Dict[str, Any]:
     """post a payload to the sentinel runsync URL and return the raw response dict."""
     url = f"{runpod.endpoint_url_base}/{FLASH_SENTINEL_ID}/runsync"
@@ -61,15 +61,25 @@ async def _sentinel_qb_post(
 
     log.debug("sentinel QB -> %s/%s/%s", app, env, endpoint_name)
 
-    async with _http.get_authenticated_httpx_client(timeout=timeout) as client:
-        response = await client.post(url, json=payload, headers=headers)
-        if response.status_code == 404:
+    try:
+        async with _http.get_authenticated_httpx_client(timeout=timeout) as client:
+            response = await client.post(url, json=payload, headers=headers)
+    except Exception as exc:
+        if "timeout" in type(exc).__name__.lower() or "timeout" in str(exc).lower():
             raise RuntimeError(
-                f"endpoint '{endpoint_name}' not found in app '{app}' "
-                f"environment '{env}'. deploy it first with 'flash deploy'."
-            )
-        response.raise_for_status()
-        return response.json()
+                f"request to endpoint '{endpoint_name}' timed out after {timeout}s. "
+                f"the endpoint may not be deployed or the worker is still starting. "
+                f"deploy with 'flash deploy' or check endpoint status."
+            ) from exc
+        raise
+
+    if response.status_code == 404:
+        raise RuntimeError(
+            f"endpoint '{endpoint_name}' not found in app '{app}' "
+            f"environment '{env}'. deploy it first with 'flash deploy'."
+        )
+    response.raise_for_status()
+    return response.json()
 
 
 def _handle_sentinel_response(data: Dict[str, Any]) -> Any:
