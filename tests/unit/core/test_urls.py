@@ -4,6 +4,8 @@ import importlib
 import sys
 import warnings
 
+import pytest
+
 
 def _reload_urls_module():
     """Reload core.urls so module-level env reads pick up the current env."""
@@ -118,3 +120,103 @@ class TestConsoleDeprecationShim:
         monkeypatch.delenv("CONSOLE_BASE_URL", raising=False)
         mod = _reload_urls_module()
         assert mod.RUNPOD_CONSOLE_URL == "https://console.runpod.io"
+
+
+class TestPartialOverrideWarning:
+    """A partial URL override is a common misconfiguration signal."""
+
+    @pytest.fixture(autouse=True)
+    def clear_all_url_env(self, monkeypatch):
+        for name in (
+            "RUNPOD_API_BASE_URL",
+            "RUNPOD_ENDPOINT_BASE_URL",
+            "RUNPOD_REST_API_URL",
+            "RUNPOD_HAPI_URL",
+            "RUNPOD_HAPI_BASE_URL",
+            "RUNPOD_CONSOLE_URL",
+            "CONSOLE_BASE_URL",
+        ):
+            monkeypatch.delenv(name, raising=False)
+
+    @pytest.fixture
+    def prod_runpod_endpoint(self, monkeypatch):
+        """Pin runpod.endpoint_url_base to prod default.
+
+        ``runpod.endpoint_url_base`` is captured once at runpod-package
+        import time and never re-read, so deleting ``RUNPOD_ENDPOINT_BASE_URL``
+        from the environment does not reset it. Tests that want the endpoint
+        URL to look like prod must force it here; otherwise a leaked env var
+        in the host shell or CI runner makes the resolved endpoint URL
+        "overridden" and silently corrupts assertions.
+        """
+        import runpod
+
+        monkeypatch.setattr(runpod, "endpoint_url_base", "https://api.runpod.ai/v2")
+
+    @pytest.fixture
+    def custom_runpod_endpoint(self, monkeypatch):
+        """Pin runpod.endpoint_url_base to a custom dev-like URL.
+
+        Same caching caveat as ``prod_runpod_endpoint``: setting
+        ``RUNPOD_ENDPOINT_BASE_URL`` via ``monkeypatch.setenv`` is not
+        sufficient because ``runpod.endpoint_url_base`` was already cached.
+        """
+        import runpod
+
+        monkeypatch.setattr(
+            runpod, "endpoint_url_base", "https://endpoint.custom.test/v2"
+        )
+
+    def test_no_warning_when_all_at_default(self, prod_runpod_endpoint):
+        with warnings.catch_warnings(record=True) as captured:
+            warnings.simplefilter("always")
+            _reload_urls_module()
+        assert not any(
+            issubclass(w.category, RuntimeWarning)
+            and "Partial Runpod URL override" in str(w.message)
+            for w in captured
+        )
+
+    def test_warning_when_partially_overridden(self, monkeypatch, prod_runpod_endpoint):
+        monkeypatch.setenv("RUNPOD_API_BASE_URL", "https://api.custom.test")
+
+        with warnings.catch_warnings(record=True) as captured:
+            warnings.simplefilter("always")
+            _reload_urls_module()
+
+        matches = [
+            w
+            for w in captured
+            if issubclass(w.category, RuntimeWarning)
+            and "Partial Runpod URL override" in str(w.message)
+        ]
+        assert matches, "Expected a partial-override RuntimeWarning"
+        msg = str(matches[0].message)
+        overridden_section = msg.split("Overridden:")[1].split("Still at default:")[0]
+        default_section = msg.split("Still at default:")[1]
+        assert "RUNPOD_API_BASE_URL" in overridden_section
+        for name in (
+            "RUNPOD_ENDPOINT_BASE_URL",
+            "RUNPOD_REST_API_URL",
+            "RUNPOD_HAPI_URL",
+            "RUNPOD_CONSOLE_URL",
+        ):
+            assert name in default_section, f"{name} miscategorized"
+
+    def test_no_warning_when_all_overridden(self, monkeypatch, custom_runpod_endpoint):
+        monkeypatch.setenv("RUNPOD_API_BASE_URL", "https://api.custom.test")
+        monkeypatch.setenv(
+            "RUNPOD_ENDPOINT_BASE_URL", "https://endpoint.custom.test/v2"
+        )
+        monkeypatch.setenv("RUNPOD_REST_API_URL", "https://rest.custom.test/v1")
+        monkeypatch.setenv("RUNPOD_HAPI_URL", "https://hapi.custom.test")
+        monkeypatch.setenv("RUNPOD_CONSOLE_URL", "https://console.custom.test")
+
+        with warnings.catch_warnings(record=True) as captured:
+            warnings.simplefilter("always")
+            _reload_urls_module()
+        assert not any(
+            issubclass(w.category, RuntimeWarning)
+            and "Partial Runpod URL override" in str(w.message)
+            for w in captured
+        )

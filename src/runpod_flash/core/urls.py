@@ -79,3 +79,43 @@ def _endpoint_domain_from_base_url(base_url: str) -> str:
 
 
 ENDPOINT_DOMAIN: str = _endpoint_domain_from_base_url(RUNPOD_ENDPOINT_URL)
+
+# ---------------------------------------------------------------------------
+# Partial-override sanity warning
+#
+# If a user overrides some URLs but leaves others at their prod defaults, it
+# is almost always a misconfiguration — they meant to target a non-prod
+# environment but forgot a var. One RuntimeWarning at init; not fatal because
+# legitimate mixed setups exist (e.g. dev control plane + prod HAPI).
+# ---------------------------------------------------------------------------
+
+_DEFAULTS = {
+    "RUNPOD_API_BASE_URL": "https://api.runpod.io",
+    "RUNPOD_ENDPOINT_BASE_URL": "https://api.runpod.ai/v2",
+    "RUNPOD_REST_API_URL": "https://rest.runpod.io/v1",
+    "RUNPOD_HAPI_URL": "https://hapi.runpod.net",
+    "RUNPOD_CONSOLE_URL": "https://console.runpod.io",
+}
+_resolved = {
+    "RUNPOD_API_BASE_URL": RUNPOD_API_URL,
+    "RUNPOD_ENDPOINT_BASE_URL": RUNPOD_ENDPOINT_URL,
+    "RUNPOD_REST_API_URL": RUNPOD_REST_API_URL,
+    "RUNPOD_HAPI_URL": RUNPOD_HAPI_URL,
+    "RUNPOD_CONSOLE_URL": RUNPOD_CONSOLE_URL,
+}
+_overridden = sorted(
+    name for name, value in _resolved.items() if value != _DEFAULTS[name].rstrip("/")
+)
+_at_default = sorted(
+    name for name, value in _resolved.items() if value == _DEFAULTS[name].rstrip("/")
+)
+if _overridden and _at_default:
+    warnings.warn(
+        "Partial Runpod URL override detected. "
+        f"Overridden: {_overridden}. Still at default: {_at_default}. "
+        "This is usually a misconfiguration — set all URLs for the target environment.",
+        RuntimeWarning,
+        stacklevel=2,
+    )
+
+del _DEFAULTS, _resolved, _overridden, _at_default
