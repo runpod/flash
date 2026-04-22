@@ -1,14 +1,4 @@
-"""console output for flash dev runtime.
-
-G1a format: timestamp + name prefix + colored phase labels.
-
-    17:43:01 POST /gpu_worker/runsync
-    17:43:01 gpu_worker │ waiting no gpu availability for ADA_24
-    17:43:10 gpu_worker │ pulling flash-gpu:py3.12-latest
-    17:43:55 gpu_worker │ ready xk29fjal
-    17:43:56 gpu_worker │ hello from gpu worker
-    17:43:57 ✓ gpu_worker 0.1s  queued 55.1s
-"""
+"""console output for flash dev runtime."""
 
 import time
 from datetime import datetime
@@ -19,22 +9,42 @@ console = Console(highlight=False)
 
 _LIVE_PREFIX = "live-"
 
+# set by the dev server at startup so all name columns align
+_name_width: int = 0
 
-def _name(name: str) -> str:
-    """strip internal 'live-' prefix from endpoint names for display."""
+
+def set_name_width(names: list[str]) -> None:
+    """compute and store the max display name width for column alignment."""
+    global _name_width
+    _name_width = max((len(_strip_prefix(n)) for n in names), default=0)
+
+
+def _strip_prefix(name: str) -> str:
     if name.startswith(_LIVE_PREFIX):
         return name[len(_LIVE_PREFIX) :]
     return name
 
 
+def _name(name: str) -> str:
+    """strip live- prefix."""
+    return _strip_prefix(name)
+
+
+def _padded(name: str) -> str:
+    """strip live- prefix and pad to the shared column width."""
+    n = _strip_prefix(name)
+    if _name_width:
+        return f"{n:<{_name_width}}"
+    return n
+
+
 def _ts() -> str:
-    """current wall-clock time as HH:MM:SS, dim."""
     return f"[dim]{datetime.now().strftime('%H:%M:%S')}[/dim]"
 
 
-def _pipe(name: str) -> str:
-    """name │ prefix for worker log lines."""
-    return f"{name} [dim]│[/dim]"
+def _pipe(raw_name: str) -> str:
+    """padded name │ prefix. accepts raw name (with or without live- prefix)."""
+    return f"{_padded(raw_name)} [dim]│[/dim]"
 
 
 # -- request lifecycle --
@@ -48,34 +58,25 @@ def print_dispatch(name: str, method: str = "POST", path: str | None = None) -> 
 
 
 def print_diagnostic(name: str, message: str) -> None:
-    """print a waiting/diagnostic message (yellow label)."""
-    name = _name(name)
     console.print(f"{_ts()} {_pipe(name)} [yellow]waiting[/yellow] [dim]{message}[/dim]")
 
 
 def print_pulling(name: str, image: str, worker_id: str | None = None) -> "PullProgress":
-    """print pulling message and return a handle to finalize."""
-    name = _name(name)
     return PullProgress(name, image, worker_id)
 
 
 def print_worker_ready(name: str, worker_id: str) -> None:
-    """print when a worker is ready to execute."""
-    name = _name(name)
     short_id = worker_id[:8] if len(worker_id) > 8 else worker_id
     console.print(f"{_ts()} {_pipe(name)} [green]ready[/green] [dim]{short_id}[/dim]")
 
 
 def print_worker_log(name: str, line: str) -> None:
-    """print a user log line from the worker."""
-    name = _name(name)
     console.print(f"{_ts()} {_pipe(name)} {line}")
 
 
 def print_completed(name: str, elapsed_ms: int | None, delay_ms: int | None) -> None:
-    name = _name(name)
     timing = _format_timing(elapsed_ms, delay_ms)
-    console.print(f"{_ts()} [green]✓[/green] {name} {timing}")
+    console.print(f"{_ts()} [green]✓[/green] {_padded(name)} {timing}")
 
 
 def print_failed(
@@ -84,35 +85,30 @@ def print_failed(
     delay_ms: int | None,
     error: str | None = None,
 ) -> None:
-    name = _name(name)
     timing = _format_timing(elapsed_ms, delay_ms)
-    console.print(f"{_ts()} [red]✗[/red] {name} {timing}")
+    console.print(f"{_ts()} [red]✗[/red] {_padded(name)} {timing}")
     if error:
         console.print(f"         [dim]{error}[/dim]")
 
 
 def print_cancelled(name: str, elapsed_ms: int | None, delay_ms: int | None) -> None:
-    name = _name(name)
     timing = _format_timing(elapsed_ms, delay_ms)
-    console.print(f"{_ts()} [yellow]–[/yellow] {name} [dim]cancelled[/dim] {timing}")
+    console.print(f"{_ts()} [yellow]–[/yellow] {_padded(name)} [dim]cancelled[/dim] {timing}")
 
 
 # -- load balancer requests --
 
 
 def print_lb_request(name: str, method: str, path: str) -> None:
-    name = _name(name)
     console.print(f"{_ts()} [white]{method}[/white] {path}")
 
 
 def print_lb_completed(name: str, elapsed_s: float) -> None:
-    name = _name(name)
-    console.print(f"{_ts()} [green]✓[/green] {name} [dim]{elapsed_s:.1f}s[/dim]")
+    console.print(f"{_ts()} [green]✓[/green] {_padded(name)} [dim]{elapsed_s:.1f}s[/dim]")
 
 
 def print_lb_failed(name: str, error: str) -> None:
-    name = _name(name)
-    console.print(f"{_ts()} [red]✗[/red] {name}")
+    console.print(f"{_ts()} [red]✗[/red] {_padded(name)}")
     console.print(f"         [dim]{error}[/dim]")
 
 

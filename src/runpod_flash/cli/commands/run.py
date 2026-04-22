@@ -1077,6 +1077,10 @@ def run_command(
     # Generate .flash/server.py
     _generate_flash_server(project_root, workers)
 
+    from runpod_flash.dev_console import set_name_width
+
+    set_name_width([w.name for w in workers])
+
     _print_startup_table(workers, host, port)
 
     # Build uvicorn command using --app-dir so server:app is importable
