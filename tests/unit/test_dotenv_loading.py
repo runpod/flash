@@ -352,6 +352,7 @@ ANOTHER_VALID=another_value
             from runpod_flash.core.urls import RUNPOD_API_URL
             from runpod_flash.core.constants import RUNPOD_API_BASE_URL
             from runpod_flash.core.resources.constants import RUNPOD_API_BASE_URL
+            from runpod_flash.core.urls import RUNPOD_API_BASE_URL
 
             assert RUNPOD_API_URL == "https://custom-api.runpod.io"
 
