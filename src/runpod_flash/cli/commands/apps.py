@@ -48,35 +48,43 @@ async def list_flash_apps():
         console.print("  run [bold]flash deploy[/bold] to create one\n")
         return
 
-    console.print()
+    # build rows
+    rows = []
     for app_data in apps:
         name = app_data.get("name", "(unnamed)")
         environments = app_data.get("flashEnvironments") or []
         builds = app_data.get("flashBuilds") or []
-
-        env_count = len(environments)
-        build_count = len(builds)
-        console.print(
-            f"  [bold]{name}[/bold]  "
-            f"[dim]{env_count} env{'s' if env_count != 1 else ''}  "
-            f"{build_count} build{'s' if build_count != 1 else ''}[/dim]"
-        )
-
+        env_names = []
         for env in environments:
             state = env.get("state", "UNKNOWN")
             env_name = env.get("name", "?")
+            env_names.append((env_name, state))
+        rows.append((name, len(environments), len(builds), env_names))
+
+    max_name = max(len(r[0]) for r in rows)
+    max_envs = max(len(str(r[1])) for r in rows)
+    max_builds = max(len(str(r[2])) for r in rows)
+
+    console.print()
+    console.print(
+        f"  [dim]{'name':<{max_name}}  {'envs':>{max_envs + 1}}  {'builds':>{max_builds + 1}}[/dim]"
+    )
+    for name, env_count, build_count, env_names in rows:
+        console.print(
+            f"  [white]{name:<{max_name}}[/white]  "
+            f"[dim]{env_count:>{max_envs + 1}}  {build_count:>{max_builds + 1}}[/dim]"
+        )
+        for env_name, state in env_names:
             console.print(
                 f"    {state_dot(state)} {env_name}  [dim]{state.lower()}[/dim]"
             )
-
     console.print()
 
 
 async def create_flash_app(app_name: str):
     with console.status("[dim]creating...[/dim]"):
         app = await FlashApp.create(app_name)
-
-    console.print(f"[green]✓[/green] created app [bold]{app_name}[/bold]")
+    console.print(f"[green]\u2713[/green] created app [bold]{app_name}[/bold]")
 
 
 async def get_flash_app(app_name: str):
@@ -86,33 +94,35 @@ async def get_flash_app(app_name: str):
 
     console.print(f"\n  [bold]{app.name}[/bold]\n")
 
-    # environments
+    # environments table
     if envs:
-        max_name = max(len(e.get("name", "")) for e in envs)
+        max_name = max(len(e.get("name", "") or "") for e in envs)
+        console.print(
+            f"  [dim]{'name':<{max_name}}  state         build[/dim]"
+        )
         for env in envs:
             name = env.get("name", "(unnamed)")
             state = env.get("state", "UNKNOWN")
             build_id = env.get("activeBuildId") or "-"
-            created = format_datetime(env.get("createdAt"))
-
+            short_build = build_id[:12] if len(build_id) > 12 else build_id
             console.print(
                 f"  {state_dot(state)} [white]{name:<{max_name}}[/white]  "
-                f"[dim]build {build_id}  {created}[/dim]"
+                f"[dim]{state.lower():<12}[/dim]  "
+                f"[dim]{short_build}[/dim]"
             )
     else:
         console.print("  [dim]no environments. run [/dim][bold]flash deploy[/bold]")
 
-    # builds
+    # builds table
     if builds:
-        console.print(f"\n  [dim]{len(builds)} build{'s' if len(builds) != 1 else ''}[/dim]")
+        console.print(f"\n  [dim]builds ({len(builds)})[/dim]")
         for build in builds[:5]:
             build_id = build.get("id", "")
+            short_id = build_id[:12] if len(build_id) > 12 else build_id
             created = format_datetime(build.get("createdAt"))
-            console.print(f"    [dim]{build_id}  {created}[/dim]")
+            console.print(f"  [dim]{short_id}  {created}[/dim]")
         if len(builds) > 5:
-            console.print(
-                f"    [dim]+ {len(builds) - 5} more[/dim]"
-            )
+            console.print(f"  [dim]+ {len(builds) - 5} more[/dim]")
 
     console.print()
 
@@ -120,9 +130,8 @@ async def get_flash_app(app_name: str):
 async def delete_flash_app(app_name: str):
     with console.status("[dim]deleting...[/dim]"):
         success = await FlashApp.delete(app_name=app_name)
-
     if success:
-        console.print(f"[green]✓[/green] deleted app [bold]{app_name}[/bold]")
+        console.print(f"[green]\u2713[/green] deleted app [bold]{app_name}[/bold]")
     else:
         print_error(console, f"failed to delete app '{app_name}'")
         raise typer.Exit(1)

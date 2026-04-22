@@ -109,20 +109,19 @@ async def _list_environments(app_name: str):
     console.print(f"\n  [bold]{app_name}[/bold]\n")
 
     max_name = max(len(e.get("name", "") or "") for e in envs)
+
+    console.print(
+        f"  [dim]  {'name':<{max_name}}  state         deployed[/dim]"
+    )
     for env in envs:
         name = env.get("name", "(unnamed)")
         state = env.get("state", "UNKNOWN")
-        build = env.get("activeBuildId")
         created = format_datetime(env.get("createdAt"))
-
-        parts = []
-        if build:
-            parts.append(f"build {build}")
-        parts.append(created)
 
         console.print(
             f"  {state_dot(state)} [white]{name:<{max_name}}[/white]  "
-            f"[dim]{'  ·  '.join(parts)}[/dim]"
+            f"[dim]{state.lower():<12}[/dim]  "
+            f"[dim]{created}[/dim]"
         )
 
     console.print()
@@ -165,36 +164,39 @@ async def _get_environment(app_name: str, env_name: str):
     env = await app.get_environment_by_name(env_name)
 
     state = env.get("state", "UNKNOWN")
+    build_id = env.get("activeBuildId") or "-"
+    short_build = build_id[:12] if len(build_id) > 12 else build_id
 
     console.print(
         f"\n  {state_dot(state)} [bold]{env.get('name')}[/bold]  "
         f"[dim]{state.lower()}[/dim]"
     )
+    console.print()
+    console.print(f"  [dim]app    [/dim] {app_name}")
+    console.print(f"  [dim]build  [/dim] {short_build}")
 
-    # key-value details
-    build_id = env.get("activeBuildId") or "none"
-    console.print(f"    [dim]app    [/dim] {app_name}")
-    console.print(f"    [dim]build  [/dim] {build_id}")
-
-    # endpoints
+    # endpoints table
     endpoints = env.get("endpoints") or []
     network_volumes = env.get("networkVolumes") or []
 
     if endpoints:
         console.print()
         max_ep = max(len(ep.get("name", "") or "") for ep in endpoints)
+        console.print(f"  [dim]{'endpoint':<{max_ep}}  id[/dim]")
         for ep in endpoints:
             ep_name = ep.get("name", "-")
             ep_id = ep.get("id", "")
             console.print(
-                f"    [white]{ep_name:<{max_ep}}[/white]  [dim]{ep_id}[/dim]"
+                f"  [white]{ep_name:<{max_ep}}[/white]  [dim]{ep_id}[/dim]"
             )
 
     if network_volumes:
         console.print()
+        max_nv = max(len(nv.get("name", "") or "") for nv in network_volumes)
+        console.print(f"  [dim]{'volume':<{max_nv}}  id[/dim]")
         for nv in network_volumes:
             console.print(
-                f"    [white]{nv.get('name', '-')}[/white]  [dim]{nv.get('id', '')}[/dim]"
+                f"  [white]{nv.get('name', '-'):<{max_nv}}[/white]  [dim]{nv.get('id', '')}[/dim]"
             )
 
     if not endpoints and not network_volumes:
