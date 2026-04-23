@@ -380,7 +380,7 @@ production
 
 ### Deployment Workflow
 
-1. **Develop locally**: Test with `flash run` or `flash deploy --preview`
+1. **Develop locally**: Test with `flash dev` or `flash deploy --preview`
 2. **Deploy to dev**: `flash deploy --env dev` for initial testing
 3. **Deploy to staging**: `flash deploy --env staging` for QA validation
 4. **Deploy to production**: `flash deploy --env production` after approval

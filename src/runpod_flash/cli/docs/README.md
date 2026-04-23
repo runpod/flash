@@ -1,10 +1,10 @@
 # Flash CLI Documentation
 
-Command-line interface for Flash -- distributed inference and serving framework.
+Command-line interface for Flash - distributed inference and serving framework.
 
-## Quick Start
+## Quick start
 
-If you haven't already, install Flash:
+Install Flash:
 
 ```bash
 pip install runpod-flash
@@ -18,30 +18,33 @@ cd my-project
 uv sync                          # or: pip install -r requirements.txt
 ```
 
-Authenticate with Runpod (saves API key to `~/.runpod/config.toml`):
+Authenticate with RunPod (saves API key to `~/.runpod/config.toml`):
 ```bash
 flash login
 ```
 
 Alternatively, set your API key via environment variable or `.env` file:
 ```bash
-# Shell environment variable (highest priority)
 export RUNPOD_API_KEY=your_api_key_here
-
-# Or .env file in project root (second priority)
-echo "RUNPOD_API_KEY=your_api_key_here" > .env
+# or add to .env file
 ```
 
-Start the development server to test your endpoints:
-
-```bash
-flash run
-```
-
-When you're ready to deploy your application to Runpod, use:
+Deploy your application to RunPod:
 
 ```bash
 flash deploy
+```
+
+Run your script to call deployed endpoints:
+
+```bash
+python gpu_demo.py
+```
+
+For local development with hot-reload:
+
+```bash
+flash dev
 ```
 
 
@@ -60,13 +63,8 @@ flash init [PROJECT_NAME] [OPTIONS]
 
 **Examples:**
 ```bash
-# Create new project
 flash init my-project
-
-# Initialize in current directory
 flash init .
-
-# Overwrite existing files
 flash init my-project --force
 ```
 
@@ -92,9 +90,9 @@ flash build [OPTIONS]
 **Example:**
 ```bash
 flash build
-flash build --preview                                 # Build and test locally
+flash build --preview
 flash build --keep-build --output deploy.tar.gz
-flash build --exclude torch,torchvision,torchaudio   # Exclude large packages
+flash build --exclude torch,torchvision,torchaudio
 ```
 
 [Full documentation](./flash-build.md)
@@ -103,7 +101,7 @@ flash build --exclude torch,torchvision,torchaudio   # Exclude large packages
 
 ### flash deploy
 
-Build and deploy Flash applications to Runpod Serverless endpoints in one step.
+Build and deploy Flash applications to RunPod Serverless endpoints.
 
 ```bash
 flash deploy [OPTIONS]
@@ -119,16 +117,9 @@ flash deploy [OPTIONS]
 
 **Examples:**
 ```bash
-# Build and deploy (auto-selects environment if only one exists)
 flash deploy
-
-# Deploy to specific environment
 flash deploy --env staging
-
-# Deploy with excluded packages
 flash deploy --exclude torch,torchvision,torchaudio
-
-# Build and test locally before deploying
 flash deploy --preview
 ```
 
@@ -136,12 +127,14 @@ flash deploy --preview
 
 ---
 
-### flash run
+### flash dev
 
-Start a Flash development server for testing/debugging/development.
+Start a Flash development server for testing, debugging, and local development.
+
+`flash run` is a hidden alias for `flash dev`.
 
 ```bash
-flash run [OPTIONS]
+flash dev [OPTIONS]
 ```
 
 **Options:**
@@ -152,8 +145,8 @@ flash run [OPTIONS]
 
 **Example:**
 ```bash
-flash run
-flash run --port 3000
+flash dev
+flash dev --port 3000
 ```
 
 [Full documentation](./flash-run.md)
@@ -179,16 +172,9 @@ flash env <subcommand> [OPTIONS]
 
 **Examples:**
 ```bash
-# List all environments
 flash env list
-
-# Create new environment
 flash env create staging
-
-# Get environment details
 flash env get production
-
-# Delete environment
 flash env delete dev
 ```
 
@@ -215,16 +201,9 @@ flash app <subcommand> [OPTIONS]
 
 **Examples:**
 ```bash
-# List all apps
 flash app list
-
-# Create new app
 flash app create my-project
-
-# Get app details
 flash app get my-project
-
-# Delete app
 flash app delete --app my-project
 ```
 
@@ -234,7 +213,7 @@ flash app delete --app my-project
 
 ### flash undeploy
 
-Manage and delete Runpod serverless endpoints.
+Manage and delete RunPod serverless endpoints.
 
 ```bash
 flash undeploy [NAME|list] [OPTIONS]
@@ -248,27 +227,12 @@ flash undeploy [NAME|list] [OPTIONS]
 **Examples:**
 
 ```bash
-# List all tracked endpoints
 flash undeploy list
-
-# Undeploy specific endpoint by name
 flash undeploy my-api
-
-# Undeploy all endpoints
 flash undeploy --all
-
-# Interactive selection
 flash undeploy --interactive
-
-# Clean up stale endpoint tracking
 flash undeploy --cleanup-stale
 ```
-
-**Status Indicators:**
-
-- 🟢 **Active**: Endpoint is running and healthy
-- 🔴 **Inactive**: Endpoint deleted externally (use --cleanup-stale to remove from tracking)
-- ❓ **Unknown**: Health check failed
 
 [Full documentation](./flash-undeploy.md)
 
@@ -276,21 +240,16 @@ flash undeploy --cleanup-stale
 
 ## Features
 
-### File-Based Logging
+### File-based logging
 
 Flash automatically logs CLI activity to local files during development for debugging and auditing.
 
 **Quick configuration:**
 
 ```bash
-# Disable file logging
-export FLASH_FILE_LOGGING_ENABLED=false
-
-# Keep only 7 days of logs
-export FLASH_LOG_RETENTION_DAYS=7
-
-# Use custom log directory
-export FLASH_LOG_DIR=/var/log/flash
+export FLASH_FILE_LOGGING_ENABLED=false   # disable file logging
+export FLASH_LOG_RETENTION_DAYS=7         # keep only 7 days of logs
+export FLASH_LOG_DIR=/var/log/flash       # custom log directory
 ```
 
 Default location: `.flash/logs/activity.log`
@@ -299,7 +258,7 @@ Default location: `.flash/logs/activity.log`
 
 ---
 
-## Project Structure
+## Project structure
 
 ```
 my-project/
@@ -311,39 +270,41 @@ my-project/
 └── README.md
 ```
 
-## Environment Variables
+## Environment variables
 
 Required in `.env`:
 ```bash
 RUNPOD_API_KEY=your_api_key_here
 ```
 
-## Testing Your Server
+Optional:
+```bash
+FLASH_APP=my-project            # defaults to current directory name
+FLASH_ENV=staging               # defaults to "production"
+FLASH_SENTINEL_TIMEOUT=120      # sentinel request timeout in seconds (default: 90)
+```
+
+## Testing your dev server
 
 ```bash
-# Health check
+# health check
 curl http://localhost:8888/ping
 
-# Call GPU worker (QB endpoint)
+# QB endpoint
 curl -X POST http://localhost:8888/gpu_worker/runsync \
   -H "Content-Type: application/json" \
   -d '{"input": {"message": "Hello GPU!"}}'
 
-# Call CPU worker (QB endpoint)
-curl -X POST http://localhost:8888/cpu_worker/runsync \
-  -H "Content-Type: application/json" \
-  -d '{"input": {"message": "Hello CPU!"}}'
-
-# Call LB endpoint
+# LB endpoint
 curl -X POST http://localhost:8888/lb_worker/process \
   -H "Content-Type: application/json" \
   -d '{"input": "test"}'
 ```
 
-## Getting Help
+## Getting help
 
 ```bash
 flash --help
 flash init --help
-flash run --help
+flash dev --help
 ```

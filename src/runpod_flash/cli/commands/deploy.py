@@ -108,16 +108,13 @@ def _handle_deploy_error(exc: Exception) -> None:
 
 def _print_curl_example(url: str, method: str = "POST") -> None:
     """Print a curl example for the given URL."""
-    indent = "      "
-    lines = [f"{indent}curl -X {method} {url}"]
+    lines = [f"curl -X {method} {url}"]
     if method == "POST":
-        lines.append(f'{indent}    -H "Content-Type: application/json"')
-    lines.append(f'{indent}    -H "Authorization: Bearer $RUNPOD_API_KEY"')
+        lines.append('  -H "Content-Type: application/json"')
+    lines.append('  -H "Authorization: Bearer $RUNPOD_API_KEY"')
     if method == "POST":
-        lines.append(f"""{indent}    -d '{{"input": {{}}}}'""")
-    curl_cmd = " \\\n".join(lines)
-    console.print("\n    [bold]Try it:[/bold]")
-    console.print(curl_cmd)
+        lines.append("""  -d '{"input": {}}'""")
+    console.print("[dim]" + " \\\n".join(lines) + "[/dim]")
 
 
 def _display_post_deployment_guidance(
@@ -126,7 +123,7 @@ def _display_post_deployment_guidance(
     resources: dict[str, Any],
     routes: dict[str, dict[str, str]],
 ) -> None:
-    """Display helpful next steps after successful deployment."""
+    """Display endpoint list and curl example after deployment."""
     lb_entries: list[tuple[str, str, dict[str, str]]] = []
     qb_entries: list[tuple[str, str]] = []
 
@@ -137,68 +134,59 @@ def _display_post_deployment_guidance(
         else:
             qb_entries.append((resource_name, url))
 
-    if lb_entries:
-        console.print("\n  [bold]Load-balanced endpoints:[/bold]")
-        for i, (name, url, lb_routes) in enumerate(lb_entries):
-            if i > 0:
-                console.print()
-            console.print(f"    [bold]{url}[/bold]  [dim]({name})[/dim]")
-            for route_key in sorted(lb_routes.keys()):
-                method, path = route_key.split(" ", 1)
-                console.print(f"      {method:6s} {path}")
+    if not qb_entries and not lb_entries:
+        return
 
-        # One curl example using the first LB endpoint's first route (prefer POST, fall back to GET)
-        curl_shown = False
-        for _name, curl_url, lb_routes in lb_entries:
-            post_routes = [
-                k.split(" ", 1)[1]
-                for k in sorted(lb_routes.keys())
-                if k.startswith("POST ")
-            ]
-            if post_routes:
-                _print_curl_example(f"{curl_url}{post_routes[0]}")
-                curl_shown = True
+    console.print()
+
+    # collect rows for alignment: (name, url_display, routes_info)
+    max_name = 0
+    rows: list[tuple[str, str, list[tuple[str, str]]]] = []
+
+    for name, url in qb_entries:
+        max_name = max(max_name, len(name))
+        rows.append((name, f"{url}/runsync", []))
+
+    for name, url, lb_routes in lb_entries:
+        max_name = max(max_name, len(name))
+        route_list = []
+        for k in sorted(lb_routes.keys()):
+            m, p = k.split(" ", 1)
+            route_list.append((m, p))
+        rows.append((name, url, route_list))
+
+    for name, url, route_list in rows:
+        console.print(f"  [white]{name:<{max_name}}[/white]  [dim]{url}[/dim]")
+        for method, path in route_list:
+            console.print(f"  {' ' * max_name}  [dim]{method:6s}{path}[/dim]")
+
+    # one curl example
+    curl_url = None
+    curl_method = "POST"
+    if qb_entries:
+        curl_url = f"{qb_entries[0][1]}/runsync"
+    elif lb_entries:
+        _name, base_url, lb_routes = lb_entries[0]
+        for k in sorted(lb_routes.keys()):
+            m, p = k.split(" ", 1)
+            if m == "POST":
+                curl_url = f"{base_url}{p}"
+                break
+        if not curl_url:
+            for k in sorted(lb_routes.keys()):
+                m, p = k.split(" ", 1)
+                curl_url = f"{base_url}{p}"
+                curl_method = m
                 break
 
-        if not curl_shown:
-            for _name, curl_url, lb_routes in lb_entries:
-                get_routes = [
-                    k.split(" ", 1)[1]
-                    for k in sorted(lb_routes.keys())
-                    if k.startswith("GET ")
-                ]
-                if get_routes:
-                    _print_curl_example(f"{curl_url}{get_routes[0]}", method="GET")
-                    break
-
-    if qb_entries:
-        console.print("\n  [bold]Queue-based endpoints:[/bold]")
-        for name, url in qb_entries:
-            console.print(f"    [bold]{url}[/bold]  [dim]({name})[/dim]")
-
-        # One curl example using the first QB endpoint
-        first_qb_url = qb_entries[0][1]
-        _print_curl_example(f"{first_qb_url}/runsync")
-
-    console.print("\n[bold]Useful commands:[/bold]")
-    console.print(
-        f"  [cyan]flash env get {env_name}[/cyan]       View environment status"
-    )
-    console.print(f"  [cyan]flash deploy --env {env_name}[/cyan]  Update deployment")
-    console.print(f"  [cyan]flash env delete {env_name}[/cyan]    Remove deployment")
-
-    if lb_entries or qb_entries:
-        console_url = "https://console.runpod.io/serverless"
-        docs_requests = "https://docs.runpod.io/serverless/endpoints/send-requests"
-        docs_lb = "https://docs.runpod.io/serverless/load-balancing/overview"
-        console.print(f"\n  Console: [link={console_url}]{console_url}[/link]")
-        console.print(f"  Docs:    [link={docs_requests}]{docs_requests}[/link]")
-        console.print(f"           [link={docs_lb}]{docs_lb}[/link]")
+    if curl_url:
+        console.print()
+        _print_curl_example(curl_url, method=curl_method)
 
 
 def _launch_preview(project_dir):
     build_dir = project_dir / ".flash" / ".build"
-    console.print("\n[bold cyan]Launching multi-container preview...[/bold cyan]")
+    console.print("\nlaunching preview...")
     console.print("[dim]Starting all endpoints locally in Docker...[/dim]\n")
 
     try:
@@ -217,19 +205,58 @@ def _launch_preview(project_dir):
 async def _resolve_and_deploy(
     app_name: str, env_name: str | None, archive_path
 ) -> None:
+    import time as _time
+
     app, resolved_env_name = await _resolve_environment(app_name, env_name)
 
     local_manifest = validate_local_manifest()
 
-    with console.status("Uploading build..."):
-        build = await app.upload_build(archive_path)
+    from rich.progress import (
+        BarColumn,
+        DownloadColumn,
+        Progress,
+        TextColumn,
+        TransferSpeedColumn,
+    )
 
-    with console.status("Deploying resources..."):
+    archive_size = archive_path.stat().st_size
+    t0 = _time.monotonic()
+
+    with Progress(
+        TextColumn("[dim]uploading[/dim]"),
+        BarColumn(bar_width=30),
+        DownloadColumn(),
+        TransferSpeedColumn(),
+        console=console,
+        transient=True,
+    ) as progress:
+        task = progress.add_task("upload", total=archive_size)
+
+        def _on_progress(n: int):
+            progress.advance(task, n)
+
+        app._upload_progress_callback = _on_progress
+        try:
+            build = await app.upload_build(archive_path)
+        finally:
+            app._upload_progress_callback = None
+
+    upload_s = _time.monotonic() - t0
+    size_mb = archive_size / (1024 * 1024)
+    console.print(
+        f"[green]\u2713[/green] uploaded  [dim]{size_mb:.1f} MB  {upload_s:.1f}s[/dim]"
+    )
+
+    t0 = _time.monotonic()
+    with console.status("[dim]deploying...[/dim]"):
         result = await deploy_from_uploaded_build(
             app, build["id"], resolved_env_name, local_manifest
         )
-
-    console.print(f"\n[green]Deployed[/green] to [bold]{resolved_env_name}[/bold]")
+    deploy_s = _time.monotonic() - t0
+    console.print(
+        f"[green]\u2713[/green] deployed to [bold]{resolved_env_name}[/bold]  "
+        f"[dim]{deploy_s:.1f}s[/dim]"
+    )
 
     resources_endpoints = result.get("resources_endpoints", {})
     manifest = result.get("local_manifest", {})

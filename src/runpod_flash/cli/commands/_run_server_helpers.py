@@ -78,7 +78,12 @@ async def call_with_body(func, body):
     model_fields_set) to match RunPod platform behavior.  Plain dict
     bodies bypass this check since they originate from LB local routes
     where zero-param functions legitimately receive empty input.
+
+    Remote execution errors (timeouts, worker failures) are caught and
+    returned as JSON responses instead of raising through FastAPI.
     """
+    from fastapi.responses import JSONResponse
+
     if hasattr(body, "model_fields_set") and not body.model_fields_set:
         raise HTTPException(
             status_code=422,
@@ -88,11 +93,22 @@ async def call_with_body(func, body):
                 'optional parameters, e.g. {"input": {"param_name": null}}.'
             ),
         )
-    if hasattr(body, "model_dump"):
-        return await func(**body.model_dump())
-    raw = body.get("input", body) if isinstance(body, dict) else body
-    kwargs = _map_body_to_params(func, raw)
-    return await func(**kwargs)
+    try:
+        if hasattr(body, "model_dump"):
+            return await func(**body.model_dump())
+        raw = body.get("input", body) if isinstance(body, dict) else body
+        kwargs = _map_body_to_params(func, raw)
+        return await func(**kwargs)
+    except Exception as exc:
+        msg = str(exc)
+        # strip the "Remote execution failed: " wrapper if present
+        prefix = "Remote execution failed: "
+        if msg.startswith(prefix):
+            msg = msg[len(prefix) :]
+        return JSONResponse(
+            status_code=500,
+            content={"error": msg},
+        )
 
 
 def to_dict(body) -> dict:
@@ -138,13 +154,13 @@ async def lb_execute(resource_config, func, body: dict):
         if routing and routing.get("method")
         else func.__name__
     )
-    log.info(f"[REMOTE] {resource_config} | {route_label}")
+    log.debug(f"{resource_config} | {route_label}")
 
     try:
         result = await stub(
             func, dependencies, system_dependencies, accelerate_downloads, **kwargs
         )
-        log.info(f"[REMOTE] {resource_config} | Execution complete")
+        log.debug(f"{resource_config} | execution complete")
         return result
     except TimeoutError as e:
         raise HTTPException(status_code=504, detail=str(e))

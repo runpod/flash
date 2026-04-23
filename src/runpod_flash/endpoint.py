@@ -193,18 +193,20 @@ def _normalize_workers(
 def _is_live_provisioning() -> bool:
     """determine if we should use live (on-demand) resource classes.
 
-    returns True when running in local dev / flash run context. the deploy
-    resource classes (ServerlessEndpoint etc.) require imageName and are
-    only used during flash build/deploy, which explicitly sets
-    FLASH_IS_LIVE_PROVISIONING=false.
+    returns True for flash dev (FLASH_IS_LIVE_PROVISIONING=true) and
+    for normal script execution (sentinel mode). Live* classes accept
+    bare name+gpu config without requiring imageName.
+
+    returns False only during flash build/deploy, which explicitly sets
+    FLASH_IS_LIVE_PROVISIONING=false to select deploy resource classes
+    that require imageName/template.
     """
     val = os.getenv("FLASH_IS_LIVE_PROVISIONING", "").lower()
     if val == "false":
         return False
-    if val == "true":
-        return True
-    # no explicit signal -- default to live unless we're in a deployed worker
-    return not (os.getenv("RUNPOD_ENDPOINT_ID") or os.getenv("RUNPOD_POD_ID"))
+    # flash dev sets "true", normal scripts have no value set.
+    # both use Live* classes (no imageName required).
+    return True
 
 
 def _is_cpu_config(
@@ -847,11 +849,35 @@ class Endpoint:
     ) -> Any:
         """make an HTTP request to a deployed LB endpoint.
 
-        uses the LB-style subdomain url (https://{id}.api.runpod.ai).
+        in a deployed flash context, routes through the flash sentinel
+        so ai-api resolves the real endpoint. otherwise, uses the
+        LB-style subdomain url (https://{id}.api.runpod.ai) directly.
         """
+        timeout = kwargs.pop("timeout", 60.0)
+
+        # sentinel path: route through flash sentinel for deployed envs
+        if self.name:
+            from .flash_context import get_flash_context
+
+            ctx = get_flash_context()
+            if ctx:
+                from .client import _normalize_resource_name
+                from .flash_sentinel import sentinel_lb_request
+
+                app_name, env_name = ctx
+                return await sentinel_lb_request(
+                    app_name,
+                    env_name,
+                    _normalize_resource_name(self.name),
+                    method,
+                    path,
+                    body=data,
+                    timeout=timeout,
+                )
+
+        # direct path: client mode (id= or image=) or flash dev
         url = await self._ensure_endpoint_ready(lb=True)
         full_url = f"{url}{path}"
-        timeout = kwargs.pop("timeout", 60.0)
 
         from .core.utils.http import get_authenticated_httpx_client
 

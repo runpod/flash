@@ -134,29 +134,52 @@ class LoadBalancerSlsStub:
         Raises:
             Exception: If endpoint returns error or HTTP call fails
         """
-        # Determine execution path based on resource type and routing metadata
+        import time as _time
+
+        from runpod_flash.dev_console import (
+            print_lb_completed,
+            print_lb_failed,
+            print_lb_request,
+        )
+
         if self._should_use_execute_endpoint(func):
-            # Local development or backward compatibility: use /execute endpoint
-            request = await self._prepare_request(
-                func,
-                dependencies,
-                system_dependencies,
-                accelerate_downloads,
-                *args,
-                **kwargs,
-            )
-            response = await self._execute_function(request)
-            return self._handle_response(response)
+            print_lb_request(self.server.name, "POST", "/execute")
+            t0 = _time.monotonic()
+            try:
+                request = await self._prepare_request(
+                    func,
+                    dependencies,
+                    system_dependencies,
+                    accelerate_downloads,
+                    *args,
+                    **kwargs,
+                )
+                response = await self._execute_function(request)
+                result = self._handle_response(response)
+                print_lb_completed(self.server.name, _time.monotonic() - t0)
+                return result
+            except Exception as exc:
+                print_lb_failed(self.server.name, str(exc))
+                raise
         else:
-            # Deployed endpoint: use user-defined route
             routing_config = func.__remote_config__
-            return await self._execute_via_user_route(
-                func,
-                routing_config["method"],
-                routing_config["path"],
-                *args,
-                **kwargs,
-            )
+            method = routing_config["method"]
+            path = routing_config["path"]
+            print_lb_request(self.server.name, method, path)
+            t0 = _time.monotonic()
+            try:
+                result = await self._execute_via_user_route(
+                    func,
+                    method,
+                    path,
+                    *args,
+                    **kwargs,
+                )
+                print_lb_completed(self.server.name, _time.monotonic() - t0)
+                return result
+            except Exception as exc:
+                print_lb_failed(self.server.name, str(exc))
+                raise
 
     async def _prepare_request(
         self,
@@ -321,7 +344,7 @@ class LoadBalancerSlsStub:
 
         # Construct full URL
         url = f"{self.server.endpoint_url}{path}"
-        log.info(f"[REMOTE] {self.server} | {method} {path}")
+        log.debug(f"{self.server} | {method} {path}")
 
         try:
             async with get_authenticated_httpx_client(
@@ -330,7 +353,7 @@ class LoadBalancerSlsStub:
                 response = await client.request(method, url, json=body)
                 response.raise_for_status()
                 result = response.json()
-                log.info(f"[REMOTE] {self.server} | Execution complete")
+                log.debug(f"{self.server} | execution complete")
                 log.debug(
                     f"User route execution successful (type={type(result).__name__})"
                 )

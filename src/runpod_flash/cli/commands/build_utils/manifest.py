@@ -324,6 +324,16 @@ class ManifestBuilder:
                 resources[func.resource_config_name] = []
             resources[func.resource_config_name].append(func)
 
+        # detect the same resource name defined in multiple files
+        for name, funcs in resources.items():
+            files = {str(f.file_path) for f in funcs}
+            if len(files) > 1:
+                paths = ", ".join(sorted(files))
+                raise ValueError(
+                    f"endpoint '{name}' is defined in multiple files: {paths}. "
+                    f"each endpoint name must be unique across the project."
+                )
+
         # Build manifest structure
         resources_dict: Dict[str, Dict[str, Any]] = {}
         function_registry: Dict[str, str] = {}

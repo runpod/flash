@@ -12,88 +12,34 @@ from .stubs import stub_resource
 log = logging.getLogger(__name__)
 
 
-def _should_execute_locally(func_name: str) -> bool:
-    """Determine if a @remote function should execute locally or create a stub.
+def _normalize_resource_name(name: str) -> str:
+    """strip live- prefix and -fb suffix for resource name comparison."""
+    if name.startswith("live-"):
+        name = name[5:]
+    if name.endswith("-fb"):
+        name = name[:-3]
+    return name
 
-    Uses build-time generated configuration to make this decision.
 
-    Args:
-        func_name: Name of the function being decorated
+def _should_execute_locally(resource_config: ServerlessResource) -> bool:
+    """determine if a @remote function should execute locally.
 
-    Returns:
-        True if function should execute locally, False if stub should be created
+    on a deployed worker, compares the resource config name to
+    FLASH_RESOURCE_NAME to decide if this function belongs to
+    the current worker.
+
+    returns False in local dev (not deployed) so a stub is created.
     """
-    # Check if we're in a deployed environment
-    runpod_endpoint_id = os.getenv("RUNPOD_ENDPOINT_ID")
-    runpod_pod_id = os.getenv("RUNPOD_POD_ID")
-
-    if not runpod_endpoint_id and not runpod_pod_id:
-        # Local development - create stub for remote execution via ResourceManager
+    if not os.getenv("RUNPOD_ENDPOINT_ID") and not os.getenv("RUNPOD_POD_ID"):
         return False
 
-    # In deployed environment - check build-time generated configuration
-    try:
-        from .runtime._flash_resource_config import is_local_function
+    current = os.getenv("FLASH_RESOURCE_NAME")
+    if not current:
+        return True  # deployed but unknown resource, safe default
 
-        result = is_local_function(func_name)
-        return result
-    except ImportError as e:
-        # Configuration not generated (shouldn't happen in deployed env)
-        # Fall back to safe default: execute locally
-        log.warning(
-            f"Resource configuration import failed for {func_name}: {e}, defaulting to local execution"
-        )
-        return True
-
-
-_service_registry: Any = None
-
-
-async def _resolve_deployed_endpoint_id(func_name: str) -> Optional[str]:
-    """Look up pre-deployed endpoint ID for a function from the manifest.
-
-    Only active in deployed environments (RUNPOD_ENDPOINT_ID or RUNPOD_POD_ID set).
-    Returns None in local dev or on any failure, allowing fallback to ResourceManager.
-    """
-    global _service_registry
-
-    if not os.getenv("RUNPOD_ENDPOINT_ID") and not os.getenv("RUNPOD_POD_ID"):
-        return None
-
-    try:
-        from .runtime.service_registry import ServiceRegistry
-
-        if _service_registry is None:
-            _service_registry = ServiceRegistry()
-
-        endpoint_url = await _service_registry.get_endpoint_for_function(func_name)
-        if not endpoint_url:
-            return None
-
-        from urllib.parse import urlparse
-
-        path_parts = urlparse(endpoint_url).path.rstrip("/").split("/")
-        endpoint_id = path_parts[-1] if path_parts else ""
-        if not endpoint_id:
-            log.warning(f"Could not extract endpoint ID from URL: {endpoint_url}")
-            return None
-
-        log.debug(f"Resolved {func_name} to deployed endpoint {endpoint_id}")
-        return endpoint_id
-
-    except ImportError:
-        log.debug("ServiceRegistry not available, skipping manifest lookup")
-        return None
-    except ValueError as e:
-        log.debug(f"Function {func_name} not in manifest: {e}")
-        return None
-    except Exception as e:
-        log.error(
-            f"Manifest lookup failed for {func_name}, falling back to "
-            f"ResourceManager (may trigger dynamic provisioning): {e}",
-            exc_info=True,
-        )
-        return None
+    return _normalize_resource_name(resource_config.name) == _normalize_resource_name(
+        current
+    )
 
 
 def _reject_unknown_kwargs(extra: dict[str, Any], known: set[str]) -> None:
@@ -263,12 +209,7 @@ def remote(
 
         # Determine if we should execute locally or create a stub
         # Uses build-time generated configuration in deployed environments
-        func_name = (
-            func_or_class.__name__
-            if not inspect.isclass(func_or_class)
-            else func_or_class.__name__
-        )
-        should_execute_local = _should_execute_locally(func_name)
+        should_execute_local = _should_execute_locally(resource_config)
 
         if should_execute_local:
             # This function belongs to our resource - execute locally
@@ -292,16 +233,36 @@ def remote(
             # Handle function decoration
             @wraps(func_or_class)
             async def wrapper(*args, **kwargs):
-                endpoint_id = await _resolve_deployed_endpoint_id(func_name)
-                if endpoint_id:
-                    remote_resource = resource_config.model_copy(
-                        update={"id": endpoint_id}
+                from .flash_context import get_flash_context
+
+                ctx = get_flash_context()
+                if ctx:
+                    # sentinel path: call deployed endpoint via flash headers
+                    from .flash_sentinel import sentinel_qb_execute
+
+                    app_name, env_name = ctx
+                    return await sentinel_qb_execute(
+                        app_name,
+                        env_name,
+                        resource_config.name,
+                        func_or_class,
+                        *args,
+                        **kwargs,
                     )
-                else:
-                    resource_manager = ResourceManager()
-                    remote_resource = await resource_manager.get_or_deploy_resource(
-                        resource_config
+
+                # live path: only reachable when flash dev sets
+                # FLASH_IS_LIVE_PROVISIONING=true (which makes
+                # get_flash_context return None)
+                if os.getenv("FLASH_IS_LIVE_PROVISIONING", "").lower() != "true":
+                    raise RuntimeError(
+                        f"endpoint '{resource_config.name}' cannot be called "
+                        f"outside flash dev without a deployed environment"
                     )
+
+                resource_manager = ResourceManager()
+                remote_resource = await resource_manager.get_or_deploy_resource(
+                    resource_config
+                )
 
                 stub = stub_resource(remote_resource)
                 return await stub(

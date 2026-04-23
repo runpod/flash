@@ -1,5 +1,5 @@
 # gpu serverless worker -- detects available GPU hardware.
-# run with: flash run
+# run with: flash dev
 # test directly: python gpu_worker.py
 from runpod_flash import Endpoint, GpuType
 

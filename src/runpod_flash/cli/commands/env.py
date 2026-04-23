@@ -7,11 +7,11 @@ import typer
 from rich.console import Console
 
 from ..utils.app import discover_flash_project
-from ..utils.formatting import STATE_STYLE, format_datetime, print_error, state_dot
+from ..utils.formatting import format_datetime, print_error
 
 from runpod_flash.core.resources.app import FlashApp, FlashAppNotFoundError
 
-console = Console()
+console = Console(highlight=False)
 
 
 def _get_resource_manager():
@@ -33,7 +33,7 @@ async def _undeploy_environment_resources(env_name: str, env: dict) -> None:
     undeployed = 0
     seen_resource_ids = set()
 
-    with console.status(f"Undeploying resources for '{env_name}'..."):
+    with console.status("[dim]undeploying resources...[/dim]"):
         for label, items in (
             ("Endpoint", endpoints),
             ("Network volume", network_volumes),
@@ -70,13 +70,15 @@ async def _undeploy_environment_resources(env_name: str, env: dict) -> None:
                         )
 
     if failures:
-        console.print("Failed to undeploy all resources; environment deletion aborted.")
+        print_error(console, "failed to undeploy all resources")
         for message in failures:
-            console.print(f"  - {message}")
+            console.print(f"  [dim]{message}[/dim]")
         raise typer.Exit(1)
 
     if undeployed:
-        console.print(f"Undeployed {undeployed} resource(s) for '{env_name}'")
+        console.print(
+            f"[green]\u2713[/green] undeployed {undeployed} resource{'s' if undeployed != 1 else ''}"
+        )
 
 
 def list_command(
@@ -94,35 +96,29 @@ async def _list_environments(app_name: str):
     try:
         app = await FlashApp.from_name(app_name)
     except FlashAppNotFoundError:
-        console.print(f"\nNo app named [bold]{app_name}[/bold] found.")
-        console.print("  Run [bold]flash deploy[/bold] to create one.\n")
+        console.print(f"\n  no app named [bold]{app_name}[/bold] found")
+        console.print("  run [bold]flash deploy[/bold] to create one\n")
         return
     envs = await app.list_environments()
 
     if not envs:
-        console.print(f"\nNo environments for [bold]{app_name}[/bold].")
-        console.print("  Run [bold]flash deploy[/bold] to create one.\n")
+        console.print(f"\n  no environments for [bold]{app_name}[/bold]")
+        console.print("  run [bold]flash deploy[/bold] to create one\n")
         return
 
-    console.print(
-        f"\n  [bold]{app_name}[/bold]  {len(envs)} environment{'s' if len(envs) != 1 else ''}\n"
-    )
+    console.print(f"\n  [bold]{app_name}[/bold]\n")
+
+    mn = max(len(e.get("name", "") or "") for e in envs)
+
     for env in envs:
         name = env.get("name", "(unnamed)")
-        state = env.get("state", "UNKNOWN")
-        color = STATE_STYLE.get(state, "yellow")
-        build = env.get("activeBuildId")
+        build_id = env.get("activeBuildId") or "-"
+        short_build = build_id[:12] if len(build_id) > 12 else build_id
         created = format_datetime(env.get("createdAt"))
 
         console.print(
-            f"    {state_dot(state)} [bold]{name}[/bold]  "
-            f"[{color}]{state.lower()}[/{color}]"
+            f"  [white]{name:<{mn}}[/white]  [dim]{short_build}  {created}[/dim]"
         )
-        parts = []
-        if build:
-            parts.append(f"build {build}")
-        parts.append(f"created {created}")
-        console.print(f"      [dim]{'  ·  '.join(parts)}[/dim]")
 
     console.print()
 
@@ -144,11 +140,7 @@ def create_command(
 
 async def _create_environment(app_name: str, env_name: str):
     app, env = await FlashApp.create_environment_and_app(app_name, env_name)
-
-    console.print(
-        f"[green]✓[/green] Created environment [bold]{env_name}[/bold]  "
-        f"[dim]{env.get('id')}[/dim]"
-    )
+    console.print(f"[green]\u2713[/green] created environment [bold]{env_name}[/bold]")
 
 
 def get_command(
@@ -165,43 +157,36 @@ async def _get_environment(app_name: str, env_name: str):
     app = await FlashApp.from_name(app_name)
     env = await app.get_environment_by_name(env_name)
 
-    state = env.get("state", "UNKNOWN")
-    color = STATE_STYLE.get(state, "yellow")
+    build_id = env.get("activeBuildId") or "-"
+    short_build = build_id[:12] if len(build_id) > 12 else build_id
 
-    console.print(
-        f"\n  {state_dot(state)} [bold]{env.get('name')}[/bold]  "
-        f"[{color}]{state.lower()}[/{color}]"
-    )
-    console.print(f"    [dim]id[/dim]     {env.get('id')}")
-    console.print(f"    [dim]app[/dim]    {app_name}")
-    console.print(f"    [dim]build[/dim]  {env.get('activeBuildId') or 'none'}")
+    console.print(f"\n  [bold]{env.get('name')}[/bold]\n")
+    console.print(f"  [dim]app    [/dim] {app_name}")
+    console.print(f"  [dim]build  [/dim] {short_build}")
 
     endpoints = env.get("endpoints") or []
     network_volumes = env.get("networkVolumes") or []
 
     if endpoints:
-        console.print("\n  [bold]Endpoints[/bold]")
+        console.print()
+        mn = max(len(ep.get("name", "") or "") for ep in endpoints)
         for ep in endpoints:
-            console.print(
-                f"    ▸ [bold]{ep.get('name', '-')}[/bold]  [dim]{ep.get('id', '')}[/dim]"
-            )
+            ep_name = ep.get("name", "-")
+            ep_id = ep.get("id", "")
+            console.print(f"  [white]{ep_name:<{mn}}[/white]  [dim]{ep_id}[/dim]")
 
     if network_volumes:
-        console.print("\n  [bold]Network Volumes[/bold]")
+        console.print()
+        mn = max(len(nv.get("name", "") or "") for nv in network_volumes)
         for nv in network_volumes:
             console.print(
-                f"    ▸ [bold]{nv.get('name', '-')}[/bold]  [dim]{nv.get('id', '')}[/dim]"
+                f"  [white]{nv.get('name', '-'):<{mn}}[/white]  [dim]{nv.get('id', '')}[/dim]"
             )
 
     if not endpoints and not network_volumes:
-        console.print("\n    No resources deployed yet.")
-        console.print(f"    Run [bold]flash deploy --env {env_name}[/bold] to deploy.")
-    else:
-        console.print("\n  [bold]Commands[/bold]")
         console.print(
-            f"    [dim]flash deploy --env {env_name}[/dim]  Update deployment"
+            f"\n  [dim]no resources. run[/dim] [bold]flash deploy --env {env_name}[/bold]"
         )
-        console.print(f"    [dim]flash env delete {env_name}[/dim]    Tear down")
 
     console.print()
 
@@ -217,24 +202,23 @@ def delete_command(
         _, app_name = discover_flash_project()
 
     try:
-        env = asyncio.run(_fetch_environment_info(app_name, env_name))
+        asyncio.run(_fetch_environment_info(app_name, env_name))
     except Exception as e:
-        print_error(console, f"Failed to fetch environment info: {e}")
+        print_error(console, f"failed to fetch environment info: {e}")
         raise typer.Exit(1)
 
-    console.print(f"\nDeleting [bold]{env_name}[/bold]  [dim]{env.get('id')}[/dim]")
+    console.print(f"\n  deleting [bold]{env_name}[/bold]")
 
     try:
         confirmed = questionary.confirm(
-            f"Are you sure you want to delete environment '{env_name}'? "
-            "This will delete all resources associated with this environment!"
+            f"are you sure? this will delete all resources in '{env_name}'"
         ).ask()
 
         if not confirmed:
-            console.print("[yellow]Cancelled[/yellow]")
+            console.print("[dim]cancelled[/dim]")
             raise typer.Exit(0)
     except KeyboardInterrupt:
-        console.print("\n[yellow]Cancelled[/yellow]")
+        console.print("\n[dim]cancelled[/dim]")
         raise typer.Exit(0)
 
     asyncio.run(_delete_environment(app_name, env_name))
@@ -251,11 +235,13 @@ async def _delete_environment(app_name: str, env_name: str):
 
     await _undeploy_environment_resources(env_name, env)
 
-    with console.status(f"Deleting environment '{env_name}'..."):
+    with console.status("[dim]deleting environment...[/dim]"):
         success = await app.delete_environment(env_name)
 
     if success:
-        console.print(f"[green]✓[/green] Deleted environment [bold]{env_name}[/bold]")
+        console.print(
+            f"[green]\u2713[/green] deleted environment [bold]{env_name}[/bold]"
+        )
     else:
-        print_error(console, f"Failed to delete environment '{env_name}'")
+        print_error(console, f"failed to delete environment '{env_name}'")
         raise typer.Exit(1)

@@ -1,6 +1,7 @@
 """tests for Endpoint client mode and EndpointJob."""
 
 import pytest
+import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from runpod_flash.endpoint import Endpoint, EndpointJob
@@ -456,6 +457,85 @@ class TestClientRequest:
             mock_factory.assert_called_once_with(timeout=120.0)
 
 
+class TestClientRequestSentinelPath:
+    """test _client_request routing through flash sentinel in deployed envs."""
+
+    _SENTINEL_LB = "runpod_flash.flash_sentinel.sentinel_lb_request"
+    _FLASH_CTX = "runpod_flash.flash_context.get_flash_context"
+
+    @pytest.mark.asyncio
+    async def test_routes_through_sentinel_when_flash_context_present(self):
+        ep = Endpoint(name="my-api", id="ep-123")
+
+        with patch(self._FLASH_CTX, return_value=("myapp", "prod")):
+            with patch(self._SENTINEL_LB, new_callable=AsyncMock) as mock_sentinel:
+                mock_sentinel.return_value = {"result": "ok"}
+                result = await ep.post("/api/compute", {"x": 1})
+
+        assert result == {"result": "ok"}
+        mock_sentinel.assert_called_once_with(
+            "myapp",
+            "prod",
+            "my-api",
+            "POST",
+            "/api/compute",
+            body={"x": 1},
+            timeout=60.0,
+        )
+
+    @pytest.mark.asyncio
+    async def test_sentinel_path_normalizes_name(self):
+        ep = Endpoint(name="live-my-api-fb", id="ep-123")
+
+        with patch(self._FLASH_CTX, return_value=("myapp", "prod")):
+            with patch(self._SENTINEL_LB, new_callable=AsyncMock) as mock_sentinel:
+                mock_sentinel.return_value = {}
+                await ep.get("/health")
+
+        # _normalize_resource_name strips "live-" prefix and "-fb" suffix
+        assert mock_sentinel.call_args[0][2] == "my-api"
+
+    @pytest.mark.asyncio
+    async def test_sentinel_path_passes_custom_timeout(self):
+        ep = Endpoint(name="my-api", id="ep-123")
+
+        with patch(self._FLASH_CTX, return_value=("myapp", "prod")):
+            with patch(self._SENTINEL_LB, new_callable=AsyncMock) as mock_sentinel:
+                mock_sentinel.return_value = {}
+                await ep.post("/run", {}, timeout=120.0)
+
+        assert mock_sentinel.call_args[1]["timeout"] == 120.0
+
+    @pytest.mark.asyncio
+    async def test_falls_through_when_no_flash_context(self):
+        ep = Endpoint(id="ep-123")
+        ep.name = "my-api"
+
+        client = _mock_httpx_client(request_return={"text": "direct"})
+
+        with patch(self._FLASH_CTX, return_value=None):
+            with patch(_HTTP_CLIENT, return_value=client):
+                result = await ep.post("/v1/completions", {"prompt": "hello"})
+
+        assert result == {"text": "direct"}
+        client.request.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_falls_through_when_no_name(self):
+        ep = Endpoint(id="ep-123")
+        assert ep.name is None
+
+        client = _mock_httpx_client(request_return={"text": "direct"})
+
+        with patch(self._FLASH_CTX) as mock_ctx:
+            with patch(_HTTP_CLIENT, return_value=client):
+                result = await ep.get("/v1/models")
+
+        assert result == {"text": "direct"}
+        # flash context should not even be checked when there's no name
+        mock_ctx.assert_not_called()
+
+
 # -- end-to-end flows --
 
 
@@ -500,6 +580,7 @@ class TestEndToEndFlow:
         assert job.output == "done"
 
     @pytest.mark.asyncio
+    @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "true"})
     async def test_image_mode_provisions_then_calls(self):
         ep = Endpoint(name="vllm", image="vllm:latest")
 

@@ -168,10 +168,12 @@ CUSTOM_TEST_VAR=file_value
             os.environ[var] = value
 
         try:
-            # Remove runpod_flash from sys.modules to force fresh import
+            # Remove runpod_flash from sys.modules to force fresh import.
+            # save removed modules so they can be restored in finally.
             modules_to_remove = [
                 name for name in sys.modules.keys() if name.startswith("runpod_flash")
             ]
+            saved_modules = {k: sys.modules[k] for k in modules_to_remove}
             for module_name in modules_to_remove:
                 del sys.modules[module_name]
 
@@ -212,6 +214,9 @@ CUSTOM_TEST_VAR=file_value
                     os.environ[var] = value
                 elif var in os.environ:
                     del os.environ[var]
+
+            # Restore evicted modules so later tests see the original bindings
+            sys.modules.update(saved_modules)
 
     def test_missing_env_file_graceful_handling(self):
         """Test that missing .env file is handled gracefully."""

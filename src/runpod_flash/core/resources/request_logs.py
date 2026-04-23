@@ -18,7 +18,7 @@ DEV_API_BASE_URL = "https://dev-api.runpod.ai"
 HAPI_BASE_URL = "https://hapi.runpod.net"
 DEV_HAPI_BASE_URL = "https://dev-hapi.runpod.net"
 LOG_PREFIX_TIMESTAMP_RE = re.compile(
-    r"^(?P<timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)"
+    r"^(?P<timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}))"
 )
 
 
