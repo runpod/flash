@@ -95,7 +95,8 @@ class ManifestBuilder:
         self.build_dir = build_dir
         # User-supplied app-level override; None means "infer from resources".
         self._python_version_override = python_version
-        self.python_version = python_version or DEFAULT_PYTHON_VERSION
+        # Effective app-level version; set by build() via _reconcile_python_version.
+        self.python_version: Optional[str] = None
 
     def _import_module(self, file_path: Path):
         """Import a module from file path, returning (module, cleanup_fn).
