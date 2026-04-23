@@ -21,7 +21,6 @@ from .core.resources import ResourceManager, ServerlessResource
 from .core.utils.constants import HASH_TRUNCATE_LENGTH, UUID_FALLBACK_LENGTH
 from .core.utils.lru_cache import LRUCache
 from .flash_context import get_flash_context
-from .flash_sentinel import sentinel_qb_class_execute
 from .protos.remote_execution import FunctionRequest
 from .runtime.exceptions import SerializationError
 from .runtime.serialization import serialize_args, serialize_kwargs
@@ -310,14 +309,17 @@ def create_remote_class(
                 ctx = get_flash_context()
                 if ctx:
                     from .client import _normalize_resource_name
+                    from .flash_sentinel import sentinel_qb_class_execute_plain
 
                     app_name, env_name = ctx
-                    request = self._build_class_request(name, args, kwargs)
-                    return await sentinel_qb_class_execute(
+                    return await sentinel_qb_class_execute_plain(
                         app_name,
                         env_name,
                         _normalize_resource_name(self._resource_config.name),
-                        request,
+                        name,
+                        self._class_type,
+                        args,
+                        kwargs,
                     )
 
                 # live path: only reachable when flash dev sets

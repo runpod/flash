@@ -59,9 +59,12 @@ def _flash_headers(app: str, env: str, endpoint: str) -> Dict[str, str]:
 
 
 def _args_to_kwargs(func: Callable, args: tuple, kwargs: dict) -> Dict[str, Any]:
-    """map positional args to named kwargs using the function's signature."""
+    """map positional args to named kwargs using the function's signature.
+
+    skips 'self' and 'cls' parameters for bound/unbound methods.
+    """
     sig = inspect.signature(func)
-    params = list(sig.parameters.keys())
+    params = [name for name in sig.parameters if name not in ("self", "cls")]
     body: Dict[str, Any] = {}
     for i, arg in enumerate(args):
         if i < len(params):
@@ -218,6 +221,52 @@ async def sentinel_qb_class_execute(
     # positional args are encoded as a list of cloudpickle blobs
     if request.args:
         body["args"] = [_decode_arg(a) for a in request.args]
+
+    payload = {"input": body}
+
+    data = await _sentinel_qb_post(app, env, endpoint_name, payload, timeout=timeout)
+    return _handle_sentinel_response(data)
+
+
+async def sentinel_qb_class_execute_plain(
+    app: str,
+    env: str,
+    endpoint_name: str,
+    method_name: str,
+    cls: type,
+    args: tuple,
+    kwargs: dict,
+    timeout: Optional[float] = None,
+) -> Any:
+    """execute a method on a deployed class-based QB endpoint via flash sentinel.
+
+    maps positional args to named kwargs using the method's signature
+    and sends them directly as plain JSON. avoids the cloudpickle
+    serialize/decode round-trip used by the live path.
+
+    args:
+        app: flash app name
+        env: flash environment name
+        endpoint_name: target endpoint name
+        method_name: name of the method to call
+        cls: the original class (used for signature introspection)
+        args: positional arguments to the method
+        kwargs: keyword arguments to the method
+        timeout: request timeout in seconds
+    """
+    # resolve named params from the method signature
+    method = getattr(cls, method_name, None)
+    if method is not None:
+        body = _args_to_kwargs(method, args, kwargs)
+    else:
+        body = dict(kwargs)
+        if args:
+            body["args"] = list(args)
+
+    body["method"] = method_name
+
+    if not body or (len(body) == 1 and "method" in body):
+        body["__empty"] = True
 
     payload = {"input": body}
 

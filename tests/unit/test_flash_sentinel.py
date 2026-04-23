@@ -209,6 +209,86 @@ class TestSentinelQBClassExecute:
             await sentinel_qb_execute("myapp", "prod", "gpu-worker", my_func)
 
 
+class TestSentinelQBClassExecutePlain:
+    @pytest.mark.asyncio
+    async def test_maps_positional_args_to_named_params(self, mock_httpx):
+        from runpod_flash.flash_sentinel import sentinel_qb_class_execute_plain
+
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = {
+            "status": "COMPLETED",
+            "output": 6,
+        }
+        mock_httpx.return_value = _make_mock_client(mock_response)
+
+        class Counter:
+            async def add(self, x: int) -> int:
+                return x + 1
+
+        result = await sentinel_qb_class_execute_plain(
+            "myapp", "prod", "gpu-worker", "add", Counter, (5,), {}
+        )
+
+        assert result == 6
+
+        call_kwargs = mock_httpx.return_value.post.call_args
+        sent_payload = call_kwargs.kwargs["json"]
+        assert sent_payload == {"input": {"method": "add", "x": 5}}
+
+    @pytest.mark.asyncio
+    async def test_handles_kwargs(self, mock_httpx):
+        from runpod_flash.flash_sentinel import sentinel_qb_class_execute_plain
+
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = {
+            "status": "COMPLETED",
+            "output": 15,
+        }
+        mock_httpx.return_value = _make_mock_client(mock_response)
+
+        class Counter:
+            async def add(self, x: int, y: int = 10) -> int:
+                return x + y
+
+        result = await sentinel_qb_class_execute_plain(
+            "myapp", "prod", "gpu-worker", "add", Counter, (), {"x": 3, "y": 7}
+        )
+
+        assert result == 15
+
+        call_kwargs = mock_httpx.return_value.post.call_args
+        sent_payload = call_kwargs.kwargs["json"]
+        assert sent_payload == {"input": {"method": "add", "x": 3, "y": 7}}
+
+    @pytest.mark.asyncio
+    async def test_no_args_sends_empty_marker(self, mock_httpx):
+        from runpod_flash.flash_sentinel import sentinel_qb_class_execute_plain
+
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = {
+            "status": "COMPLETED",
+            "output": 0,
+        }
+        mock_httpx.return_value = _make_mock_client(mock_response)
+
+        class Counter:
+            async def reset(self) -> int:
+                return 0
+
+        result = await sentinel_qb_class_execute_plain(
+            "myapp", "prod", "gpu-worker", "reset", Counter, (), {}
+        )
+
+        assert result == 0
+
+        call_kwargs = mock_httpx.return_value.post.call_args
+        sent_payload = call_kwargs.kwargs["json"]
+        assert sent_payload == {"input": {"method": "reset", "__empty": True}}
+
+
 class TestSentinelLBRequest:
     @pytest.mark.asyncio
     async def test_sends_correct_request(self, mock_httpx):
