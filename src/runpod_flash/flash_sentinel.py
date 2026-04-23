@@ -13,6 +13,7 @@ inspect.signature and sends the result as the runsync input body.
 import base64
 import inspect
 import logging
+import os
 from typing import Any, Callable, Dict, Optional
 
 import cloudpickle
@@ -25,6 +26,27 @@ from .protos.remote_execution import FunctionRequest
 log = logging.getLogger(__name__)
 
 FLASH_SENTINEL_ID = "flash"
+
+# default timeout for sentinel requests. configurable via
+# FLASH_SENTINEL_TIMEOUT env var (seconds).
+DEFAULT_SENTINEL_TIMEOUT = 90
+
+
+def _get_timeout(override: Optional[float] = None) -> float:
+    """resolve the sentinel request timeout.
+
+    uses the explicit override if provided, then FLASH_SENTINEL_TIMEOUT
+    env var, then the default (90s).
+    """
+    if override is not None:
+        return override
+    env_val = os.environ.get("FLASH_SENTINEL_TIMEOUT")
+    if env_val:
+        try:
+            return float(env_val)
+        except ValueError:
+            pass
+    return DEFAULT_SENTINEL_TIMEOUT
 
 
 def _flash_headers(app: str, env: str, endpoint: str) -> Dict[str, str]:
@@ -53,23 +75,27 @@ async def _sentinel_qb_post(
     env: str,
     endpoint_name: str,
     payload: Dict[str, Any],
-    timeout: float = 90,
+    timeout: Optional[float] = None,
 ) -> Dict[str, Any]:
     """post a payload to the sentinel runsync URL and return the raw response dict."""
     url = f"{runpod.endpoint_url_base}/{FLASH_SENTINEL_ID}/runsync"
     headers = _flash_headers(app, env, endpoint_name)
+    effective_timeout = _get_timeout(timeout)
 
     log.debug("sentinel QB -> %s/%s/%s", app, env, endpoint_name)
 
     try:
-        async with _http.get_authenticated_httpx_client(timeout=timeout) as client:
+        async with _http.get_authenticated_httpx_client(
+            timeout=effective_timeout
+        ) as client:
             response = await client.post(url, json=payload, headers=headers)
     except Exception as exc:
         if "timeout" in type(exc).__name__.lower() or "timeout" in str(exc).lower():
             raise RuntimeError(
-                f"request to endpoint '{endpoint_name}' timed out after {timeout}s. "
-                f"the endpoint may not be deployed or the worker is still starting. "
-                f"deploy with 'flash deploy' or check endpoint status."
+                f"request to endpoint '{endpoint_name}' timed out after "
+                f"{effective_timeout}s. the endpoint may not be deployed or "
+                f"the worker is still starting. deploy with 'flash deploy' "
+                f"or increase timeout with FLASH_SENTINEL_TIMEOUT env var."
             ) from exc
         raise
 
@@ -83,10 +109,20 @@ async def _sentinel_qb_post(
 
 
 def _handle_sentinel_response(data: Dict[str, Any]) -> Any:
-    """extract the result from a sentinel response or raise on failure."""
+    """extract the result from a sentinel response or raise on failure.
+
+    expects a RunPod runsync response with at least a "status" key.
+    raises RuntimeError on FAILED status, error fields, or unexpected
+    response shapes.
+    """
     if data.get("status") == "FAILED" or data.get("error"):
         err = data.get("error") or data.get("output", {}).get("error", "unknown")
         raise RuntimeError(f"remote execution failed: {err}")
+
+    if "output" not in data and "status" not in data:
+        raise RuntimeError(
+            f"unexpected response from sentinel (no 'output' or 'status' key): {data}"
+        )
 
     output = data.get("output", data)
 
@@ -217,12 +253,23 @@ async def sentinel_lb_request(
 
     log.debug("sentinel LB -> %s %s/%s/%s%s", method, app, env, endpoint_name, path)
 
-    async with _http.get_authenticated_httpx_client(timeout=timeout) as client:
-        response = await client.request(method, url, json=body, headers=headers)
-        if response.status_code == 404:
+    try:
+        async with _http.get_authenticated_httpx_client(timeout=timeout) as client:
+            response = await client.request(method, url, json=body, headers=headers)
+    except Exception as exc:
+        if "timeout" in type(exc).__name__.lower() or "timeout" in str(exc).lower():
             raise RuntimeError(
-                f"endpoint '{endpoint_name}' not found in app '{app}' "
-                f"environment '{env}'. deploy it first with 'flash deploy'."
-            )
-        response.raise_for_status()
-        return response.json()
+                f"request to endpoint '{endpoint_name}' timed out after {timeout}s. "
+                f"the endpoint may not be deployed or the worker is still starting. "
+                f"deploy with 'flash deploy' or increase timeout with "
+                f"FLASH_SENTINEL_TIMEOUT env var."
+            ) from exc
+        raise
+
+    if response.status_code == 404:
+        raise RuntimeError(
+            f"endpoint '{endpoint_name}' not found in app '{app}' "
+            f"environment '{env}'. deploy it first with 'flash deploy'."
+        )
+    response.raise_for_status()
+    return response.json()

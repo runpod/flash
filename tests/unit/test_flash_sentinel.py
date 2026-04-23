@@ -47,11 +47,18 @@ class TestHandleSentinelResponse:
         data = {"output": {"hello": "world"}}
         assert _handle_sentinel_response(data) == {"hello": "world"}
 
-    def test_no_output_key_uses_data(self):
+    def test_no_output_or_status_raises(self):
         from runpod_flash.flash_sentinel import _handle_sentinel_response
 
         data = {"hello": "world"}
-        assert _handle_sentinel_response(data) == {"hello": "world"}
+        with pytest.raises(RuntimeError, match="unexpected response from sentinel"):
+            _handle_sentinel_response(data)
+
+    def test_status_without_output_returns_data(self):
+        from runpod_flash.flash_sentinel import _handle_sentinel_response
+
+        data = {"status": "COMPLETED"}
+        assert _handle_sentinel_response(data) == {"status": "COMPLETED"}
 
     def test_failed_status_raises(self):
         from runpod_flash.flash_sentinel import _handle_sentinel_response
