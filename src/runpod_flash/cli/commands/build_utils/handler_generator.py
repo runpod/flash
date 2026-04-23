@@ -171,11 +171,13 @@ def handler(job):
         return {{"success": False, "error": f"Malformed input: expected dict, got {{type(raw_input).__name__}}"}}
     raw_input.pop("__empty", None)
     job_input = raw_input
+    # always pop method key so it isn't passed to user code as a kwarg
+    explicit_method = job_input.pop("method", None)
     try:
         if len(_METHODS) == 1:
             method_name = next(iter(_METHODS))
         else:
-            method_name = job_input.pop("method", None)
+            method_name = explicit_method
             if method_name is None:
                 return {{
                     "success": False,
@@ -249,11 +251,13 @@ async def handler(job):
     """
     job_input = job.get("input", {{}})
     job_input.pop("__empty", None)
+    # always pop method key so it isn't passed to user code as a kwarg
+    explicit_method = job_input.pop("method", None)
     try:
         if len(_METHODS) == 1:
             method_name = next(iter(_METHODS))
         else:
-            method_name = job_input.pop("method", None)
+            method_name = explicit_method
             if method_name is None:
                 return {{
                     "error": (

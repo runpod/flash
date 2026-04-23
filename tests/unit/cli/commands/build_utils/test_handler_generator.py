@@ -403,7 +403,7 @@ def test_class_handler_multi_method_requires_key():
 
         assert "'train': 'train'" in content
         assert "'predict': 'predict'" in content
-        assert 'job_input.pop("method", None)' in content
+        assert 'explicit_method = job_input.pop("method", None)' in content
         assert "class MLWorker has multiple methods" in content
 
 
