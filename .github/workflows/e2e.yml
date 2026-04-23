@@ -92,6 +92,7 @@ jobs:
       - name: Run E2E tests
         env:
           RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+          FLASH_SDK_GIT_REF: ${{ github.sha }}
         run: |
           uv run pytest e2e/ \
             ${{ inputs.tests != '' && format('-k "{0}"', inputs.tests) || '' }} \
