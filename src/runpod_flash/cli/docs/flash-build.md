@@ -270,14 +270,14 @@ Check the [worker-flash repository](https://github.com/runpod-workers/worker-fla
 
 After building:
 
-1. **Test Locally**: Run `flash run` to test the application
-2. **Deploy**: Use `flash deploy` to deploy to Runpod Serverless
+1. **Test locally**: Run `flash dev` to test the application
+2. **Deploy**: Use `flash deploy` to deploy to RunPod Serverless
 3. **Preview**: Test with `flash build --preview` before production deployment
 4. **Monitor**: Use `flash env get` to check deployment status
 
-## Related Commands
+## Related commands
 
 - [flash deploy](./flash-deploy.md) - Build and deploy in one step
-- [flash run](./flash-run.md) - Start development server
+- [flash dev](./flash-run.md) - Start development server
 - [flash env](./flash-env.md) - Manage deployment environments
 - [flash undeploy](./flash-undeploy.md) - Manage deployed endpoints
