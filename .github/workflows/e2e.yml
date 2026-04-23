@@ -2,10 +2,10 @@ name: E2E Tests
 
 on:
   # Uncomment to run on every push to main / pull request:
-   push:
-     branches: [main]
-   pull_request:
-     branches: [main]
+  # push:
+  #   branches: [main]
+  # pull_request:
+  #   branches: [main]
   workflow_dispatch:
     inputs:
       tests:
