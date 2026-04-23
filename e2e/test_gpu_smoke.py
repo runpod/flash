@@ -1,6 +1,6 @@
-"""CPU smoke: deploy → invoke → undeploy.
+"""GPU smoke test — deploy → invoke → undeploy on a GPU worker.
 
-Verifies the full deployment pipeline end-to-end. Runs every release.
+Requires GPU quota on the account and a valid RUNPOD_API_KEY.
 """
 
 import os
@@ -13,34 +13,33 @@ import runpod
 from conftest import endpoint_id_from_state, sweep_endpoints
 from provisioner import flash_dep
 
-WORKER_NAME = f"flash-qa-smoke-{uuid.uuid4().hex[:8]}"
+_WORKER_NAME = f"flash-qa-gpu-smoke-{uuid.uuid4().hex[:8]}"
 
-WORKER_CODE = f'''\
+_WORKER_CODE = f'''\
 from runpod_flash import Endpoint
 
 
-@Endpoint(name="{WORKER_NAME}", cpu="cpu3c-1-2")
+@Endpoint(name="{_WORKER_NAME}")
 async def echo(msg: str = "") -> dict:
     return {{"echo": msg, "status": "ok"}}
 '''
 
-PYPROJECT_TOML = f'''\
+_PYPROJECT_TOML = f'''\
 [project]
-name = "{WORKER_NAME}"
+name = "{_WORKER_NAME}"
 version = "0.1.0"
 requires-python = ">=3.11,<3.13"
 dependencies = ["{flash_dep()}"]
 '''
 
 
-class TestCpuSmoke:
-    """CPU smoke: deploy → invoke → undeploy."""
+class TestGpuSmoke:
+    """GPU smoke: deploy → invoke → undeploy on a default GPU worker."""
 
-    def test_deploy_invoke_undeploy(self, tmp_path: Path) -> None:
+    def test_deploy_invoke_undeploy(self, tmp_path: Path, api_key: str) -> None:
         env = os.environ.copy()
-
-        (tmp_path / "worker.py").write_text(WORKER_CODE)
-        (tmp_path / "pyproject.toml").write_text(PYPROJECT_TOML)
+        (tmp_path / "worker.py").write_text(_WORKER_CODE)
+        (tmp_path / "pyproject.toml").write_text(_PYPROJECT_TOML)
 
         try:
             result = subprocess.run(
@@ -49,7 +48,7 @@ class TestCpuSmoke:
                 env=env,
                 capture_output=True,
                 text=True,
-                timeout=300,
+                timeout=600,
             )
             assert result.returncode == 0, (
                 f"flash deploy failed (exit {result.returncode}):\n"
@@ -57,34 +56,25 @@ class TestCpuSmoke:
             )
 
             endpoint_id = endpoint_id_from_state(tmp_path)
-
             runpod.api_key = env["RUNPOD_API_KEY"]
-            output = runpod.Endpoint(endpoint_id).run_sync(
-                {"msg": "smoke"}, timeout=180
-            )
 
+            output = runpod.Endpoint(endpoint_id).run_sync(
+                {"msg": "smoke"}, timeout=300
+            )
             assert output is not None, "run_sync returned None"
             assert output.get("echo") == "smoke", f"Unexpected output: {output}"
             assert output.get("status") == "ok", f"Unexpected status: {output}"
 
         finally:
-            # Exercise the undeploy CLI path; sweep catches any quota leak if this fails.
             try:
-                undeploy = subprocess.run(
-                    ["uv", "run", "flash", "undeploy", WORKER_NAME, "--force"],
+                subprocess.run(
+                    ["uv", "run", "flash", "undeploy", _WORKER_NAME, "--force"],
                     cwd=tmp_path,
                     env=env,
                     capture_output=True,
                     text=True,
                     timeout=60,
                 )
-                if undeploy.returncode != 0:
-                    print(
-                        f"WARNING: undeploy failed (exit {undeploy.returncode}):\n"
-                        f"stdout: {undeploy.stdout}\nstderr: {undeploy.stderr}"
-                    )
             except subprocess.TimeoutExpired:
-                print("WARNING: undeploy timed out after 60s")
-
-            # Sweep flash-qa-* endpoints — stale endpoints exhaust worker quota.
+                print("WARNING: GPU undeploy timed out after 60s")
             sweep_endpoints(env["RUNPOD_API_KEY"])

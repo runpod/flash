@@ -2,10 +2,10 @@ name: E2E Tests
 
 on:
   # Uncomment to run on every push to main / pull request:
-  # push:
-  #   branches: [main]
-  # pull_request:
-  #   branches: [main]
+   push:
+     branches: [main]
+   pull_request:
+     branches: [main]
   workflow_dispatch:
     inputs:
       tests:
@@ -92,6 +92,7 @@ jobs:
       - name: Run E2E tests
         env:
           RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+          FLASH_SDK_GIT_REF: ${{ github.sha }}
         run: |
           uv run pytest e2e/ \
             ${{ inputs.tests != '' && format('-k "{0}"', inputs.tests) || '' }} \
