@@ -309,17 +309,16 @@ def create_remote_class(
                 ctx = get_flash_context()
                 if ctx:
                     from .client import _normalize_resource_name
-                    from .flash_sentinel import sentinel_qb_class_execute_plain
+                    from .flash_sentinel import sentinel_qb_class_execute
 
                     app_name, env_name = ctx
-                    return await sentinel_qb_class_execute_plain(
+                    request = self._build_class_request(name, args, kwargs)
+                    return await sentinel_qb_class_execute(
                         app_name,
                         env_name,
                         _normalize_resource_name(self._resource_config.name),
-                        name,
-                        self._class_type,
-                        args,
-                        kwargs,
+                        request,
+                        method_ref=getattr(self._class_type, name, None),
                     )
 
                 # live path: only reachable when flash dev sets

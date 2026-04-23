@@ -190,7 +190,8 @@ async def sentinel_qb_class_execute(
     env: str,
     endpoint_name: str,
     request: FunctionRequest,
-    timeout: float = 60,
+    timeout: Optional[float] = None,
+    method_ref: Optional[Callable] = None,
 ) -> Any:
     """execute a method on a deployed class-based QB endpoint via flash sentinel.
 
@@ -198,12 +199,16 @@ async def sentinel_qb_class_execute(
     format expected by deployed class handlers. the deployed handler
     dispatches on a "method" key in the input and receives kwargs directly.
 
+    when method_ref is provided, positional args are mapped to named params
+    using the method's signature so the handler can unpack them as **kwargs.
+
     args:
         app: flash app name
         env: flash environment name
         endpoint_name: target endpoint name (resource config name)
         request: FunctionRequest with execution_type="class" and method info
         timeout: request timeout in seconds
+        method_ref: optional reference to the method for signature introspection
 
     returns:
         the deserialized method result
@@ -213,57 +218,24 @@ async def sentinel_qb_class_execute(
     """
     body: Dict[str, Any] = {"method": request.method_name}
 
-    # decode cloudpickle-encoded kwargs back to plain python values
+    # decode cloudpickle-encoded values
+    decoded_kwargs = {}
     if request.kwargs:
         for k, v in request.kwargs.items():
-            body[k] = _decode_arg(v)
+            decoded_kwargs[k] = _decode_arg(v)
 
-    # positional args are encoded as a list of cloudpickle blobs
+    decoded_args: list = []
     if request.args:
-        body["args"] = [_decode_arg(a) for a in request.args]
+        decoded_args = [_decode_arg(a) for a in request.args]
 
-    payload = {"input": body}
-
-    data = await _sentinel_qb_post(app, env, endpoint_name, payload, timeout=timeout)
-    return _handle_sentinel_response(data)
-
-
-async def sentinel_qb_class_execute_plain(
-    app: str,
-    env: str,
-    endpoint_name: str,
-    method_name: str,
-    cls: type,
-    args: tuple,
-    kwargs: dict,
-    timeout: Optional[float] = None,
-) -> Any:
-    """execute a method on a deployed class-based QB endpoint via flash sentinel.
-
-    maps positional args to named kwargs using the method's signature
-    and sends them directly as plain JSON. avoids the cloudpickle
-    serialize/decode round-trip used by the live path.
-
-    args:
-        app: flash app name
-        env: flash environment name
-        endpoint_name: target endpoint name
-        method_name: name of the method to call
-        cls: the original class (used for signature introspection)
-        args: positional arguments to the method
-        kwargs: keyword arguments to the method
-        timeout: request timeout in seconds
-    """
-    # resolve named params from the method signature
-    method = getattr(cls, method_name, None)
-    if method is not None:
-        body = _args_to_kwargs(method, args, kwargs)
+    # map positional args to named params using the method signature
+    if decoded_args and method_ref is not None:
+        mapped = _args_to_kwargs(method_ref, tuple(decoded_args), decoded_kwargs)
+        body.update(mapped)
     else:
-        body = dict(kwargs)
-        if args:
-            body["args"] = list(args)
-
-    body["method"] = method_name
+        body.update(decoded_kwargs)
+        if decoded_args:
+            body["args"] = decoded_args
 
     if not body or (len(body) == 1 and "method" in body):
         body["__empty"] = True

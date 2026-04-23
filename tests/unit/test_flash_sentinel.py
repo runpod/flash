@@ -209,10 +209,17 @@ class TestSentinelQBClassExecute:
             await sentinel_qb_execute("myapp", "prod", "gpu-worker", my_func)
 
 
-class TestSentinelQBClassExecutePlain:
+class TestSentinelQBClassExecuteWithMethodRef:
+    """test that positional args get mapped to named params via method_ref."""
+
     @pytest.mark.asyncio
-    async def test_maps_positional_args_to_named_params(self, mock_httpx):
-        from runpod_flash.flash_sentinel import sentinel_qb_class_execute_plain
+    async def test_maps_positional_args_via_method_ref(self, mock_httpx):
+        import base64
+
+        import cloudpickle
+
+        from runpod_flash.flash_sentinel import sentinel_qb_class_execute
+        from runpod_flash.protos.remote_execution import FunctionRequest
 
         mock_response = MagicMock()
         mock_response.raise_for_status = MagicMock()
@@ -226,8 +233,21 @@ class TestSentinelQBClassExecutePlain:
             async def add(self, x: int) -> int:
                 return x + 1
 
-        result = await sentinel_qb_class_execute_plain(
-            "myapp", "prod", "gpu-worker", "add", Counter, (5,), {}
+        encoded_x = base64.b64encode(cloudpickle.dumps(5)).decode()
+
+        request = FunctionRequest(
+            execution_type="class",
+            class_name="Counter",
+            method_name="add",
+            args=[encoded_x],
+        )
+
+        result = await sentinel_qb_class_execute(
+            "myapp",
+            "prod",
+            "gpu-worker",
+            request,
+            method_ref=Counter.add,
         )
 
         assert result == 6
@@ -237,34 +257,9 @@ class TestSentinelQBClassExecutePlain:
         assert sent_payload == {"input": {"method": "add", "x": 5}}
 
     @pytest.mark.asyncio
-    async def test_handles_kwargs(self, mock_httpx):
-        from runpod_flash.flash_sentinel import sentinel_qb_class_execute_plain
-
-        mock_response = MagicMock()
-        mock_response.raise_for_status = MagicMock()
-        mock_response.json.return_value = {
-            "status": "COMPLETED",
-            "output": 15,
-        }
-        mock_httpx.return_value = _make_mock_client(mock_response)
-
-        class Counter:
-            async def add(self, x: int, y: int = 10) -> int:
-                return x + y
-
-        result = await sentinel_qb_class_execute_plain(
-            "myapp", "prod", "gpu-worker", "add", Counter, (), {"x": 3, "y": 7}
-        )
-
-        assert result == 15
-
-        call_kwargs = mock_httpx.return_value.post.call_args
-        sent_payload = call_kwargs.kwargs["json"]
-        assert sent_payload == {"input": {"method": "add", "x": 3, "y": 7}}
-
-    @pytest.mark.asyncio
     async def test_no_args_sends_empty_marker(self, mock_httpx):
-        from runpod_flash.flash_sentinel import sentinel_qb_class_execute_plain
+        from runpod_flash.flash_sentinel import sentinel_qb_class_execute
+        from runpod_flash.protos.remote_execution import FunctionRequest
 
         mock_response = MagicMock()
         mock_response.raise_for_status = MagicMock()
@@ -274,13 +269,13 @@ class TestSentinelQBClassExecutePlain:
         }
         mock_httpx.return_value = _make_mock_client(mock_response)
 
-        class Counter:
-            async def reset(self) -> int:
-                return 0
-
-        result = await sentinel_qb_class_execute_plain(
-            "myapp", "prod", "gpu-worker", "reset", Counter, (), {}
+        request = FunctionRequest(
+            execution_type="class",
+            class_name="Counter",
+            method_name="reset",
         )
+
+        result = await sentinel_qb_class_execute("myapp", "prod", "gpu-worker", request)
 
         assert result == 0
 
