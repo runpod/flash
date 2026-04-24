@@ -149,6 +149,20 @@ FLASH_CPU_LB_IMAGE = os.environ.get(
     f"runpod/flash-lb-cpu:py{DEFAULT_PYTHON_VERSION}-{_RESOLVED_TAG}",
 )
 
+# Base images for process injection (no flash-worker baked in)
+FLASH_GPU_BASE_IMAGE = os.environ.get(
+    "FLASH_GPU_BASE_IMAGE", "pytorch/pytorch:2.9.1-cuda12.8-cudnn9-runtime"
+)
+FLASH_CPU_BASE_IMAGE = os.environ.get("FLASH_CPU_BASE_IMAGE", "python:3.11-slim")
+
+# Worker tarball for process injection
+FLASH_WORKER_VERSION = os.environ.get("FLASH_WORKER_VERSION", "1.1.1")
+FLASH_WORKER_TARBALL_URL_TEMPLATE = os.environ.get(
+    "FLASH_WORKER_TARBALL_URL",
+    "https://github.com/runpod-workers/flash/releases/download/"
+    "v{version}/flash-worker-v{version}-py3.11-linux-x86_64.tar.gz",
+)
+
 # Worker configuration defaults
 DEFAULT_WORKERS_MIN = 0
 DEFAULT_WORKERS_MAX = 1
