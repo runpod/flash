@@ -34,6 +34,8 @@ To launch a local preview environment, use `flash deploy --preview` instead.
 - `--preview`: Launch local test environment after successful build (auto-enables `--keep-build`)
 - `--python-version`: Target Python version for worker images (`3.10`, `3.11`, or `3.12`). Overrides per-resource `python_version`. Default: value declared on resource configs, or 3.12 if none set.
 
+To launch a local preview environment, use `flash deploy --preview` instead.
+
 ## Examples
 
 ```bash
