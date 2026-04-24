@@ -4,7 +4,10 @@ import json
 import sys
 import tempfile
 from pathlib import Path
+from typing import Optional
 from unittest.mock import MagicMock
+
+import pytest
 
 from runpod_flash.cli.commands.build_utils.manifest import ManifestBuilder
 from runpod_flash.cli.commands.build_utils.scanner import RemoteFunctionMetadata
@@ -968,3 +971,85 @@ def test_manifest_uses_explicit_python_version():
     manifest = builder.build()
 
     assert manifest["python_version"] == "3.12"
+
+
+def _make_resources_dict(**python_versions: Optional[str]) -> dict:
+    """Build a resources_dict fixture keyed by resource name with python_version."""
+    resources: dict = {}
+    for name, version in python_versions.items():
+        entry = {
+            "resource_type": "LiveServerless",
+            "file_path": f"workers/{name}.py",
+            "local_path_prefix": f"/workers/{name}",
+            "module_path": f"workers.{name}",
+            "functions": [],
+            "is_load_balanced": False,
+            "is_live_resource": True,
+            "config_variable": None,
+            "makes_remote_calls": False,
+        }
+        if version is not None:
+            entry["python_version"] = version
+        resources[name] = entry
+    return resources
+
+
+class TestReconcilePythonVersion:
+    """Tests for ManifestBuilder._reconcile_python_version (AE-2827)."""
+
+    def _builder(self, python_version: Optional[str] = None) -> ManifestBuilder:
+        return ManifestBuilder("test_app", [], python_version=python_version)
+
+    def test_no_resources_declare_version_uses_default(self):
+        from runpod_flash.core.resources.constants import DEFAULT_PYTHON_VERSION
+
+        resolved = self._builder()._reconcile_python_version(
+            _make_resources_dict(gpu=None, cpu=None)
+        )
+        assert resolved == DEFAULT_PYTHON_VERSION
+
+    def test_single_declared_version_wins(self):
+        resolved = self._builder()._reconcile_python_version(
+            _make_resources_dict(gpu="3.11")
+        )
+        assert resolved == "3.11"
+
+    def test_multiple_resources_same_version(self):
+        resolved = self._builder()._reconcile_python_version(
+            _make_resources_dict(gpu="3.11", cpu="3.11", lb="3.11")
+        )
+        assert resolved == "3.11"
+
+    def test_conflicting_resource_versions_raises(self):
+        with pytest.raises(ValueError, match="one python_version across all resources"):
+            self._builder()._reconcile_python_version(
+                _make_resources_dict(gpu="3.11", cpu="3.12")
+            )
+
+    def test_override_wins_over_unset_resources(self):
+        resolved = self._builder("3.10")._reconcile_python_version(
+            _make_resources_dict(gpu=None, cpu=None)
+        )
+        assert resolved == "3.10"
+
+    def test_override_matching_resources_ok(self):
+        resolved = self._builder("3.11")._reconcile_python_version(
+            _make_resources_dict(gpu="3.11", cpu=None)
+        )
+        assert resolved == "3.11"
+
+    def test_override_conflicting_with_resource_raises(self):
+        with pytest.raises(ValueError, match="conflicts with resource declarations"):
+            self._builder("3.12")._reconcile_python_version(
+                _make_resources_dict(gpu="3.11")
+            )
+
+    def test_unsupported_override_raises(self):
+        with pytest.raises(ValueError, match="not supported"):
+            self._builder("3.8")._reconcile_python_version(
+                _make_resources_dict(gpu=None)
+            )
+
+    def test_unsupported_resource_version_raises(self):
+        with pytest.raises(ValueError, match="not supported"):
+            self._builder()._reconcile_python_version(_make_resources_dict(gpu="3.8"))
