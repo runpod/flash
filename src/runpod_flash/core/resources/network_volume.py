@@ -12,8 +12,8 @@ from pydantic import (
 )
 
 from ..api.runpod import RunpodRestClient
+from ..urls import RUNPOD_CONSOLE_URL
 from .base import DeployableResource
-from .constants import CONSOLE_BASE_URL
 from .resource_manager import ResourceManager
 
 log = logging.getLogger(__name__)
@@ -150,7 +150,7 @@ class NetworkVolume(DeployableResource):
         """
         if not self.id:
             raise ValueError("Network volume ID is not set")
-        return f"{CONSOLE_BASE_URL}/user/storage"
+        return f"{RUNPOD_CONSOLE_URL}/user/storage"
 
     async def is_deployed(self) -> bool:
         """

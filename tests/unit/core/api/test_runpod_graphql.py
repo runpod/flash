@@ -106,10 +106,10 @@ class TestRunpodGraphQLClientInitialization:
 
     def test_graphql_url_configuration(self):
         """Test GraphQL URL is properly configured."""
-        client = RunpodGraphQLClient(api_key="test_key")
+        from runpod_flash.core.urls import GRAPHQL_URL
 
-        assert "graphql" in client.GRAPHQL_URL
-        assert client.GRAPHQL_URL.startswith("https://")
+        assert "graphql" in GRAPHQL_URL
+        assert GRAPHQL_URL.startswith("https://")
 
 
 class TestRunpodGraphQLClientSession:
