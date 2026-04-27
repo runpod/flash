@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.15.0](https://github.com/runpod/flash/compare/v1.14.0...v1.15.0) (2026-04-23)
+
+
+### Features
+
+* implicit flash endpoint resolution + CLI overhaul ([#324](https://github.com/runpod/flash/issues/324)) ([7e1bef3](https://github.com/runpod/flash/commit/7e1bef314d5c07bb8092066d5f5796be7f8a8bbc))
+
 ## [1.14.0](https://github.com/runpod/flash/compare/v1.13.0...v1.14.0) (2026-04-17)
 
 
