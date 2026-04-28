@@ -5,12 +5,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import aiohttp
 import pytest
 
-from runpod_flash.core.api.runpod import (
-    RUNPOD_REST_API_URL,
-    RunpodGraphQLClient,
-    RunpodRestClient,
-)
+from runpod_flash.core.api.runpod import RunpodGraphQLClient, RunpodRestClient
 from runpod_flash.core.exceptions import RunpodAPIKeyError
+from runpod_flash.core.urls import RUNPOD_REST_API_URL
 from runpod_flash.runtime.exceptions import GraphQLMutationError, GraphQLQueryError
 
 

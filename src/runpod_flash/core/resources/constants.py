@@ -1,23 +1,4 @@
 import os
-from urllib.parse import urlparse
-
-import runpod
-
-CONSOLE_BASE_URL = os.environ.get("CONSOLE_BASE_URL", "https://console.runpod.io")
-CONSOLE_URL = f"{CONSOLE_BASE_URL}/serverless/user/endpoint/%s"
-
-
-def _endpoint_domain_from_base_url(base_url: str) -> str:
-    if not base_url:
-        return "api.runpod.ai"
-    if "://" not in base_url:
-        base_url = f"https://{base_url}"
-    parsed = urlparse(base_url)
-    return parsed.netloc or "api.runpod.ai"
-
-
-ENDPOINT_DOMAIN = _endpoint_domain_from_base_url(runpod.endpoint_url_base)
-
 
 # Worker runtime Python versions. One tarball serves every resource in an app,
 # so all resources must share a single Python version. GPU images ship 3.12

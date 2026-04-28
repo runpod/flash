@@ -156,7 +156,7 @@ def mock_env_vars(monkeypatch: pytest.MonkeyPatch) -> Dict[str, str]:
     """
     env_vars = {
         "RUNPOD_API_KEY": "test_api_key_123",
-        "RUNPOD_API_BASE_URL": "https://api.runpod.ai/v2",
+        "RUNPOD_API_BASE_URL": "https://api.runpod.io",
         "LOG_LEVEL": "ERROR",  # Suppress logs during tests
     }
 

@@ -7,7 +7,7 @@ import logging
 from ..api.runpod import RunpodGraphQLClient
 from ..resources.resource_manager import ResourceManager
 from ..resources.serverless import ServerlessEndpoint, NetworkVolume
-from ..resources.constants import (
+from .constants import (
     TARBALL_CONTENT_TYPE,
     MAX_TARBALL_SIZE_MB,
     VALID_TARBALL_EXTENSIONS,

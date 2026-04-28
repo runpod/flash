@@ -1,5 +1,4 @@
 import logging
-import os
 import re
 from dataclasses import dataclass
 from dataclasses import field
@@ -9,29 +8,14 @@ from typing import Any, List, Optional
 
 import httpx
 
+from ..urls import RUNPOD_ENDPOINT_URL, RUNPOD_HAPI_URL
 from runpod_flash.core.utils.http import get_authenticated_httpx_client
 
 log = logging.getLogger(__name__)
 
-API_BASE_URL = os.getenv("RUNPOD_API_BASE_URL", "https://api.runpod.ai").rstrip("/")
-DEV_API_BASE_URL = "https://dev-api.runpod.ai"
-HAPI_BASE_URL = "https://hapi.runpod.net"
-DEV_HAPI_BASE_URL = "https://dev-hapi.runpod.net"
 LOG_PREFIX_TIMESTAMP_RE = re.compile(
     r"^(?P<timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}))"
 )
-
-
-def _resolve_hapi_base_url() -> str:
-    runpod_env = os.getenv("RUNPOD_ENV", "").lower()
-    if runpod_env == "dev":
-        return DEV_HAPI_BASE_URL
-
-    api_base = os.getenv("RUNPOD_API_BASE_URL", "")
-    if DEV_API_BASE_URL in api_base:
-        return DEV_HAPI_BASE_URL
-
-    return HAPI_BASE_URL
 
 
 class QBRequestLogPhase(str, Enum):
@@ -171,7 +155,7 @@ class QBRequestLogFetcher:
         status_api_key: str,
         status_api_key_fallback: Optional[str],
     ) -> Optional[dict[str, Any]]:
-        url = f"{API_BASE_URL}/v2/{endpoint_id}/status/{request_id}"
+        url = f"{RUNPOD_ENDPOINT_URL}/{endpoint_id}/status/{request_id}"
         auth_keys = self._auth_candidates(status_api_key, status_api_key_fallback)
 
         for auth_key in auth_keys:
@@ -205,7 +189,7 @@ class QBRequestLogFetcher:
         status_api_key_fallback: Optional[str],
     ) -> Optional[dict[str, Any]]:
         auth_keys = self._auth_candidates(status_api_key, status_api_key_fallback)
-        url = f"{API_BASE_URL}/v2/{endpoint_id}/metrics"
+        url = f"{RUNPOD_ENDPOINT_URL}/{endpoint_id}/metrics"
 
         for auth_key in auth_keys:
             try:
@@ -305,7 +289,7 @@ class QBRequestLogFetcher:
         worker_id: str,
         runpod_api_key: str,
     ) -> Optional[dict[str, Any]]:
-        url = f"{_resolve_hapi_base_url()}/v1/pod/{worker_id}/logs"
+        url = f"{RUNPOD_HAPI_URL}/v1/pod/{worker_id}/logs"
 
         try:
             async with get_authenticated_httpx_client(
