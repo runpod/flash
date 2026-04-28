@@ -626,12 +626,6 @@ class RunpodGraphQLClient:
                 f"Expected 'updateFlashBuildManifest' in response, got: {list(result.keys())}"
             )
 
-    async def get_flash_artifact_url(self, environment_id: str) -> Dict[str, Any]:
-        result = await self.get_flash_environment(
-            {"flashEnvironmentId": environment_id}
-        )
-        return result
-
     async def deploy_build_to_environment(
         self, input_data: Dict[str, Any]
     ) -> Dict[str, Any]:
@@ -702,75 +696,6 @@ class RunpodGraphQLClient:
         result = await self._execute_graphql(mutation, variables)
 
         return result["createFlashEnvironment"]
-
-    async def register_endpoint_to_environment(
-        self, input_data: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Register an endpoint to a Flash environment"""
-
-        log.debug(
-            f"Registering endpoint to flash environment with input data: {input_data}"
-        )
-
-        mutation = """
-        mutation addEndpointToFlashEnvironment($input: AddEndpointToEnvironmentInput!) {
-                addEndpointToFlashEnvironment(input: $input) {
-                    id
-                    name
-                    flashEnvironmentId
-                    }
-                }
-        """
-
-        variables = {"input": input_data}
-
-        result = await self._execute_graphql(mutation, variables)
-
-        return result["addEndpointToFlashEnvironment"]
-
-    async def register_network_volume_to_environment(
-        self, input_data: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Register an endpoint to a Flash environment"""
-
-        log.debug(
-            f"Registering endpoint to flash environment with input data: {input_data}"
-        )
-
-        mutation = """
-        mutation addNetworkVolumeToFlashEnvironment($input: AddNetworkVolumeToEnvironmentInput!) {
-                addNetworkVolumeToFlashEnvironment(input: $input) {
-                    id
-                    name
-                    flashEnvironmentId
-                    }
-                }
-        """
-
-        variables = {"input": input_data}
-
-        result = await self._execute_graphql(mutation, variables)
-
-        return result["addNetworkVolumeToFlashEnvironment"]
-
-    async def set_environment_state(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
-        log.debug(f"Setting Flash environment status with input data: {input_data}")
-
-        mutation = """
-        mutation updateFlashEnvironment($input: UpdateFlashEnvironmentInput!) {
-                updateFlashEnvironment(input: $input) {
-                    id
-                    name
-                    state
-                    }
-                }
-        """
-
-        variables = {"input": input_data}
-
-        result = await self._execute_graphql(mutation, variables)
-
-        return result["updateFlashEnvironment"]
 
     async def get_flash_build(self, build_id: str) -> Dict[str, Any]:
         """Fetch flash build by ID.

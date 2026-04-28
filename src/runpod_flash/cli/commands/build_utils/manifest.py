@@ -1,7 +1,6 @@
 """Builder for flash_manifest.json."""
 
 import importlib.util
-import json
 import logging
 import sys
 from dataclasses import dataclass
@@ -56,26 +55,6 @@ class ManifestFunction:
     is_load_balanced: bool = False  # Determined by isinstance() at scan time
     is_live_resource: bool = False  # LiveLoadBalancer vs LoadBalancerSlsResource
     config_variable: Optional[str] = None  # Variable name like "gpu_config"
-
-
-@dataclass
-class ManifestResource:
-    """Resource config entry in manifest."""
-
-    resource_type: str
-    functions: List[ManifestFunction]
-    is_load_balanced: bool = False  # Determined by isinstance() at scan time
-    is_live_resource: bool = False  # LiveLoadBalancer vs LoadBalancerSlsResource
-    config_variable: Optional[str] = None  # Variable name for config discovery
-    is_load_balanced_endpoint: bool = False  # Flag for load-balanced endpoint
-    is_explicit: bool = False  # Flag indicating explicit load balancer configuration
-    main_file: Optional[str] = None  # Filename of main entry point
-    app_variable: Optional[str] = None  # Variable name of FastAPI app
-    imageName: Optional[str] = None  # Docker image name for auto-provisioning
-    templateId: Optional[str] = None  # RunPod template ID for auto-provisioning
-    gpuIds: Optional[list] = None  # GPU types/IDs for auto-provisioning
-    workersMin: Optional[int] = None  # Min worker count for auto-provisioning
-    workersMax: Optional[int] = None  # Max worker count for auto-provisioning
 
 
 class ManifestBuilder:
@@ -571,9 +550,3 @@ class ManifestBuilder:
             manifest["routes"] = routes_dict
 
         return manifest
-
-    def write_to_file(self, output_path: Path) -> Path:
-        """Write manifest to file."""
-        manifest = self.build()
-        output_path.write_text(json.dumps(manifest, indent=2))
-        return output_path

@@ -43,27 +43,6 @@ class TestGraphQLMutations:
                 "env-1",
             ),
             (
-                "register_endpoint_to_environment",
-                ({"flashEnvironmentId": "env-1", "endpointId": "ep-1"},),
-                {"addEndpointToFlashEnvironment": {"id": "ep-1", "name": "gpu"}},
-                "id",
-                "ep-1",
-            ),
-            (
-                "register_network_volume_to_environment",
-                ({"flashEnvironmentId": "env-1", "networkVolumeId": "nv-1"},),
-                {"addNetworkVolumeToFlashEnvironment": {"id": "nv-1", "name": "vol"}},
-                "id",
-                "nv-1",
-            ),
-            (
-                "set_environment_state",
-                ({"flashEnvironmentId": "env-1", "status": "HEALTHY"},),
-                {"updateFlashEnvironment": {"id": "env-1", "state": "HEALTHY"}},
-                "state",
-                "HEALTHY",
-            ),
-            (
                 "prepare_artifact_upload",
                 ({"flashAppId": "app-1", "tarballSize": 1024},),
                 {
@@ -255,18 +234,6 @@ class TestGraphQLQueries:
             mock.side_effect = Exception("API error")
             result = await client.endpoint_exists("ep-123")
             assert result is False
-
-    @pytest.mark.asyncio
-    async def test_get_flash_artifact_url(self):
-        client = RunpodGraphQLClient(api_key="test")
-        with patch.object(
-            client, "get_flash_environment", new_callable=AsyncMock
-        ) as mock:
-            mock.return_value = {
-                "activeArtifact": {"downloadUrl": "https://example.com/dl"}
-            }
-            result = await client.get_flash_artifact_url("env-1")
-            assert "activeArtifact" in result
 
 
 # ──── REST client ────
