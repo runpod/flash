@@ -212,6 +212,28 @@ def _resolve_pip_python_version(manifest: dict) -> str | None:
     return max(versions)
 
 
+def _python_version_source(override: str | None, resources_dict: dict) -> str:
+    """Return a human-readable source string for the resolved Python version.
+
+    Used at build time to surface where the resolved version came from:
+    explicit override, per-resource declaration, or local interpreter match.
+    """
+    if override:
+        return "--python-version override"
+    declared = {
+        name: r["python_version"]
+        for name, r in resources_dict.items()
+        if r.get("python_version")
+    }
+    if declared:
+        # All declared values are identical at this point — reconcile would
+        # have raised otherwise — so report the lexicographically-first
+        # resource name for stability.
+        name = next(iter(sorted(declared)))
+        return f"declared on resource {name}"
+    return "matched local interpreter"
+
+
 def run_build(
     project_dir: Path,
     app_name: str,
@@ -288,6 +310,10 @@ def run_build(
                 python_version=manifest_python_version_override,
             )
             manifest = manifest_builder.build()
+            console.print(
+                f"[dim]targeting Python {manifest_builder.python_version} "
+                f"({_python_version_source(manifest_python_version_override, manifest.get('resources', {}))})[/dim]"
+            )
             manifest["source_fingerprint"] = compute_source_fingerprint(
                 project_dir, files
             )
