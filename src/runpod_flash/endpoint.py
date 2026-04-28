@@ -746,9 +746,9 @@ class Endpoint:
 
     def _resolve_qb_url(self, endpoint_id: str) -> str:
         """build a QB-style url: {base}/v2/{id}"""
-        import runpod
+        from .core.urls import RUNPOD_ENDPOINT_URL
 
-        return f"{runpod.endpoint_url_base}/{endpoint_id}"
+        return f"{RUNPOD_ENDPOINT_URL}/{endpoint_id}"
 
     def _resolve_lb_url(self, endpoint_id: str) -> str:
         """build an LB-style url: https://{id}.{domain}"""

@@ -14,6 +14,7 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
+from ..core.urls import DEFAULT_ENDPOINT_URL
 from .live_serverless import get_function_source
 
 log = logging.getLogger(__name__)
@@ -365,7 +366,8 @@ def generate_stub_code(dep: RemoteDependency) -> str:
         "",
         f"{I}_endpoint_id = {repr(dep.endpoint_id)}",
         f'{I}_api_key = _os.environ.get("RUNPOD_API_KEY", "")',
-        f'{I}_base = _os.environ.get("RUNPOD_ENDPOINT_BASE_URL", "https://api.runpod.ai/v2")',
+        f"{I}_base = _os.environ.get("
+        f'"RUNPOD_ENDPOINT_BASE_URL", {repr(DEFAULT_ENDPOINT_URL)}).rstrip("/")',
         f'{I}_url = f"{{_base}}/{{_endpoint_id}}/runsync"',
         f'{I}_headers = {{"Content-Type": "application/json"}}',
         f"{I}if _api_key:",

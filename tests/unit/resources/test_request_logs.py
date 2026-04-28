@@ -8,6 +8,7 @@ from runpod_flash.core.resources.request_logs import (
     QBRequestLogFetcher,
     QBRequestLogPhase,
 )
+from runpod_flash.core.resources import request_logs as request_logs_module
 
 
 def _make_async_client(mock_client: MagicMock) -> MagicMock:
@@ -245,3 +246,88 @@ async def test_status_uses_fallback_key_on_401():
     assert second_batch.worker_id == "worker-123"
     assert second_batch.phase == QBRequestLogPhase.STREAMING
     assert second_batch.lines == ["new"]
+
+
+@pytest.mark.asyncio
+async def test_status_and_metrics_use_data_plane_endpoint_url(monkeypatch):
+    """Status and metrics requests must hit the data-plane RUNPOD_ENDPOINT_URL.
+
+    The control plane (RUNPOD_API_URL) and data plane (RUNPOD_ENDPOINT_URL)
+    are distinct hosts; conflating them breaks dev/staging routing.
+    """
+    monkeypatch.setattr(
+        request_logs_module, "RUNPOD_ENDPOINT_URL", "https://dev-api.runpod.ai/v2"
+    )
+
+    captured_urls: list[str] = []
+
+    async def _capture_get(url):
+        captured_urls.append(url)
+        response = MagicMock()
+        response.raise_for_status = MagicMock()
+        if "/status/" in url:
+            response.json.return_value = {"workerId": "worker-1"}
+        else:  # /metrics
+            response.json.return_value = {
+                "workers": {"initializing": 0, "running": 1},
+                "readyWorkers": ["worker-1"],
+            }
+        return response
+
+    mock_client = MagicMock()
+    mock_client.get = AsyncMock(side_effect=_capture_get)
+
+    fetcher = QBRequestLogFetcher()
+    with patch(
+        "runpod_flash.core.resources.request_logs.get_authenticated_httpx_client",
+        return_value=_make_async_client(mock_client),
+    ):
+        await fetcher._fetch_status_payload(
+            endpoint_id="ep-1",
+            request_id="req-1",
+            status_api_key="k",
+            status_api_key_fallback=None,
+        )
+        await fetcher._fetch_metrics_payload(
+            endpoint_id="ep-1",
+            status_api_key="k",
+            status_api_key_fallback=None,
+        )
+
+    assert captured_urls == [
+        "https://dev-api.runpod.ai/v2/ep-1/status/req-1",
+        "https://dev-api.runpod.ai/v2/ep-1/metrics",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_pod_logs_use_hapi_url(monkeypatch):
+    """Pod-log requests must honor RUNPOD_HAPI_URL.
+
+    HAPI host is selected via an explicit env var, not inferred from other
+    URL envs.
+    """
+    monkeypatch.setattr(
+        request_logs_module, "RUNPOD_HAPI_URL", "https://dev-hapi.runpod.net"
+    )
+
+    captured_urls: list[str] = []
+
+    async def _capture_get(url):
+        captured_urls.append(url)
+        response = MagicMock()
+        response.raise_for_status = MagicMock()
+        response.json.return_value = {"container": [], "system": []}
+        return response
+
+    mock_client = MagicMock()
+    mock_client.get = AsyncMock(side_effect=_capture_get)
+
+    fetcher = QBRequestLogFetcher()
+    with patch(
+        "runpod_flash.core.resources.request_logs.get_authenticated_httpx_client",
+        return_value=_make_async_client(mock_client),
+    ):
+        await fetcher._fetch_pod_logs(worker_id="worker-xyz", runpod_api_key="k")
+
+    assert captured_urls == ["https://dev-hapi.runpod.net/v1/pod/worker-xyz/logs"]

@@ -19,7 +19,7 @@ from typing import Any, Callable, Dict, Optional
 import cloudpickle
 import runpod
 
-from .core.resources.constants import ENDPOINT_DOMAIN
+from .core.urls import ENDPOINT_DOMAIN
 from .core.utils import http as _http
 from .protos.remote_execution import FunctionRequest
 

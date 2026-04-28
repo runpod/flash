@@ -316,7 +316,10 @@ class TestEnsureEndpointReadyIdMode:
     @pytest.mark.asyncio
     async def test_returns_consistent_url(self):
         ep = Endpoint(id="ep-abc123")
-        with patch("runpod.endpoint_url_base", "https://api.runpod.ai/v2"):
+        with patch(
+            "runpod_flash.core.urls.RUNPOD_ENDPOINT_URL",
+            "https://api.runpod.ai/v2",
+        ):
             url1 = await ep._ensure_endpoint_ready()
             url2 = await ep._ensure_endpoint_ready()
         assert url1 == url2
@@ -324,15 +327,11 @@ class TestEnsureEndpointReadyIdMode:
     @pytest.mark.asyncio
     async def test_lb_flag_returns_subdomain_url(self):
         ep = Endpoint(id="ep-abc123")
-        with patch(
-            "runpod_flash.endpoint.ENDPOINT_DOMAIN", "api.runpod.ai", create=True
-        ):
-            from runpod_flash.core.urls import ENDPOINT_DOMAIN
-
+        with patch("runpod_flash.core.urls.ENDPOINT_DOMAIN", "api.runpod.ai"):
             with patch.object(
                 ep,
                 "_resolve_lb_url",
-                return_value=f"https://ep-abc123.{ENDPOINT_DOMAIN}",
+                return_value="https://ep-abc123.api.runpod.ai",
             ):
                 qb_url = await ep._ensure_endpoint_ready(lb=False)
                 lb_url = await ep._ensure_endpoint_ready(lb=True)
@@ -342,7 +341,10 @@ class TestEnsureEndpointReadyIdMode:
     @pytest.mark.asyncio
     async def test_no_resource_manager_called(self):
         ep = Endpoint(id="ep-abc123")
-        with patch("runpod.endpoint_url_base", "https://api.runpod.ai/v2"):
+        with patch(
+            "runpod_flash.core.urls.RUNPOD_ENDPOINT_URL",
+            "https://api.runpod.ai/v2",
+        ):
             with patch.object(ep, "_build_resource_config") as mock_build:
                 await ep._ensure_endpoint_ready()
                 mock_build.assert_not_called()

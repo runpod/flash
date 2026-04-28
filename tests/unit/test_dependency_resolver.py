@@ -223,6 +223,33 @@ class TestGenerateStubCode:
         code = generate_stub_code(dep)
         compile(code, "<stub>", "exec")
 
+    def test_stub_reads_endpoint_base_url_env(self):
+        """Generated stub must read RUNPOD_ENDPOINT_BASE_URL at worker runtime.
+
+        Hardcoding the data-plane URL would block dev/staging redirects on
+        deployed workers.
+        """
+        dep = self._make_dep()
+        code = generate_stub_code(dep)
+        assert "RUNPOD_ENDPOINT_BASE_URL" in code
+        assert "https://api.runpod.ai/v2" in code  # default fallback
+        assert "/runsync" in code
+
+    def test_stub_builds_runsync_from_env_base(self):
+        """The runsync URL is constructed from the env-resolved base."""
+        from runpod_flash.core.urls import DEFAULT_ENDPOINT_URL
+
+        dep = self._make_dep(endpoint_id="ep-abc")
+        code = generate_stub_code(dep)
+
+        ns: dict = {}
+        exec(compile(code, "<stub>", "exec"), ns)
+
+        assert "_base" in code
+        assert "_os.environ.get" in code
+        assert repr(DEFAULT_ENDPOINT_URL) in code
+        assert "funcB" in ns
+
 
 # ---------------------------------------------------------------------------
 # Tests: build_augmented_source
