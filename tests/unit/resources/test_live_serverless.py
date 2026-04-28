@@ -225,21 +225,19 @@ class TestLiveServerlessPythonVersion:
         ls = LiveServerless(name="test")
         assert f"py{GPU_BASE_IMAGE_PYTHON_VERSION}" in ls.imageName
 
-    def test_gpu_explicit_python_311_raises(self):
-        with pytest.raises(ValueError, match="GPU endpoints require"):
-            LiveServerless(name="test", python_version="3.11")
+    @pytest.mark.parametrize("version", ["3.10", "3.11", "3.12"])
+    def test_gpu_explicit_supported_versions(self, version):
+        ls = LiveServerless(name="test", python_version=version)
+        assert f"py{version}" in ls.imageName
 
-    def test_gpu_explicit_python_310_raises(self):
-        with pytest.raises(ValueError, match="GPU endpoints require"):
-            LiveServerless(name="test", python_version="3.10")
+    @pytest.mark.parametrize("version", ["3.10", "3.11", "3.12"])
+    def test_cpu_explicit_supported_versions(self, version):
+        ls = CpuLiveServerless(name="test", python_version=version)
+        assert f"py{version}" in ls.imageName
 
-    def test_cpu_explicit_python_311_raises(self):
-        with pytest.raises(ValueError, match="CPU endpoints require"):
-            CpuLiveServerless(name="test", python_version="3.11")
-
-    def test_cpu_explicit_python_310_raises(self):
-        with pytest.raises(ValueError, match="CPU endpoints require"):
-            CpuLiveServerless(name="test", python_version="3.10")
+    def test_gpu_unsupported_python_raises(self):
+        with pytest.raises(ValueError, match="not supported"):
+            LiveServerless(name="test", python_version="3.9")
 
     def test_cpu_default_uses_3_12(self):
         ls = CpuLiveServerless(name="test")
@@ -255,17 +253,17 @@ class TestLiveLoadBalancerPythonVersion:
         assert f"py{GPU_BASE_IMAGE_PYTHON_VERSION}" in lb.imageName
         assert "runpod/flash-lb:" in lb.imageName
 
-    def test_lb_explicit_python_311_raises(self):
-        with pytest.raises(ValueError, match="GPU endpoints require"):
-            LiveLoadBalancer(name="test", python_version="3.11")
+    @pytest.mark.parametrize("version", ["3.10", "3.11", "3.12"])
+    def test_lb_explicit_supported_versions(self, version):
+        lb = LiveLoadBalancer(name="test", python_version=version)
+        assert f"py{version}" in lb.imageName
+        assert "runpod/flash-lb:" in lb.imageName
 
-    def test_lb_explicit_python_310_raises(self):
-        with pytest.raises(ValueError, match="GPU endpoints require"):
-            LiveLoadBalancer(name="test", python_version="3.10")
-
-    def test_cpu_lb_explicit_python_310_raises(self):
-        with pytest.raises(ValueError, match="CPU endpoints require"):
-            CpuLiveLoadBalancer(name="test", python_version="3.10")
+    @pytest.mark.parametrize("version", ["3.10", "3.11", "3.12"])
+    def test_cpu_lb_explicit_supported_versions(self, version):
+        lb = CpuLiveLoadBalancer(name="test", python_version=version)
+        assert f"py{version}" in lb.imageName
+        assert "runpod/flash-lb-cpu:" in lb.imageName
 
     def test_cpu_lb_default_uses_3_12(self):
         lb = CpuLiveLoadBalancer(name="test")
