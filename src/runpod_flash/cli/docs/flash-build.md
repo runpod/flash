@@ -28,7 +28,7 @@ flash build [OPTIONS]
 - `--no-deps`: Skip transitive dependencies during pip install (default: false)
 - `--output, -o`: Custom archive name (default: artifact.tar.gz)
 - `--exclude`: Comma-separated packages to exclude (e.g., 'torch,torchvision')
-- `--python-version`: Target Python version for worker images (`3.10`, `3.11`, or `3.12`). Overrides per-resource `python_version`. Default: value declared on resource configs, or 3.12 if none set.
+- `--python-version`: Target Python version for worker images (`3.10`, `3.11`, `3.12`, or `3.13`). Overrides per-resource `python_version` declarations and the local-interpreter default. By default, `flash build` targets the Python version you're running flash from.
 
 To launch a local preview environment, use `flash deploy --preview` instead.
 
@@ -68,7 +68,7 @@ After `flash build` completes:
 Flash automatically handles cross-platform builds, ensuring compatibility with Runpod's Linux x86_64 serverless infrastructure:
 
 - **Automatic Platform Targeting**: Dependencies are always installed for Linux x86_64, regardless of your build platform (macOS, Windows, or Linux)
-- **Python Version**: Targets Python 3.12 for wheel ABI selection regardless of local interpreter
+- **Python Version**: Targets the resolved Python version (your local interpreter by default, or whatever `--python-version` / per-resource `python_version` selects) for wheel ABI selection
 - **Binary Wheel Enforcement**: Only pre-built binary wheels are used, preventing platform-specific compilation issues
 
 This means you can safely build on macOS ARM64, Windows, or any platform, and the deployment will work correctly on Runpod.
@@ -181,8 +181,8 @@ ls .flash/.build/my-project/
 If a package doesn't have pre-built Linux x86_64 wheels:
 
 1. **Install standard pip**: `python -m ensurepip --upgrade` -- standard pip has better manylinux compatibility than uv pip
-2. **Check package availability**: Visit PyPI and verify the package has Linux wheels for Python 3.12
-3. **Python 3.12**: All flash workers run Python 3.12. Ensure packages are available for this version.
+2. **Check package availability**: Visit PyPI and verify the package has Linux wheels for your target Python version (`3.10`, `3.11`, `3.12`, or `3.13`)
+3. **Match interpreter**: Flash builds default to your local Python version. If a wheel is missing for that version, either pick a different `--python-version` or upgrade/downgrade the package.
 4. **Pure-Python packages**: These work regardless, as they don't require platform-specific builds
 
 ## Managing Deployment Size
