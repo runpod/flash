@@ -5,6 +5,7 @@ Unit tests for LiveServerless and CpuLiveServerless classes.
 import pytest
 from runpod_flash.core.resources.constants import (
     DEFAULT_PYTHON_VERSION,
+    SUPPORTED_PYTHON_VERSIONS,
 )
 from runpod_flash.core.resources.cpu import CpuInstanceType
 from runpod_flash.core.resources.live_serverless import (
@@ -237,12 +238,12 @@ class TestLiveServerlessPythonVersion:
         ls = LiveServerless(name="test")
         assert f"py{DEFAULT_PYTHON_VERSION}" in ls.imageName
 
-    @pytest.mark.parametrize("version", ["3.10", "3.11", "3.12"])
+    @pytest.mark.parametrize("version", list(SUPPORTED_PYTHON_VERSIONS))
     def test_gpu_explicit_supported_versions(self, version):
         ls = LiveServerless(name="test", python_version=version)
         assert f"py{version}" in ls.imageName
 
-    @pytest.mark.parametrize("version", ["3.10", "3.11", "3.12"])
+    @pytest.mark.parametrize("version", list(SUPPORTED_PYTHON_VERSIONS))
     def test_cpu_explicit_supported_versions(self, version):
         ls = CpuLiveServerless(name="test", python_version=version)
         assert f"py{version}" in ls.imageName
@@ -265,13 +266,13 @@ class TestLiveLoadBalancerPythonVersion:
         assert f"py{DEFAULT_PYTHON_VERSION}" in lb.imageName
         assert "runpod/flash-lb:" in lb.imageName
 
-    @pytest.mark.parametrize("version", ["3.10", "3.11", "3.12"])
+    @pytest.mark.parametrize("version", list(SUPPORTED_PYTHON_VERSIONS))
     def test_lb_explicit_supported_versions(self, version):
         lb = LiveLoadBalancer(name="test", python_version=version)
         assert f"py{version}" in lb.imageName
         assert "runpod/flash-lb:" in lb.imageName
 
-    @pytest.mark.parametrize("version", ["3.10", "3.11", "3.12"])
+    @pytest.mark.parametrize("version", list(SUPPORTED_PYTHON_VERSIONS))
     def test_cpu_lb_explicit_supported_versions(self, version):
         lb = CpuLiveLoadBalancer(name="test", python_version=version)
         assert f"py{version}" in lb.imageName
