@@ -26,10 +26,11 @@ flash build [OPTIONS]
 ## Options
 
 - `--no-deps`: Skip transitive dependencies during pip install (default: false)
-- `--keep-build`: Keep `.flash/.build` directory after creating archive (default: false)
 - `--output, -o`: Custom archive name (default: artifact.tar.gz)
 - `--exclude`: Comma-separated packages to exclude (e.g., 'torch,torchvision')
-- `--preview`: Launch local test environment after successful build (auto-enables `--keep-build`)
+- `--python-version`: Target Python version for worker images (`3.10`, `3.11`, or `3.12`). Overrides per-resource `python_version`. Default: value declared on resource configs, or 3.12 if none set.
+
+To launch a local preview environment, use `flash deploy --preview` instead.
 
 ## Examples
 
@@ -40,17 +41,14 @@ flash build
 # Skip transitive dependencies
 flash build --no-deps
 
-# Keep temporary build directory for inspection
-flash build --keep-build
-
-# Build and launch local test environment
-flash build --preview
-
 # Custom output filename
 flash build --output my-app.tar.gz
 
-# Combine options
-flash build --keep-build --output deploy.tar.gz
+# Exclude packages already present in the base image
+flash build --exclude transformers,scipy
+
+# Target Python 3.11 workers
+flash build --python-version 3.11
 ```
 
 ## Build Artifacts
@@ -61,7 +59,7 @@ After `flash build` completes:
 |---|---|
 | `.flash/artifact.tar.gz` | Deployment package (ready for Runpod) |
 | `.flash/flash_manifest.json` | Service discovery configuration |
-| `.flash/.build/` | Temporary build directory (removed unless `--keep-build` specified) |
+| `.flash/.build/` | Build directory (retained for inspection and reuse) |
 
 ## Dependency Management
 
@@ -97,45 +95,6 @@ Only installs direct dependencies specified in `Endpoint` definitions:
 - Smaller deployment packages
 - Useful when base image already includes dependencies
 
-## Preview Environment
-
-```bash
-flash build --preview
-```
-
-Launch a local Docker-based test environment immediately after building. This allows you to test your distributed system locally before deploying to Runpod.
-
-**What happens:**
-1. Builds your project (creates archive, manifest)
-2. Creates a Docker network for inter-container communication
-3. Starts one Docker container per resource config:
-   - Application container
-   - All worker containers (GPU, CPU, etc.)
-4. Exposes the application on `localhost:8888`
-5. All containers communicate via Docker DNS
-6. On shutdown (Ctrl+C), automatically stops and removes all containers
-
-**When to use:**
-- Test deployment before production
-- Validate manifest structure
-- Debug resource provisioning
-- Verify endpoint auto-discovery
-- Test distributed function calls
-
-**Note:** `--preview` automatically enables `--keep-build` since the preview needs the build directory.
-
-## Keep Build Directory
-
-```bash
-flash build --keep-build
-```
-
-Preserves `.flash/.build/` directory for inspection:
-- Useful for debugging build issues
-- Check manifest structure
-- Verify packaged files
-- Clean up manually when done
-
 ## Cross-Endpoint Function Calls
 
 When your application has functions on multiple endpoints (GPU and CPU, for example), the build process creates a manifest that enables functions to call each other:
@@ -166,7 +125,6 @@ Successful build displays:
 │ Directory: /path/to/project                                                  │
 │ Archive: .flash/artifact.tar.gz                                              │
 │ Skip transitive deps: False                                                  │
-│ Keep build dir: False                                                        │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ⠙ ✓ Loaded ignore patterns
 ⠙ ✓ Found 42 files to package
@@ -175,7 +133,6 @@ Successful build displays:
 ⠙ ✓ Created manifest and registered 3 resources
 ⠙ ✓ Installed 5 packages
 ⠙ ✓ Created artifact.tar.gz (45.2 MB)
-⠙ ✓ Removed .build directory
 
  Application     my-project
  Files packaged  42
@@ -213,10 +170,9 @@ flash build --no-deps
 
 ### Need to examine generated files
 
-Use `--keep-build` to preserve handler files and manifest:
+The build directory is retained after a successful build — inspect handler files and manifest directly:
 
 ```bash
-flash build --keep-build
 ls .flash/.build/my-project/
 ```
 
@@ -271,8 +227,8 @@ Check the [worker-flash repository](https://github.com/runpod-workers/worker-fla
 After building:
 
 1. **Test locally**: Run `flash dev` to test the application
-2. **Deploy**: Use `flash deploy` to deploy to RunPod Serverless
-3. **Preview**: Test with `flash build --preview` before production deployment
+2. **Preview**: Test with `flash deploy --preview` before production deployment
+3. **Deploy**: Use `flash deploy` to deploy to RunPod Serverless
 4. **Monitor**: Use `flash env get` to check deployment status
 
 ## Related commands

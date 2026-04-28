@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional
 
 from runpod_flash.core.resources.constants import (
     DEFAULT_PYTHON_VERSION,
-    GPU_BASE_IMAGE_PYTHON_VERSION,
+    validate_python_version,
 )
 
 from .scanner import (
@@ -93,7 +93,10 @@ class ManifestBuilder:
         self.remote_functions = remote_functions
         self.scanner = scanner  # Optional: RuntimeScanner with resource config info
         self.build_dir = build_dir
-        self.python_version = python_version or DEFAULT_PYTHON_VERSION
+        # User-supplied app-level override; None means "infer from resources".
+        self._python_version_override = python_version
+        # Effective app-level version; set by build() via _reconcile_python_version.
+        self.python_version: Optional[str] = None
 
     def _import_module(self, file_path: Path):
         """Import a module from file path, returning (module, cleanup_fn).
@@ -216,6 +219,12 @@ class ManifestBuilder:
         if hasattr(resource_config, "imageName") and resource_config.imageName:
             config["imageName"] = resource_config.imageName
 
+        if (
+            hasattr(resource_config, "python_version")
+            and resource_config.python_version
+        ):
+            config["python_version"] = resource_config.python_version
+
         if hasattr(resource_config, "templateId") and resource_config.templateId:
             config["templateId"] = resource_config.templateId
 
@@ -308,6 +317,63 @@ class ManifestBuilder:
                 config["template"] = template_config
 
         return config
+
+    def _reconcile_python_version(
+        self, resources_dict: Dict[str, Dict[str, Any]]
+    ) -> str:
+        """Pick one Python version for the app from per-resource declarations.
+
+        Flash apps ship as a single tarball, so every resource must target the
+        same Python ABI. Resolution order:
+          1. Explicit override passed to ManifestBuilder (validated)
+          2. Exactly one distinct ``python_version`` declared across resources
+          3. ``DEFAULT_PYTHON_VERSION`` when no resource declares one
+
+        Raises:
+            ValueError: When resources declare conflicting ``python_version``
+                values, or when the override conflicts with a resource's
+                explicit declaration.
+        """
+        per_resource: Dict[str, str] = {
+            name: r["python_version"]
+            for name, r in resources_dict.items()
+            if r.get("python_version")
+        }
+        distinct = set(per_resource.values())
+
+        if self._python_version_override:
+            chosen = validate_python_version(self._python_version_override)
+            conflicting = {
+                name: version
+                for name, version in per_resource.items()
+                if version != chosen
+            }
+            if conflicting:
+                details = ", ".join(
+                    f"{name}={version}" for name, version in sorted(conflicting.items())
+                )
+                raise ValueError(
+                    f"python_version override '{chosen}' conflicts with resource "
+                    f"declarations: {details}. Either remove the override or "
+                    f"align all resources to '{chosen}'."
+                )
+            return chosen
+
+        if len(distinct) > 1:
+            details = ", ".join(
+                f"{name}={version}" for name, version in sorted(per_resource.items())
+            )
+            raise ValueError(
+                "Flash apps require one python_version across all resources "
+                f"(found {sorted(distinct)}): {details}. Set python_version to the "
+                "same value on every resource, or omit it to use the default "
+                f"({DEFAULT_PYTHON_VERSION})."
+            )
+
+        if distinct:
+            return validate_python_version(next(iter(distinct)))
+
+        return DEFAULT_PYTHON_VERSION
 
     def build(self) -> Dict[str, Any]:
         """Build the manifest dictionary.
@@ -436,20 +502,6 @@ class ManifestBuilder:
             # Determine if this resource makes remote calls
             makes_remote_calls = any(func.calls_remote_functions for func in functions)
 
-            # One tarball serves all resources, so target_python_version must agree.
-            # GPU resources are pinned to the base image's Python; CPU resources
-            # use DEFAULT_PYTHON_VERSION (aligned to GPU to avoid ABI mismatch).
-            _GPU_RESOURCE_TYPES = {
-                "LiveServerless",
-                "LiveLoadBalancer",
-                "LoadBalancerSlsResource",
-                "ServerlessEndpoint",
-            }
-            if resource_type in _GPU_RESOURCE_TYPES:
-                target_python_version = GPU_BASE_IMAGE_PYTHON_VERSION
-            else:
-                target_python_version = DEFAULT_PYTHON_VERSION
-
             resources_dict[resource_name] = {
                 "resource_type": resource_type,
                 "file_path": file_path_str,
@@ -460,8 +512,7 @@ class ManifestBuilder:
                 "is_live_resource": is_live_resource,
                 "config_variable": config_variable,
                 "makes_remote_calls": makes_remote_calls,
-                "target_python_version": target_python_version,
-                **deployment_config,  # Include imageName, templateId, gpuIds, workers config
+                **deployment_config,  # Include imageName, templateId, gpuIds, workers config, python_version
             }
 
             # max_concurrency is QB-only; warn and remove for LB endpoints
@@ -494,6 +545,15 @@ class ManifestBuilder:
                         f"resources '{function_registry[f.function_name]}' and '{resource_name}'"
                     )
                 function_registry[f.function_name] = resource_name
+
+        # Reconcile app-level python_version across resources. One tarball serves
+        # every resource in an app, so all resources must agree on one version.
+        self.python_version = self._reconcile_python_version(resources_dict)
+
+        # Stamp every resource's target_python_version with the reconciled
+        # app-level value so the runtime and pip-wheel step see a consistent ABI.
+        for resource in resources_dict.values():
+            resource["target_python_version"] = self.python_version
 
         manifest = {
             "version": "1.0",
