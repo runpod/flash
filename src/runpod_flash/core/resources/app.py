@@ -362,28 +362,6 @@ class FlashApp:
                 {"flashAppId": self.id, "tarballSize": tarball_size}
             )
 
-    async def _get_active_artifact(self, environment_id: str) -> Dict[str, Any]:
-        """Get the active artifact for an environment.
-
-        Args:
-            environment_id: ID of the environment
-
-        Returns:
-            Dictionary containing artifact information including downloadUrl
-
-        Raises:
-            RuntimeError: If app is not hydrated (no ID available)
-            ValueError: If environment has no active artifact
-        """
-        await self._hydrate()
-        async with RunpodGraphQLClient() as client:
-            result = await client.get_flash_artifact_url(environment_id)
-            if not result.get("activeArtifact"):
-                raise ValueError(
-                    f"No active artifact found for environment ID: {environment_id}"
-                )
-            return result["activeArtifact"]
-
     async def deploy_build_to_environment(
         self,
         build_id: str,
@@ -445,53 +423,6 @@ class FlashApp:
             )
             return result
 
-    async def _register_endpoint_to_environment(
-        self, environment_id: str, endpoint_id: str
-    ) -> Dict[str, Any]:
-        """Register a serverless endpoint to an environment.
-
-        Args:
-            environment_id: ID of the environment
-            endpoint_id: ID of the endpoint to register
-
-        Returns:
-            Dictionary containing registration result
-
-        Raises:
-            RuntimeError: If app is not hydrated (no ID available)
-        """
-        await self._hydrate()
-        async with RunpodGraphQLClient() as client:
-            result = await client.register_endpoint_to_environment(
-                {"flashEnvironmentId": environment_id, "endpointId": endpoint_id}
-            )
-            return result
-
-    async def _register_network_volume_to_environment(
-        self, environment_id: str, network_volume_id: str
-    ) -> Dict[str, Any]:
-        """Register a network volume to an environment.
-
-        Args:
-            environment_id: ID of the environment
-            network_volume_id: ID of the network volume to register
-
-        Returns:
-            Dictionary containing registration result
-
-        Raises:
-            RuntimeError: If app is not hydrated (no ID available)
-        """
-        await self._hydrate()
-        async with RunpodGraphQLClient() as client:
-            result = await client.register_network_volume_to_environment(
-                {
-                    "flashEnvironmentId": environment_id,
-                    "networkVolumeId": network_volume_id,
-                }
-            )
-            return result
-
     async def upload_build(self, tar_path: Union[str, Path]) -> Dict[str, Any]:
         """Upload a build tarball to the server.
 
@@ -550,42 +481,6 @@ class FlashApp:
         return resp
 
     _upload_progress_callback = None
-
-    async def _set_environment_state(self, environment_id: str, status: str) -> None:
-        """Set the state of an environment.
-
-        Args:
-            environment_id: ID of the environment
-            status: State to set (e.g., "HEALTHY", "DEPLOYING", "PENDING")
-
-        Raises:
-            RuntimeError: If app is not hydrated (no ID available)
-        """
-        await self._hydrate()
-        async with RunpodGraphQLClient() as client:
-            await client.set_environment_state(
-                {"flashEnvironmentId": environment_id, "status": status}
-            )
-
-    async def _get_environment_by_name(self, environment_name: str) -> Dict[str, Any]:
-        """Get an environment by name.
-
-        Args:
-            environment_name: Name of the environment to retrieve
-
-        Returns:
-            Dictionary containing environment data
-
-        Raises:
-            RuntimeError: If app is not hydrated (no ID available)
-            ValueError: If environment is not found
-        """
-        await self._hydrate()
-        async with RunpodGraphQLClient() as client:
-            result = await client.get_flash_environment_by_name(
-                {"flashAppId": self.id, "name": environment_name}
-            )
-            return result["flashEnvironmentByName"]
 
     @classmethod
     async def from_name(cls, app_name: str) -> "FlashApp":

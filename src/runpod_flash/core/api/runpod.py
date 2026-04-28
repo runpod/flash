@@ -341,56 +341,6 @@ class RunpodGraphQLClient:
 
         return endpoint_data
 
-    async def get_cpu_types(self) -> Dict[str, Any]:
-        """Get available CPU types."""
-        query = """
-        query getCpuTypes {
-            cpuTypes {
-                id
-                displayName
-                manufacturer
-                cores
-                threadsPerCore
-                groupId
-            }
-        }
-        """
-
-        result = await self._execute_graphql(query)
-        return result.get("cpuTypes", [])
-
-    async def get_gpu_types(
-        self, gpu_filter: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
-        """Get available GPU types."""
-        query = """
-        query getGpuTypes($input: GpuTypeFilter) {
-            gpuTypes(input: $input) {
-                id
-                displayName
-                manufacturer
-                memoryInGb
-                cudaCores
-                secureCloud
-                communityCloud
-                securePrice
-                communityPrice
-                communitySpotPrice
-                secureSpotPrice
-                maxGpuCount
-                maxGpuCountCommunityCloud
-                maxGpuCountSecureCloud
-                minPodGpuCount
-                nodeGroupGpuSizes
-                throughput
-            }
-        }
-        """
-
-        variables = {"input": gpu_filter} if gpu_filter else {}
-        result = await self._execute_graphql(query, variables)
-        return result.get("gpuTypes", [])
-
     async def get_gpu_lowest_price_stock_status(
         self,
         gpu_id: str,
@@ -464,12 +414,6 @@ class RunpodGraphQLClient:
         if isinstance(status, str) and status.strip():
             return status.strip()
         return None
-
-    async def get_endpoint(self, endpoint_id: str) -> Dict[str, Any]:
-        """Get endpoint details."""
-        # Note: The schema doesn't show a specific endpoint query
-        # This would need to be implemented if such query exists
-        raise NotImplementedError("Get endpoint query not available in current schema")
 
     async def delete_endpoint(self, endpoint_id: str) -> Dict[str, Any]:
         """Delete a serverless endpoint."""

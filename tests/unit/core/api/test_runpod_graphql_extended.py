@@ -216,12 +216,6 @@ class TestGraphQLQueries:
                 {"flashApp": {"flashEnvironments": [{"id": "e1"}, {"id": "e2"}]}},
                 lambda r: len(r) == 2,
             ),
-            (
-                "get_gpu_types",
-                (),
-                {"gpuTypes": [{"id": "gpu-1"}]},
-                lambda r: len(r) == 1,
-            ),
         ],
         ids=lambda x: (
             x
