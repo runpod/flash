@@ -44,7 +44,7 @@ class TestCpuSmoke:
 
         try:
             result = subprocess.run(
-                ["uv", "run", "flash", "deploy"],
+                ["uv", "run", "--no-project", "flash", "deploy"],
                 cwd=tmp_path,
                 env=env,
                 capture_output=True,
@@ -71,7 +71,15 @@ class TestCpuSmoke:
             # Exercise the undeploy CLI path; sweep catches any quota leak if this fails.
             try:
                 undeploy = subprocess.run(
-                    ["uv", "run", "flash", "undeploy", WORKER_NAME, "--force"],
+                    [
+                        "uv",
+                        "run",
+                        "--no-project",
+                        "flash",
+                        "undeploy",
+                        WORKER_NAME,
+                        "--force",
+                    ],
                     cwd=tmp_path,
                     env=env,
                     capture_output=True,

@@ -43,7 +43,7 @@ class TestGpuSmoke:
 
         try:
             result = subprocess.run(
-                ["uv", "run", "flash", "deploy"],
+                ["uv", "run", "--no-project", "flash", "deploy"],
                 cwd=tmp_path,
                 env=env,
                 capture_output=True,
@@ -68,7 +68,15 @@ class TestGpuSmoke:
         finally:
             try:
                 subprocess.run(
-                    ["uv", "run", "flash", "undeploy", _WORKER_NAME, "--force"],
+                    [
+                        "uv",
+                        "run",
+                        "--no-project",
+                        "flash",
+                        "undeploy",
+                        _WORKER_NAME,
+                        "--force",
+                    ],
                     cwd=tmp_path,
                     env=env,
                     capture_output=True,
