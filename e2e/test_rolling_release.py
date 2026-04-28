@@ -83,7 +83,9 @@ def _deploy_env(api_key: str) -> dict:
     env = os.environ.copy()
     env["RUNPOD_API_KEY"] = api_key
     env["NO_COLOR"] = "1"  # strip ANSI from rich output so stdout is plain text
-    env.setdefault("LOG_LEVEL", "INFO")  # ensure log.info("Updating endpoint") appears in captured output
+    env.setdefault(
+        "LOG_LEVEL", "INFO"
+    )  # ensure log.info("Updating endpoint") appears in captured output
     return env
 
 
