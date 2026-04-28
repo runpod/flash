@@ -3,7 +3,6 @@
 import importlib.util
 import logging
 import sys
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -40,21 +39,6 @@ def _serialize_network_volume(nv) -> dict:
             else nv.dataCenterId
         )
     return nv_config
-
-
-@dataclass
-class ManifestFunction:
-    """Function entry in manifest."""
-
-    name: str
-    module: str
-    is_async: bool
-    is_class: bool
-    http_method: Optional[str] = None  # HTTP method for LB endpoints (GET, POST, etc.)
-    http_path: Optional[str] = None  # HTTP path for LB endpoints (/api/process)
-    is_load_balanced: bool = False  # Determined by isinstance() at scan time
-    is_live_resource: bool = False  # LiveLoadBalancer vs LoadBalancerSlsResource
-    config_variable: Optional[str] = None  # Variable name like "gpu_config"
 
 
 class ManifestBuilder:

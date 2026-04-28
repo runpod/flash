@@ -13,7 +13,6 @@ from runpod_flash.core.utils.file_lock import (
     _release_fallback_lock,
     _release_unix_lock,
     file_lock,
-    get_platform_info,
 )
 
 
@@ -165,27 +164,3 @@ class TestFallbackLocking:
 
         with open(data_file, "rb") as f:
             _release_fallback_lock(f)  # Should not raise
-
-
-class TestGetPlatformInfo:
-    """Test get_platform_info function."""
-
-    def test_returns_dict_with_expected_keys(self):
-        """Returns dict with platform, locking availability."""
-        info = get_platform_info()
-        assert "platform" in info
-        assert "windows_locking" in info
-        assert "unix_locking" in info
-        assert "fallback_only" in info
-
-    def test_platform_matches_system(self):
-        """Platform matches current system."""
-        info = get_platform_info()
-        assert info["platform"] == platform.system()
-
-    @pytest.mark.skipif(platform.system() == "Windows", reason="Unix-only test")
-    def test_unix_locking_available_on_unix(self):
-        """Unix locking should be available on Unix/macOS."""
-        info = get_platform_info()
-        assert info["unix_locking"] is True
-        assert info["fallback_only"] is False

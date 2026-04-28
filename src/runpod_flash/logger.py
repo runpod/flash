@@ -132,13 +132,6 @@ class SensitiveDataFilter(logging.Filter):
         text = self.PREFIXED_KEY_PATTERN.sub(self._redact_token, text)
 
         # Redact common password/secret patterns
-        # Match field names with : or = separators and redact the value, preserving separator
-        # Handles quoted values (captures until closing quote) and unquoted values (captures until whitespace/comma)
-        def redact_password_pattern(match):
-            field_name = match.group(1)
-            separator = match.group(2)
-            return f"{field_name}{separator}***REDACTED***"
-
         # Pattern handles: password="value", password=value, password: value, etc.
         # For quoted values: captures everything until closing quote
         # For unquoted: captures until whitespace or comma
