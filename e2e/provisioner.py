@@ -100,7 +100,7 @@ def provision(
 
     try:
         result = subprocess.run(
-            ["uv", "run", "flash", "deploy"],
+            ["uv", "run", "--active", "flash", "deploy"],
             cwd=tmp_dir,
             env=env,
             capture_output=True,
