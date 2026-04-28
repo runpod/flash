@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.16.0](https://github.com/runpod/flash/compare/v1.15.0...v1.16.0) (2026-04-28)
+
+
+### Features
+
+* **build:** per-app python_version with cross-resource validation ([#322](https://github.com/runpod/flash/issues/322)) ([cd30c77](https://github.com/runpod/flash/commit/cd30c77cab5e04be23557c68a466efe5348f526f))
+* **e2e:** add CPU E2E test suite with provisioner and rolling release tests ([#326](https://github.com/runpod/flash/issues/326)) ([d709063](https://github.com/runpod/flash/commit/d709063c3405c4bdbcf5c170fd31fce37dbfc1c7))
+
+
+### Bug Fixes
+
+* **e2e:** use --active to skip per-project venv sync in provisioner ([#329](https://github.com/runpod/flash/issues/329)) ([9f7ccfa](https://github.com/runpod/flash/commit/9f7ccfaacc31fef8d367b07828c5b3fa29a13bc0))
+
+
+### Code Refactoring
+
+* **urls:** centralize Runpod URL env vars ([#325](https://github.com/runpod/flash/issues/325)) ([81f66df](https://github.com/runpod/flash/commit/81f66df095458b37bf7d4975e59cbaed111b2094))
+
 ## [1.15.0](https://github.com/runpod/flash/compare/v1.14.0...v1.15.0) (2026-04-23)
 
 
