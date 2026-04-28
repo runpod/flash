@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from runpod_flash.core.resources.constants import (
-    DEFAULT_PYTHON_VERSION,
+    SUPPORTED_PYTHON_VERSIONS,
     validate_python_version,
 )
 
@@ -284,18 +284,23 @@ class ManifestBuilder:
     def _reconcile_python_version(
         self, resources_dict: Dict[str, Dict[str, Any]]
     ) -> str:
-        """Pick one Python version for the app from per-resource declarations.
+        """Pick one Python version for the app.
 
         Flash apps ship as a single tarball, so every resource must target the
         same Python ABI. Resolution order:
           1. Explicit override passed to ManifestBuilder (validated)
           2. Exactly one distinct ``python_version`` declared across resources
-          3. ``DEFAULT_PYTHON_VERSION`` when no resource declares one
+          3. The local interpreter (``sys.version_info``) — the user's
+             environment is the source of truth when nothing else is declared.
+
+        There is no fallback to a hardcoded default. A local interpreter
+        outside ``SUPPORTED_PYTHON_VERSIONS`` raises an actionable error.
 
         Raises:
-            ValueError: When resources declare conflicting ``python_version``
-                values, or when the override conflicts with a resource's
-                explicit declaration.
+            ValueError: when resources declare conflicting ``python_version``
+                values; when the override conflicts with a resource's explicit
+                declaration; or when the local interpreter is unsupported and
+                no override or declaration was provided.
         """
         per_resource: Dict[str, str] = {
             name: r["python_version"]
@@ -329,14 +334,24 @@ class ManifestBuilder:
             raise ValueError(
                 "Flash apps require one python_version across all resources "
                 f"(found {sorted(distinct)}): {details}. Set python_version to the "
-                "same value on every resource, or omit it to use the default "
-                f"({DEFAULT_PYTHON_VERSION})."
+                "same value on every resource, pass --python-version, or run "
+                "flash from a single-version interpreter."
             )
 
         if distinct:
             return validate_python_version(next(iter(distinct)))
 
-        return DEFAULT_PYTHON_VERSION
+        # Match the user's local interpreter — parity, not policy.
+        local = f"{sys.version_info.major}.{sys.version_info.minor}"
+        if local not in SUPPORTED_PYTHON_VERSIONS:
+            supported = ", ".join(SUPPORTED_PYTHON_VERSIONS)
+            raise ValueError(
+                f"Local Python {local} is not supported by Flash workers "
+                f"(supported: {supported}). Pass --python-version, declare "
+                f"python_version on a resource config, or run flash from a "
+                f"supported interpreter."
+            )
+        return local
 
     def build(self) -> Dict[str, Any]:
         """Build the manifest dictionary.
