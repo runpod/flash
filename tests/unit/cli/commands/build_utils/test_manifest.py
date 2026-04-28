@@ -910,13 +910,13 @@ def test_manifest_includes_python_version():
         )
     ]
 
-    builder = ManifestBuilder("test_app", functions)
+    # Explicit override avoids depending on the runner's local interpreter,
+    # which is the new resolution default after AE-2827.
+    builder = ManifestBuilder("test_app", functions, python_version="3.12")
     manifest = builder.build()
 
     assert "python_version" in manifest
-    from runpod_flash.core.resources.constants import DEFAULT_PYTHON_VERSION
-
-    assert manifest["python_version"] == DEFAULT_PYTHON_VERSION
+    assert manifest["python_version"] == "3.12"
 
 
 def test_manifest_uses_explicit_python_version():
@@ -966,13 +966,21 @@ class TestReconcilePythonVersion:
     def _builder(self, python_version: Optional[str] = None) -> ManifestBuilder:
         return ManifestBuilder("test_app", [], python_version=python_version)
 
-    def test_no_resources_declare_version_uses_default(self):
-        from runpod_flash.core.resources.constants import DEFAULT_PYTHON_VERSION
+    def test_no_resources_no_override_uses_local_interpreter(self, monkeypatch):
+        """With no override and no declaration, reconcile reads sys.version_info."""
+
+        class _StubVersionInfo:
+            pass
+
+        info = _StubVersionInfo()
+        info.major = 3
+        info.minor = 11
+        monkeypatch.setattr(sys, "version_info", info)
 
         resolved = self._builder()._reconcile_python_version(
             _make_resources_dict(gpu=None, cpu=None)
         )
-        assert resolved == DEFAULT_PYTHON_VERSION
+        assert resolved == "3.11"
 
     def test_single_declared_version_wins(self):
         resolved = self._builder()._reconcile_python_version(
@@ -1025,3 +1033,61 @@ class TestReconcilePythonVersion:
             _make_resources_dict(gpu="3.13")
         )
         assert resolved == "3.13"
+
+class TestReconcileLocalInterpreter:
+    """Tests for AE-2827 match-local default in _reconcile_python_version."""
+
+    def _builder(self, python_version: Optional[str] = None) -> ManifestBuilder:
+        return ManifestBuilder("test_app", [], python_version=python_version)
+
+    def _stub_version_info(self, monkeypatch, major: int, minor: int):
+        class _StubVersionInfo:
+            pass
+
+        info = _StubVersionInfo()
+        info.major = major
+        info.minor = minor
+        monkeypatch.setattr(sys, "version_info", info)
+
+    @pytest.mark.parametrize(
+        "major,minor,expected",
+        [
+            (3, 10, "3.10"),
+            (3, 11, "3.11"),
+            (3, 12, "3.12"),
+            (3, 13, "3.13"),
+        ],
+    )
+    def test_resolves_to_local_when_no_override_or_declaration(
+        self, monkeypatch, major, minor, expected
+    ):
+        self._stub_version_info(monkeypatch, major, minor)
+        resolved = self._builder()._reconcile_python_version(
+            _make_resources_dict(gpu=None, cpu=None)
+        )
+        assert resolved == expected
+
+    @pytest.mark.parametrize("major,minor", [(3, 9), (3, 14)])
+    def test_raises_when_local_is_unsupported(self, monkeypatch, major, minor):
+        self._stub_version_info(monkeypatch, major, minor)
+        with pytest.raises(ValueError, match="Local Python") as excinfo:
+            self._builder()._reconcile_python_version(
+                _make_resources_dict(gpu=None, cpu=None)
+            )
+        message = str(excinfo.value)
+        assert f"{major}.{minor}" in message
+        assert "--python-version" in message
+
+    def test_local_does_not_shadow_override(self, monkeypatch):
+        self._stub_version_info(monkeypatch, 3, 10)
+        resolved = self._builder("3.12")._reconcile_python_version(
+            _make_resources_dict(gpu=None, cpu=None)
+        )
+        assert resolved == "3.12"
+
+    def test_local_does_not_shadow_declaration(self, monkeypatch):
+        self._stub_version_info(monkeypatch, 3, 13)
+        resolved = self._builder()._reconcile_python_version(
+            _make_resources_dict(gpu="3.11", cpu=None)
+        )
+        assert resolved == "3.11"
