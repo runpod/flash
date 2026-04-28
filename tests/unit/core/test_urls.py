@@ -83,6 +83,58 @@ def _reload_urls_module():
 class TestEnvUrlHelper:
     """Tests for the _env_url helper in core/urls.py."""
 
+    ``runpod.endpoint_url_base`` is captured once at runpod-package import
+    time and never re-read, so deleting ``RUNPOD_ENDPOINT_BASE_URL`` from
+    the environment does not reset it. Tests that want the endpoint URL to
+    look like prod must force it here; otherwise a leaked env var in the
+    host shell or CI runner makes the resolved endpoint URL appear
+    "overridden" and silently corrupts warning-capture assertions.
+    """
+    import runpod
+
+    monkeypatch.setattr(runpod, "endpoint_url_base", "https://api.runpod.ai/v2")
+
+
+@pytest.fixture
+def custom_runpod_endpoint(monkeypatch):
+    """Pin runpod.endpoint_url_base to a custom dev-like URL.
+
+    Same caching caveat as ``prod_runpod_endpoint``: setting
+    ``RUNPOD_ENDPOINT_BASE_URL`` via ``monkeypatch.setenv`` is insufficient
+    because ``runpod.endpoint_url_base`` was already cached at import.
+    """
+    import runpod
+
+    monkeypatch.setattr(runpod, "endpoint_url_base", "https://endpoint.custom.test/v2")
+
+
+@pytest.fixture(autouse=True)
+def clear_all_url_env(monkeypatch):
+    """Every test starts with a clean URL env — no host leakage from shell/CI."""
+    for name in (
+        "RUNPOD_API_BASE_URL",
+        "RUNPOD_ENDPOINT_BASE_URL",
+        "RUNPOD_REST_API_URL",
+        "RUNPOD_HAPI_URL",
+        "RUNPOD_HAPI_BASE_URL",
+        "RUNPOD_CONSOLE_URL",
+        "CONSOLE_BASE_URL",
+        "RUNPOD_URL_MIXED_OK",
+        "RUNPOD_ENV",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def restore_urls_module():
+    """Ensure each test's reload-state does not bleed into the next test."""
+    yield
+    if "runpod_flash.core.urls" in sys.modules:
+        del sys.modules["runpod_flash.core.urls"]
+    importlib.import_module("runpod_flash.core.urls")
+
+
+class TestEnvUrlHelper:
     def test_new_name_read_when_set(self, monkeypatch):
         monkeypatch.setenv("FLASH_TEST_NEW", "https://new.example.com")
         monkeypatch.delenv("FLASH_TEST_OLD", raising=False)
@@ -119,8 +171,8 @@ class TestEnvUrlHelper:
             issubclass(w.category, DeprecationWarning)
             and "FLASH_TEST_OLD" in str(w.message)
             and "FLASH_TEST_NEW" in str(w.message)
-            for w in captured
-        )
+        ]
+        assert len(deprecations) == 1
 
     def test_new_wins_over_old_and_no_warning(self, monkeypatch):
         monkeypatch.setenv("FLASH_TEST_NEW", "https://new.example.com")
@@ -362,16 +414,16 @@ class TestConsoleDeprecationShim:
     ):
 
 class TestConsoleDeprecationShim:
-    """CONSOLE_BASE_URL is the only env var with a deprecation shim today."""
+    """Validates the CONSOLE_BASE_URL → RUNPOD_CONSOLE_URL deprecation shim."""
 
-    def test_new_console_url_honored(self, monkeypatch):
+    def test_new_console_url_honored(self, monkeypatch, prod_runpod_endpoint):
         monkeypatch.setenv("RUNPOD_CONSOLE_URL", "https://new-console.example.com")
-        monkeypatch.delenv("CONSOLE_BASE_URL", raising=False)
         mod = _reload_urls_module()
         assert mod.RUNPOD_CONSOLE_URL == "https://new-console.example.com"
 
-    def test_old_console_url_still_works_with_warning(self, monkeypatch):
-        monkeypatch.delenv("RUNPOD_CONSOLE_URL", raising=False)
+    def test_old_console_url_still_works_with_warning(
+        self, monkeypatch, prod_runpod_endpoint
+    ):
         monkeypatch.setenv("CONSOLE_BASE_URL", "https://old-console.example.com")
         with warnings.catch_warnings(record=True) as captured:
             warnings.simplefilter("always")
@@ -558,60 +610,33 @@ class TestRunpodEnvWithoutOverrides:
             issubclass(w.category, DeprecationWarning)
             and "CONSOLE_BASE_URL" in str(w.message)
             and "RUNPOD_CONSOLE_URL" in str(w.message)
-            for w in captured
-        )
+        ]
+        assert len(deprecations) == 1
 
-    def test_default_console_when_neither_set(self, monkeypatch):
-        monkeypatch.delenv("RUNPOD_CONSOLE_URL", raising=False)
-        monkeypatch.delenv("CONSOLE_BASE_URL", raising=False)
+    def test_default_console_when_neither_set(self, prod_runpod_endpoint):
         mod = _reload_urls_module()
         assert mod.RUNPOD_CONSOLE_URL == "https://console.runpod.io"
 
 
-class TestPartialOverrideWarning:
-    """A partial URL override is a common misconfiguration signal."""
+class TestDerivedUrls:
+    """GRAPHQL_URL and CONSOLE_URL respect their base overrides."""
 
-    @pytest.fixture(autouse=True)
-    def clear_all_url_env(self, monkeypatch):
-        for name in (
-            "RUNPOD_API_BASE_URL",
-            "RUNPOD_ENDPOINT_BASE_URL",
-            "RUNPOD_REST_API_URL",
-            "RUNPOD_HAPI_URL",
-            "RUNPOD_HAPI_BASE_URL",
-            "RUNPOD_CONSOLE_URL",
-            "CONSOLE_BASE_URL",
-        ):
-            monkeypatch.delenv(name, raising=False)
+    def test_graphql_url_tracks_api_base(self, monkeypatch, prod_runpod_endpoint):
+        monkeypatch.setenv("RUNPOD_API_BASE_URL", "https://dev-api.runpod.io")
+        mod = _reload_urls_module()
+        assert mod.GRAPHQL_URL == "https://dev-api.runpod.io/graphql"
 
-    @pytest.fixture
-    def prod_runpod_endpoint(self, monkeypatch):
-        """Pin runpod.endpoint_url_base to prod default.
-
-        ``runpod.endpoint_url_base`` is captured once at runpod-package
-        import time and never re-read, so deleting ``RUNPOD_ENDPOINT_BASE_URL``
-        from the environment does not reset it. Tests that want the endpoint
-        URL to look like prod must force it here; otherwise a leaked env var
-        in the host shell or CI runner makes the resolved endpoint URL
-        "overridden" and silently corrupts assertions.
-        """
-        import runpod
-
-        monkeypatch.setattr(runpod, "endpoint_url_base", "https://api.runpod.ai/v2")
-
-    @pytest.fixture
-    def custom_runpod_endpoint(self, monkeypatch):
-        """Pin runpod.endpoint_url_base to a custom dev-like URL.
-
-        Same caching caveat as ``prod_runpod_endpoint``: setting
-        ``RUNPOD_ENDPOINT_BASE_URL`` via ``monkeypatch.setenv`` is not
-        sufficient because ``runpod.endpoint_url_base`` was already cached.
-        """
-        import runpod
-
-        monkeypatch.setattr(
-            runpod, "endpoint_url_base", "https://endpoint.custom.test/v2"
+    def test_console_url_tracks_console_base(self, monkeypatch, prod_runpod_endpoint):
+        monkeypatch.setenv("RUNPOD_CONSOLE_URL", "https://dev-console.runpod.io")
+        mod = _reload_urls_module()
+        assert (
+            mod.CONSOLE_URL
+            == "https://dev-console.runpod.io/serverless/user/endpoint/%s"
         )
+
+
+class TestPartialOverrideWarning:
+    """Partial overrides signal misconfiguration — one warning, silenceable."""
 
     def test_no_warning_when_all_at_default(self, prod_runpod_endpoint):
         with warnings.catch_warnings(record=True) as captured:
@@ -623,9 +648,8 @@ class TestPartialOverrideWarning:
             for w in captured
         )
 
-    def test_warning_when_partially_overridden(self, monkeypatch, prod_runpod_endpoint):
+    def test_warning_when_api_alone_overridden(self, monkeypatch, prod_runpod_endpoint):
         monkeypatch.setenv("RUNPOD_API_BASE_URL", "https://api.custom.test")
-
         with warnings.catch_warnings(record=True) as captured:
             warnings.simplefilter("always")
             _reload_urls_module()
@@ -636,7 +660,7 @@ class TestPartialOverrideWarning:
             if issubclass(w.category, RuntimeWarning)
             and "Partial Runpod URL override" in str(w.message)
         ]
-        assert matches, "Expected a partial-override RuntimeWarning"
+        assert len(matches) == 1
         msg = str(matches[0].message)
         overridden_section = msg.split("Overridden:")[1].split("Still at default:")[0]
         default_section = msg.split("Still at default:")[1]
@@ -648,6 +672,25 @@ class TestPartialOverrideWarning:
             "RUNPOD_CONSOLE_URL",
         ):
             assert name in default_section, f"{name} miscategorized"
+
+    def test_warning_when_hapi_alone_overridden(
+        self, monkeypatch, prod_runpod_endpoint
+    ):
+        monkeypatch.setenv("RUNPOD_HAPI_URL", "https://hapi.custom.test")
+        with warnings.catch_warnings(record=True) as captured:
+            warnings.simplefilter("always")
+            _reload_urls_module()
+
+        matches = [
+            w
+            for w in captured
+            if issubclass(w.category, RuntimeWarning)
+            and "Partial Runpod URL override" in str(w.message)
+        ]
+        assert len(matches) == 1
+        msg = str(matches[0].message)
+        overridden_section = msg.split("Overridden:")[1].split("Still at default:")[0]
+        assert "RUNPOD_HAPI_URL" in overridden_section
 
     def test_no_warning_when_all_overridden(self, monkeypatch, custom_runpod_endpoint):
         monkeypatch.setenv("RUNPOD_API_BASE_URL", "https://api.custom.test")
@@ -664,5 +707,77 @@ class TestPartialOverrideWarning:
         assert not any(
             issubclass(w.category, RuntimeWarning)
             and "Partial Runpod URL override" in str(w.message)
+            for w in captured
+        )
+
+    def test_mixed_ok_opt_out_silences_warning(self, monkeypatch, prod_runpod_endpoint):
+        monkeypatch.setenv("RUNPOD_API_BASE_URL", "https://api.custom.test")
+        monkeypatch.setenv("RUNPOD_URL_MIXED_OK", "1")
+        with warnings.catch_warnings(record=True) as captured:
+            warnings.simplefilter("always")
+            _reload_urls_module()
+        assert not any(
+            issubclass(w.category, RuntimeWarning)
+            and "Partial Runpod URL override" in str(w.message)
+            for w in captured
+        )
+
+
+class TestRunpodEnvWithoutOverrides:
+    """Warn when RUNPOD_ENV suggests non-prod but no URL envs are overridden."""
+
+    def test_warning_when_runpod_env_set_without_any_override(
+        self, monkeypatch, prod_runpod_endpoint
+    ):
+        monkeypatch.setenv("RUNPOD_ENV", "dev")
+        with warnings.catch_warnings(record=True) as captured:
+            warnings.simplefilter("always")
+            _reload_urls_module()
+        matches = [
+            w
+            for w in captured
+            if issubclass(w.category, RuntimeWarning)
+            and "RUNPOD_ENV" in str(w.message)
+            and "production" in str(w.message)
+        ]
+        assert len(matches) == 1
+
+    def test_no_warning_when_runpod_env_prod(self, monkeypatch, prod_runpod_endpoint):
+        monkeypatch.setenv("RUNPOD_ENV", "prod")
+        with warnings.catch_warnings(record=True) as captured:
+            warnings.simplefilter("always")
+            _reload_urls_module()
+        assert not any(
+            issubclass(w.category, RuntimeWarning)
+            and "RUNPOD_ENV" in str(w.message)
+            and "production" in str(w.message)
+            for w in captured
+        )
+
+    def test_no_warning_when_runpod_env_and_override_both_set(
+        self, monkeypatch, prod_runpod_endpoint
+    ):
+        monkeypatch.setenv("RUNPOD_ENV", "dev")
+        monkeypatch.setenv("RUNPOD_HAPI_URL", "https://hapi.custom.test")
+        with warnings.catch_warnings(record=True) as captured:
+            warnings.simplefilter("always")
+            _reload_urls_module()
+        assert not any(
+            issubclass(w.category, RuntimeWarning)
+            and "RUNPOD_ENV" in str(w.message)
+            and "production" in str(w.message)
+            for w in captured
+        )
+
+    def test_mixed_ok_opt_out_silences_runpod_env_warning(
+        self, monkeypatch, prod_runpod_endpoint
+    ):
+        monkeypatch.setenv("RUNPOD_ENV", "dev")
+        monkeypatch.setenv("RUNPOD_URL_MIXED_OK", "1")
+        with warnings.catch_warnings(record=True) as captured:
+            warnings.simplefilter("always")
+            _reload_urls_module()
+        assert not any(
+            issubclass(w.category, RuntimeWarning) and "RUNPOD_ENV" in str(w.message)
             for w in captured
         )
