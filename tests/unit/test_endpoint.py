@@ -1004,20 +1004,20 @@ class TestIsLiveProvisioning:
         {"RUNPOD_ENDPOINT_ID": "ep-123"},
         clear=True,
     )
-    def test_defaults_to_deploy_when_endpoint_id_set(self):
+    def test_defaults_to_live_when_endpoint_id_set(self):
         from runpod_flash.endpoint import _is_live_provisioning
 
-        assert _is_live_provisioning() is False
+        assert _is_live_provisioning() is True
 
     @patch.dict(
         os.environ,
         {"RUNPOD_POD_ID": "pod-456"},
         clear=True,
     )
-    def test_defaults_to_deploy_when_pod_id_set(self):
+    def test_defaults_to_live_when_pod_id_set(self):
         from runpod_flash.endpoint import _is_live_provisioning
 
-        assert _is_live_provisioning() is False
+        assert _is_live_provisioning() is True
 
 
 class TestMaxConcurrency:

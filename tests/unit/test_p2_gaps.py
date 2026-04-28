@@ -150,16 +150,15 @@ class TestNetworkVolumeValidation:
 class TestDeployedHandlerNoInput:
     """Deployed handler template validates and rejects empty/missing input."""
 
-    def test_handler_template_validates_empty_input(self):
-        """RT-DEP-003: Handler rejects empty/null input with actionable error."""
+    def test_handler_template_handles_empty_input(self):
+        """RT-DEP-003: Handler accepts empty/null input and strips __empty marker."""
         from runpod_flash.cli.commands.build_utils.handler_generator import (
             DEPLOYED_HANDLER_TEMPLATE,
         )
 
-        # Template uses explicit None/empty-dict/type checks
         assert 'raw_input = job.get("input")' in DEPLOYED_HANDLER_TEMPLATE
         assert "if raw_input is None" in DEPLOYED_HANDLER_TEMPLATE
-        assert "Empty or null input" in DEPLOYED_HANDLER_TEMPLATE
+        assert "__empty" in DEPLOYED_HANDLER_TEMPLATE
 
 
 # ---------------------------------------------------------------------------

@@ -21,7 +21,7 @@ cd my-project
 flash login
 
 # test locally
-flash run
+flash dev
 
 # deploy
 flash deploy --env production
@@ -115,7 +115,7 @@ async def process(data: dict) -> dict:
 ### 2. Test Locally
 
 ```bash
-flash run
+flash dev
 ```
 
 This starts a local dev server at `http://localhost:8888` with auto-reload:

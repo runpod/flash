@@ -167,7 +167,7 @@ def _bundle_runpod_flash(build_dir: Path, flash_pkg: Path) -> None:
         ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".pytest_cache"),
     )
 
-    console.print(f"[cyan]Bundled runpod_flash from {flash_pkg}[/cyan]")
+    logger.debug("bundled runpod_flash from %s", flash_pkg)
 
 
 def _extract_runpod_flash_dependencies(flash_pkg_dir: Path) -> list[str]:
@@ -409,9 +409,9 @@ def run_build(
         requirements = filtered_requirements
 
         if auto_matched:
-            console.print(
-                f"[dim]Auto-excluded size-prohibitive packages: "
-                f"{', '.join(sorted(auto_matched))}[/dim]"
+            logger.debug(
+                "auto-excluded size-prohibitive packages: %s",
+                ", ".join(sorted(auto_matched)),
             )
 
         # Only warn about unmatched user-specified packages (not auto-excludes)
@@ -423,7 +423,10 @@ def run_build(
             )
 
     if requirements:
-        with console.status(f"Installing {len(requirements)} packages..."):
+        import time as _time
+
+        t0 = _time.monotonic()
+        with console.status("[dim]installing dependencies...[/dim]"):
             success = install_dependencies(
                 build_dir,
                 requirements,
@@ -434,6 +437,10 @@ def run_build(
         if not success:
             print_error(console, "Failed to install dependencies")
             raise typer.Exit(1)
+        console.print(
+            f"[green]\u2713[/green] installed {len(requirements)} packages  "
+            f"[dim]{_time.monotonic() - t0:.1f}s[/dim]"
+        )
 
     # Always bundle the installed runpod_flash
     flash_pkg = _find_runpod_flash(project_dir)
@@ -460,7 +467,7 @@ def run_build(
     archive_name = output_name or "artifact.tar.gz"
     archive_path = project_dir / ".flash" / archive_name
 
-    with console.status("Creating archive..."):
+    with console.status("[dim]creating archive...[/dim]"):
         create_tarball(
             build_dir, archive_path, app_name, excluded_packages=excluded_packages
         )
@@ -928,8 +935,9 @@ def install_dependencies(
     local_version = f"{sys.version_info.major}.{sys.version_info.minor}"
     pip_python_version = target_python_version or local_version
     if target_python_version and target_python_version != local_version:
-        console.print(
-            f"[dim]Downloading wheels for Python {target_python_version} (container runtime)[/dim]"
+        logger.debug(
+            "downloading wheels for python %s (container runtime)",
+            target_python_version,
         )
 
     # Build pip command with platform-specific flags for RunPod serverless
@@ -1086,7 +1094,7 @@ def _display_build_summary(
 ):
     """Display build summary."""
     console.print(
-        f"[green]Built[/green] [bold]{app_name}[/bold]  "
+        f"[green]\u2713[/green] built {app_name}  "
         f"[dim]{file_count} files, {dep_count} deps, {size_mb:.1f} MB[/dim]"
     )
     if verbose:

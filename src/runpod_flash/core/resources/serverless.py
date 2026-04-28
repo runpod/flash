@@ -48,7 +48,9 @@ DEFAULT_RUNSYNC_TIMEOUT_S = 60
 
 
 log = logging.getLogger(__name__)
-POD_LOG_PREFIX_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\s+")
+POD_LOG_PREFIX_RE = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})\s+"
+)
 
 
 def _normalize_stream_log_line(line: str) -> str:
@@ -61,6 +63,98 @@ def _normalize_stream_log_line(line: str) -> str:
 
     normalized = POD_LOG_PREFIX_RE.sub("", normalized, count=1)
     return normalized
+
+
+# patterns for worker log lines that are infrastructure noise.
+# lines may or may not still have a 12-char hex container ID prefix
+# after normalization, so patterns match with an optional prefix.
+_HEX_PREFIX = r"(?:[0-9a-f]{12}\s+)?"
+_DOCKER_PULL_RE = re.compile(
+    _HEX_PREFIX
+    + r"(Pulling|Extracting|Verifying|Download|Pull complete|Digest:|Status:|Already exists)"
+)
+_DOCKER_CREATE_RE = re.compile(
+    _HEX_PREFIX + r"(create container|Pulling from|py[\d.][\w.-]* Pulling from)\s"
+)
+_DOCKER_START_RE = re.compile(r"^(start|create) container[\s:]")
+_WORKER_READY_RE = re.compile(r"^worker is ready$|^worker \w+ ready$")
+_FITNESS_CHECK_RE = re.compile(
+    r"(Memory check passed|Disk space check passed|Network connectivity passed|"
+    r"fitness check|All fitness checks passed|Running \d+ fitness)"
+)
+_SERVERLESS_BANNER_RE = re.compile(
+    r"^-*\s*(Starting Serverless Worker|Starting Flash Worker)"
+)
+_WORKER_JOB_QUEUE_RE = re.compile(r"^Jobs in (queue|progress):")
+_WORKER_TIMING_RE = re.compile(r"^Worker:[^\s]+\s+\|\s+(Delay|Execution) Time:")
+_INSTALLING_DEPS_RE = re.compile(r"^Installing Python dependencies:")
+
+
+def _is_noise(line: str) -> bool:
+    """return True if the line is infrastructure noise that should be hidden."""
+    if _DOCKER_PULL_RE.match(line):
+        return True
+    if _DOCKER_CREATE_RE.match(line):
+        return True
+    if _DOCKER_START_RE.match(line):
+        return True
+    if _WORKER_READY_RE.match(line):
+        return True
+    if _FITNESS_CHECK_RE.search(line):
+        return True
+    if _SERVERLESS_BANNER_RE.match(line):
+        return True
+    if _WORKER_JOB_QUEUE_RE.match(line):
+        return True
+    if _WORKER_TIMING_RE.match(line):
+        return True
+    if _INSTALLING_DEPS_RE.match(line):
+        return True
+    return False
+
+
+def _format_worker_log_line(raw_line: str) -> str | None:
+    """format a raw worker log line for display.
+
+    strips container timestamps, JSON wrapping, and docker/infrastructure
+    noise. returns None for lines that should be hidden.
+    """
+    line = _normalize_stream_log_line(raw_line)
+    if not line:
+        return None
+
+    if _is_noise(line):
+        return None
+
+    # unwrap JSON log messages from the worker runtime
+    # format: {"requestId": "...", "message": "...", "level": "..."}
+    if line.startswith("{") and '"message"' in line:
+        try:
+            import json as _json
+
+            parsed = _json.loads(line)
+            msg = parsed.get("message", "").strip()
+            if not msg or msg in ("Started.", "Finished."):
+                return None
+            # re-filter the unwrapped message
+            if _is_noise(msg):
+                return None
+            line = msg
+        except (ValueError, KeyError):
+            pass
+
+    # strip embedded container timestamp from user log lines
+    # e.g. "2026-04-22 00:09:05,332 | INFO | this is a message"
+    stripped = re.sub(
+        r"^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2},\d+\s+\|\s+\w+\s+\|\s+", "", line
+    )
+    if stripped != line:
+        # the stripped content might also be noise
+        if _is_noise(stripped):
+            return None
+        line = stripped
+
+    return line
 
 
 class ServerlessScalerType(Enum):
@@ -260,8 +354,12 @@ class ServerlessResource(DeployableResource):
             return None
 
         if batch.lines:
+            from runpod_flash.dev_console import print_worker_log
+
             for line in batch.lines:
-                log.info("worker log: %s", line)
+                formatted = _format_worker_log_line(line)
+                if formatted is not None:
+                    print_worker_log(self.name, formatted)
 
         return batch
 
@@ -1034,7 +1132,7 @@ class ServerlessResource(DeployableResource):
             resolved_template_id = self.templateId or new_config.templateId
             # Check for version-triggering changes
             if not self._has_structural_changes(new_config):
-                log.info(f"Updating endpoint '{self.name}' (ID: {self.id})")
+                log.debug("updating endpoint '%s' (ID: %s)", self.name, self.id)
 
             # Ensure network volumes are deployed if specified
             await new_config._ensure_network_volume_deployed()
@@ -1287,7 +1385,7 @@ class ServerlessResource(DeployableResource):
         )
 
         def _fetch_job():
-            log.info(f"[REMOTE] {self} | API /runsync")
+            log.debug(f"{self} | runsync")
             return self.endpoint.rp_client.post(
                 f"{self.id}/runsync", payload, timeout=timeout_s
             )
@@ -1317,12 +1415,23 @@ class ServerlessResource(DeployableResource):
 
         try:
             # Create a job using the endpoint
-            log.info(f"[REMOTE] {self} | API /run")
+            from runpod_flash.dev_console import (
+                print_cancelled,
+                print_completed,
+                print_diagnostic,
+                print_failed,
+                print_pulling,
+                print_dispatch,
+                print_worker_log,
+                print_worker_ready,
+            )
+
+            print_dispatch(self.name)
             job = await asyncio.to_thread(self.endpoint.run, request_input=payload)
 
             log_subgroup = f"Job:{job.job_id}"
 
-            log.info(f"{self} | Started {log_subgroup}")
+            log.debug(f"{self} | started {log_subgroup}")
 
             current_pace = 0
             attempt = 0
@@ -1342,6 +1451,7 @@ class ServerlessResource(DeployableResource):
             repeated_no_worker_message: Optional[str] = None
             waiting_update_count = 0
             emitted_initial_wait_metrics = False
+            _pull_progress = None
 
             # Poll for job status
             while True:
@@ -1356,10 +1466,10 @@ class ServerlessResource(DeployableResource):
                     attempt += 1
                     if job_status != "IN_PROGRESS" and attempt % 2 == 0:
                         emit_regular_update = True
-                        log.info(f"{log_subgroup} | {'.' * (attempt // 2)}")
+                        log.debug(f"{log_subgroup} | {'.' * (attempt // 2)}")
                 else:
                     # status changed, reset the gap
-                    log.info(f"{log_subgroup} | Status: {job_status}")
+                    log.debug(f"{log_subgroup} | status: {job_status}")
                     attempt = 0
 
                 batch = await self._emit_endpoint_logs(
@@ -1383,9 +1493,10 @@ class ServerlessResource(DeployableResource):
                         repeated_no_worker_message = None
                         waiting_update_count = 0
                         if assigned_streaming_announced_worker != batch.worker_id:
-                            log.info(
-                                f"{log_subgroup} | Request assigned to worker {batch.worker_id}, streaming pod logs"
-                            )
+                            if _pull_progress:
+                                _pull_progress.done()
+                                _pull_progress = None
+                            print_worker_ready(self.name, batch.worker_id)
                             assigned_streaming_announced_worker = batch.worker_id
                     elif state_changed:
                         if batch.phase == QBRequestLogPhase.WAITING_FOR_WORKER:
@@ -1393,7 +1504,7 @@ class ServerlessResource(DeployableResource):
                                 self,
                                 worker_metrics=batch.worker_metrics,
                             )
-                            log.info(f"{log_subgroup} | {diagnostic.message}")
+                            print_diagnostic(self.name, diagnostic.message)
                             if diagnostic.reason in (
                                 "no_gpu_availability",
                                 "workers_throttled",
@@ -1415,8 +1526,8 @@ class ServerlessResource(DeployableResource):
                                     if batch.matched_by_request_id
                                     else "unassigned"
                                 )
-                                log.info(
-                                    f"{log_subgroup} | Waiting for request: endpoint metrics: worker={worker_state}, assignment={assignment_state}, status={job_status}, workers={{ready:{worker_metrics.get('ready', 0)}, running:{worker_metrics.get('running', 0)}, idle:{worker_metrics.get('idle', 0)}, initializing:{worker_metrics.get('initializing', 0)}, throttled:{worker_metrics.get('throttled', 0)}, unhealthy:{worker_metrics.get('unhealthy', 0)}}}, readyWorkers={batch.ready_worker_ids}"
+                                log.debug(
+                                    f"{log_subgroup} | waiting: worker={worker_state}, assignment={assignment_state}, status={job_status}, workers={{ready:{worker_metrics.get('ready', 0)}, running:{worker_metrics.get('running', 0)}, idle:{worker_metrics.get('idle', 0)}, initializing:{worker_metrics.get('initializing', 0)}, throttled:{worker_metrics.get('throttled', 0)}, unhealthy:{worker_metrics.get('unhealthy', 0)}}}"
                                 )
                                 emitted_initial_wait_metrics = True
                         elif (
@@ -1426,25 +1537,20 @@ class ServerlessResource(DeployableResource):
                             repeated_no_worker_message = None
                             waiting_update_count = 0
                             emitted_initial_wait_metrics = False
-                            if batch.matched_by_request_id and batch.worker_id:
-                                log.info(
-                                    f"{log_subgroup} | Request assigned to worker {batch.worker_id}, waiting for worker initialization/image pull logs"
+                            image = (
+                                getattr(
+                                    getattr(self, "template", None), "imageName", None
                                 )
-                            elif batch.worker_id:
-                                log.info(
-                                    f"{log_subgroup} | Worker capacity detected, waiting for request assignment and worker initialization/image pull"
-                                )
-                            else:
-                                log.info(
-                                    f"{log_subgroup} | Waiting for worker initialization/image pull"
-                                )
+                                or "image"
+                            )
+                            _pull_progress = print_pulling(
+                                self.name, image, batch.worker_id
+                            )
                         elif batch.phase == QBRequestLogPhase.STREAMING:
                             repeated_no_worker_message = None
                             waiting_update_count = 0
                             emitted_initial_wait_metrics = False
-                            log.info(
-                                f"{log_subgroup} | Streaming endpoint startup logs while waiting for request assignment"
-                            )
+                            log.debug(f"{log_subgroup} | streaming startup logs")
 
                     last_log_state = current_log_state
 
@@ -1460,13 +1566,17 @@ class ServerlessResource(DeployableResource):
                             if batch and batch.matched_by_request_id
                             else "unassigned"
                         )
-                        log.info(
-                            f"{log_subgroup} | Waiting for request: endpoint metrics: worker={worker_state}, assignment={assignment_state}, status={job_status}, workers={{ready:{worker_metrics.get('ready', 0)}, running:{worker_metrics.get('running', 0)}, idle:{worker_metrics.get('idle', 0)}, initializing:{worker_metrics.get('initializing', 0)}, throttled:{worker_metrics.get('throttled', 0)}, unhealthy:{worker_metrics.get('unhealthy', 0)}}}, readyWorkers={batch.ready_worker_ids if batch else []}"
+                        log.debug(
+                            f"{log_subgroup} | waiting: worker={worker_state}, "
+                            f"assignment={assignment_state}, status={job_status}"
                         )
                         if repeated_no_worker_message:
-                            log.info(f"{log_subgroup} | {repeated_no_worker_message}")
+                            print_diagnostic(self.name, repeated_no_worker_message)
 
                 last_status = job_status
+
+                if _pull_progress:
+                    _pull_progress.update()
 
                 # Adjust polling pace appropriately
                 current_pace = get_backoff_delay(attempt, max_seconds=5)
@@ -1477,33 +1587,58 @@ class ServerlessResource(DeployableResource):
                             fetcher=fetcher,
                             request_id=job.job_id,
                         )
+                    if _pull_progress:
+                        _pull_progress.done()
+                        _pull_progress = None
+
                     response = await asyncio.to_thread(job._fetch_job)
+
+                    # dedupe and print stdout before the completion line
                     output = response.get("output")
                     if isinstance(output, dict):
                         stdout = output.get("stdout")
-                        should_dedupe_stdout = (
-                            self.type == ServerlessType.QB
-                            and fetcher.has_streamed_logs
-                            and bool(fetcher.seen)
-                        )
-                        if should_dedupe_stdout and isinstance(stdout, str):
-                            seen_normalized_counts = Counter(
-                                normalized
-                                for line in fetcher.seen
-                                if (normalized := _normalize_stream_log_line(line))
-                            )
-                            kept = []
-                            for raw_line in stdout.splitlines(keepends=True):
-                                normalized_raw = _normalize_stream_log_line(raw_line)
-                                if (
-                                    normalized_raw
-                                    and seen_normalized_counts.get(normalized_raw, 0)
-                                    > 0
-                                ):
-                                    seen_normalized_counts[normalized_raw] -= 1
-                                    continue
-                                kept.append(raw_line)
-                            output["stdout"] = "".join(kept)
+                        if stdout and isinstance(stdout, str):
+                            if (
+                                self.type == ServerlessType.QB
+                                and fetcher.has_streamed_logs
+                                and fetcher.seen
+                            ):
+                                seen_normalized_counts = Counter(
+                                    normalized
+                                    for line in fetcher.seen
+                                    if (normalized := _normalize_stream_log_line(line))
+                                )
+                                kept = []
+                                for raw_line in stdout.splitlines(keepends=True):
+                                    normalized_raw = _normalize_stream_log_line(
+                                        raw_line
+                                    )
+                                    if (
+                                        normalized_raw
+                                        and seen_normalized_counts.get(
+                                            normalized_raw, 0
+                                        )
+                                        > 0
+                                    ):
+                                        seen_normalized_counts[normalized_raw] -= 1
+                                        continue
+                                    kept.append(raw_line)
+                                stdout = "".join(kept)
+
+                            for line in stdout.splitlines():
+                                print_worker_log(self.name, line)
+
+                            output["stdout"] = ""
+
+                    elapsed = response.get("executionTime")
+                    delay = response.get("delayTime")
+                    if job_status == "COMPLETED":
+                        print_completed(self.name, elapsed, delay)
+                    elif job_status == "FAILED":
+                        err = response.get("error", "")
+                        print_failed(self.name, elapsed, delay, err)
+                    else:
+                        print_cancelled(self.name, elapsed, delay)
                     return JobOutput(**response)
 
         except Exception as e:
@@ -1580,9 +1715,12 @@ class JobOutput(BaseModel):
     error: Optional[str] = ""
 
     def model_post_init(self, _: Any) -> None:
-        log_group = f"Worker:{self.workerId}"
-        log.info(f"{log_group} | Delay Time: {self.delayTime} ms")
-        log.info(f"{log_group} | Execution Time: {self.executionTime} ms")
+        log.debug(
+            "worker:%s delay=%dms exec=%dms",
+            self.workerId,
+            self.delayTime,
+            self.executionTime,
+        )
 
 
 class Status(str, Enum):

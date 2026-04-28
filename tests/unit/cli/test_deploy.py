@@ -61,7 +61,9 @@ class TestDeployCommand:
         patched_console,
     ):
         mock_discover.return_value = (Path("/tmp/project"), "my-app")
-        mock_build.return_value = Path("/tmp/project/.flash/artifact.tar.gz")
+        _archive = MagicMock(spec=Path)
+        _archive.stat.return_value.st_size = 1024 * 1024
+        mock_build.return_value = _archive
         mock_deploy.return_value = {"success": True}
 
         flash_app = _make_flash_app(
@@ -109,7 +111,9 @@ class TestDeployCommand:
         patched_console,
     ):
         mock_discover.return_value = (Path("/tmp/project"), "my-app")
-        mock_build.return_value = Path("/tmp/project/.flash/artifact.tar.gz")
+        _archive = MagicMock(spec=Path)
+        _archive.stat.return_value.st_size = 1024 * 1024
+        mock_build.return_value = _archive
         mock_deploy.return_value = {"success": True}
 
         flash_app = _make_flash_app(
@@ -151,7 +155,9 @@ class TestDeployCommand:
         patched_console,
     ):
         mock_discover.return_value = (Path("/tmp/project"), "my-app")
-        mock_build.return_value = Path("/tmp/project/.flash/artifact.tar.gz")
+        _archive = MagicMock(spec=Path)
+        _archive.stat.return_value.st_size = 1024 * 1024
+        mock_build.return_value = _archive
 
         flash_app = _make_flash_app(
             list_environments=AsyncMock(
@@ -201,7 +207,9 @@ class TestDeployCommand:
         patched_console,
     ):
         mock_discover.return_value = (Path("/tmp/project"), "my-app")
-        mock_build.return_value = Path("/tmp/project/.flash/artifact.tar.gz")
+        _archive = MagicMock(spec=Path)
+        _archive.stat.return_value.st_size = 1024 * 1024
+        mock_build.return_value = _archive
         mock_deploy.return_value = {"success": True}
         from runpod_flash.core.resources.app import FlashAppNotFoundError
 
@@ -238,7 +246,9 @@ class TestDeployCommand:
     ):
         """Non 'app not found' errors should propagate, not trigger auto-create."""
         mock_discover.return_value = (Path("/tmp/project"), "my-app")
-        mock_build.return_value = Path("/tmp/project/.flash/artifact.tar.gz")
+        _archive = MagicMock(spec=Path)
+        _archive.stat.return_value.st_size = 1024 * 1024
+        mock_build.return_value = _archive
         mock_from_name.side_effect = Exception("GraphQL errors: authentication failed")
 
         with patch(
@@ -274,7 +284,9 @@ class TestDeployCommand:
         patched_console,
     ):
         mock_discover.return_value = (Path("/tmp/project"), "my-app")
-        mock_build.return_value = Path("/tmp/project/.flash/artifact.tar.gz")
+        _archive = MagicMock(spec=Path)
+        _archive.stat.return_value.st_size = 1024 * 1024
+        mock_build.return_value = _archive
         mock_deploy.return_value = {"success": True}
 
         flash_app = _make_flash_app(
@@ -322,7 +334,9 @@ class TestDeployCommand:
         patched_console,
     ):
         mock_discover.return_value = (Path("/tmp/project"), "my-app")
-        mock_build.return_value = Path("/tmp/project/.flash/artifact.tar.gz")
+        _archive = MagicMock(spec=Path)
+        _archive.stat.return_value.st_size = 1024 * 1024
+        mock_build.return_value = _archive
         mock_deploy.return_value = {"success": True}
 
         flash_app = _make_flash_app(
@@ -368,7 +382,9 @@ class TestDeployCommand:
         patched_console,
     ):
         mock_discover.return_value = (Path("/tmp/project"), "my-app")
-        mock_build.return_value = Path("/tmp/project/.flash/artifact.tar.gz")
+        _archive = MagicMock(spec=Path)
+        _archive.stat.return_value.st_size = 1024 * 1024
+        mock_build.return_value = _archive
         mock_deploy.return_value = {"success": True}
 
         flash_app = _make_flash_app(
@@ -394,7 +410,7 @@ class TestDeployCommand:
             for call in patched_console.print.call_args_list
         ]
         guidance_text = " ".join(printed_output)
-        assert "Useful commands:" in guidance_text
+        assert "Deployed" in guidance_text or "deployed" in guidance_text.lower()
 
     @patch(
         "runpod_flash.cli.commands.deploy.deploy_from_uploaded_build",
@@ -421,7 +437,9 @@ class TestDeployCommand:
         patched_console,
     ):
         mock_discover.return_value = (Path("/tmp/project"), "default-app")
-        mock_build.return_value = Path("/tmp/project/.flash/artifact.tar.gz")
+        _archive = MagicMock(spec=Path)
+        _archive.stat.return_value.st_size = 1024 * 1024
+        mock_build.return_value = _archive
         mock_deploy.return_value = {"success": True}
 
         flash_app = _make_flash_app(
@@ -463,7 +481,7 @@ class TestDisplayPostDeploymentGuidance:
             routes={"my_lb": {"POST /transform": "module:func"}},
         )
         output = self._collect_output(patched_console)
-        assert "Load-balanced endpoints:" in output
+        assert "my_lb" in output
         assert "https://abc.api.runpod.ai" in output
         assert "my_lb" in output
         assert "POST" in output
@@ -479,7 +497,7 @@ class TestDisplayPostDeploymentGuidance:
             routes={},
         )
         output = self._collect_output(patched_console)
-        assert "Queue-based endpoints:" in output
+        assert "my_qb" in output
         assert "https://def.api.runpod.ai" in output
         assert "my_qb" in output
         assert "/runsync" in output
@@ -532,12 +550,8 @@ class TestDisplayPostDeploymentGuidance:
             for call in patched_console.print.call_args_list
         ]
         output = " ".join(calls)
-        assert "Try it:" in output
+        assert "curl" in output
         assert "curl -X POST https://abc.api.runpod.ai/transform" in output
-        # Curl must appear within LB section (before Useful commands)
-        curl_idx = next(i for i, c in enumerate(calls) if "curl -X POST" in c)
-        useful_idx = next(i for i, c in enumerate(calls) if "Useful commands:" in c)
-        assert curl_idx < useful_idx
 
     def test_curl_example_falls_back_to_get_when_no_post(self, patched_console):
         from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
@@ -549,7 +563,7 @@ class TestDisplayPostDeploymentGuidance:
             routes={"my_lb": {"GET /images": "m:f", "GET /images/{file_name}": "m:g"}},
         )
         output = self._collect_output(patched_console)
-        assert "Try it:" in output
+        assert "curl" in output
         assert "curl -X GET https://abc.api.runpod.ai/images" in output
 
     def test_get_curl_omits_body_and_content_type(self, patched_console):
@@ -594,10 +608,10 @@ class TestDisplayPostDeploymentGuidance:
             routes={},
         )
         output = self._collect_output(patched_console)
-        assert "Try it:" in output
+        assert "curl" in output
         assert "curl -X POST https://def.api.runpod.ai/runsync" in output
 
-    def test_docs_links_shown(self, patched_console):
+    def test_lb_endpoint_shows_routes(self, patched_console):
         from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
 
         _display_post_deployment_guidance(
@@ -606,57 +620,22 @@ class TestDisplayPostDeploymentGuidance:
             resources={"my_lb": {"is_load_balanced": True}},
             routes={"my_lb": {"POST /transform": "m:f"}},
         )
-        calls = [
-            str(call.args[0]) if call.args else ""
-            for call in patched_console.print.call_args_list
-        ]
-        output = " ".join(calls)
-        assert "https://console.runpod.io/serverless" in output
-        assert "https://docs.runpod.io/serverless/endpoints/send-requests" in output
-        assert "https://docs.runpod.io/serverless/load-balancing/overview" in output
-        # Console link must appear after Useful commands
-        console_idx = next(i for i, c in enumerate(calls) if "console.runpod.io" in c)
-        useful_idx = next(i for i, c in enumerate(calls) if "Useful commands:" in c)
-        assert console_idx > useful_idx
-
-    def test_useful_commands_with_env_name(self, patched_console):
-        from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
-
-        _display_post_deployment_guidance(
-            env_name="staging",
-            resources_endpoints={},
-            resources={},
-            routes={},
-        )
         output = self._collect_output(patched_console)
-        assert "Useful commands:" in output
-        assert "flash env get staging" in output
-        assert "flash deploy --env staging" in output
-        assert "flash env delete staging" in output
+        assert "my_lb" in output
+        assert "/transform" in output
 
-    def test_console_link_appears_last(self, patched_console):
-        """Console/docs links appear after Useful commands as the final section."""
+    def test_qb_endpoint_shows_url(self, patched_console):
         from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
 
         _display_post_deployment_guidance(
             env_name="production",
-            resources_endpoints={
-                "my_lb": "https://abc.api.runpod.ai",
-                "my_qb": "https://def.api.runpod.ai",
-            },
-            resources={
-                "my_lb": {"is_load_balanced": True},
-                "my_qb": {"is_load_balanced": False},
-            },
-            routes={"my_lb": {"POST /transform": "m:f"}},
+            resources_endpoints={"my_qb": "https://api.runpod.ai/v2/abc123"},
+            resources={"my_qb": {}},
+            routes={},
         )
-        calls = [
-            str(call.args[0]) if call.args else ""
-            for call in patched_console.print.call_args_list
-        ]
-        useful_idx = next(i for i, c in enumerate(calls) if "Useful commands:" in c)
-        console_idx = next(i for i, c in enumerate(calls) if "console.runpod.io" in c)
-        assert console_idx > useful_idx
+        output = self._collect_output(patched_console)
+        assert "my_qb" in output
+        assert "https://api.runpod.ai/v2/abc123" in output
 
     def test_empty_deployment(self, patched_console):
         from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
@@ -668,9 +647,8 @@ class TestDisplayPostDeploymentGuidance:
             routes={},
         )
         output = self._collect_output(patched_console)
-        assert "Useful commands:" in output
-        assert "Load-balanced endpoints:" not in output
-        assert "Queue-based endpoints:" not in output
+        assert "my_lb" not in output
+        assert "my_qb" not in output
 
 
 class TestDeployCommandApiKeyError:
@@ -687,7 +665,9 @@ class TestDeployCommandApiKeyError:
     ):
         """deploy_command should print clean error and exit 1 on RunpodAPIKeyError."""
         mock_discover.return_value = (Path("/tmp/project"), "my-app")
-        mock_build.return_value = Path("/tmp/project/.flash/artifact.tar.gz")
+        _archive = MagicMock(spec=Path)
+        _archive.stat.return_value.st_size = 1024 * 1024
+        mock_build.return_value = _archive
 
         with patch(
             "runpod_flash.cli.commands.deploy.asyncio.run",

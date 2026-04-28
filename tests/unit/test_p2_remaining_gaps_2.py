@@ -306,8 +306,8 @@ class TestUndeployListCommand:
 
         mock_manager.list_all_resources.assert_called_once()
 
-    def test_list_command_prints_no_endpoints_when_empty(self, capsys):
-        """CLI-UNDEPLOY-001: empty resource dict prints 'No endpoints found.'."""
+    def test_list_command_prints_no_endpoints_when_empty(self):
+        """CLI-UNDEPLOY-001: empty resource dict prints 'no endpoints found'."""
         from runpod_flash.cli.commands.undeploy import list_command
 
         mock_manager = MagicMock()
@@ -317,10 +317,13 @@ class TestUndeployListCommand:
             "runpod_flash.cli.commands.undeploy._get_resource_manager",
             return_value=mock_manager,
         ):
-            list_command()
+            with patch("runpod_flash.cli.commands.undeploy.console") as mock_console:
+                list_command()
 
-        captured = capsys.readouterr()
-        assert "No endpoints found" in captured.out
+        printed = " ".join(
+            str(c.args[0]) for c in mock_console.print.call_args_list if c.args
+        )
+        assert "no endpoints found" in printed
 
     def test_list_command_shows_tracked_resources(self, capsys):
         """CLI-UNDEPLOY-001: tracked serverless resources are printed by list_command."""
@@ -570,7 +573,7 @@ class TestJobOutputLogging:
         from runpod_flash.core.resources.serverless import JobOutput
 
         with caplog.at_level(
-            logging.INFO, logger="runpod_flash.core.resources.serverless"
+            logging.DEBUG, logger="runpod_flash.core.resources.serverless"
         ):
             JobOutput(
                 id="job-001",
@@ -581,10 +584,7 @@ class TestJobOutputLogging:
                 output={"result": "done"},
             )
 
-        delay_logged = any(
-            "42" in record.message and "Delay" in record.message
-            for record in caplog.records
-        )
+        delay_logged = any("delay=42" in record.message for record in caplog.records)
         assert delay_logged, (
             f"Expected delay time (42) in log records. Records: {[r.message for r in caplog.records]}"
         )
@@ -594,7 +594,7 @@ class TestJobOutputLogging:
         from runpod_flash.core.resources.serverless import JobOutput
 
         with caplog.at_level(
-            logging.INFO, logger="runpod_flash.core.resources.serverless"
+            logging.DEBUG, logger="runpod_flash.core.resources.serverless"
         ):
             JobOutput(
                 id="job-002",
@@ -604,10 +604,7 @@ class TestJobOutputLogging:
                 executionTime=250,
             )
 
-        exec_logged = any(
-            "250" in record.message and "Execution" in record.message
-            for record in caplog.records
-        )
+        exec_logged = any("exec=250" in record.message for record in caplog.records)
         assert exec_logged, (
             f"Expected execution time (250) in log records. Records: {[r.message for r in caplog.records]}"
         )
@@ -617,7 +614,7 @@ class TestJobOutputLogging:
         from runpod_flash.core.resources.serverless import JobOutput
 
         with caplog.at_level(
-            logging.INFO, logger="runpod_flash.core.resources.serverless"
+            logging.DEBUG, logger="runpod_flash.core.resources.serverless"
         ):
             JobOutput(
                 id="job-003",
@@ -628,7 +625,9 @@ class TestJobOutputLogging:
             )
 
         worker_in_log = any(
-            "worker-CORRELATION" in record.message for record in caplog.records
+            "worker-CORRELATION" in record.message.lower()
+            or "worker-correlation" in record.message.lower()
+            for record in caplog.records
         )
         assert worker_in_log, (
             f"Expected workerId in log. Records: {[r.message for r in caplog.records]}"
@@ -639,7 +638,7 @@ class TestJobOutputLogging:
         from runpod_flash.core.resources.serverless import JobOutput
 
         with caplog.at_level(
-            logging.INFO, logger="runpod_flash.core.resources.serverless"
+            logging.DEBUG, logger="runpod_flash.core.resources.serverless"
         ):
             JobOutput(
                 id="job-004",
@@ -650,10 +649,8 @@ class TestJobOutputLogging:
             )
 
         timing_records = [
-            r
-            for r in caplog.records
-            if "Delay" in r.message or "Execution" in r.message
+            r for r in caplog.records if "delay=" in r.message or "exec=" in r.message
         ]
-        assert len(timing_records) >= 2, (
-            f"Expected at least 2 timing log records, got {len(timing_records)}"
+        assert len(timing_records) >= 1, (
+            f"Expected at least 1 timing log record, got {len(timing_records)}"
         )

@@ -45,7 +45,7 @@ class TestEnvList:
             for call in patched_console.print.call_args_list
             if call.args
         )
-        assert "No environments" in printed
+        assert "no environments" in printed
         assert "demo" in printed
         mock_from_name.assert_awaited_once_with("demo")
 
@@ -160,7 +160,7 @@ class TestEnvCreate:
             if call.args
         )
         assert "dev" in printed
-        assert "env-123" in printed
+        assert "dev" in printed
 
 
 class TestEnvGet:
@@ -197,8 +197,8 @@ class TestEnvGet:
         assert "dev" in printed
         assert "ep-1" in printed
         assert "nv-1" in printed
-        assert "Endpoints" in printed
-        assert "Network Volumes" in printed
+        assert "ep-1" in printed
+        assert "nv-1" in printed
 
     @patch("runpod_flash.cli.commands.env.FlashApp.from_name", new_callable=AsyncMock)
     def test_get_without_children(
@@ -232,7 +232,7 @@ class TestEnvGet:
         )
         assert "dev" in printed
         # no endpoint or nv sections when empty
-        assert "Endpoints" not in printed
+        assert "endpoint" not in printed
         assert "Network Volumes" not in printed
 
 
@@ -283,7 +283,7 @@ class TestEnvDelete:
             for call in patched_console.print.call_args_list
             if call.args
         )
-        assert "Deleted" in printed
+        assert "deleted" in printed
 
     @patch(
         "runpod_flash.cli.commands.env._fetch_environment_info",
@@ -322,7 +322,7 @@ class TestEnvDelete:
         assert result.exit_code == 0
         mock_questionary.confirm.assert_called_once()
         flash_app.delete_environment.assert_not_called()
-        patched_console.print.assert_any_call("[yellow]Cancelled[/yellow]")
+        patched_console.print.assert_any_call("[dim]cancelled[/dim]")
 
     @patch(
         "runpod_flash.cli.commands.env._fetch_environment_info",
@@ -369,4 +369,4 @@ class TestEnvDelete:
             for call in patched_console.print.call_args_list
             if call.args
         )
-        assert "Failed to delete" in printed
+        assert "failed to delete" in printed

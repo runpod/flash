@@ -16,7 +16,7 @@ Set up the project:
 uv venv && source .venv/bin/activate
 uv sync
 flash login              # Authenticate with Runpod
-flash run
+flash dev
 ```
 
 Or with pip:
@@ -25,12 +25,12 @@ Or with pip:
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 flash login              # Authenticate with Runpod
-flash run
+flash dev
 ```
 
 Server starts at **http://localhost:8888**. Visit **http://localhost:8888/docs** for interactive Swagger UI.
 
-Use `flash run --auto-provision` to pre-deploy all endpoints on startup, eliminating cold-start delays on first request. Provisioned endpoints are cached and reused across restarts.
+Use `flash dev --auto-provision` to pre-deploy all endpoints on startup, eliminating cold-start delays on first request. Provisioned endpoints are cached and reused across restarts.
 
 When you stop the server with Ctrl+C, all endpoints provisioned during the session are automatically cleaned up.
 
@@ -138,7 +138,7 @@ result = await ep.post("/v1/completions", {"prompt": "hello"})
 
 ## Adding New Workers
 
-Create a new `.py` file with an `Endpoint`. `flash run` auto-discovers all
+Create a new `.py` file with an `Endpoint`. `flash dev` auto-discovers all
 `Endpoint` functions in the project.
 
 ```python
@@ -152,7 +152,7 @@ async def predict(input_data: dict) -> dict:
     return pipe(input_data["text"])[0]
 ```
 
-Then run `flash run` -- the new worker appears automatically.
+Then run `flash dev` -- the new worker appears automatically.
 
 ## GPU Types
 

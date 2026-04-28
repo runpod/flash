@@ -39,7 +39,8 @@ app = typer.Typer(
 
 # command: flash <command>
 app.command("init")(init.init_command)
-app.command("run")(run.run_command)
+app.command("dev")(run.run_command)
+app.command("run", hidden=True)(run.run_command)
 app.command("build")(build.build_command)
 app.command("login")(login.login_command)
 app.command("deploy")(deploy.deploy_command)
@@ -69,7 +70,7 @@ app.add_typer(apps.apps_app)
 app.command("undeploy")(undeploy.undeploy_command)
 
 
-_UPDATE_CHECK_EXCLUDED = frozenset({"run", "update"})
+_UPDATE_CHECK_EXCLUDED = frozenset({"dev", "run", "update"})
 
 
 @app.callback(invoke_without_command=True)

@@ -1,16 +1,16 @@
-# flash run
+# flash dev
 
-Start the Flash development server for testing/debugging/development.
+Start the Flash development server for testing, debugging, and local development.
+
+`flash run` is a hidden alias for `flash dev`.
 
 ## Overview
 
-The `flash run` command starts a local development server that auto-discovers your `Endpoint` definitions and serves them on your machine while deploying workers to Runpod Serverless. This hybrid architecture lets you rapidly iterate on your application with hot-reload while testing real GPU/CPU workloads in the cloud.
+`flash dev` starts a local development server that auto-discovers your `Endpoint` definitions and serves them on your machine while deploying live ephemeral workers to RunPod Serverless. This hybrid architecture lets you rapidly iterate on your application with hot-reload while testing real GPU/CPU workloads in the cloud.
 
-Use `flash run` when you want to skip the build step and test/develop/debug your endpoints rapidly before deploying your full application with `flash deploy`. (See [Flash Deploy](./flash-deploy.md) for details.)
+Use `flash dev` for local development and testing. When ready for production, use `flash deploy` to package and deploy everything to RunPod. See [flash deploy](./flash-deploy.md) for details.
 
-## Architecture: Local App + Remote Workers
-
-With `flash run`, your system runs in a **hybrid architecture**:
+## Architecture: local app + remote workers
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -34,19 +34,19 @@ With `flash run`, your system runs in a **hybrid architecture**:
 ```
 
 **Key points:**
-- **`flash run` auto-discovers `Endpoint` definitions** and generates `.flash/server.py`
+- **`flash dev` auto-discovers `Endpoint` definitions** and generates `.flash/server.py`
 - **Queue-based (QB) routes execute locally** at `/{file_prefix}/runsync`
 - **Load-balanced (LB) routes are served locally** at `/{endpoint_name}/{path}`
-- **Endpoint functions run on Runpod** as serverless endpoints
+- **Endpoint functions run on RunPod** as serverless endpoints
 - **Hot reload** watches for `.py` file changes via watchfiles
 - **Endpoints are prefixed with `live-`** to distinguish development endpoints from production (e.g., `gpu-worker` becomes `live-gpu-worker`)
 
-This is different from `flash deploy`, where **everything** (including your FastAPI app) runs on Runpod. See [flash deploy](./flash-deploy.md) for the fully-deployed architecture.
+This is different from `flash deploy`, where **everything** (including your FastAPI app) runs on RunPod. See [flash deploy](./flash-deploy.md) for the fully-deployed architecture.
 
 ## Usage
 
 ```bash
-flash run [OPTIONS]
+flash dev [OPTIONS]
 ```
 
 ## Options
@@ -59,32 +59,32 @@ flash run [OPTIONS]
 ## Examples
 
 ```bash
-# Start server with defaults
-flash run
+# start server with defaults
+flash dev
 
-# Custom port
-flash run --port 3000
+# custom port
+flash dev --port 3000
 
-# Disable auto-reload
-flash run --no-reload
+# disable auto-reload
+flash dev --no-reload
 
-# Custom host and port
-flash run --host 0.0.0.0 --port 8000
+# custom host and port
+flash dev --host 0.0.0.0 --port 8000
 ```
 
-## What It Does
+## What it does
 
 1. Scans project files for `Endpoint` definitions (both QB and LB patterns)
 2. Generates `.flash/server.py` with QB routes and LB routes
 3. Starts uvicorn server with hot-reload via watchfiles
 4. Workers use live provisioned endpoints (no packaging needed)
 
-### How It Works
+### How it works
 
-When you call an `Endpoint` function using `flash run`, Flash deploys a **Serverless endpoint** to Runpod. (These are actual cloud resources that incur costs.)
+When you call an `Endpoint` function via `flash dev`, Flash deploys a live ephemeral Serverless endpoint to RunPod. These are actual cloud resources that incur costs.
 
 ```
-flash run
+flash dev
     │
     ├── Scans project for Endpoint definitions
     ├── Generates .flash/server.py
@@ -94,10 +94,10 @@ flash run
     │
     └── On Endpoint function call:
         └── Deploys a Serverless endpoint (if not cached)
-            └── Executes on the Runpod cloud
+            └── Executes on the RunPod cloud
 ```
 
-### Provisioning Modes
+### Provisioning modes
 
 | Mode | When endpoints are deployed |
 |------|----------------------------|
@@ -105,11 +105,11 @@ flash run
 | `--auto-provision` | Eagerly, at server startup |
 
 
-## Auto-Provisioning
+## Auto-provisioning
 
 Auto-provisioning discovers and deploys Serverless endpoints before the Flash development server starts, eliminating the cold-start delay on first request.
 
-### How It Works
+### How it works
 
 1. **Resource Discovery**: Scans project files for `Endpoint` definitions
 2. **Parallel Deployment**: Deploys resources concurrently (up to 3 at a time)
@@ -117,43 +117,29 @@ Auto-provisioning discovers and deploys Serverless endpoints before the Flash de
 4. **Caching**: Stores deployed resources in `.flash/resources.pkl` for reuse across runs
 5. **Smart Updates**: Recognizes when endpoints already exist and updates them if configuration changed
 
-### Using Auto-Provisioning
-
-Enable it with the `--auto-provision` flag:
+### Using auto-provisioning
 
 ```bash
-flash run --auto-provision
-```
-
-Example with custom host and port:
-
-```bash
-flash run --auto-provision --host 0.0.0.0 --port 8000
+flash dev --auto-provision
 ```
 
 ### Benefits
 
-- **Zero Cold Start**: All endpoints ready before you test them
-- **Faster Development**: No waiting for deployment on first HTTP call
-- **Resource Reuse**: Cached endpoints are reused across server restarts
-- **Automatic Cleanup**: Orphaned endpoints are detected and removed
+- **Zero cold start**: All endpoints ready before you test them
+- **Faster development**: No waiting for deployment on first HTTP call
+- **Resource reuse**: Cached endpoints are reused across server restarts
+- **Automatic cleanup**: Orphaned endpoints are detected and removed
 
-### When to Use
-
-- **Local Development**: Always use this when testing multiple endpoints
-- **Testing Workflows**: Ensures endpoints are ready for integration tests
-- **Debugging**: Separates deployment issues from handler logic
-
-### Resource Caching
+### Resource caching
 
 Resources are cached by name and automatically reused:
 
 ```bash
-# First run: deploys endpoints
-flash run --auto-provision
+# first run: deploys endpoints
+flash dev --auto-provision
 
-# Subsequent runs: reuses cached endpoints (faster)
-flash run --auto-provision
+# subsequent runs: reuses cached endpoints (faster)
+flash dev --auto-provision
 ```
 
 Resources persist in `.flash/resources.pkl` and survive server restarts. Configuration changes are detected automatically and trigger re-deployment only when needed.
@@ -161,7 +147,7 @@ Resources persist in `.flash/resources.pkl` and survive server restarts. Configu
 ## Testing
 
 ```bash
-# Health check
+# health check
 curl http://localhost:8888/
 
 # QB endpoint (calls GPU worker)

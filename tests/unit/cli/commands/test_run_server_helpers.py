@@ -250,14 +250,14 @@ async def test_lb_execute_emits_route_label_info_logs(caplog):
         mock_stub_cls.return_value = mock_stub_instance
 
         with caplog.at_level(
-            logging.INFO, logger="runpod_flash.cli.commands._run_server_helpers"
+            logging.DEBUG, logger="runpod_flash.cli.commands._run_server_helpers"
         ):
             result = await lb_execute(mock_resource_config, fake_func, {"x": 1})
 
     assert result == 42
-    info_messages = [r.message for r in caplog.records if r.levelno == logging.INFO]
-    assert any("[REMOTE]" in m and "GET /images/{filename}" in m for m in info_messages)
-    assert any("[REMOTE]" in m and "Execution complete" in m for m in info_messages)
+    debug_messages = [r.message for r in caplog.records if r.levelno == logging.DEBUG]
+    assert any("GET /images/{filename}" in m for m in debug_messages)
+    assert any("execution complete" in m for m in debug_messages)
 
 
 @pytest.mark.asyncio
@@ -283,13 +283,13 @@ async def test_lb_execute_falls_back_to_func_name_without_routing(caplog):
         mock_stub_cls.return_value = mock_stub_instance
 
         with caplog.at_level(
-            logging.INFO, logger="runpod_flash.cli.commands._run_server_helpers"
+            logging.DEBUG, logger="runpod_flash.cli.commands._run_server_helpers"
         ):
             result = await lb_execute(mock_resource_config, my_handler, {"x": 1})
 
     assert result == 99
-    info_messages = [r.message for r in caplog.records if r.levelno == logging.INFO]
-    assert any("my_handler" in m for m in info_messages)
+    debug_messages = [r.message for r in caplog.records if r.levelno == logging.DEBUG]
+    assert any("my_handler" in m for m in debug_messages)
 
 
 # --- call_with_body empty-input validation ---

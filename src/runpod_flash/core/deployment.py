@@ -136,7 +136,7 @@ class DeploymentOrchestrator:
 
                 progress.update(
                     task_id,
-                    description=f"[green]✓ Provisioned {len(resources)} resource(s)",
+                    description=f"[green]✓[/green] provisioned {len(resources)} endpoint(s)",
                 )
                 progress.stop_task(task_id)
 
@@ -224,16 +224,16 @@ class DeploymentOrchestrator:
         console.print()
         if failed > 0:
             console.print(
-                f"[yellow]⚠[/yellow] Provisioning completed: {len(self.results)} resources "
-                f"({status_text}) in {total_time:.1f}s"
+                f"[yellow]![/yellow] provisioned {len(self.results)} endpoint(s) "
+                f"[dim]({status_text}) {total_time:.1f}s[/dim]"
             )
             console.print(
-                "[yellow]Note:[/yellow] Failed resources will deploy on-demand when first called"
+                "[dim]failed endpoints will deploy on-demand when first called[/dim]"
             )
         else:
             console.print(
-                f"[green]✓[/green] Provisioning completed: {len(self.results)} resources "
-                f"({status_text}) in {total_time:.1f}s"
+                f"[green]✓[/green] provisioned {len(self.results)} endpoint(s) "
+                f"[dim]({status_text}) {total_time:.1f}s[/dim]"
             )
 
         console.print()

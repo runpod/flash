@@ -126,7 +126,29 @@ def _is_cert_verification_error(exc: Exception) -> bool:
     return "certificate_verify_failed" in msg or "certificate verify failed" in msg
 
 
-def _upload_tarball(tar_path: Path, url: str, tarball_size: int) -> None:
+class _ProgressReader:
+    """wraps a file object to report bytes read via a callback."""
+
+    def __init__(self, fh, callback):
+        self._fh = fh
+        self._callback = callback
+
+    def read(self, size=-1):
+        chunk = self._fh.read(size)
+        if chunk:
+            self._callback(len(chunk))
+        return chunk
+
+    def __getattr__(self, name):
+        return getattr(self._fh, name)
+
+
+def _upload_tarball(
+    tar_path: Path,
+    url: str,
+    tarball_size: int,
+    progress_callback=None,
+) -> None:
     """Upload a tarball to a presigned URL with retry on transient errors.
 
     Retries on SSL record errors, connection resets, and timeouts.
@@ -137,6 +159,7 @@ def _upload_tarball(tar_path: Path, url: str, tarball_size: int) -> None:
         tar_path: path to the tarball file
         url: presigned upload URL (auth is in query params)
         tarball_size: file size in bytes, sent as Content-Length
+        progress_callback: optional callable(bytes_read) for progress reporting
 
     Raises:
         requests.SSLError: on cert verification failure (with guidance)
@@ -152,8 +175,6 @@ def _upload_tarball(tar_path: Path, url: str, tarball_size: int) -> None:
     from runpod_flash.core.utils.backoff import get_backoff_delay
     from runpod_flash.core.utils.user_agent import get_user_agent
 
-    # presigned URLs already carry auth in query params, so an
-    # Authorization header causes R2/S3 to reject the request.
     upload_headers = {
         "User-Agent": get_user_agent(),
         "Content-Type": TARBALL_CONTENT_TYPE,
@@ -165,9 +186,12 @@ def _upload_tarball(tar_path: Path, url: str, tarball_size: int) -> None:
     for attempt in range(UPLOAD_MAX_RETRIES):
         try:
             with tar_path.open("rb") as fh:
+                data = (
+                    _ProgressReader(fh, progress_callback) if progress_callback else fh
+                )
                 resp = _requests.put(
                     url,
-                    data=fh,
+                    data=data,
                     headers=upload_headers,
                     timeout=UPLOAD_TIMEOUT_SECONDS,
                 )
@@ -563,10 +587,17 @@ class FlashApp:
         url = result["uploadUrl"]
         object_key = result["objectKey"]
 
-        _upload_tarball(tar_path, url, tarball_size)
+        _upload_tarball(
+            tar_path,
+            url,
+            tarball_size,
+            progress_callback=self._upload_progress_callback,
+        )
 
         resp = await self._finalize_upload_build(object_key, manifest)
         return resp
+
+    _upload_progress_callback = None
 
     async def _set_environment_state(self, environment_id: str, status: str) -> None:
         """Set the state of an environment.

@@ -220,6 +220,15 @@ def create_nested():
         assert lines[-1].strip() != ""
 
 
+@pytest.fixture(autouse=True)
+def _force_live_provisioning(monkeypatch):
+    """tests in this file exercise the live ResourceManager path.
+
+    without this, method_proxy raises because no flash context is set.
+    """
+    monkeypatch.setenv("FLASH_IS_LIVE_PROVISIONING", "true")
+
+
 class TestCreateRemoteClass:
     """Test cases for create_remote_class function and RemoteClassWrapper."""
 

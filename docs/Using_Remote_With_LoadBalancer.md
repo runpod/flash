@@ -124,10 +124,10 @@ async def health():
 
 ## Local Development
 
-Run locally with `flash run`:
+Run locally with `flash dev`:
 
 ```bash
-flash run
+flash dev
 # starts a local dev server at http://localhost:8888
 # all routes are auto-discovered and registered
 ```
@@ -230,7 +230,7 @@ health = await ep.get("/health")
 
 1. **Group related routes** on the same `Endpoint` instance
 2. **Use descriptive paths** like `/api/users/{user_id}` not `/api/u`
-3. **Test locally with `flash run`** before deploying
+3. **Test locally with `flash dev`** before deploying
 4. **Handle errors gracefully** with meaningful error messages
 5. **Use CPU endpoints for I/O-bound work** to save costs
 6. **Set appropriate `workers` scaling** based on expected traffic

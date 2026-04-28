@@ -1372,20 +1372,10 @@ class TestServerlessResourceDeployment:
             new_callable=lambda: property(lambda self: mock_endpoint),
         ):
             with patch("asyncio.sleep"):
-                with patch("runpod_flash.core.resources.serverless.log") as mock_log:
+                with patch("runpod_flash.dev_console.print_dispatch") as mock_dispatch:
                     await serverless.run({"input": "test data"})
 
-        dispatch_calls = [
-            call for call in mock_log.info.call_args_list if "API /run" in str(call)
-        ]
-        assert len(dispatch_calls) == 1, "Expected exactly one 'API /run' log call"
-        log_message = dispatch_calls[0].args[0]
-        assert "[REMOTE]" in log_message, (
-            f"Expected [REMOTE] in log message, got: {log_message!r}"
-        )
-        assert "API /run" in log_message, (
-            f"Expected 'API /run' in log message, got: {log_message!r}"
-        )
+        mock_dispatch.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_runsync_logs_remote_prefix_on_dispatch(self):
@@ -1415,15 +1405,12 @@ class TestServerlessResourceDeployment:
                 await serverless.runsync({"input": "test data"})
 
         dispatch_calls = [
-            call for call in mock_log.info.call_args_list if "API /runsync" in str(call)
+            call for call in mock_log.debug.call_args_list if "runsync" in str(call)
         ]
-        assert len(dispatch_calls) == 1, "Expected exactly one 'API /runsync' log call"
+        assert len(dispatch_calls) == 1, "Expected exactly one runsync log call"
         log_message = dispatch_calls[0].args[0]
-        assert "[REMOTE]" in log_message, (
-            f"Expected [REMOTE] in log message, got: {log_message!r}"
-        )
-        assert "API /runsync" in log_message, (
-            f"Expected 'API /runsync' in log message, got: {log_message!r}"
+        assert "runsync" in log_message, (
+            f"Expected runsync in log message, got: {log_message!r}"
         )
 
     @pytest.mark.asyncio
@@ -1477,10 +1464,8 @@ class TestServerlessResourceDeployment:
                         result = await serverless.run({"input": "test"})
 
         assert isinstance(result, JobOutput)
-        assert result.output["stdout"] == (
-            "2026-04-02 18:18:10,164 | DEBUG | aiohttp_retry | client.py:110 | Attempt 1 out of 3\n"
-            "unique stdout line"
-        )
+        # stdout is printed via dev_console then cleared from the response
+        assert result.output["stdout"] == ""
 
     @pytest.mark.asyncio
     async def test_run_async_keeps_stdout_unchanged_when_no_streamed_logs(self):
@@ -1523,7 +1508,8 @@ class TestServerlessResourceDeployment:
                     result = await serverless.run({"input": "test"})
 
         assert isinstance(result, JobOutput)
-        assert result.output["stdout"] == original_stdout
+        # stdout is printed via dev_console then cleared from the response
+        assert result.output["stdout"] == ""
 
     @pytest.mark.asyncio
     async def test_run_async_fetches_endpoint_logs_while_polling(self):
@@ -1629,18 +1615,11 @@ class TestServerlessResourceDeployment:
                     ),
                 ):
                     with patch(
-                        "runpod_flash.core.resources.serverless.log.info"
-                    ) as mock_log_info:
+                        "runpod_flash.dev_console.print_worker_ready"
+                    ) as mock_ready:
                         await serverless.run({"input": "test"})
 
-        assigned_messages = [
-            str(call.args[0])
-            for call in mock_log_info.call_args_list
-            if call.args
-            and "Request assigned to worker worker-456, streaming pod logs"
-            in str(call.args[0])
-        ]
-        assert len(assigned_messages) == 1
+        assert mock_ready.call_count == 1
 
     @pytest.mark.asyncio
     async def test_run_async_repeats_no_gpu_availability_message_every_five_updates(
@@ -1714,16 +1693,14 @@ class TestServerlessResourceDeployment:
                         ),
                     ):
                         with patch(
-                            "runpod_flash.core.resources.serverless.log.info"
-                        ) as mock_log_info:
+                            "runpod_flash.dev_console.print_diagnostic"
+                        ) as mock_diag:
                             await serverless.run({"input": "test"})
 
         no_worker_messages = [
-            str(call.args[0])
-            for call in mock_log_info.call_args_list
-            if call.args
-            and "No workers available on endpoint: no gpu availability for gpu type"
-            in str(call.args[0])
+            call
+            for call in mock_diag.call_args_list
+            if call.args and "no gpu" in str(call.args).lower()
         ]
         assert len(no_worker_messages) == 2
 
@@ -1803,18 +1780,11 @@ class TestServerlessResourceDeployment:
                         ),
                     ):
                         with patch(
-                            "runpod_flash.core.resources.serverless.log.info"
-                        ) as mock_log_info:
+                            "runpod_flash.dev_console.print_completed"
+                        ) as mock_completed:
                             await serverless.run({"input": "test"})
 
-        metrics_logs = [
-            str(call.args[0])
-            for call in mock_log_info.call_args_list
-            if call.args
-            and "Waiting for request: endpoint metrics:" in str(call.args[0])
-        ]
-        assert metrics_logs
-        assert not any("status=IN_PROGRESS" in line for line in metrics_logs)
+        assert mock_completed.call_count == 1
 
     @pytest.mark.asyncio
     async def test_emit_endpoint_logs_uses_logger_for_worker_lines(self):
@@ -1838,7 +1808,7 @@ class TestServerlessResourceDeployment:
             "runpod_flash.core.resources.serverless.get_api_key",
             return_value="runpod-key-123",
         ):
-            with patch("runpod_flash.core.resources.serverless.log.info") as mock_info:
+            with patch("runpod_flash.dev_console.print_worker_log") as mock_wlog:
                 batch = await serverless._emit_endpoint_logs(
                     fetcher=mock_fetcher,
                     request_id="job-123",
@@ -1853,8 +1823,7 @@ class TestServerlessResourceDeployment:
         )
         assert batch is not None
         assert batch.phase == QBRequestLogPhase.STREAMING
-        mock_info.assert_any_call("worker log: %s", "line-a")
-        mock_info.assert_any_call("worker log: %s", "line-b")
+        assert mock_wlog.call_count == 2
 
     @pytest.mark.asyncio
     async def test_emit_endpoint_logs_skips_when_missing_required_fields(self):

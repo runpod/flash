@@ -34,7 +34,14 @@ from runpod_flash.protos.remote_execution import FunctionResponse
 
 @pytest.mark.serial
 @pytest.mark.asyncio
-@patch.dict(os.environ, {"RUNPOD_ENDPOINT_ID": "", "RUNPOD_POD_ID": ""})
+@patch.dict(
+    os.environ,
+    {
+        "RUNPOD_ENDPOINT_ID": "",
+        "RUNPOD_POD_ID": "",
+        "FLASH_IS_LIVE_PROVISIONING": "true",
+    },
+)
 class TestRemoteConcurrency:
     """Test concurrency behavior of @remote decorated functions."""
 

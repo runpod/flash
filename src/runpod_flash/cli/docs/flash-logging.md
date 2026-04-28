@@ -8,12 +8,12 @@ Flash automatically logs all CLI operations to local files during development. T
 
 ### How it works
 
-File-based logging is enabled by default in local development mode ([flash run](./flash-run.md)) and automatically disabled in deployed containers ([flash deploy](./flash-deploy.md)).
+File-based logging is enabled by default in local development mode ([flash dev](./flash-run.md)) and automatically disabled in deployed containers ([flash deploy](./flash-deploy.md)).
 
 When you run an `Endpoint` function, Flash logs the activity to a file:
 
 ```
-flash run
+flash dev
     │
     ├── Console output (what you see)
     └── .flash/logs/activity.log (persistent record)
@@ -101,7 +101,7 @@ Custom directory for log files.
 ```bash
 # Use custom log directory
 export FLASH_LOG_DIR=/var/log/flash
-flash run
+flash dev
 ```
 
 **Note:** The directory will be created automatically if it doesn't exist.
@@ -124,7 +124,7 @@ Keep only recent logs during active development:
 
 ```bash
 export FLASH_LOG_RETENTION_DAYS=3
-flash run
+flash dev
 ```
 
 ### Custom Log Directory

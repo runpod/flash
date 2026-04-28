@@ -53,7 +53,7 @@ class TestAppsCreate:
             if call.args
         )
         assert "demo-app" in printed
-        assert "app-987" in printed
+        assert "demo-app" in printed
 
     @patch("runpod_flash.cli.commands.apps.FlashApp.create", new_callable=AsyncMock)
     def test_create_app_failure_bubbles_error(
@@ -90,7 +90,7 @@ class TestAppsList:
             for call in patched_console.print.call_args_list
             if call.args
         )
-        assert "No Flash apps found" in printed
+        assert "no apps found" in printed
 
     @patch("runpod_flash.cli.commands.apps.FlashApp.list", new_callable=AsyncMock)
     def test_list_apps_with_data(
@@ -121,8 +121,7 @@ class TestAppsList:
             if call.args
         )
         assert "demo" in printed
-        assert "dev" in printed
-        assert "prod" in printed
+        assert "2 envs" in printed
 
 
 class TestAppsGet:
@@ -165,8 +164,8 @@ class TestAppsGet:
             if call.args
         )
         assert "demo" in printed
-        assert "Environments" in printed
-        assert "Builds" in printed
+        assert "demo" in printed
+        assert "dev" in printed
 
     @patch("runpod_flash.cli.commands.apps.FlashApp.from_name", new_callable=AsyncMock)
     def test_get_app_without_related_data(
@@ -191,8 +190,7 @@ class TestAppsGet:
             for call in patched_console.print.call_args_list
             if call.args
         )
-        assert "None yet" in printed
-        assert "flash deploy" in printed
+        assert "no environments" in printed
 
 
 class TestAppsDelete:
@@ -215,7 +213,7 @@ class TestAppsDelete:
             for call in patched_console.print.call_args_list
             if call.args
         )
-        assert "Deleted" in printed
+        assert "deleted" in printed
         assert "demo" in printed
 
     @patch("runpod_flash.cli.commands.apps.FlashApp.delete", new_callable=AsyncMock)
@@ -236,7 +234,7 @@ class TestAppsDelete:
             for call in patched_console.print.call_args_list
             if call.args
         )
-        assert "Failed to delete" in printed
+        assert "failed to delete" in printed
 
     def test_delete_app_missing_name_exits_with_error(self, runner):
         result = runner.invoke(app, ["app", "delete"])

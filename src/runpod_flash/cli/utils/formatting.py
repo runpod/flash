@@ -4,17 +4,17 @@ from datetime import datetime
 
 from rich.console import Console
 
-STATE_STYLE = {"HEALTHY": "green", "BUILDING": "cyan", "ERROR": "red"}
+STATE_STYLE = {"HEALTHY": "green", "BUILDING": "yellow", "ERROR": "red"}
 
 
 def print_error(console: Console, message: str) -> None:
     """Print a standardized error message."""
-    console.print(f"[red]Error:[/red] {message.lstrip()}")
+    console.print(f"[red]\u2717[/red] {message.lstrip()}")
 
 
 def print_warning(console: Console, message: str) -> None:
     """Print a standardized warning message."""
-    console.print(f"[yellow]Warning:[/yellow] {message.lstrip()}")
+    console.print(f"[yellow]![/yellow] {message.lstrip()}")
 
 
 def state_dot(state: str) -> str:

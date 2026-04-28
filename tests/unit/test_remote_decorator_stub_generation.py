@@ -21,12 +21,12 @@ class TestRemoteDecoratorStubBehavior:
         )
 
     @pytest.mark.asyncio
-    @patch.dict(os.environ, {}, clear=True)
+    @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "true"}, clear=True)
     @patch("runpod_flash.client.ResourceManager")
     async def test_local_dev_invokes_resource_manager(
         self, mock_rm_class, sample_resource
     ):
-        """In local dev, calling decorated function uses ResourceManager."""
+        """In flash dev, calling decorated function uses ResourceManager."""
         from runpod_flash.client import remote
 
         # Mock ResourceManager and its methods
@@ -85,50 +85,32 @@ class TestRemoteDecoratorStubBehavior:
         assert result == 42
 
     @pytest.mark.asyncio
-    @patch.dict(os.environ, {"RUNPOD_ENDPOINT_ID": "ep_123"})
-    @patch("runpod_flash.runtime._flash_resource_config.is_local_function")
-    @patch("runpod_flash.client.ResourceManager")
+    @patch.dict(
+        os.environ,
+        {"RUNPOD_ENDPOINT_ID": "ep_123", "FLASH_RESOURCE_NAME": "other-resource"},
+    )
+    @patch(
+        "runpod_flash.flash_context.get_flash_context", return_value=("myapp", "prod")
+    )
+    @patch("runpod_flash.flash_sentinel.sentinel_qb_execute", new_callable=AsyncMock)
     async def test_deployed_remote_function_uses_stub(
-        self, mock_rm_class, mock_is_local, sample_resource
+        self, mock_sentinel, mock_ctx, sample_resource
     ):
-        """In deployed env, remote functions create stubs."""
+        """In deployed env, remote functions use sentinel."""
         from runpod_flash.client import remote
 
-        # Configure as remote function (not local)
-        mock_is_local.return_value = False
+        mock_sentinel.return_value = {"result": 84}
 
-        # Mock ResourceManager
-        mock_rm_instance = AsyncMock()
-        mock_remote_resource = MagicMock()
-        mock_rm_instance.get_or_deploy_resource = AsyncMock(
-            return_value=mock_remote_resource
-        )
-        mock_rm_class.return_value = mock_rm_instance
+        @remote(sample_resource)
+        async def remote_compute(x: int) -> dict:
+            return {"result": x * 2}
 
-        with patch("runpod_flash.client.stub_resource") as mock_stub:
-            mock_stub_callable = AsyncMock(return_value={"result": 84})
-            mock_stub.return_value = mock_stub_callable
+        assert callable(remote_compute)
+        assert hasattr(remote_compute, "__remote_config__")
 
-            @remote(sample_resource)
-            async def remote_compute(x: int) -> dict:
-                # This implementation should NOT be called
-                return {"result": x * 2}
-
-            # Function should be wrapped for remote execution
-            assert callable(remote_compute)
-            assert hasattr(remote_compute, "__remote_config__")
-
-            # Actually call the function to verify stub is used
-            result = await remote_compute(42)
-            assert result == {"result": 84}  # Stub result, not original implementation
-            # stub is called with (func, dependencies, system_dependencies, accelerate_downloads, *args)
-            call_args = mock_stub_callable.call_args[0]
-            assert callable(call_args[0])  # function
-            assert call_args[1] is None  # dependencies
-            assert call_args[2] is None  # system_dependencies
-            assert call_args[3] is True  # accelerate_downloads
-            assert call_args[4] == 42  # actual argument
-            # Verify original implementation was NOT called (result would be 84, not 42*2)
+        result = await remote_compute(42)
+        assert result == {"result": 84}
+        mock_sentinel.assert_awaited_once()
 
     def test_config_stored_in_function(self, sample_resource):
         """Decorator stores config in __remote_config__ attribute."""

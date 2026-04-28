@@ -12,6 +12,8 @@ def create_resource_from_manifest(
     resource_data: Dict[str, Any],
     flash_environment_id: Optional[str] = None,
     python_version: Optional[str] = None,
+    flash_app_name: Optional[str] = None,
+    flash_env_name: Optional[str] = None,
 ) -> Any:
     """Create a deployable resource configuration from a manifest entry.
 
@@ -19,6 +21,9 @@ def create_resource_from_manifest(
         resource_name: Name of the resource
         resource_data: Resource configuration from manifest
         flash_environment_id: Optional flash environment ID to attach
+        python_version: Optional python version override
+        flash_app_name: Flash app name for sentinel resolution
+        flash_env_name: Flash environment name for sentinel resolution
 
     Returns:
         Configured resource instance ready for deployment
@@ -73,6 +78,12 @@ def create_resource_from_manifest(
     manifest_env = resource_data.get("env")
     env = dict(manifest_env or {})
     env["FLASH_RESOURCE_NAME"] = resource_name
+
+    # flash sentinel resolution env vars
+    if flash_app_name:
+        env["FLASH_APP"] = flash_app_name
+    if flash_env_name:
+        env["FLASH_ENV"] = flash_env_name
 
     # Load-balanced endpoint environment variables
     if resource_data.get("is_load_balanced"):

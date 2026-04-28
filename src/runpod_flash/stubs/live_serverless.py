@@ -135,8 +135,11 @@ class LiveServerlessStub(RemoteExecutorStub):
             raise ValueError("Invalid response from server")
 
         if response.stdout:
+            from runpod_flash.dev_console import print_worker_log
+
+            name = getattr(self.server, "name", "worker")
             for line in response.stdout.splitlines():
-                print(line)
+                print_worker_log(name, line)
 
         if response.success:
             if response.result is not None:
@@ -163,7 +166,7 @@ class LiveServerlessStub(RemoteExecutorStub):
                 return FunctionResponse(
                     success=False,
                     error=job.error,
-                    stdout=job.output.get("stdout", ""),
+                    stdout=job.output.get("stdout", "") if job.output else None,
                 )
 
             return FunctionResponse(**job.output)

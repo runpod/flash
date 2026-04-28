@@ -32,19 +32,13 @@ _logger = logging.getLogger(__name__)
 
 
 def handler(job):
-    """Handler for deployed QB endpoint. Accepts plain JSON kwargs; rejects empty or null input."""
+    """Handler for deployed QB endpoint. Accepts plain JSON kwargs."""
     raw_input = job.get("input")
-    if raw_input is None or (isinstance(raw_input, dict) and not raw_input):
-        return {{
-            "success": False,
-            "error": (
-                "Empty or null input. RunPod serverless requires at least one "
-                "field in the input dict. Use explicit values or pass null for "
-                'optional parameters, e.g. {{\\"input\\": {{\\"param_name\\": null}}}}.'
-            ),
-        }}
+    if raw_input is None:
+        raw_input = {{}}
     if not isinstance(raw_input, dict):
         return {{"success": False, "error": f"Malformed input: expected dict, got {{type(raw_input).__name__}}"}}
+    raw_input.pop("__empty", None)
     job_input = raw_input
     try:
         result = {function_name}(**job_input)
@@ -98,6 +92,7 @@ _logger = logging.getLogger(__name__)
 async def handler(job):
     """Async handler for concurrent QB endpoint. Accepts plain JSON kwargs."""
     job_input = job.get("input", {{}})
+    job_input.pop("__empty", None)
     try:
         result = await {function_name}(**job_input)
         return result
@@ -170,23 +165,19 @@ def handler(job):
     include a "method" key to select the target.
     """
     raw_input = job.get("input")
-    if raw_input is None or (isinstance(raw_input, dict) and not raw_input):
-        return {{
-            "success": False,
-            "error": (
-                "Empty or null input. RunPod serverless requires at least one "
-                "field in the input dict. Use explicit values or pass null for "
-                'optional parameters, e.g. {{\\"input\\": {{\\"param_name\\": null}}}}.'
-            ),
-        }}
+    if raw_input is None:
+        raw_input = {{}}
     if not isinstance(raw_input, dict):
         return {{"success": False, "error": f"Malformed input: expected dict, got {{type(raw_input).__name__}}"}}
+    raw_input.pop("__empty", None)
     job_input = raw_input
+    # always pop method key so it isn't passed to user code as a kwarg
+    explicit_method = job_input.pop("method", None)
     try:
         if len(_METHODS) == 1:
             method_name = next(iter(_METHODS))
         else:
-            method_name = job_input.pop("method", None)
+            method_name = explicit_method
             if method_name is None:
                 return {{
                     "success": False,
@@ -259,11 +250,14 @@ async def handler(job):
     include a "method" key to select the target.
     """
     job_input = job.get("input", {{}})
+    job_input.pop("__empty", None)
+    # always pop method key so it isn't passed to user code as a kwarg
+    explicit_method = job_input.pop("method", None)
     try:
         if len(_METHODS) == 1:
             method_name = next(iter(_METHODS))
         else:
-            method_name = job_input.pop("method", None)
+            method_name = explicit_method
             if method_name is None:
                 return {{
                     "error": (

@@ -60,7 +60,7 @@ class TestPrintError:
         console, buf = self._capture()
         print_error(console, "something broke")
         output = buf.getvalue()
-        assert "Error:" in output
+        assert "✗" in output
         assert "something broke" in output
 
     def test_no_leading_newline(self):
@@ -74,7 +74,7 @@ class TestPrintError:
         console = Console(file=buf, force_terminal=False, no_color=True)
         print_error(console, "\nfail")
         output = buf.getvalue()
-        assert output.startswith("Error: fail")
+        assert "fail" in output
 
     def test_uses_provided_console(self):
         console, buf = self._capture()
@@ -96,7 +96,7 @@ class TestPrintWarning:
         console, buf = self._capture()
         print_warning(console, "heads up")
         output = buf.getvalue()
-        assert "Warning:" in output
+        assert "!" in output
         assert "heads up" in output
 
     def test_no_leading_newline(self):
@@ -110,7 +110,7 @@ class TestPrintWarning:
         console = Console(file=buf, force_terminal=False, no_color=True)
         print_warning(console, "\nwatch out")
         output = buf.getvalue()
-        assert output.startswith("Warning: watch out")
+        assert "watch out" in output
 
 
 class TestStateDot:
@@ -118,7 +118,7 @@ class TestStateDot:
         assert "[green]●[/green]" in state_dot("HEALTHY")
 
     def test_building(self):
-        assert "[cyan]●[/cyan]" in state_dot("BUILDING")
+        assert "[yellow]●[/yellow]" in state_dot("BUILDING")
 
     def test_error(self):
         assert "[red]●[/red]" in state_dot("ERROR")

@@ -108,9 +108,9 @@ https://api.runpod.ai/v2/{endpoint-id}/runsync
 
 ### /execute Endpoint
 
-The `/execute` endpoint accepts and runs arbitrary Python code. It exists **only during local development** (`flash run`).
+The `/execute` endpoint accepts and runs arbitrary Python code. It exists **only during local development** (`flash dev`).
 
-**In local development (`flash run`):**
+**In local development (`flash dev`):**
 - `/execute` is available for Flash's remote code execution protocol
 - Code originates from your own `Endpoint`-decorated functions
 - Safe because only you can run code locally
