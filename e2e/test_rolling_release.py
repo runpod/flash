@@ -56,7 +56,7 @@ async def echo(msg: str = "") -> dict:
 def _deploy(code: str, name: str, cwd: Path, env: dict) -> subprocess.CompletedProcess:
     (cwd / "worker.py").write_text(code)
     return subprocess.run(
-        ["uv", "run", "flash", "deploy"],
+        ["uv", "run", "--no-project", "flash", "deploy"],
         cwd=cwd,
         env=env,
         capture_output=True,
@@ -68,7 +68,7 @@ def _deploy(code: str, name: str, cwd: Path, env: dict) -> subprocess.CompletedP
 def _undeploy(name: str, cwd: Path, env: dict) -> None:
     try:
         subprocess.run(
-            ["uv", "run", "flash", "undeploy", name, "--force"],
+            ["uv", "run", "--no-project", "flash", "undeploy", name, "--force"],
             cwd=cwd,
             env=env,
             capture_output=True,
