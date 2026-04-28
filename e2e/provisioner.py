@@ -98,9 +98,15 @@ def provision(
     env = os.environ.copy()
     env["RUNPOD_API_KEY"] = api_key  # explicit — does not depend on autouse fixture
 
+    uv_cmd = ["uv", "run", "--no-project"]
+    if extra_deps:
+        for dep in extra_deps:
+            uv_cmd.extend(["--with", dep])
+    uv_cmd.extend(["flash", "deploy"])
+
     try:
         result = subprocess.run(
-            ["uv", "run", "--no-project", "flash", "deploy"],
+            uv_cmd,
             cwd=tmp_dir,
             env=env,
             capture_output=True,

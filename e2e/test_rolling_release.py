@@ -84,8 +84,8 @@ def _deploy_env(api_key: str) -> dict:
     env["RUNPOD_API_KEY"] = api_key
     env["NO_COLOR"] = "1"  # strip ANSI from rich output so stdout is plain text
     env.setdefault(
-        "LOG_LEVEL", "INFO"
-    )  # ensure log.info("Updating endpoint") appears in captured output
+        "LOG_LEVEL", "DEBUG"
+    )  # log.debug("updating endpoint...") in serverless.py — needs DEBUG level
     return env
 
 
