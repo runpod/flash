@@ -8,11 +8,9 @@ import pytest
 from runpod_flash.core.resources.constants import (
     CPU_PYTHON_VERSIONS,
     DEFAULT_PYTHON_VERSION,
-    GPU_BASE_IMAGE_PYTHON_VERSION,
     GPU_PYTHON_VERSIONS,
     SUPPORTED_PYTHON_VERSIONS,
     get_image_name,
-    local_python_version,
     validate_python_version,
 )
 
@@ -29,9 +27,6 @@ class TestSupportedPythonVersions:
 
     def test_default_python_version_is_3_12(self):
         assert DEFAULT_PYTHON_VERSION == "3.12"
-
-    def test_gpu_base_image_python_version(self):
-        assert GPU_BASE_IMAGE_PYTHON_VERSION == "3.12"
 
 
 class TestGetImageName:
@@ -111,14 +106,6 @@ class TestGetImageName:
         """env var override works even for versions not in GPU_PYTHON_VERSIONS."""
         with patch.dict(os.environ, {"FLASH_GPU_IMAGE": "custom/gpu:mine"}):
             assert get_image_name("gpu", "3.8") == "custom/gpu:mine"
-
-
-class TestLocalPythonVersion:
-    def test_returns_3_12(self):
-        assert local_python_version() == "3.12"
-
-    def test_returns_string_type(self):
-        assert isinstance(local_python_version(), str)
 
 
 class TestValidatePythonVersion:

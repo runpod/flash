@@ -4,7 +4,7 @@ Unit tests for LiveServerless and CpuLiveServerless classes.
 
 import pytest
 from runpod_flash.core.resources.constants import (
-    GPU_BASE_IMAGE_PYTHON_VERSION,
+    DEFAULT_PYTHON_VERSION,
 )
 from runpod_flash.core.resources.cpu import CpuInstanceType
 from runpod_flash.core.resources.live_serverless import (
@@ -223,7 +223,7 @@ class TestLiveServerlessPythonVersion:
 
     def test_gpu_default_image_uses_gpu_base_python(self):
         ls = LiveServerless(name="test")
-        assert f"py{GPU_BASE_IMAGE_PYTHON_VERSION}" in ls.imageName
+        assert f"py{DEFAULT_PYTHON_VERSION}" in ls.imageName
 
     @pytest.mark.parametrize("version", ["3.10", "3.11", "3.12"])
     def test_gpu_explicit_supported_versions(self, version):
@@ -250,7 +250,7 @@ class TestLiveLoadBalancerPythonVersion:
 
     def test_lb_default_image_uses_gpu_base_python(self):
         lb = LiveLoadBalancer(name="test")
-        assert f"py{GPU_BASE_IMAGE_PYTHON_VERSION}" in lb.imageName
+        assert f"py{DEFAULT_PYTHON_VERSION}" in lb.imageName
         assert "runpod/flash-lb:" in lb.imageName
 
     @pytest.mark.parametrize("version", ["3.10", "3.11", "3.12"])

@@ -50,11 +50,6 @@ class SensitiveDataFilter(logging.Filter):
         "authorization",
     }
 
-    # Pattern for generic tokens: 32+ char alphanumeric/underscore/hyphen/dot strings
-    # Excludes pure hex strings (commit SHAs, hashes) which are less likely to be tokens
-    # Using negative lookahead to exclude pure hex: (?![0-9a-fA-F]+$)
-    TOKEN_PATTERN = re.compile(r"(?![0-9a-fA-F]+$)\b[A-Za-z0-9_.-]{32,}\b")
-
     # Pattern for common API key formats - capture prefix, separator, and quotes for proper redaction
     API_KEY_PATTERN = re.compile(
         r"((?:api[_-]?key|apikey|runpod[_-]?api[_-]?key)\s*[:=]\s*['\"]?)([A-Za-z0-9_-]+)(['\"]?)",
@@ -135,10 +130,6 @@ class SensitiveDataFilter(logging.Filter):
 
         # Redact common prefixed API keys (sk-, key_, api_)
         text = self.PREFIXED_KEY_PATTERN.sub(self._redact_token, text)
-
-        # Generic token pattern disabled - causes false positives with Job IDs, Template IDs, etc.
-        # Specific patterns above catch actual sensitive tokens.
-        # text = self.TOKEN_PATTERN.sub(self._redact_token, text)
 
         # Redact common password/secret patterns
         # Match field names with : or = separators and redact the value, preserving separator

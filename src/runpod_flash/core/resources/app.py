@@ -5,8 +5,7 @@ from typing import Dict, Optional, Union, Tuple, TYPE_CHECKING, Any, List
 import logging
 
 from ..api.runpod import RunpodGraphQLClient
-from ..resources.resource_manager import ResourceManager
-from ..resources.serverless import ServerlessEndpoint, NetworkVolume
+
 from .constants import (
     TARBALL_CONTENT_TYPE,
     MAX_TARBALL_SIZE_MB,
@@ -38,12 +37,6 @@ class FlashAppNotFoundError(FlashAppError):
 
 class FlashEnvironmentNotFoundError(FlashAppError):
     """Raised when a Flash environment cannot be found."""
-
-    pass
-
-
-class FlashBuildNotFoundError(FlashAppError):
-    """Raised when a Flash build cannot be found."""
 
     pass
 
@@ -332,21 +325,6 @@ class FlashApp:
             self._hydrated = True
             return
 
-    async def _get_id_by_name(self) -> str:
-        """Get the app ID from the server by name.
-
-        Returns:
-            The app ID string
-
-        Raises:
-            FlashAppNotFoundError: If the app is not found on the server
-        """
-        async with RunpodGraphQLClient() as client:
-            result = await client.get_flash_app_by_name(self.name)
-        if not result.get("id"):
-            raise FlashAppNotFoundError(f"Flash app '{self.name}' not found")
-        return result["id"]
-
     async def create_environment(self, environment_name: str) -> Dict[str, Any]:
         """Create an environment within an app.
 
@@ -441,32 +419,6 @@ class FlashApp:
                 {"flashEnvironmentId": environment_id, "flashBuildId": build_id}
             )
             return result
-
-    async def download_tarball(self, environment_id: str, dest_file: str) -> None:
-        """Download the active build tarball from an environment.
-
-        Args:
-            environment_id: ID of the environment to download from
-            dest_file: Path where the tarball should be saved
-
-        Raises:
-            RuntimeError: If app is not hydrated (no ID available)
-            ValueError: If environment has no active artifact
-            requests.HTTPError: If download fails
-        """
-        from runpod_flash.core.utils.http import get_authenticated_requests_session
-
-        await self._hydrate()
-        result = await self._get_active_artifact(environment_id)
-        url = result["downloadUrl"]
-
-        with open(dest_file, "wb") as stream:
-            with get_authenticated_requests_session() as session:
-                with session.get(url, stream=True) as resp:
-                    resp.raise_for_status()
-                    for chunk in resp.iter_content():
-                        if chunk:
-                            stream.write(chunk)
 
     async def _finalize_upload_build(
         self, object_key: str, manifest: Dict[str, Any]
@@ -635,45 +587,6 @@ class FlashApp:
             )
             return result["flashEnvironmentByName"]
 
-    async def deploy_resources(self, environment_name: str) -> None:
-        """Deploy all registered resources to an environment.
-
-        This method iterates through all resources registered with the app
-        (via @remote decorator with resource_config) and deploys them,
-        then registers them to the specified environment.
-
-        Args:
-            environment_name: Name of the environment to deploy resources to
-
-        Raises:
-            RuntimeError: If app is not hydrated (no ID available)
-            ValueError: If environment is not found
-        """
-        await self._hydrate()
-        resource_manager = ResourceManager()
-        environment = await self._get_environment_by_name(environment_name)
-
-        # NOTE(jhcipar) it's pretty fragile to have client managed state like this
-        # we should enforce this on the server side eventually and either debounce or not allow subsequent deploys
-        await self._set_environment_state(environment["id"], "DEPLOYING")
-
-        for resource_id, resource in self.resources.items():
-            deployed_resource = await resource_manager.get_or_deploy_resource(resource)
-            if isinstance(deployed_resource, ServerlessEndpoint):
-                if deployed_resource.id:
-                    await self._register_endpoint_to_environment(
-                        environment["id"], deployed_resource.id
-                    )
-            if isinstance(deployed_resource, NetworkVolume):
-                if deployed_resource.id:
-                    await self._register_network_volume_to_environment(
-                        environment["id"], deployed_resource.id
-                    )
-
-        # NOTE(jhcipar) we should healthcheck endpoints after provisioning them, for right now we just
-        # assume this is healthy
-        await self._set_environment_state(environment["id"], "HEALTHY")
-
     @classmethod
     async def from_name(cls, app_name: str) -> "FlashApp":
         async with RunpodGraphQLClient() as client:
@@ -752,22 +665,6 @@ class FlashApp:
         async with RunpodGraphQLClient() as client:
             result = await client.delete_flash_environment(environment_id)
         return result.get("success", False)
-
-    async def get_build(self, build_id: str) -> Dict[str, Any]:
-        """Get a build by ID.
-
-        Args:
-            build_id: ID of the build to retrieve
-
-        Returns:
-            Dictionary containing build data
-
-        Raises:
-            RuntimeError: If app is not hydrated (no ID available)
-        """
-        await self._hydrate()
-        async with RunpodGraphQLClient() as client:
-            return await client.get_flash_build(build_id)
 
     async def list_builds(self) -> List[Dict[str, Any]]:
         """List all builds for this app.

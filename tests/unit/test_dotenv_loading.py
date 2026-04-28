@@ -188,8 +188,6 @@ CUSTOM_TEST_VAR=file_value
         # Set up test environment variables
         test_env_vars = {
             "RUNPOD_API_KEY": "test_key_12345",
-            "FLASH_GPU_IMAGE": "test/gpu:latest",
-            "FLASH_CPU_IMAGE": "test/cpu:latest",
             "LOG_LEVEL": "WARNING",
         }
 
@@ -221,14 +219,6 @@ CUSTOM_TEST_VAR=file_value
 
             # Import specific modules that use environment variables
             from runpod_flash.core.api.runpod import RunpodGraphQLClient
-            from runpod_flash.core.resources.constants import (
-                FLASH_GPU_IMAGE,
-                FLASH_CPU_IMAGE,
-            )
-
-            # Verify that the environment variables are accessible in imported modules
-            assert FLASH_GPU_IMAGE == "test/gpu:latest"
-            assert FLASH_CPU_IMAGE == "test/cpu:latest"
 
             # Test that RunpodGraphQLClient can access the API key
             try:

@@ -1,5 +1,5 @@
 """Tests for build.py helper functions: _bundle_runpod_flash,
-_remove_runpod_flash_from_requirements, _extract_runpod_flash_dependencies.
+_remove_runpod_flash_from_requirements.
 
 These functions are always mocked in existing build tests; these tests
 exercise them directly.
@@ -7,7 +7,6 @@ exercise them directly.
 
 from runpod_flash.cli.commands.build import (
     _bundle_runpod_flash,
-    _extract_runpod_flash_dependencies,
     _find_runpod_flash,
     _remove_runpod_flash_from_requirements,
 )
@@ -159,60 +158,6 @@ class TestRemoveRunpodFlashFromRequirements:
         assert len(lines) == 2
         assert any("runpod" in line and "flash" not in line for line in lines)
         assert any("aiohttp" in line for line in lines)
-
-
-class TestExtractRunpodFlashDependencies:
-    """Direct tests for _extract_runpod_flash_dependencies."""
-
-    def test_extracts_dependencies_from_pyproject(self, tmp_path):
-        """Extracts [project.dependencies] from pyproject.toml."""
-        # Create flash_pkg_dir at src/runpod_flash
-        pkg_dir = tmp_path / "src" / "runpod_flash"
-        pkg_dir.mkdir(parents=True)
-
-        # pyproject.toml is at project root (2 levels up from pkg_dir)
-        pyproject = tmp_path / "pyproject.toml"
-        pyproject.write_text(
-            '[project]\nname = "runpod-flash"\n'
-            'dependencies = ["cloudpickle>=3.0", "pydantic>=2.0", "rich>=14.0"]\n'
-        )
-
-        deps = _extract_runpod_flash_dependencies(pkg_dir)
-
-        assert len(deps) == 3
-        assert "cloudpickle>=3.0" in deps
-        assert "pydantic>=2.0" in deps
-        assert "rich>=14.0" in deps
-
-    def test_returns_empty_when_no_pyproject(self, tmp_path):
-        """Returns empty list when pyproject.toml doesn't exist."""
-        pkg_dir = tmp_path / "src" / "runpod_flash"
-        pkg_dir.mkdir(parents=True)
-
-        deps = _extract_runpod_flash_dependencies(pkg_dir)
-        assert deps == []
-
-    def test_returns_empty_on_parse_error(self, tmp_path):
-        """Returns empty list when pyproject.toml is invalid."""
-        pkg_dir = tmp_path / "src" / "runpod_flash"
-        pkg_dir.mkdir(parents=True)
-
-        pyproject = tmp_path / "pyproject.toml"
-        pyproject.write_text("this is not valid toml {{{{")
-
-        deps = _extract_runpod_flash_dependencies(pkg_dir)
-        assert deps == []
-
-    def test_returns_empty_when_no_dependencies_key(self, tmp_path):
-        """Returns empty list when [project.dependencies] is missing."""
-        pkg_dir = tmp_path / "src" / "runpod_flash"
-        pkg_dir.mkdir(parents=True)
-
-        pyproject = tmp_path / "pyproject.toml"
-        pyproject.write_text('[project]\nname = "runpod-flash"\n')
-
-        deps = _extract_runpod_flash_dependencies(pkg_dir)
-        assert deps == []
 
 
 class TestFindRunpodFlashEdgeCases:

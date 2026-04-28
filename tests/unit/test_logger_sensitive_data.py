@@ -150,7 +150,7 @@ class TestSensitiveDataFilter:
         assert long_token not in record.msg
 
     def test_short_token_not_redacted(self):
-        """Verify short tokens (<32 chars) are not redacted by TOKEN_PATTERN."""
+        """Verify short tokens (<32 chars) are not redacted."""
         filter_instance = SensitiveDataFilter()
 
         # Short string won't match the 32+ pattern, so it's not redacted
@@ -166,7 +166,7 @@ class TestSensitiveDataFilter:
         )
 
         filter_instance.filter(record)
-        # Short tokens aren't matched by TOKEN_PATTERN (requires 32+ chars)
+        # short tokens are not redacted by the sensitive data filter
         assert short_token in record.msg  # Should not be redacted
 
     def test_multiple_sensitive_patterns(self):
