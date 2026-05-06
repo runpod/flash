@@ -1,8 +1,14 @@
 """Unit tests for credential storage and retrieval."""
 
 import os
+import sys
 from pathlib import Path
 from unittest.mock import patch
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib
 
 from runpod_flash.core.credentials import (
     get_api_key,
@@ -69,3 +75,56 @@ class TestSaveApiKey:
         save_api_key("secret")
         mode = oct(isolate_credentials_file.stat().st_mode & 0o777)
         assert mode == "0o600"
+
+    def test_preserves_runpodctl_top_level_keys(self, isolate_credentials_file):
+        isolate_credentials_file.parent.mkdir(parents=True, exist_ok=True)
+        isolate_credentials_file.write_text(
+            "apikey = 'rpa_runpodctl_key'\n"
+            "apiurl = 'https://api.runpod.io/graphql'\n"
+            "\n"
+            "[default]\n"
+            'api_key = "old-flash-key"\n'
+        )
+        save_api_key("new-flash-key")
+        text = isolate_credentials_file.read_text()
+        assert "apikey = 'rpa_runpodctl_key'" in text
+        assert "apiurl = 'https://api.runpod.io/graphql'" in text
+        parsed = tomllib.loads(text)
+        assert parsed["apikey"] == "rpa_runpodctl_key"
+        assert parsed["apiurl"] == "https://api.runpod.io/graphql"
+        assert parsed["default"]["api_key"] == "new-flash-key"
+
+    def test_adds_default_section_when_missing(self, isolate_credentials_file):
+        isolate_credentials_file.parent.mkdir(parents=True, exist_ok=True)
+        isolate_credentials_file.write_text(
+            "apikey = 'rpa_runpodctl_key'\napiurl = 'https://api.runpod.io/graphql'\n"
+        )
+        save_api_key("flash-key")
+        text = isolate_credentials_file.read_text()
+        parsed = tomllib.loads(text)
+        assert parsed["apikey"] == "rpa_runpodctl_key"
+        assert parsed["apiurl"] == "https://api.runpod.io/graphql"
+        assert parsed["default"]["api_key"] == "flash-key"
+
+    def test_preserves_other_profile_sections(self, isolate_credentials_file):
+        isolate_credentials_file.parent.mkdir(parents=True, exist_ok=True)
+        isolate_credentials_file.write_text(
+            "[default]\n"
+            'api_key = "old"\n'
+            "\n"
+            "[staging]\n"
+            'api_key = "staging-key"\n'
+            'extra = "preserved"\n'
+        )
+        save_api_key("new-default")
+        parsed = tomllib.loads(isolate_credentials_file.read_text())
+        assert parsed["default"]["api_key"] == "new-default"
+        assert parsed["staging"]["api_key"] == "staging-key"
+        assert parsed["staging"]["extra"] == "preserved"
+
+    def test_creates_file_with_only_default_when_missing(
+        self, isolate_credentials_file
+    ):
+        save_api_key("first-key")
+        parsed = tomllib.loads(isolate_credentials_file.read_text())
+        assert parsed == {"default": {"api_key": "first-key"}}

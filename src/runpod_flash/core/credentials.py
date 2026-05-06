@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -15,10 +16,17 @@ import runpod.cli.groups.config.functions as _runpod_config
 
 from runpod.cli.groups.config.functions import (
     get_credentials,
-    set_credentials,
 )
 
 log = logging.getLogger(__name__)
+
+# runpodctl writes top-level `apikey`/`apiurl` keys into the same config.toml
+# that runpod-python uses for its `[default]` profile. We must preserve those
+# (and any other unrelated content) when updating flash's api_key, so flash
+# login does not clobber runpodctl's credentials.
+_DEFAULT_HEADER_RE = re.compile(r"^\s*\[default\]\s*$")
+_SECTION_HEADER_RE = re.compile(r"^\s*\[[^\]]+\]\s*$")
+_API_KEY_LINE_RE = re.compile(r"^\s*api_key\s*=")
 
 _OLD_XDG_PATH = Path.home() / ".config" / "runpod" / "credentials.toml"
 
@@ -50,7 +58,11 @@ def get_api_key() -> Optional[str]:
 
 
 def save_api_key(api_key: str) -> Path:
-    """Save API key to ~/.runpod/config.toml via runpod-python.
+    """Save API key into the [default] section of ~/.runpod/config.toml.
+
+    Updates only flash's `[default].api_key` value, preserving any other
+    content in the file (notably runpodctl's top-level `apikey`/`apiurl`
+    keys and other profile sections).
 
     Args:
         api_key: The API key to save.
@@ -59,12 +71,60 @@ def save_api_key(api_key: str) -> Path:
         Path to the credentials file.
     """
     path = get_credentials_path()
-    set_credentials(api_key, overwrite=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    existing = path.read_text(encoding="utf-8") if path.exists() else ""
+    new_content = _upsert_default_api_key(existing, api_key)
+    path.write_text(new_content, encoding="utf-8")
+
     try:
         os.chmod(path, 0o600)
     except OSError:
         pass
     return path
+
+
+def _toml_quote(value: str) -> str:
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
+def _upsert_default_api_key(content: str, api_key: str) -> str:
+    """Update `[default].api_key` in TOML text, leaving the rest intact."""
+    new_line = f"api_key = {_toml_quote(api_key)}"
+
+    if not content:
+        return f"[default]\n{new_line}\n"
+
+    lines = content.splitlines(keepends=True)
+
+    default_start: Optional[int] = None
+    default_end = len(lines)
+    for i, line in enumerate(lines):
+        if _DEFAULT_HEADER_RE.match(line):
+            default_start = i
+            for j in range(i + 1, len(lines)):
+                if _SECTION_HEADER_RE.match(lines[j]):
+                    default_end = j
+                    break
+            break
+
+    if default_start is None:
+        suffix = "" if content.endswith("\n") else "\n"
+        separator = "\n" if content.strip() else ""
+        return f"{content}{suffix}{separator}[default]\n{new_line}\n"
+
+    for i in range(default_start + 1, default_end):
+        if _API_KEY_LINE_RE.match(lines[i]):
+            ending = "\n" if lines[i].endswith("\n") else ""
+            lines[i] = new_line + ending
+            return "".join(lines)
+
+    insert_idx = default_end
+    while insert_idx > default_start + 1 and lines[insert_idx - 1].strip() == "":
+        insert_idx -= 1
+    lines.insert(insert_idx, new_line + "\n")
+    return "".join(lines)
 
 
 def check_and_migrate_legacy_credentials() -> None:
