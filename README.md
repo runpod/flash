@@ -26,7 +26,7 @@ Write `@Endpoint` decorated Python functions on your local machine. Deploy them 
 ```bash
 pip install runpod-flash
 # or
-uv add runpod-flash
+uv tool install runpod-flash
 ```
 
 Flash requires [Python 3.10+](https://www.python.org/downloads/) on macOS or Linux. Windows support is in development.
