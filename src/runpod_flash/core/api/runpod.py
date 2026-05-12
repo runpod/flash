@@ -991,20 +991,6 @@ class RunpodGraphQLClient:
         result = await self._execute_graphql(mutation)
         return result.get("createFlashAuthRequest", {})
 
-    async def get_flash_auth_request_status(self, request_id: str) -> Dict[str, Any]:
-        query = """
-        query flashAuthRequestStatus($flashAuthRequestId: String!) {
-            flashAuthRequestStatus(flashAuthRequestId: $flashAuthRequestId) {
-                id
-                status
-                expiresAt
-                apiKey
-            }
-        }
-        """
-        result = await self._execute_graphql(query, {"flashAuthRequestId": request_id})
-        return result.get("flashAuthRequestStatus", {})
-
     async def close(self):
         """Close the HTTP session."""
         if self.session and not self.session.closed:
