@@ -513,8 +513,7 @@ def test_extract_deployment_config_includes_network_volume():
 
         resource_py = project_dir / "resource.py"
         resource_py.write_text(
-            "from runpod_flash import NetworkVolume\n"
-            "from runpod_flash.core.resources.network_volume import DataCenter\n"
+            "from runpod_flash import NetworkVolume, DataCenter\n"
             "\n"
             "class gpu_config:\n"
             '    imageName = "test-image"\n'
@@ -631,8 +630,7 @@ def test_extract_deployment_config_includes_network_volumes():
 
         resource_py = project_dir / "resource.py"
         resource_py.write_text(
-            "from runpod_flash import NetworkVolume\n"
-            "from runpod_flash.core.resources.network_volume import DataCenter\n"
+            "from runpod_flash import NetworkVolume, DataCenter\n"
             "\n"
             "class gpu_config:\n"
             '    imageName = "test-image"\n'
@@ -645,7 +643,7 @@ def test_extract_deployment_config_includes_network_volumes():
             "        NetworkVolume(\n"
             '            name="vol-us",\n'
             "            size=200,\n"
-            "            dataCenterId=DataCenter.US_GA_2,\n"
+            "            dataCenterId=DataCenter.US_CA_2,\n"
             "        ),\n"
             "    ]\n"
         )
@@ -675,7 +673,7 @@ def test_extract_deployment_config_includes_network_volumes():
         assert config["networkVolumes"][0]["dataCenterId"] == "EU-RO-1"
         assert config["networkVolumes"][1]["name"] == "vol-us"
         assert config["networkVolumes"][1]["size"] == 200
-        assert config["networkVolumes"][1]["dataCenterId"] == "US-GA-2"
+        assert config["networkVolumes"][1]["dataCenterId"] == "US-CA-2"
         assert "networkVolume" not in config
 
 

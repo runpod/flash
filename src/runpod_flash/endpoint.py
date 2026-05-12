@@ -7,7 +7,8 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from .core.resources.constants import DEFAULT_WORKERS_MAX, DEFAULT_WORKERS_MIN
 from .core.resources.cpu import CpuInstanceType
 from .core.resources.gpu import GpuGroup, GpuType
-from .core.resources.network_volume import DataCenter, NetworkVolume
+from .core.resources.network_volume import NetworkVolume
+from .core.resources.datacenter import DataCenter
 from .core.resources.serverless import CudaVersion, ServerlessScalerType
 from .core.resources.template import PodTemplate
 
@@ -412,6 +413,11 @@ class Endpoint:
         # if no gpu or cpu specified, default to gpu any (unless pure client mode)
         if not self._is_cpu and self._gpu is None and not self.is_client:
             self._gpu = [GpuGroup.ANY]
+
+        # if not in pure client mode, make sure default datacenters are set
+        # not CPU though, that gets pinned to specific datacenters
+        if not self._is_cpu and not self.is_client and not self.datacenter:
+            self.datacenter = DataCenter.all()
 
         # lb routes registered via .get()/.post()/etc (decorator mode only)
         self._routes: List[Dict[str, Any]] = []
