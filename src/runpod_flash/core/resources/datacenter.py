@@ -5,7 +5,6 @@ class DataCenter(str, Enum):
     """Enum representing available RunPod data centers.
 
     NOTE: these are only datacenters with storage support, and s3 API support.
-    see https://linear.app/runpod/issue/AE-3084/prevent-no-primary-mount-point-error-when-workers-are-initializing
     """
 
     # north america
