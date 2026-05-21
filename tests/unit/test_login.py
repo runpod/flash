@@ -75,9 +75,7 @@ class TestLoginFlow:
                 "runpod_flash.cli.commands.login.RunpodGraphQLClient",
                 return_value=mock_client,
             ),
-            patch(
-                "runpod_flash.cli.commands.login.console"
-            ) as mock_console,
+            patch("runpod_flash.cli.commands.login.console") as mock_console,
         ):
             mock_console.input.return_value = "pasted-api-key"
             await _login(open_browser=False)
@@ -93,9 +91,7 @@ class TestLoginFlow:
                 "runpod_flash.cli.commands.login.RunpodGraphQLClient",
                 return_value=mock_client,
             ),
-            patch(
-                "runpod_flash.cli.commands.login.console"
-            ) as mock_console,
+            patch("runpod_flash.cli.commands.login.console") as mock_console,
         ):
             mock_console.input.return_value = "  "
             with pytest.raises(RuntimeError, match="no api key provided"):

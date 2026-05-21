@@ -31,18 +31,14 @@ async def _login(open_browser: bool) -> None:
         if open_browser:
             typer.launch(auth_url)
 
-    api_key = console.input(
-        "Paste the API key shown after authorization: "
-    ).strip()
+    api_key = console.input("Paste the API key shown after authorization: ").strip()
 
     if not api_key:
         raise RuntimeError("no api key provided")
 
     check_and_migrate_legacy_credentials()
     path = save_api_key(api_key)
-    console.print(
-        f"[green]Logged in.[/green] Credentials saved to [dim]{path}[/dim]"
-    )
+    console.print(f"[green]Logged in.[/green] Credentials saved to [dim]{path}[/dim]")
     console.print()
 
 
