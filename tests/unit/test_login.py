@@ -5,8 +5,6 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from runpod_flash.cli.commands.login import _login
-
 
 class TestGraphQLClientNoKeyForLogin:
     """Login mutations must not send stored credentials."""
