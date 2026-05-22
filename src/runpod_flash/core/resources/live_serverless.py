@@ -16,7 +16,18 @@ from .serverless_cpu import CpuServerlessEndpoint
 
 
 class LiveServerlessMixin:
-    """Common mixin for live serverless endpoints that locks the image."""
+    """Common mixin for live serverless endpoints.
+
+    Treats the Flash runtime image as a *default*: if the caller passes an
+    ``imageName`` (e.g. via ``Endpoint(image=...)`` in client mode), that
+    value wins. Otherwise the Flash runtime image for this resource type is
+    used so decorator-mode workloads continue to deploy the Flash wrapper.
+
+    The default is applied via the ``@model_validator(mode="before")`` on each
+    concrete subclass (see ``_apply_default_live_image``); reads and writes of
+    ``imageName`` go through the normal Pydantic field machinery so model
+    serialization, drift detection, and ``setattr`` all stay consistent.
+    """
 
     _image_type: ClassVar[str] = (
         ""  # override in subclasses: 'gpu', 'cpu', 'lb', 'lb-cpu'
@@ -27,13 +38,13 @@ class LiveServerlessMixin:
         python_version = getattr(self, "python_version", None) or DEFAULT_PYTHON_VERSION
         return get_image_name(self._image_type, python_version)
 
-    @property
-    def imageName(self):
-        return self._live_image
 
-    @imageName.setter
-    def imageName(self, value):
-        pass
+def _apply_default_live_image(data: dict, image_type: str) -> dict:
+    """Set the Flash runtime image as a default if the caller didn't supply one."""
+    if not data.get("imageName"):
+        python_version = data.get("python_version") or DEFAULT_PYTHON_VERSION
+        data["imageName"] = get_image_name(image_type, python_version)
+    return data
 
 
 class LiveServerless(LiveServerlessMixin, ServerlessEndpoint):
@@ -44,10 +55,8 @@ class LiveServerless(LiveServerlessMixin, ServerlessEndpoint):
     @model_validator(mode="before")
     @classmethod
     def set_live_serverless_template(cls, data: dict):
-        """Set default GPU image for Live Serverless."""
-        python_version = data.get("python_version") or DEFAULT_PYTHON_VERSION
-        data["imageName"] = get_image_name("gpu", python_version)
-        return data
+        """Default to the GPU Flash runtime image when none is supplied."""
+        return _apply_default_live_image(data, "gpu")
 
 
 class CpuLiveServerless(LiveServerlessMixin, CpuServerlessEndpoint):
@@ -58,10 +67,8 @@ class CpuLiveServerless(LiveServerlessMixin, CpuServerlessEndpoint):
     @model_validator(mode="before")
     @classmethod
     def set_live_serverless_template(cls, data: dict):
-        """Set default CPU image for Live Serverless."""
-        python_version = data.get("python_version") or DEFAULT_PYTHON_VERSION
-        data["imageName"] = get_image_name("cpu", python_version)
-        return data
+        """Default to the CPU Flash runtime image when none is supplied."""
+        return _apply_default_live_image(data, "cpu")
 
 
 class LiveLoadBalancer(LiveServerlessMixin, LoadBalancerSlsResource):
@@ -72,10 +79,8 @@ class LiveLoadBalancer(LiveServerlessMixin, LoadBalancerSlsResource):
     @model_validator(mode="before")
     @classmethod
     def set_live_lb_template(cls, data: dict):
-        """Set default image for Live Load-Balanced endpoint."""
-        python_version = data.get("python_version") or DEFAULT_PYTHON_VERSION
-        data["imageName"] = get_image_name("lb", python_version)
-        return data
+        """Default to the LB Flash runtime image when none is supplied."""
+        return _apply_default_live_image(data, "lb")
 
 
 class CpuLiveLoadBalancer(LiveServerlessMixin, CpuLoadBalancerSlsResource):
@@ -86,7 +91,5 @@ class CpuLiveLoadBalancer(LiveServerlessMixin, CpuLoadBalancerSlsResource):
     @model_validator(mode="before")
     @classmethod
     def set_live_cpu_lb_template(cls, data: dict):
-        """Set default CPU image for Live Load-Balanced endpoint."""
-        python_version = data.get("python_version") or DEFAULT_PYTHON_VERSION
-        data["imageName"] = get_image_name("lb-cpu", python_version)
-        return data
+        """Default to the CPU LB Flash runtime image when none is supplied."""
+        return _apply_default_live_image(data, "lb-cpu")

@@ -116,19 +116,17 @@ class TestRemoteWithLoadBalancerIntegration:
         assert "flash-lb" in lb.imageName
         assert echo.__remote_config__["method"] == "POST"
 
-    def test_live_load_balancer_image_locked(self):
-        """Test that LiveLoadBalancer locks the image to Flash LB image."""
-        lb = LiveLoadBalancer(name="test-api")
+    def test_live_load_balancer_image_default_and_override(self):
+        """LiveLoadBalancer defaults to the Flash LB image but honors overrides (AE-3153)."""
+        # Default path: no caller image -> Flash LB runtime image.
+        default_lb = LiveLoadBalancer(name="test-api-default")
+        assert "flash-lb" in default_lb.imageName
 
-        # Verify image is locked and cannot be overridden
-        original_image = lb.imageName
-        assert "flash-lb" in original_image
-
-        # Try to set a different image (should be ignored due to property)
-        lb.imageName = "custom-image:latest"
-
-        # Image should still be locked to Flash
-        assert lb.imageName == original_image
+        # Override path: caller-supplied image is used verbatim.
+        custom_lb = LiveLoadBalancer(
+            name="test-api-custom", imageName="custom-image:latest"
+        )
+        assert custom_lb.imageName == "custom-image:latest"
 
     def test_load_balancer_vs_queue_based_endpoints(self):
         """Test that LB and QB endpoints have different characteristics."""
