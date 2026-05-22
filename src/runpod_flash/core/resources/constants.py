@@ -2,19 +2,20 @@ import os
 
 # Worker runtime Python versions. One tarball serves every resource in an app,
 # so all resources must share a single Python version. GPU images ship 3.12
-# with torch pre-installed; 3.10 and 3.11 are available via side-by-side
-# install (~7 GB alt-Python overhead) in the same base image.
+# with torch pre-installed; 3.10, 3.11, and 3.13 are available via side-by-side
+# install (deadsnakes PPA) in the same base image.
 WORKER_PYTHON_VERSION: str = "3.12"
-GPU_PYTHON_VERSIONS: tuple[str, ...] = ("3.10", "3.11", "3.12")
-CPU_PYTHON_VERSIONS: tuple[str, ...] = ("3.10", "3.11", "3.12")
+GPU_PYTHON_VERSIONS: tuple[str, ...] = ("3.10", "3.11", "3.12", "3.13")
+CPU_PYTHON_VERSIONS: tuple[str, ...] = ("3.10", "3.11", "3.12", "3.13")
 
 # Base image ships 3.12 with torch pre-installed; non-3.12 targets reinstall
-# torch side-by-side for the selected interpreter.
+# torch side-by-side for the selected interpreter. 3.13 is provided via
+# deadsnakes PPA in the worker image.
 GPU_BASE_IMAGE_PYTHON_VERSION: str = "3.12"
 DEFAULT_PYTHON_VERSION: str = "3.12"
 
 # Python versions that can run the flash SDK locally (for flash build, etc.)
-SUPPORTED_PYTHON_VERSIONS: tuple[str, ...] = ("3.10", "3.11", "3.12")
+SUPPORTED_PYTHON_VERSIONS: tuple[str, ...] = ("3.10", "3.11", "3.12", "3.13")
 
 
 def local_python_version() -> str:
