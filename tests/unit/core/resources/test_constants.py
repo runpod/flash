@@ -133,7 +133,7 @@ class TestValidatePythonVersion:
 
     def test_invalid_version_raises(self):
         with pytest.raises(ValueError, match="not supported"):
-            validate_python_version("3.9")
+            validate_python_version("3.99")
 
     def test_old_version_raises(self):
         with pytest.raises(ValueError, match="not supported"):
