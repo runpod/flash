@@ -194,12 +194,12 @@ class TestLiveServerlessMixin:
         assert "flash-cpu:" in live_serverless._live_image
 
     def test_image_name_property_gpu(self):
-        """Test LiveServerless imageName property returns locked image."""
+        """LiveServerless defaults imageName to the Flash runtime image when none supplied."""
         live_serverless = LiveServerless(name="test")
         assert live_serverless.imageName == live_serverless._live_image
 
     def test_image_name_property_cpu(self):
-        """Test CpuLiveServerless imageName property returns locked image."""
+        """CpuLiveServerless defaults imageName to the Flash runtime image when none supplied."""
         live_serverless = CpuLiveServerless(name="test")
         assert live_serverless.imageName == live_serverless._live_image
 
@@ -222,6 +222,12 @@ class TestLiveServerlessMixin:
         """CpuLiveLoadBalancer honors caller-supplied imageName (AE-3153)."""
         lb = CpuLiveLoadBalancer(name="test", imageName="byo/cpu-lb-image:v1")
         assert lb.imageName == "byo/cpu-lb-image:v1"
+
+    def test_default_image_validator_passes_through_non_dict(self):
+        """`mode='before'` validators must tolerate non-dict input (e.g., model instances)."""
+        original = LiveServerless(name="test", imageName="byo/image:v1")
+        revalidated = LiveServerless.model_validate(original)
+        assert revalidated.imageName == "byo/image:v1"
 
 
 class TestLiveServerlessPythonVersion:

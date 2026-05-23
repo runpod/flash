@@ -39,8 +39,10 @@ class LiveServerlessMixin:
         return get_image_name(self._image_type, python_version)
 
 
-def _apply_default_live_image(data: dict, image_type: str) -> dict:
+def _apply_default_live_image(data, image_type: str):
     """Set the Flash runtime image as a default if the caller didn't supply one."""
+    if not isinstance(data, dict):
+        return data
     if not data.get("imageName"):
         python_version = data.get("python_version") or DEFAULT_PYTHON_VERSION
         data["imageName"] = get_image_name(image_type, python_version)
