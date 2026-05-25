@@ -44,5 +44,3 @@ dist/
 .DS_Store
 Thumbs.db
 
-# Flash dynamic context (machine-specific, regenerated on each command)
-.flash/context.md
