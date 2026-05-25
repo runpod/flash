@@ -322,6 +322,10 @@ class TestInitCommandProjectNameHandling:
 
 class TestInitNoRulesFlag:
     def test_no_rules_flag_skips_agent_files(self, tmp_path, monkeypatch):
+        from typer.testing import CliRunner
+
+        from runpod_flash.cli.main import app
+
         monkeypatch.chdir(tmp_path)
 
         with (
@@ -331,15 +335,19 @@ class TestInitNoRulesFlag:
             patch(
                 "runpod_flash.cli.commands.init.detect_file_conflicts", return_value=[]
             ),
-            patch("runpod_flash.cli.commands.init.console"),
         ):
-            init_command("test_project", no_rules=True)
+            result = CliRunner().invoke(app, ["init", "test_project", "--no-rules"])
 
+        assert result.exit_code == 0, result.output
         mock_gen.assert_not_called()
 
 
 class TestInitGeneratesAgentFiles:
     def test_init_calls_generate_agent_files(self, tmp_path, monkeypatch):
+        from typer.testing import CliRunner
+
+        from runpod_flash.cli.main import app
+
         monkeypatch.chdir(tmp_path)
 
         with (
@@ -349,11 +357,10 @@ class TestInitGeneratesAgentFiles:
             patch(
                 "runpod_flash.cli.commands.init.detect_file_conflicts", return_value=[]
             ),
-            patch("runpod_flash.cli.commands.init.console"),
         ):
-            init_command("test_project", no_rules=False)
+            result = CliRunner().invoke(app, ["init", "test_project"])
 
-        # init_command uses Path(project_name) which is relative
+        assert result.exit_code == 0, result.output
         mock_gen.assert_called_once()
         call_args = mock_gen.call_args[0]
         assert call_args[0] == Path("test_project")
