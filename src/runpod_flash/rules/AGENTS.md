@@ -7,7 +7,7 @@ For anything Flash supports, use the `flash` CLI. **Do not** generate `curl`, `h
 | Intent | Command | Do NOT |
 |--------|---------|--------|
 | Scaffold a project | `flash init <name>` | Hand-write `pyproject.toml` + manifest |
-| Local dev server | `flash run` | Run `uvicorn` against generated server manually |
+| Local dev server | `flash dev` | Run `uvicorn` against generated server manually |
 | Package artifact | `flash build` | Tar `src/` and POST it |
 | Deploy to Runpod | `flash deploy` | Call `saveEndpoint` / REST `POST /v1/endpoints` |
 | Preview locally | `flash deploy --preview` | Hand-write `docker-compose.yml` |
