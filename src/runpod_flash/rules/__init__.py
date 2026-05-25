@@ -13,9 +13,15 @@ __all__ = ["install_agent_files"]
 
 
 def _read_packaged_agents_md() -> str:
-    return (resources.files("runpod_flash.rules") / "AGENTS.md").read_text(
-        encoding="utf-8"
-    )
+    try:
+        return (resources.files("runpod_flash.rules") / "AGENTS.md").read_text(
+            encoding="utf-8"
+        )
+    except FileNotFoundError as exc:
+        raise FileNotFoundError(
+            "AGENTS.md not found in runpod_flash.rules package data. "
+            "The installed wheel may be incomplete."
+        ) from exc
 
 
 def install_agent_files(target_dir: Path) -> list[Path]:
@@ -37,7 +43,12 @@ def install_agent_files(target_dir: Path) -> list[Path]:
         created.append(agents)
 
     claude = target_dir / "CLAUDE.md"
-    if not claude.exists() and not claude.is_symlink():
+    if claude.is_symlink() and not claude.exists():
+        logger.warning(
+            "CLAUDE.md is a broken symlink at %s. Repair manually or remove it.",
+            claude,
+        )
+    elif not claude.exists():
         try:
             os.symlink("AGENTS.md", claude)
             created.append(claude)

@@ -67,3 +67,30 @@ class TestInstallAgentFiles:
         written_again = install_agent_files(tmp_path)
 
         assert written_again == []
+
+    def test_broken_claude_md_symlink_logs_warning(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import logging
+
+        claude = tmp_path / "CLAUDE.md"
+        os.symlink("nonexistent.md", claude)
+        assert claude.is_symlink() and not claude.exists()
+
+        with caplog.at_level(logging.WARNING, logger="runpod_flash.rules"):
+            written = install_agent_files(tmp_path)
+
+        assert claude not in written
+        assert claude.is_symlink()
+        assert os.readlink(claude) == "nonexistent.md"
+        assert any("broken symlink" in r.message for r in caplog.records)
+
+    def test_missing_packaged_agents_md_raises_clear_error(
+        self, tmp_path: Path
+    ) -> None:
+        with patch(
+            "runpod_flash.rules.resources.files",
+            side_effect=FileNotFoundError("not found"),
+        ):
+            with pytest.raises(FileNotFoundError, match="wheel may be incomplete"):
+                install_agent_files(tmp_path)
