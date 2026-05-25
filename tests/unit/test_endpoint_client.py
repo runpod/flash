@@ -301,9 +301,16 @@ class TestEndpointJobWaitTransientErrors:
         assert ep._api_get.call_count == 1
 
     @pytest.mark.asyncio
-    async def test_timeout_still_authoritative(self):
-        """when deadline is hit before threshold, raise TimeoutError not httpx error."""
+    async def test_timeout_still_authoritative(self, fast_poll, monkeypatch):
+        """when deadline is hit before threshold, raise TimeoutError not httpx error.
+
+        Raises the threshold above the number of retries the deadline allows, so
+        the test actually exercises the retry path (multiple suppressed httpx
+        errors) before the deadline trips -- not just the pre-sleep guard.
+        """
         import httpx
+
+        monkeypatch.setattr("runpod_flash.endpoint._POLL_MAX_CONSECUTIVE_ERRORS", 1000)
 
         ep, job = self._make_job()
         ep._api_get = AsyncMock(
@@ -311,7 +318,11 @@ class TestEndpointJobWaitTransientErrors:
         )
 
         with pytest.raises(TimeoutError, match="did not complete within"):
-            await job.wait(timeout=0.1)
+            await job.wait(timeout=0.05)
+
+        # proves the retry path was exercised: status() was called and the
+        # httpx error was suppressed at least once before the deadline tripped.
+        assert ep._api_get.call_count >= 2
 
 
 # -- Endpoint.run / runsync / cancel --
