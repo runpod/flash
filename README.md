@@ -59,7 +59,7 @@ ln -s ../AGENTS.md .github/copilot-instructions.md
 ln -s AGENTS.md .cursorrules
 ```
 
-**Opt out:** Delete `AGENTS.md`. Flash will not re-create it.
+**Opt out:** Delete `AGENTS.md`. No `flash` subcommand other than `flash init` (or an explicit call to `install_agent_files(...)`) will re-create it.
 
 **Claude Code skill bundle (optional):** For richer Claude Code integration beyond static rules, install the cross-tool skill bundle:
 

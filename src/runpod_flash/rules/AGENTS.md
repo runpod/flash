@@ -20,7 +20,7 @@ If a Flash command does not exist for what the user is asking, surface that gap 
 
 Flash is a Python SDK for deploying AI workloads to Runpod GPUs. You write decorated Python functions, Flash handles infrastructure, scaling, and deployment.
 
-## Three Patterns
+## Endpoint Patterns
 
 ### Pattern A: Queue-based function endpoint
 
