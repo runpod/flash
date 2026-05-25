@@ -320,8 +320,8 @@ class TestInitCommandProjectNameHandling:
         assert (tmp_path / "my_awesome_project").is_dir()
 
 
-class TestInitNoRulesFlag:
-    def test_no_rules_flag_skips_agent_files(self, tmp_path, monkeypatch):
+class TestInitInstallsAgentFiles:
+    def test_init_calls_install_agent_files(self, tmp_path, monkeypatch):
         from typer.testing import CliRunner
 
         from runpod_flash.cli.main import app
@@ -329,30 +329,7 @@ class TestInitNoRulesFlag:
         monkeypatch.chdir(tmp_path)
 
         with (
-            patch("runpod_flash.cli.commands.init.generate_agent_files") as mock_gen,
-            patch("runpod_flash.cli.commands.init._get_version", return_value="1.9.1"),
-            patch("runpod_flash.cli.commands.init.create_project_skeleton"),
-            patch(
-                "runpod_flash.cli.commands.init.detect_file_conflicts", return_value=[]
-            ),
-        ):
-            result = CliRunner().invoke(app, ["init", "test_project", "--no-rules"])
-
-        assert result.exit_code == 0, result.output
-        mock_gen.assert_not_called()
-
-
-class TestInitGeneratesAgentFiles:
-    def test_init_calls_generate_agent_files(self, tmp_path, monkeypatch):
-        from typer.testing import CliRunner
-
-        from runpod_flash.cli.main import app
-
-        monkeypatch.chdir(tmp_path)
-
-        with (
-            patch("runpod_flash.cli.commands.init.generate_agent_files") as mock_gen,
-            patch("runpod_flash.cli.commands.init._get_version", return_value="1.9.1"),
+            patch("runpod_flash.cli.commands.init.install_agent_files") as mock_install,
             patch("runpod_flash.cli.commands.init.create_project_skeleton"),
             patch(
                 "runpod_flash.cli.commands.init.detect_file_conflicts", return_value=[]
@@ -361,7 +338,6 @@ class TestInitGeneratesAgentFiles:
             result = CliRunner().invoke(app, ["init", "test_project"])
 
         assert result.exit_code == 0, result.output
-        mock_gen.assert_called_once()
-        call_args = mock_gen.call_args[0]
+        mock_install.assert_called_once()
+        call_args = mock_install.call_args[0]
         assert call_args[0] == Path("test_project")
-        assert call_args[1] == "1.9.1"

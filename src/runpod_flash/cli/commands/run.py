@@ -34,7 +34,6 @@ except ModuleNotFoundError:
             pass
 
 
-from ...rules.engine import update_dynamic_context
 from ..utils.ignore import get_file_tree, load_ignore_patterns
 from .build_utils.scanner import (
     RuntimeScanner,
@@ -1090,7 +1089,6 @@ def run_command(
     from runpod_flash.dev_console import set_name_width
 
     set_name_width([w.resource_name for w in workers])
-    update_dynamic_context(Path.cwd())
 
     _print_startup_table(workers, host, port)
 

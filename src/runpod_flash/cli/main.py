@@ -15,7 +15,6 @@ from .commands import (
     undeploy,
     login,
     update,
-    rules,
 )
 from .update_checker import start_background_check
 
@@ -46,7 +45,6 @@ app.command("build")(build.build_command)
 app.command("login")(login.login_command)
 app.command("deploy")(deploy.deploy_command)
 app.command("update")(update.update_command)
-app.command("rules")(rules.rules_command)
 # app.command("report")(resource.report_command)
 
 
