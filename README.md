@@ -61,6 +61,14 @@ ln -s AGENTS.md .cursorrules
 
 **Opt out:** Delete `AGENTS.md`. Flash will not re-create it.
 
+**Claude Code skill bundle (optional):** For richer Claude Code integration beyond static rules, install the cross-tool skill bundle:
+
+```bash
+npx skills add runpod/skills
+```
+
+See the `SKILL.md` file in the [runpod/skills repository](https://github.com/runpod/skills/blob/main/flash/SKILL.md).
+
 ## Quickstart
 
 Create `gpu_demo.py`:
