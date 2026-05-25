@@ -84,18 +84,17 @@ from runpod_flash import Endpoint, GpuGroup
 
 vllm = Endpoint(
     name="vllm",
-    image="vllm/vllm-openai:latest",
+    image="runpod/worker-v1-vllm:v2.18.1",
     gpu=GpuGroup.ADA_24,
     workers=(0, 3),
-    env={"MODEL": "meta-llama/Llama-3.1-8B-Instruct"},
+    env={"MODEL_NAME": "meta-llama/Llama-3.1-8B-Instruct"},
 )
 
-# LB-style HTTP calls against the container's existing routes
-result = await vllm.post("/v1/completions", {"prompt": "hello", "max_tokens": 64})
-models = await vllm.get("/v1/models")
+# QB-style — the Runpod vLLM worker speaks the queue protocol
+result = await vllm.runsync({"input": {"prompt": "hello", "max_tokens": 64}})
 
-# Or QB-style if the image speaks the Runpod queue protocol
-result = await vllm.runsync({"prompt": "hello"})
+# Or LB-style HTTP if you've routed through a load-balanced front
+models = await vllm.get("/v1/models")
 ```
 
 When to use this pattern: the upstream project already publishes a serving image and you don't need to add any Python logic on top. If you need pre/post-processing, wrap the call inside a Pattern A or B `@Endpoint` instead.
