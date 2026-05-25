@@ -27,6 +27,10 @@ _POLL_INITIAL_INTERVAL = 0.25
 _POLL_MAX_INTERVAL = 5.0
 _POLL_BACKOFF_FACTOR = 1.5
 
+# max consecutive transient httpx errors tolerated during wait() polling
+# before re-raising. resets on any successful poll.
+_POLL_MAX_CONSECUTIVE_ERRORS = 5
+
 
 class _ClientCoroutine:
     """wraps a coroutine from a client-mode HTTP call.
@@ -137,8 +141,11 @@ class EndpointJob:
         import asyncio
         import time
 
+        import httpx
+
         deadline = (time.monotonic() + timeout) if timeout is not None else None
         interval = _POLL_INITIAL_INTERVAL
+        consecutive_errors = 0
 
         while not self.done:
             if deadline is not None and time.monotonic() >= deadline:
@@ -152,7 +159,27 @@ class EndpointJob:
                     f"job {self.id} did not complete within {timeout}s "
                     f"(last status: {self._data.get('status', 'UNKNOWN')})"
                 )
-            await self.status()
+            try:
+                await self.status()
+            except (httpx.TransportError, httpx.TimeoutException) as e:
+                # transient network / protocol / timeout error from the
+                # runpod api. the underlying job is still healthy, so back
+                # off and retry rather than aborting wait().
+                # HTTPStatusError (4xx/5xx from raise_for_status) is NOT
+                # caught here: 4xx auth/config bugs must fail loud.
+                consecutive_errors += 1
+                log.debug(
+                    "transient httpx error polling job %s (%d/%d): %s",
+                    self.id,
+                    consecutive_errors,
+                    _POLL_MAX_CONSECUTIVE_ERRORS,
+                    e,
+                )
+                if consecutive_errors >= _POLL_MAX_CONSECUTIVE_ERRORS:
+                    raise
+                interval = min(interval * _POLL_BACKOFF_FACTOR, _POLL_MAX_INTERVAL)
+                continue
+            consecutive_errors = 0
             interval = min(interval * _POLL_BACKOFF_FACTOR, _POLL_MAX_INTERVAL)
 
         return self
