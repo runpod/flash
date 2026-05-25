@@ -41,27 +41,25 @@ This saves your API key and allows you to use the Flash CLI and call `@Endpoint`
 
 ### Coding agent integration
 
-`flash init` automatically writes rules files that teach AI coding assistants (Claude Code, Cursor, Copilot, Codex, Aider, Gemini CLI, and any tool reading `AGENTS.md`) how to use Flash correctly — most importantly, to use the `flash` CLI instead of generating raw Runpod REST or GraphQL calls.
+`flash init` writes an `AGENTS.md` at your project root containing CLI-first rules for AI coding tools (Cursor, Codex, Aider, Amp, Jules, etc.). It also creates `CLAUDE.md` as a symlink to `AGENTS.md` so Claude Code picks up the same rules.
 
-Generated files:
+If `AGENTS.md` or `CLAUDE.md` already exist in your project, Flash leaves them alone — your file, your rules.
 
-```
-CLAUDE.md                          # Claude Code
-AGENTS.md                          # Codex, Aider, Cursor, Amp, Jules, ...
-.cursorrules                       # Cursor (legacy convention)
-.github/copilot-instructions.md    # GitHub Copilot
-.flash/context.md                  # Live project state, refreshed on flash run/build
-```
-
-Content lives between `<!-- FLASH:START -->` / `<!-- FLASH:END -->` markers — edit freely outside them. Regenerate after a Flash upgrade:
+**Existing projects (already past flash init):**
 
 ```bash
-flash rules
+# from your project root
+python -c "from runpod_flash.rules import install_agent_files; from pathlib import Path; install_agent_files(Path.cwd())"
 ```
 
-Opt out per-file by adding `<!-- FLASH:DISABLE -->` anywhere in it, or opt out of the whole repo with `flash init --no-rules`.
+**Tools using other conventions:** GitHub Copilot reads `.github/copilot-instructions.md` and Cursor (legacy) reads `.cursorrules`. If you use those, symlink or copy `AGENTS.md`:
 
-For an additional cross-tool skill bundle, run `npx skills add runpod/skills` (see [runpod/skills](https://github.com/runpod/skills/blob/main/flash/SKILL.md)).
+```bash
+ln -s ../AGENTS.md .github/copilot-instructions.md
+ln -s AGENTS.md .cursorrules
+```
+
+**Opt out:** Delete `AGENTS.md`. Flash will not re-create it.
 
 ## Quickstart
 
