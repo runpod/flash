@@ -35,7 +35,7 @@ CONTEXT_PLACEHOLDER = (
 
 def read_static_rules() -> str:
     """Read the bundled static rules content."""
-    rules_file = resources.files("runpod_flash.rules") / "flash-rules.md"
+    rules_file = resources.files("runpod_flash.rules") / "AGENTS.md"
     return rules_file.read_text(encoding="utf-8")
 
 

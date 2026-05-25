@@ -1,10 +1,4 @@
-<!-- flash-rules-version: 1.9.1 -->
-
 # Flash Rules for AI Coding Agents
-
-## Identity
-
-Flash is a Python SDK for deploying AI workloads to Runpod GPUs. You write decorated Python functions, Flash handles infrastructure, scaling, and deployment.
 
 ## Use the Flash CLI — Do Not Call Runpod REST or GraphQL Directly
 
@@ -19,9 +13,12 @@ For anything Flash supports, use the `flash` CLI. **Do not** generate `curl`, `h
 | Preview locally | `flash deploy --preview` | Hand-write `docker-compose.yml` |
 | Tear down | `flash undeploy` | Call `deleteEndpoint` mutation |
 | List apps/envs | `flash app list` / `flash env list` | Query GraphQL `myself.endpoints` |
-| Regenerate agent context | `flash rules` | Edit `CLAUDE.md` / `AGENTS.md` between FLASH markers |
 
 If a Flash command does not exist for what the user is asking, surface that gap (`flash <area> --help` first), then ask before reaching for raw API calls. Raw Runpod SDK use (`runpod.Endpoint(...)`) is acceptable only for invoking already-deployed endpoints from non-Flash code — never for lifecycle operations.
+
+## Identity
+
+Flash is a Python SDK for deploying AI workloads to Runpod GPUs. You write decorated Python functions, Flash handles infrastructure, scaling, and deployment.
 
 ## Three Patterns
 
@@ -89,28 +86,6 @@ class MyModel:
 - System-level packages (ffmpeg, libgl1) go in `system_dependencies`, not `dependencies`
 - `@Endpoint` is the canonical decorator. `@remote` is the legacy alias
 
-## Configuration Reference
-
-| GPU | VRAM | Use Case |
-|-----|------|----------|
-| `GpuType.NVIDIA_GEFORCE_RTX_4090` | 24GB | General inference |
-| `GpuType.NVIDIA_RTX_6000_ADA_GENERATION` | 48GB | Large models |
-| `GpuType.NVIDIA_A100_80GB_PCIe` | 80GB | Training/large batch |
-| `GpuGroup.ADA_24` | 24GB | Any Ada 24GB GPU |
-
-CPU types: `CpuInstanceType.CPU3C_1_2` (1 vCPU, 2GB), `CpuInstanceType.CPU3C_8_16` (8 vCPU, 16GB)
-
-## CLI Cheatsheet
-
-```
-flash init <name>       # scaffold project
-flash run               # local dev server at localhost:8888
-flash build             # package for deployment
-flash deploy            # build + deploy to Runpod
-flash deploy --preview  # local multi-container test
-flash rules             # regenerate agent context files
-```
-
 ## Common Agent Mistakes
 
 | Mistake | Fix |
@@ -121,3 +96,4 @@ flash rules             # regenerate agent context files
 | Forcing `async def` on all endpoints | Both sync and async are valid; use async only when awaiting |
 | Creating `main.py` or `app.py` | Not needed — Flash auto-discovers decorated functions |
 | Using `docker-compose` manually | Use `flash deploy --preview` for local container testing |
+| Calling Runpod REST/GraphQL directly | Use `flash` CLI — see top of this file |

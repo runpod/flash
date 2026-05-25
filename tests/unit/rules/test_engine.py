@@ -17,9 +17,9 @@ class TestReadStaticRules:
         content = read_static_rules()
         assert isinstance(content, str)
 
-    def test_contains_version_comment(self):
+    def test_contains_cli_first_directive(self):
         content = read_static_rules()
-        assert "flash-rules-version" in content
+        assert "Use the Flash CLI" in content
 
     def test_contains_endpoint_decorator(self):
         content = read_static_rules()
