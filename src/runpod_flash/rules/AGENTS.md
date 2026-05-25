@@ -75,6 +75,38 @@ class MyModel:
         return {"text": self.pipe(prompt)[0]["generated_text"]}
 ```
 
+### Pattern D: Pre-built container image (no decorated function)
+
+For workloads that already serve HTTP — vLLM, TGI, ComfyUI, Ollama, custom images — provision the endpoint with an `image=` argument and call it as a client. No Python handler to write. Flash deploys the image and gives you HTTP + queue access to it.
+
+```python
+from runpod_flash import Endpoint, GpuGroup
+
+vllm = Endpoint(
+    name="vllm",
+    image="vllm/vllm-openai:latest",
+    gpu=GpuGroup.ADA_24,
+    workers=(0, 3),
+    env={"MODEL": "meta-llama/Llama-3.1-8B-Instruct"},
+)
+
+# LB-style HTTP calls against the container's existing routes
+result = await vllm.post("/v1/completions", {"prompt": "hello", "max_tokens": 64})
+models = await vllm.get("/v1/models")
+
+# Or QB-style if the image speaks the Runpod queue protocol
+result = await vllm.runsync({"prompt": "hello"})
+```
+
+When to use this pattern: the upstream project already publishes a serving image and you don't need to add any Python logic on top. If you need pre/post-processing, wrap the call inside a Pattern A or B `@Endpoint` instead.
+
+To attach to an already-deployed endpoint (no provisioning), pass `id=` instead of `image=`:
+
+```python
+ep = Endpoint(id="abc123")
+result = await ep.runsync({"prompt": "hello"})
+```
+
 ## Rules That Break If Violated
 
 - `import torch` and heavy libraries INSIDE the function body, never at module level
@@ -96,4 +128,5 @@ class MyModel:
 | Forcing `async def` on all endpoints | Both sync and async are valid; use async only when awaiting |
 | Creating `main.py` or `app.py` | Not needed — Flash auto-discovers decorated functions |
 | Using `docker-compose` manually | Use `flash deploy --preview` for local container testing |
+| Wrapping vLLM/TGI/Comfy in a custom handler for no reason | Use `Endpoint(name=..., image=...)` and call via `.post()`/`.run()` — Pattern D |
 | Calling Runpod REST/GraphQL directly | Use `flash` CLI — see top of this file |
