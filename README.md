@@ -39,13 +39,29 @@ flash login
 
 This saves your API key and allows you to use the Flash CLI and call `@Endpoint` functions.
 
-### Coding agent integration (optional)
+### Coding agent integration
 
-```bash
-npx skills add runpod/skills
+`flash init` automatically writes rules files that teach AI coding assistants (Claude Code, Cursor, Copilot, Codex, Aider, Gemini CLI, and any tool reading `AGENTS.md`) how to use Flash correctly — most importantly, to use the `flash` CLI instead of generating raw Runpod REST or GraphQL calls.
+
+Generated files:
+
+```
+CLAUDE.md                          # Claude Code
+AGENTS.md                          # Codex, Aider, Cursor, Amp, Jules, ...
+.cursorrules                       # Cursor (legacy convention)
+.github/copilot-instructions.md    # GitHub Copilot
+.flash/context.md                  # Live project state, refreshed on flash run/build
 ```
 
-You can review the `SKILL.md` file in the [runpod/skills repository](https://github.com/runpod/skills/blob/main/flash/SKILL.md).
+Content lives between `<!-- FLASH:START -->` / `<!-- FLASH:END -->` markers — edit freely outside them. Regenerate after a Flash upgrade:
+
+```bash
+flash rules
+```
+
+Opt out per-file by adding `<!-- FLASH:DISABLE -->` anywhere in it, or opt out of the whole repo with `flash init --no-rules`.
+
+For an additional cross-tool skill bundle, run `npx skills add runpod/skills` (see [runpod/skills](https://github.com/runpod/skills/blob/main/flash/SKILL.md)).
 
 ## Quickstart
 

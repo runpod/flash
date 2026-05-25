@@ -6,6 +6,23 @@
 
 Flash is a Python SDK for deploying AI workloads to Runpod GPUs. You write decorated Python functions, Flash handles infrastructure, scaling, and deployment.
 
+## Use the Flash CLI — Do Not Call Runpod REST or GraphQL Directly
+
+For anything Flash supports, use the `flash` CLI. **Do not** generate `curl`, `httpx`, `requests`, or `gql` calls against `api.runpod.io`, `api.runpod.ai`, or `*.runpod.net` to build, deploy, list, scale, log, or invoke endpoints. The CLI handles auth, hashing, drift detection, manifest generation, and image selection. Direct API calls bypass all of that and will silently desync from Flash state.
+
+| Intent | Command | Do NOT |
+|--------|---------|--------|
+| Scaffold a project | `flash init <name>` | Hand-write `pyproject.toml` + manifest |
+| Local dev server | `flash run` | Run `uvicorn` against generated server manually |
+| Package artifact | `flash build` | Tar `src/` and POST it |
+| Deploy to Runpod | `flash deploy` | Call `saveEndpoint` / REST `POST /v1/endpoints` |
+| Preview locally | `flash deploy --preview` | Hand-write `docker-compose.yml` |
+| Tear down | `flash undeploy` | Call `deleteEndpoint` mutation |
+| List apps/envs | `flash app list` / `flash env list` | Query GraphQL `myself.endpoints` |
+| Regenerate agent context | `flash rules` | Edit `CLAUDE.md` / `AGENTS.md` between FLASH markers |
+
+If a Flash command does not exist for what the user is asking, surface that gap (`flash <area> --help` first), then ask before reaching for raw API calls. Raw Runpod SDK use (`runpod.Endpoint(...)`) is acceptable only for invoking already-deployed endpoints from non-Flash code — never for lifecycle operations.
+
 ## Three Patterns
 
 ### Pattern A: Queue-based function endpoint
