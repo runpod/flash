@@ -68,6 +68,10 @@ class TestInstallAgentFiles:
 
         assert written_again == []
 
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="symlinks require developer mode on Windows",
+    )
     def test_broken_claude_md_symlink_logs_warning(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
@@ -83,6 +87,27 @@ class TestInstallAgentFiles:
         assert claude not in written
         assert claude.is_symlink()
         assert os.readlink(claude) == "nonexistent.md"
+        assert any("broken symlink" in r.message for r in caplog.records)
+
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="symlinks require developer mode on Windows",
+    )
+    def test_broken_agents_md_symlink_logs_warning_and_skips_write(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import logging
+
+        agents = tmp_path / "AGENTS.md"
+        os.symlink("nonexistent.md", agents)
+        assert agents.is_symlink() and not agents.exists()
+
+        with caplog.at_level(logging.WARNING, logger="runpod_flash.rules"):
+            written = install_agent_files(tmp_path)
+
+        assert agents not in written
+        assert agents.is_symlink()
+        assert os.readlink(agents) == "nonexistent.md"
         assert any("broken symlink" in r.message for r in caplog.records)
 
     def test_missing_packaged_agents_md_raises_clear_error(

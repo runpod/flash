@@ -38,7 +38,12 @@ def install_agent_files(target_dir: Path) -> list[Path]:
     created: list[Path] = []
 
     agents = target_dir / "AGENTS.md"
-    if not agents.exists():
+    if agents.is_symlink() and not agents.exists():
+        logger.warning(
+            "AGENTS.md is a broken symlink at %s. Repair manually or remove it.",
+            agents,
+        )
+    elif not agents.exists():
         agents.write_text(_read_packaged_agents_md(), encoding="utf-8")
         created.append(agents)
 
