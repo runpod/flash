@@ -130,7 +130,9 @@ class EndpointJob:
         """poll until the job reaches a terminal status.
 
         uses exponential backoff between polls. updates _data in place
-        and returns self.
+        and returns self. when timeout is set, the deadline is bounded
+        across the status() call itself via asyncio.wait_for, so the
+        underlying httpx timeout cannot exceed the user-supplied deadline.
 
         args:
             timeout: max seconds to wait. None means wait indefinitely.
@@ -160,15 +162,34 @@ class EndpointJob:
                     f"(last status: {self._data.get('status', 'UNKNOWN')})"
                 )
             try:
-                await self.status()
-            except (httpx.TransportError, httpx.TimeoutException) as e:
-                # transient network / protocol / timeout error from the
-                # runpod api. the underlying job is still healthy, so back
-                # off and retry rather than aborting wait().
-                # HTTPStatusError (4xx/5xx from raise_for_status) is NOT
-                # caught here: 4xx auth/config bugs must fail loud.
+                if deadline is not None:
+                    # bound status() by remaining deadline so the user-supplied
+                    # timeout is authoritative even when _api_get's own httpx
+                    # timeout would otherwise exceed it.
+                    remaining = deadline - time.monotonic()
+                    await asyncio.wait_for(self.status(), timeout=remaining)
+                else:
+                    await self.status()
+            except asyncio.TimeoutError:
+                # deadline tripped while status() was in-flight.
+                raise TimeoutError(
+                    f"job {self.id} did not complete within {timeout}s "
+                    f"(last status: {self._data.get('status', 'UNKNOWN')})"
+                ) from None
+            except httpx.TransportError as e:
+                # transient network / protocol / timeout error from the runpod
+                # api. httpx.TimeoutException is a subclass of TransportError,
+                # so a single catch covers both. the underlying job is still
+                # healthy, so back off and retry rather than aborting wait().
+                # HTTPStatusError (4xx/5xx from raise_for_status) is NOT caught
+                # here: auth/config bugs must fail loud.
                 consecutive_errors += 1
-                log.debug(
+                # first retry surfaces at INFO so operators see why wait() is
+                # taking longer than expected; subsequent retries at DEBUG to
+                # avoid log spam during sustained outages.
+                level = logging.INFO if consecutive_errors == 1 else logging.DEBUG
+                log.log(
+                    level,
                     "transient httpx error polling job %s (%d/%d): %s",
                     self.id,
                     consecutive_errors,
