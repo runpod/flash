@@ -39,13 +39,37 @@ flash login
 
 This saves your API key and allows you to use the Flash CLI and call `@Endpoint` functions.
 
-### Coding agent integration (optional)
+### Coding agent integration
+
+`flash init` writes an `AGENTS.md` at your project root containing CLI-first rules for AI coding tools (Cursor, Codex, Aider, Amp, Jules, etc.). It also creates `CLAUDE.md` as a symlink to `AGENTS.md` so Claude Code picks up the same rules.
+
+If `AGENTS.md` or `CLAUDE.md` already exist in your project, Flash leaves them alone — your file, your rules.
+
+**Existing projects (already past flash init):**
+
+```bash
+# from your project root
+python -c "from runpod_flash.rules import install_agent_files; from pathlib import Path; install_agent_files(Path.cwd())"
+```
+
+**Tools using other conventions:** GitHub Copilot reads `.github/copilot-instructions.md` and Cursor (legacy) reads `.cursorrules`. If you use those, symlink or copy `AGENTS.md`:
+
+```bash
+ln -s ../AGENTS.md .github/copilot-instructions.md
+ln -s AGENTS.md .cursorrules
+```
+
+**Opt out:** Delete `AGENTS.md`. No `flash` subcommand other than `flash init` (or an explicit call to `install_agent_files(...)`) will re-create it.
+
+There is no `--no-rules` flag or `flash rules` subcommand by design: the rules are small, the cost of an unwanted file is one `rm`, and an opt-out flag would advertise the existence of the file to users who would otherwise never notice. If you have a use case that needs init-time suppression (corporate policy, regulated environments), open an issue and we'll revisit.
+
+**Claude Code skill bundle (optional):** For richer Claude Code integration beyond static rules, install the cross-tool skill bundle:
 
 ```bash
 npx skills add runpod/skills
 ```
 
-You can review the `SKILL.md` file in the [runpod/skills repository](https://github.com/runpod/skills/blob/main/flash/SKILL.md).
+See the `SKILL.md` file in the [runpod/skills repository](https://github.com/runpod/skills/blob/main/flash/SKILL.md).
 
 ## Quickstart
 
