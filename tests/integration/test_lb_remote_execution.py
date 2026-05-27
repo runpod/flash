@@ -128,6 +128,10 @@ class TestRemoteWithLoadBalancerIntegration:
         )
         assert custom_lb.imageName == "custom-image:latest"
 
+        # Guard against a future regression where both paths collapse to the
+        # same default (e.g. the override branch reverting to a no-op).
+        assert default_lb.imageName != custom_lb.imageName
+
     def test_load_balancer_vs_queue_based_endpoints(self):
         """Test that LB and QB endpoints have different characteristics."""
         from runpod_flash import ServerlessEndpoint

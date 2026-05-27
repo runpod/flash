@@ -1,5 +1,5 @@
 # Ship serverless code as you write it. No builds, no deploys -- just run.
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from pydantic import model_validator
 
@@ -39,8 +39,13 @@ class LiveServerlessMixin:
         return get_image_name(self._image_type, python_version)
 
 
-def _apply_default_live_image(data, image_type: str):
-    """Set the Flash runtime image as a default if the caller didn't supply one."""
+def _apply_default_live_image(data: Any, image_type: str):
+    """Set the Flash runtime image as a default if the caller didn't supply one.
+
+    ``data`` is annotated ``Any`` because Pydantic's ``@model_validator(mode="before")``
+    can receive either the raw input dict or an already-constructed model instance
+    (on revalidation). The ``isinstance(data, dict)`` guard handles the latter.
+    """
     if not isinstance(data, dict):
         return data
     if not data.get("imageName"):
