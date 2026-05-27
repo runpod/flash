@@ -199,6 +199,12 @@ info = await ep.get("/v1/models")
 
 ### Client Methods (id= and image= modes)
 
+`image=` mode deploys the image on first call, then behaves as a client to the
+provisioned endpoint. `id=` mode is a pure client — it connects to an
+already-deployed endpoint with no provisioning. `is_client` returns True for
+both.
+
+
 #### run(input_data, timeout=60.0)
 
 Submit an async job to the endpoint. Returns an `EndpointJob`.
@@ -251,7 +257,7 @@ HTTP PUT, DELETE, PATCH requests. Same interface as `post()`.
 | Property           | Type                   | Description                                                |
 | ------------------ | ---------------------- | ---------------------------------------------------------- |
 | `is_cpu`           | `bool`                 | Whether this is a CPU endpoint                             |
-| `is_client`        | `bool`                 | Whether this is a client-only endpoint (`id=` or `image=`) |
+| `is_client`        | `bool`                 | True when `id=` or `image=` is set. `image=` provisions on first call then acts as client; `id=` is pure client (no provisioning) |
 | `is_load_balanced` | `bool`                 | Whether this endpoint has LB routes registered             |
 | `workers_min`      | `int`                  | Minimum worker count                                       |
 | `workers_max`      | `int`                  | Maximum worker count                                       |
