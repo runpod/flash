@@ -33,9 +33,7 @@ class TestStandalonePythonExecution:
         "runpod_flash.flash_context.get_flash_context",
         return_value=("my_project", "production"),
     )
-    async def test_routes_through_sentinel(
-        self, mock_ctx, mock_sentinel, gpu_resource
-    ):
+    async def test_routes_through_sentinel(self, mock_ctx, mock_sentinel, gpu_resource):
         mock_sentinel.return_value = {"result": 1}
 
         @remote(gpu_resource)
@@ -153,9 +151,7 @@ class TestLiveProvisioningGuardRail:
     @pytest.mark.asyncio
     @patch.dict(os.environ, {}, clear=True)
     @patch("runpod_flash.flash_context.get_flash_context", return_value=None)
-    async def test_raises_when_context_none_and_not_live(
-        self, mock_ctx, gpu_resource
-    ):
+    async def test_raises_when_context_none_and_not_live(self, mock_ctx, gpu_resource):
         @remote(gpu_resource)
         async def my_func(x: int) -> int:
             return x * 2
@@ -166,9 +162,7 @@ class TestLiveProvisioningGuardRail:
     @pytest.mark.asyncio
     @patch.dict(os.environ, {}, clear=True)
     @patch("runpod_flash.flash_context.get_flash_context", return_value=None)
-    async def test_error_message_includes_resource_name(
-        self, mock_ctx, gpu_resource
-    ):
+    async def test_error_message_includes_resource_name(self, mock_ctx, gpu_resource):
         @remote(gpu_resource)
         async def my_func(x: int) -> int:
             return x * 2
