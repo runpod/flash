@@ -404,6 +404,12 @@ class Endpoint:
         self.execution_timeout_ms = execution_timeout_ms
         self.flashboot = flashboot
         self.image = image
+        if image is not None:
+            log.info(
+                "Endpoint %r: using user-supplied image %r (overrides Flash runtime image)",
+                name,
+                image,
+            )
         self._explicit_scaler_type = scaler_type
         self.scaler_value = scaler_value
         self.template = template
