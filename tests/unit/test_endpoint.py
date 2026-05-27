@@ -337,6 +337,31 @@ class TestBuildResourceConfig:
         assert isinstance(config, LiveServerless)
 
     @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "true"})
+    def test_endpoint_image_passed_to_live_resource(self):
+        """End-to-end: Endpoint(image=...) must reach the live resource's imageName.
+
+        Covers the AE-3153 headline bug path -- previous regressions were only
+        visible through Endpoint._build_resource_config, not by constructing
+        Live* resources directly.
+        """
+        ep = Endpoint(name="byoi", image="user/custom:v1", gpu=GpuGroup.ANY)
+        config = ep._build_resource_config()
+        from runpod_flash.core.resources.live_serverless import LiveServerless
+
+        assert isinstance(config, LiveServerless)
+        assert config.imageName == "user/custom:v1"
+
+    @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "true"})
+    def test_endpoint_no_image_uses_flash_runtime_default(self):
+        """Without image=, the live resource still defaults to the Flash runtime image."""
+        ep = Endpoint(name="default-img", gpu=GpuGroup.ANY)
+        config = ep._build_resource_config()
+        from runpod_flash.core.resources.live_serverless import LiveServerless
+
+        assert isinstance(config, LiveServerless)
+        assert "flash" in config.imageName
+
+    @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "true"})
     def test_config_passes_idle_timeout(self):
         ep = Endpoint(name="test", idle_timeout=10, workers=(1, 5))
         config = ep._build_resource_config()
