@@ -186,7 +186,7 @@ Browse working examples: **[github.com/runpod/flash-examples](https://github.com
 
 ## Requirements
 
-- Python 3.10-3.12
+- Python 3.10-3.13
 - macOS or Linux (Windows support in development)
 - A [RunPod account](https://runpod.io/console) (email must be verified) with an API key
 
