@@ -87,7 +87,7 @@ class TestGetImageName:
 
     def test_invalid_python_version_raises(self):
         with pytest.raises(ValueError, match="not supported"):
-            get_image_name("gpu", "3.9")
+            get_image_name("gpu", "3.99")
 
     def test_custom_tag(self):
         assert get_image_name("gpu", "3.12", tag="v2.0") == "runpod/flash:py3.12-v2.0"
