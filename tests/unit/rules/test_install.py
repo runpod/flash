@@ -110,6 +110,23 @@ class TestInstallAgentFiles:
         assert os.readlink(agents) == "nonexistent.md"
         assert any("broken symlink" in r.message for r in caplog.records)
 
+    def test_existing_real_claude_md_logs_info_about_orphaned_rules(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import logging
+
+        claude = tmp_path / "CLAUDE.md"
+        claude.write_text("user's own claude rules", encoding="utf-8")
+
+        with caplog.at_level(logging.INFO, logger="runpod_flash.rules"):
+            install_agent_files(tmp_path)
+
+        assert claude.is_file() and not claude.is_symlink()
+        assert claude.read_text(encoding="utf-8") == "user's own claude rules"
+        assert any(
+            "not see Flash rules in AGENTS.md" in r.message for r in caplog.records
+        )
+
     def test_missing_packaged_agents_md_raises_clear_error(
         self, tmp_path: Path
     ) -> None:

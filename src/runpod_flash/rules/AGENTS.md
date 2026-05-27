@@ -111,7 +111,8 @@ result = await ep.runsync({"prompt": "hello"})
 - `import torch` and heavy libraries INSIDE the function body, never at module level
 - Declare runtime dependencies in `@Endpoint(dependencies=[...])`, not in `pyproject.toml`
 - Endpoint functions can be sync (`def`) or async (`async def`). Use async when awaiting other endpoints or async I/O
-- `workers=N` for fixed count, `workers=(min, max)` for auto-scaling range
+- `workers=N` is shorthand for `(0, N)` — auto-scales from 0 (cold start on every burst). Use `workers=(N, N)` to pin a fixed count; `workers=(1, N)` to keep at least one warm worker
+- `workers=(min, max)` is the explicit range form — prefer it when you care about cold-start behavior
 - Class workers: model loading in `__init__`, request handling in instance methods
 - Cross-worker calls use `await` — call `@Endpoint`-decorated functions as if local; Flash handles remote dispatch
 - System-level packages (ffmpeg, libgl1) go in `system_dependencies`, not `dependencies`

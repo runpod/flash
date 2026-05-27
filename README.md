@@ -61,6 +61,8 @@ ln -s AGENTS.md .cursorrules
 
 **Opt out:** Delete `AGENTS.md`. No `flash` subcommand other than `flash init` (or an explicit call to `install_agent_files(...)`) will re-create it.
 
+There is no `--no-rules` flag or `flash rules` subcommand by design: the rules are small, the cost of an unwanted file is one `rm`, and an opt-out flag would advertise the existence of the file to users who would otherwise never notice. If you have a use case that needs init-time suppression (corporate policy, regulated environments), open an issue and we'll revisit.
+
 **Claude Code skill bundle (optional):** For richer Claude Code integration beyond static rules, install the cross-tool skill bundle:
 
 ```bash

@@ -53,8 +53,22 @@ def install_agent_files(target_dir: Path) -> list[Path]:
             "CLAUDE.md is a broken symlink at %s. Repair manually or remove it.",
             claude,
         )
+    elif claude.is_file() and not claude.is_symlink():
+        # Real CLAUDE.md exists — Claude Code will read it instead of AGENTS.md,
+        # so the user is silently orphaned from Flash rules in Claude Code while
+        # Cursor/Codex/Aider/Amp still pick them up via AGENTS.md.
+        logger.info(
+            "CLAUDE.md already exists at %s as a regular file (not a symlink). "
+            "Claude Code will use it and not see Flash rules in AGENTS.md. "
+            "To inherit Flash rules, append with: cat AGENTS.md >> CLAUDE.md "
+            "(or replace it with a symlink: ln -sf AGENTS.md CLAUDE.md).",
+            claude,
+        )
     elif not claude.exists():
         try:
+            # Relative target keeps the symlink valid when the project is moved
+            # or copied (with symlink-preserving tools). An absolute path would
+            # break on any relocation.
             os.symlink("AGENTS.md", claude)
             created.append(claude)
         except OSError as exc:

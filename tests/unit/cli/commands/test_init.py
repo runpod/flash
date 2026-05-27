@@ -341,3 +341,37 @@ class TestInitInstallsAgentFiles:
         mock_install.assert_called_once()
         call_args = mock_install.call_args[0]
         assert call_args[0] == Path("test_project")
+
+    @pytest.mark.skipif(
+        __import__("sys").platform == "win32",
+        reason="CLAUDE.md symlink creation requires developer mode on Windows",
+    )
+    def test_init_writes_agents_and_claude_files_end_to_end(
+        self, tmp_path, monkeypatch
+    ):
+        """End-to-end: `flash init <name>` produces AGENTS.md + CLAUDE.md on disk.
+
+        Mocks are intentionally absent for install_agent_files and
+        create_project_skeleton — the goal is to catch wiring regressions
+        between the CLI and the rules installer.
+        """
+        from typer.testing import CliRunner
+
+        from runpod_flash.cli.main import app
+
+        monkeypatch.chdir(tmp_path)
+
+        result = CliRunner().invoke(app, ["init", "demo"])
+
+        assert result.exit_code == 0, result.output
+
+        project = tmp_path / "demo"
+        agents = project / "AGENTS.md"
+        claude = project / "CLAUDE.md"
+
+        assert agents.is_file()
+        assert "Use the Flash CLI" in agents.read_text(encoding="utf-8")
+        assert claude.is_symlink()
+        import os
+
+        assert os.readlink(claude) == "AGENTS.md"
