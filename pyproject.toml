@@ -51,6 +51,7 @@ where = ["src"]
 runpod_flash = [
     "cli/utils/skeleton_template/**/*",
     "cli/utils/skeleton_template/**/.*",
+    "rules/**/*",
 ]
 
 [tool.pytest.ini_options]
