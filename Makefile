@@ -12,9 +12,8 @@ help: # Show this help menu
 	@awk 'BEGIN {FS = ":.*# "; printf "%-20s %s\n", "Target", "Description"} /^[a-zA-Z_-]+:.*# / {printf "%-20s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 	@echo ""
 
-dev: # Install development dependencies and package in editable mode
+dev: # Install development dependencies (editable install handled by uv sync)
 	uv sync --all-groups
-	uv pip install -e .
 
 update:
 	uv sync --upgrade --all-groups
@@ -72,7 +71,7 @@ test-integration: # Run integration tests in parallel (auto-detect cores)
 test-integration-serial: # Run integration tests serially (for debugging)
 	uv run pytest tests/integration/ -v -m integration
 
-test-coverage: # Run tests with coverage report (parallel by default)
+test-coverage: # Run tests with coverage report (parallel non-serial, then serial pass for state isolation)
 	uv run pytest tests/ -v -n auto -m "not serial" --cov=runpod_flash --cov-report=xml
 	uv run pytest tests/ -v -m "serial" --cov=runpod_flash --cov-append --cov-report=term-missing
 
@@ -102,12 +101,13 @@ format-check: # Check code formatting
 typecheck: # Check types with mypy
 	uv run mypy .
 
-# Quality gates (used in CI)
-quality-check: format-check lint test-coverage # Essential quality gate for CI (parallel by default)
-quality-check-strict: format-check lint typecheck test-coverage # Strict quality gate with type checking (parallel by default)
-quality-check-serial: format-check lint test-coverage-serial # Serial quality gate for debugging
+# Quality gates. ci-quality-github is the canonical CI gate; the local aliases
+# below run the same checks (with plain output instead of GitHub annotations).
+quality-check: ci-quality-github # Essential quality gate (parallel by default)
+quality-check-strict: format-check lint typecheck test-coverage # Strict quality gate with type checking
+quality-check-serial: ci-quality-github-serial # Serial quality gate for debugging
 
-# GitHub Actions specific targets
+# GitHub Actions specific target -- canonical CI quality gate.
 ci-quality-github: # Quality checks with GitHub Actions formatting (parallel by default)
 	@echo "::group::Code formatting check"
 	uv run ruff format --check .
@@ -115,9 +115,11 @@ ci-quality-github: # Quality checks with GitHub Actions formatting (parallel by 
 	@echo "::group::Linting"
 	uv run ruff check . --output-format=github
 	@echo "::endgroup::"
-	@echo "::group::Test suite with coverage"
-	uv run pytest tests/ --junitxml=pytest-results.xml -v -n auto -m "not serial" --cov=runpod_flash --cov-report=xml --cov-fail-under=0
-	uv run pytest tests/ --junitxml=pytest-results.xml -v -m "serial" --cov=runpod_flash --cov-append --cov-report=term-missing
+	@echo "::group::Test suite with coverage (parallel non-serial)"
+	uv run pytest tests/ --junitxml=pytest-results-parallel.xml -v -n auto -m "not serial" --cov=runpod_flash --cov-report=xml --cov-fail-under=0
+	@echo "::endgroup::"
+	@echo "::group::Test suite with coverage (serial pass)"
+	uv run pytest tests/ --junitxml=pytest-results-serial.xml -v -m "serial" --cov=runpod_flash --cov-append --cov-report=term-missing
 	@echo "::endgroup::"
 
 ci-quality-github-serial: # Serial quality checks for GitHub Actions (for debugging)

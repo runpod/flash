@@ -2,9 +2,14 @@ name: CI
 
 on:
   pull_request:
-    branches: [ main ]
+    branches: [main]
+    # release-please bot PRs only touch CHANGELOG / version manifest -- skip
+    # the full matrix; release-please.yml will exercise publishing on merge.
+    paths-ignore:
+      - 'CHANGELOG.md'
+      - '.release-please-manifest.json'
   push:
-    branches: [ main ]
+    branches: [main]
 
 permissions:
   contents: read
@@ -12,19 +17,43 @@ permissions:
   issues: write
   actions: read
 
+# Cancel in-flight PR runs when a new commit is pushed; never cancel main runs.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   PYTHON_VERSION: '3.11'
 
 jobs:
+  # Fast-fail formatting/lint check. ~10s, no project install. Catches the
+  # common case (ruff format/check fail) before paying for the full matrix.
+  pre-check:
+    name: Pre-check (format + lint)
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    if: ${{ !startsWith(github.head_ref, 'release-please--') }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+      - name: Ruff format
+        run: uvx ruff format --check .
+      - name: Ruff lint
+        run: uvx ruff check . --output-format=github
+
   quality-gates:
     name: Quality Gates
     runs-on: ubuntu-latest
+    needs: [pre-check]
     strategy:
       fail-fast: false
       matrix:
         python-version: ['3.10', '3.11', '3.12', '3.13']
     timeout-minutes: 15
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -35,14 +64,14 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v2
+        uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-          cache-dependency-glob: "pyproject.toml"
+          cache-dependency-glob: pyproject.toml
 
       - name: Install dependencies
         run: make dev
-          
+
       - name: Quality checks
         run: make ci-quality-github
 
@@ -51,27 +80,27 @@ jobs:
         if: always()
         with:
           name: test-results-${{ matrix.python-version }}
-          path: pytest-results.xml
+          path: pytest-results-*.xml
 
+  # Validate the wheel actually builds. Only on push:main since release-please.yml
+  # builds + publishes from the same SHA; a PR-time wheel build would add ~1 min
+  # for no extra signal beyond quality-gates.
   build:
     name: Build Package
     runs-on: ubuntu-latest
     needs: [quality-gates]
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     timeout-minutes: 5
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v2
+      - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
+          cache-dependency-glob: pyproject.toml
 
       - name: Build package
         run: make build
@@ -81,10 +110,3 @@ jobs:
 
       - name: Validate wheel packaging
         run: ./scripts/validate-wheel.sh
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist
-          path: dist/
-
