@@ -4,8 +4,6 @@ from datetime import datetime
 
 from rich.console import Console
 
-STATE_STYLE = {"HEALTHY": "green", "BUILDING": "yellow", "ERROR": "red"}
-
 
 def print_error(console: Console, message: str) -> None:
     """Print a standardized error message."""
@@ -15,12 +13,6 @@ def print_error(console: Console, message: str) -> None:
 def print_warning(console: Console, message: str) -> None:
     """Print a standardized warning message."""
     console.print(f"[yellow]![/yellow] {message.lstrip()}")
-
-
-def state_dot(state: str) -> str:
-    """Colored ● indicator for a resource/environment state."""
-    color = STATE_STYLE.get(state, "yellow")
-    return f"[{color}]●[/{color}]"
 
 
 def format_datetime(value: str | None) -> str:

@@ -1,6 +1,5 @@
 """Tests for ManifestBuilder."""
 
-import json
 import sys
 import tempfile
 from pathlib import Path
@@ -152,37 +151,6 @@ def test_build_manifest_includes_metadata():
 
     test_class = next(f for f in functions_list if f["name"] == "TestClass")
     assert test_class["is_class"] is True
-
-
-def test_write_manifest_to_file():
-    """Test writing manifest to file."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        output_path = Path(tmpdir) / "flash_manifest.json"
-
-        functions = [
-            RemoteFunctionMetadata(
-                function_name="test_func",
-                module_path="workers.test",
-                resource_config_name="test_config",
-                resource_type="LiveServerless",
-                is_async=True,
-                is_class=False,
-                file_path=Path("workers/test.py"),
-            )
-        ]
-
-        builder = ManifestBuilder("test_app", functions)
-        result_path = builder.write_to_file(output_path)
-
-        assert result_path.exists()
-        assert result_path == output_path
-
-        # Read and verify content
-        with open(output_path) as f:
-            manifest = json.load(f)
-
-        assert manifest["project_name"] == "test_app"
-        assert "test_config" in manifest["resources"]
 
 
 def test_manifest_empty_functions():

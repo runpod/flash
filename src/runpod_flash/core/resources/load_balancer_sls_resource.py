@@ -13,13 +13,11 @@ Key differences from standard serverless (QB):
 - Health checks via /ping endpoint
 """
 
-import asyncio
 import logging
 from typing import List, Optional
 
 from pydantic import model_validator
 
-from runpod_flash.core.utils.http import get_authenticated_httpx_client
 from ..api.runpod import RunpodGraphQLClient
 from ..urls import ENDPOINT_DOMAIN
 from .cpu import CpuInstanceType
@@ -27,15 +25,6 @@ from .serverless import ServerlessResource, ServerlessType, ServerlessScalerType
 from .serverless_cpu import CpuEndpointMixin
 
 log = logging.getLogger(__name__)
-
-
-# Configuration constants
-DEFAULT_HEALTH_CHECK_RETRIES = 10
-DEFAULT_HEALTH_CHECK_INTERVAL = 5  # seconds between retries
-DEFAULT_PING_REQUEST_TIMEOUT = (
-    15.0  # seconds (load-balanced workers need time for cold starts)
-)
-HEALTHY_STATUS_CODES = (200, 204)
 
 
 class LoadBalancerSlsResource(ServerlessResource):
@@ -128,108 +117,6 @@ class LoadBalancerSlsResource(ServerlessResource):
             raise ValueError(
                 f"LoadBalancerSlsResource type must be LB, got {self.type.value}"
             )
-
-    async def is_deployed_async(self) -> bool:
-        """
-        Check if LB endpoint is deployed and /ping endpoint is responding.
-
-        For LB endpoints, we verify:
-        1. Endpoint ID exists (created in RunPod)
-        2. /ping endpoint returns 200 or 204
-        3. Endpoint is in healthy state
-
-        Returns:
-            True if endpoint is deployed and healthy, False otherwise
-        """
-        try:
-            if not self.id:
-                return False
-
-            # Use async health check for LB endpoints
-            return await self._check_ping_endpoint()
-
-        except Exception as e:
-            log.debug(f"Error checking {self}: {e}")
-            return False
-
-    async def _check_ping_endpoint(self) -> bool:
-        """
-        Check if /ping endpoint is accessible and healthy.
-
-        RunPod load-balancer endpoints require a /ping endpoint that returns:
-        - 200 OK: Worker is healthy and ready
-        - 204 No Content: Worker is initializing
-        - Other status: Worker is unhealthy
-
-        Returns:
-            True if /ping endpoint responds with 200 or 204
-        """
-        try:
-            if not self.id:
-                return False
-
-            ping_url = f"{self.endpoint_url}/ping"
-
-            async with get_authenticated_httpx_client(
-                timeout=DEFAULT_PING_REQUEST_TIMEOUT
-            ) as client:
-                response = await client.get(ping_url)
-                return response.status_code in HEALTHY_STATUS_CODES
-        except Exception as e:
-            log.debug(f"Ping check failed for {self.name}: {e}")
-            return False
-
-    async def _wait_for_health(
-        self,
-        max_retries: int = DEFAULT_HEALTH_CHECK_RETRIES,
-        retry_interval: int = DEFAULT_HEALTH_CHECK_INTERVAL,
-    ) -> bool:
-        """
-        Poll /ping endpoint until endpoint is healthy or timeout.
-
-        Args:
-            max_retries: Number of health check attempts
-            retry_interval: Seconds between health check attempts
-
-        Returns:
-            True if endpoint became healthy, False if timeout
-
-        Raises:
-            ValueError: If endpoint ID not set
-        """
-        if not self.id:
-            raise ValueError("Cannot wait for health: endpoint not deployed")
-
-        log.debug(
-            f"Waiting for LB endpoint {self.name} ({self.id}) to become healthy... "
-            f"(max {max_retries} retries, {retry_interval}s interval)"
-        )
-
-        for attempt in range(max_retries):
-            try:
-                if await self._check_ping_endpoint():
-                    log.debug(
-                        f"LB endpoint {self.name} is healthy (attempt {attempt + 1})"
-                    )
-                    return True
-
-                log.debug(
-                    f"Health check attempt {attempt + 1}/{max_retries} - "
-                    f"endpoint not ready yet"
-                )
-
-            except Exception as e:
-                log.debug(f"Health check attempt {attempt + 1} failed: {e}")
-
-            # Wait before next attempt (except on last attempt)
-            if attempt < max_retries - 1:
-                await asyncio.sleep(retry_interval)
-
-        log.debug(
-            f"LB endpoint {self.name} failed to become healthy after "
-            f"{max_retries} attempts"
-        )
-        return False
 
     async def _do_deploy(self) -> "LoadBalancerSlsResource":
         """

@@ -18,11 +18,6 @@ DEFAULT_PYTHON_VERSION: str = "3.12"
 SUPPORTED_PYTHON_VERSIONS: tuple[str, ...] = ("3.10", "3.11", "3.12", "3.13")
 
 
-def local_python_version() -> str:
-    """Return the default worker Python version."""
-    return DEFAULT_PYTHON_VERSION
-
-
 # Image type to repository mapping
 _IMAGE_REPOS: dict[str, str] = {
     "gpu": "runpod/flash",
@@ -118,20 +113,10 @@ def get_image_name(
 
 # Docker image configuration
 FLASH_IMAGE_TAG = os.environ.get("FLASH_IMAGE_TAG", "latest")
-_RESOLVED_TAG = FLASH_IMAGE_TAG
 
-FLASH_GPU_IMAGE = os.environ.get(
-    "FLASH_GPU_IMAGE", f"runpod/flash:py{DEFAULT_PYTHON_VERSION}-{_RESOLVED_TAG}"
-)
-FLASH_CPU_IMAGE = os.environ.get(
-    "FLASH_CPU_IMAGE", f"runpod/flash-cpu:py{DEFAULT_PYTHON_VERSION}-{_RESOLVED_TAG}"
-)
-FLASH_LB_IMAGE = os.environ.get(
-    "FLASH_LB_IMAGE", f"runpod/flash-lb:py{DEFAULT_PYTHON_VERSION}-{_RESOLVED_TAG}"
-)
 FLASH_CPU_LB_IMAGE = os.environ.get(
     "FLASH_CPU_LB_IMAGE",
-    f"runpod/flash-lb-cpu:py{DEFAULT_PYTHON_VERSION}-{_RESOLVED_TAG}",
+    f"runpod/flash-lb-cpu:py{DEFAULT_PYTHON_VERSION}-{FLASH_IMAGE_TAG}",
 )
 
 # Worker configuration defaults
