@@ -4,7 +4,7 @@ from enum import Enum
 class DataCenter(str, Enum):
     """Enum representing available RunPod data centers.
 
-    NOTE: these are only datacenters with storage support, and s3 API support.
+    NOTE: these are only datacenters with storage support, and S3 API support.
     """
 
     # north america
