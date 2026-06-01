@@ -2429,7 +2429,7 @@ class TestServerlessResourcePythonVersion:
     def test_python_version_rejects_invalid(self):
         with pytest.raises(ValueError, match="not supported"):
             ServerlessEndpoint(
-                name="test", imageName="test:latest", python_version="3.13"
+                name="test", imageName="test:latest", python_version="3.99"
             )
 
     def test_python_version_rejects_3_9(self):

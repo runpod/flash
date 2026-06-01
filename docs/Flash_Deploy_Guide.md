@@ -6,7 +6,7 @@ This guide walks through deploying a Flash application from local development to
 
 ## Prerequisites
 
-- Python 3.10, 3.11, or 3.12
+- Python 3.10, 3.11, 3.12, or 3.13
 - `pip install runpod-flash`
 - A Runpod account with API key ([get one here](https://docs.runpod.io/get-started/api-keys))
 
@@ -19,9 +19,12 @@ Flash apps ship as a single tarball, so every resource in an app shares one Pyth
 
 | Version | Status | GPU cold-start | Notes |
 |---------|--------|----------------|-------|
-| 3.10 | Supported (EOL 2026-10-31) | +~7 GB alt-Python install | Consider migrating to 3.11 before EOL |
-| 3.11 | Supported | +~7 GB alt-Python install | |
+| 3.10 | Supported (EOL 2026-10-31) | +torch reinstall for cp310 ABI | Consider migrating to 3.11 before EOL |
+| 3.11 | Supported | +torch reinstall for cp311 ABI | |
 | 3.12 | Supported (default) | No overhead | Torch pre-installed in base image |
+| 3.13 | Supported | +torch reinstall for cp313 ABI | Requires torch ≥2.5.0 wheels |
+
+The GPU base image installs Python 3.10-3.13 side-by-side via the deadsnakes PPA, so the "overhead" for non-3.12 targets is the torch wheel reinstall for the matching ABI, not an alternate-interpreter install.
 
 ## Quick Start
 
