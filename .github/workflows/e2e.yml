@@ -15,6 +15,11 @@ env:
   PYTHON_VERSION: '3.11'
 
 jobs:
+  # Note: there's intentionally no unit-tests job here. ci.yml already runs the
+  # full quality matrix on every PR and push:main; duplicating it under
+  # workflow_dispatch would just be a third copy of the same install + pytest
+  # setup. If you need unit results outside of CI, run ci.yml manually or
+  # rerun a previous run.
   e2e:
     name: E2E
     runs-on: ubuntu-latest
