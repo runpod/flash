@@ -1051,3 +1051,9 @@ class TestReconcilePythonVersion:
     def test_unsupported_resource_version_raises(self):
         with pytest.raises(ValueError, match="not supported"):
             self._builder()._reconcile_python_version(_make_resources_dict(gpu="3.8"))
+
+    def test_reconcile_python_version_accepts_3_13_declaration(self):
+        resolved = self._builder()._reconcile_python_version(
+            _make_resources_dict(gpu="3.13")
+        )
+        assert resolved == "3.13"

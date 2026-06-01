@@ -1,10 +1,14 @@
 """User-Agent header generation for HTTP requests."""
 
+import os
 import platform
 
 
 def get_user_agent() -> str:
     """Get the User-Agent string for flash HTTP requests.
+
+    Appends coding agent source tags when the corresponding environment
+    variables are set (e.g. CLAUDECODE=1 for Claude Code).
 
     Returns:
         User-Agent string in format: Runpod Flash/<version> (Python <python_version>; <OS> <OS_version>; <arch>)
@@ -20,4 +24,9 @@ def get_user_agent() -> str:
     os_version = platform.release()
     arch = platform.machine()
 
-    return f"Runpod Flash/{__version__} (Python {python_version}; {os_name} {os_version}; {arch})"
+    ua = f"Runpod Flash/{__version__} (Python {python_version}; {os_name} {os_version}; {arch})"
+
+    if os.getenv("CLAUDECODE") == "1":
+        ua += " (via claude-code)"
+
+    return ua
