@@ -1,6 +1,5 @@
 import hashlib
 import logging
-from enum import Enum
 from typing import Optional, Dict, Any
 
 from pydantic import (
@@ -10,6 +9,7 @@ from pydantic import (
     field_serializer,
     model_validator,
 )
+from .datacenter import DataCenter
 
 from ..api.runpod import RunpodRestClient
 from ..urls import RUNPOD_CONSOLE_URL
@@ -17,53 +17,6 @@ from .base import DeployableResource
 from .resource_manager import ResourceManager
 
 log = logging.getLogger(__name__)
-
-
-class DataCenter(str, Enum):
-    """Enum representing available RunPod data centers."""
-
-    # north america
-    US_CA_2 = "US-CA-2"
-    US_GA_2 = "US-GA-2"
-    US_IL_1 = "US-IL-1"
-    US_KS_2 = "US-KS-2"
-    US_MD_1 = "US-MD-1"
-    US_MO_1 = "US-MO-1"
-    US_MO_2 = "US-MO-2"
-    US_NC_1 = "US-NC-1"
-    US_NC_2 = "US-NC-2"
-    US_NE_1 = "US-NE-1"
-    US_WA_1 = "US-WA-1"
-
-    # europe
-    EU_CZ_1 = "EU-CZ-1"
-    EU_RO_1 = "EU-RO-1"
-    EUR_IS_1 = "EUR-IS-1"
-    EUR_NO_1 = "EUR-NO-1"
-
-    @classmethod
-    def from_string(cls, value: str) -> "DataCenter":
-        """Parse a datacenter ID string into a DataCenter enum.
-
-        Accepts the canonical form (e.g. "EU-RO-1") as well as common
-        variations like lowercase or underscore-separated.
-        """
-        normalized = value.strip().upper().replace("_", "-")
-        try:
-            return cls(normalized)
-        except ValueError:
-            valid = ", ".join(dc.value for dc in cls)
-            raise ValueError(
-                f"Unknown datacenter '{value}'. Valid datacenters: {valid}"
-            )
-
-
-# data centers that support CPU serverless endpoints
-CPU_DATACENTERS: frozenset[DataCenter] = frozenset(
-    {
-        DataCenter.EU_RO_1,
-    }
-)
 
 
 class NetworkVolume(DeployableResource):

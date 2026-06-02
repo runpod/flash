@@ -6,7 +6,8 @@ from unittest.mock import AsyncMock, patch, MagicMock
 import pytest
 from pydantic import ValidationError
 
-from runpod_flash.core.resources.network_volume import NetworkVolume, DataCenter
+from runpod_flash.core.resources.network_volume import NetworkVolume
+from runpod_flash.core.resources.datacenter import DataCenter
 
 
 class TestNetworkVolumeIdempotent:

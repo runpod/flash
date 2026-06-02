@@ -18,7 +18,8 @@ from .serverless import (
 )
 from .serverless_cpu import CpuServerlessEndpoint
 from .template import PodTemplate
-from .network_volume import NetworkVolume, DataCenter, CPU_DATACENTERS
+from .network_volume import NetworkVolume
+from .datacenter import DataCenter, CPU_DATACENTERS
 from .load_balancer_sls_resource import (
     CpuLoadBalancerSlsResource,
     LoadBalancerSlsResource,

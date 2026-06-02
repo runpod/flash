@@ -32,7 +32,8 @@ from .constants import (
 )
 from .cpu import CpuInstanceType
 from .gpu import GpuGroup, GpuType
-from .network_volume import NetworkVolume, DataCenter, CPU_DATACENTERS
+from .network_volume import NetworkVolume
+from .datacenter import DataCenter, CPU_DATACENTERS
 from .request_logs import QBRequestLogBatch, QBRequestLogFetcher, QBRequestLogPhase
 from .worker_availability_diagnostic import WorkerAvailabilityDiagnostic
 from .template import KeyValuePair, PodTemplate
