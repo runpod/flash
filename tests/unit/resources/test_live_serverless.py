@@ -4,7 +4,7 @@ Unit tests for LiveServerless and CpuLiveServerless classes.
 
 import pytest
 from runpod_flash.core.resources.constants import (
-    GPU_BASE_IMAGE_PYTHON_VERSION,
+    DEFAULT_PYTHON_VERSION,
 )
 from runpod_flash.core.resources.cpu import CpuInstanceType
 from runpod_flash.core.resources.live_serverless import (
@@ -45,19 +45,20 @@ class TestLiveServerless:
         assert live_serverless.template.containerDiskInGb == 64
         assert "flash:" in live_serverless.imageName  # GPU image
 
-    def test_live_serverless_image_locked(self):
-        """Test LiveServerless imageName is locked to GPU image."""
+    def test_live_serverless_image_override_via_constructor(self):
+        """LiveServerless accepts a caller-supplied imageName (AE-3153)."""
         live_serverless = LiveServerless(
             name="example_gpu_live_serverless",
+            imageName="custom/image:latest",
         )
 
-        original_image = live_serverless.imageName
+        # User-supplied image wins over the Flash runtime default.
+        assert live_serverless.imageName == "custom/image:latest"
 
-        # Attempt to change imageName - should be ignored
-        live_serverless.imageName = "custom/image:latest"
-
-        assert live_serverless.imageName == original_image
-        assert "flash:" in live_serverless.imageName  # Still GPU image
+    def test_live_serverless_image_default_unchanged(self):
+        """LiveServerless still defaults to the Flash GPU runtime image."""
+        live_serverless = LiveServerless(name="example_gpu_live_serverless")
+        assert "flash:" in live_serverless.imageName
 
     def test_live_serverless_with_custom_template(self):
         """Test LiveServerless with custom template."""
@@ -113,20 +114,23 @@ class TestCpuLiveServerless:
         assert live_serverless.template is not None
         assert live_serverless.template.containerDiskInGb == 10  # Min of 10 and 30
 
-    def test_cpu_live_serverless_image_locked(self):
-        """Test CpuLiveServerless imageName is locked to CPU image."""
+    def test_cpu_live_serverless_image_override_via_constructor(self):
+        """CpuLiveServerless accepts a caller-supplied imageName (AE-3153)."""
+        live_serverless = CpuLiveServerless(
+            name="example_cpu_live_serverless",
+            instanceIds=[CpuInstanceType.CPU3G_1_4],
+            imageName="custom/image:latest",
+        )
+
+        assert live_serverless.imageName == "custom/image:latest"
+
+    def test_cpu_live_serverless_image_default_unchanged(self):
+        """CpuLiveServerless still defaults to the Flash CPU runtime image."""
         live_serverless = CpuLiveServerless(
             name="example_cpu_live_serverless",
             instanceIds=[CpuInstanceType.CPU3G_1_4],
         )
-
-        original_image = live_serverless.imageName
-
-        # Attempt to change imageName - should be ignored
-        live_serverless.imageName = "custom/image:latest"
-
-        assert live_serverless.imageName == original_image
-        assert "flash-cpu:" in live_serverless.imageName  # Still CPU image
+        assert "flash-cpu:" in live_serverless.imageName
 
     def test_cpu_live_serverless_validation_failure(self):
         """Test CpuLiveServerless validation fails with excessive disk size."""
@@ -190,32 +194,40 @@ class TestLiveServerlessMixin:
         assert "flash-cpu:" in live_serverless._live_image
 
     def test_image_name_property_gpu(self):
-        """Test LiveServerless imageName property returns locked image."""
+        """LiveServerless defaults imageName to the Flash runtime image when none supplied."""
         live_serverless = LiveServerless(name="test")
         assert live_serverless.imageName == live_serverless._live_image
 
     def test_image_name_property_cpu(self):
-        """Test CpuLiveServerless imageName property returns locked image."""
+        """CpuLiveServerless defaults imageName to the Flash runtime image when none supplied."""
         live_serverless = CpuLiveServerless(name="test")
         assert live_serverless.imageName == live_serverless._live_image
 
-    def test_image_name_setter_ignored_gpu(self):
-        """Test LiveServerless imageName setter is ignored."""
-        live_serverless = LiveServerless(name="test")
-        original_image = live_serverless.imageName
+    def test_image_name_override_gpu(self):
+        """LiveServerless honors caller-supplied imageName (AE-3153)."""
+        live_serverless = LiveServerless(name="test", imageName="byo/image:v1")
+        assert live_serverless.imageName == "byo/image:v1"
 
-        live_serverless.imageName = "should-be-ignored"
+    def test_image_name_override_cpu(self):
+        """CpuLiveServerless honors caller-supplied imageName (AE-3153)."""
+        live_serverless = CpuLiveServerless(name="test", imageName="byo/cpu-image:v1")
+        assert live_serverless.imageName == "byo/cpu-image:v1"
 
-        assert live_serverless.imageName == original_image
+    def test_image_name_override_lb(self):
+        """LiveLoadBalancer honors caller-supplied imageName (AE-3153)."""
+        lb = LiveLoadBalancer(name="test", imageName="byo/lb-image:v1")
+        assert lb.imageName == "byo/lb-image:v1"
 
-    def test_image_name_setter_ignored_cpu(self):
-        """Test CpuLiveServerless imageName setter is ignored."""
-        live_serverless = CpuLiveServerless(name="test")
-        original_image = live_serverless.imageName
+    def test_image_name_override_cpu_lb(self):
+        """CpuLiveLoadBalancer honors caller-supplied imageName (AE-3153)."""
+        lb = CpuLiveLoadBalancer(name="test", imageName="byo/cpu-lb-image:v1")
+        assert lb.imageName == "byo/cpu-lb-image:v1"
 
-        live_serverless.imageName = "should-be-ignored"
-
-        assert live_serverless.imageName == original_image
+    def test_default_image_validator_passes_through_non_dict(self):
+        """`mode='before'` validators must tolerate non-dict input (e.g., model instances)."""
+        original = LiveServerless(name="test", imageName="byo/image:v1")
+        revalidated = LiveServerless.model_validate(original)
+        assert revalidated.imageName == "byo/image:v1"
 
 
 class TestLiveServerlessPythonVersion:
@@ -223,7 +235,7 @@ class TestLiveServerlessPythonVersion:
 
     def test_gpu_default_image_uses_gpu_base_python(self):
         ls = LiveServerless(name="test")
-        assert f"py{GPU_BASE_IMAGE_PYTHON_VERSION}" in ls.imageName
+        assert f"py{DEFAULT_PYTHON_VERSION}" in ls.imageName
 
     @pytest.mark.parametrize("version", ["3.10", "3.11", "3.12"])
     def test_gpu_explicit_supported_versions(self, version):
@@ -250,7 +262,7 @@ class TestLiveLoadBalancerPythonVersion:
 
     def test_lb_default_image_uses_gpu_base_python(self):
         lb = LiveLoadBalancer(name="test")
-        assert f"py{GPU_BASE_IMAGE_PYTHON_VERSION}" in lb.imageName
+        assert f"py{DEFAULT_PYTHON_VERSION}" in lb.imageName
         assert "runpod/flash-lb:" in lb.imageName
 
     @pytest.mark.parametrize("version", ["3.10", "3.11", "3.12"])

@@ -8,30 +8,25 @@ import pytest
 from runpod_flash.core.resources.constants import (
     CPU_PYTHON_VERSIONS,
     DEFAULT_PYTHON_VERSION,
-    GPU_BASE_IMAGE_PYTHON_VERSION,
     GPU_PYTHON_VERSIONS,
     SUPPORTED_PYTHON_VERSIONS,
     get_image_name,
-    local_python_version,
     validate_python_version,
 )
 
 
 class TestSupportedPythonVersions:
     def test_supported_versions(self):
-        assert SUPPORTED_PYTHON_VERSIONS == ("3.10", "3.11", "3.12")
+        assert SUPPORTED_PYTHON_VERSIONS == ("3.10", "3.11", "3.12", "3.13")
 
     def test_gpu_python_versions(self):
-        assert GPU_PYTHON_VERSIONS == ("3.10", "3.11", "3.12")
+        assert GPU_PYTHON_VERSIONS == ("3.10", "3.11", "3.12", "3.13")
 
     def test_cpu_python_versions(self):
-        assert CPU_PYTHON_VERSIONS == ("3.10", "3.11", "3.12")
+        assert CPU_PYTHON_VERSIONS == ("3.10", "3.11", "3.12", "3.13")
 
     def test_default_python_version_is_3_12(self):
         assert DEFAULT_PYTHON_VERSION == "3.12"
-
-    def test_gpu_base_image_python_version(self):
-        assert GPU_BASE_IMAGE_PYTHON_VERSION == "3.12"
 
 
 class TestGetImageName:
@@ -40,28 +35,33 @@ class TestGetImageName:
             get_image_name("gpu", "3.12", tag="latest") == "runpod/flash:py3.12-latest"
         )
 
-    @pytest.mark.parametrize("version", ["3.10", "3.11", "3.12"])
+    def test_gpu_3_13(self):
+        assert (
+            get_image_name("gpu", "3.13", tag="latest") == "runpod/flash:py3.13-latest"
+        )
+
+    @pytest.mark.parametrize("version", ["3.10", "3.11", "3.12", "3.13"])
     def test_gpu_all_supported_versions(self, version):
         assert (
             get_image_name("gpu", version, tag="latest")
             == f"runpod/flash:py{version}-latest"
         )
 
-    @pytest.mark.parametrize("version", ["3.10", "3.11", "3.12"])
+    @pytest.mark.parametrize("version", ["3.10", "3.11", "3.12", "3.13"])
     def test_cpu_all_supported_versions(self, version):
         assert (
             get_image_name("cpu", version, tag="latest")
             == f"runpod/flash-cpu:py{version}-latest"
         )
 
-    @pytest.mark.parametrize("version", ["3.10", "3.11", "3.12"])
+    @pytest.mark.parametrize("version", ["3.10", "3.11", "3.12", "3.13"])
     def test_lb_all_supported_versions(self, version):
         assert (
             get_image_name("lb", version, tag="latest")
             == f"runpod/flash-lb:py{version}-latest"
         )
 
-    @pytest.mark.parametrize("version", ["3.10", "3.11", "3.12"])
+    @pytest.mark.parametrize("version", ["3.10", "3.11", "3.12", "3.13"])
     def test_lb_cpu_all_supported_versions(self, version):
         assert (
             get_image_name("lb-cpu", version, tag="latest")
@@ -82,7 +82,7 @@ class TestGetImageName:
 
     def test_invalid_python_version_raises(self):
         with pytest.raises(ValueError, match="not supported"):
-            get_image_name("gpu", "3.13")
+            get_image_name("gpu", "3.99")
 
     def test_custom_tag(self):
         assert get_image_name("gpu", "3.12", tag="v2.0") == "runpod/flash:py3.12-v2.0"
@@ -113,14 +113,6 @@ class TestGetImageName:
             assert get_image_name("gpu", "3.8") == "custom/gpu:mine"
 
 
-class TestLocalPythonVersion:
-    def test_returns_3_12(self):
-        assert local_python_version() == "3.12"
-
-    def test_returns_string_type(self):
-        assert isinstance(local_python_version(), str)
-
-
 class TestValidatePythonVersion:
     def test_valid_versions(self):
         for v in SUPPORTED_PYTHON_VERSIONS:
@@ -128,7 +120,7 @@ class TestValidatePythonVersion:
 
     def test_invalid_version_raises(self):
         with pytest.raises(ValueError, match="not supported"):
-            validate_python_version("3.13")
+            validate_python_version("3.99")
 
     def test_old_version_raises(self):
         with pytest.raises(ValueError, match="not supported"):

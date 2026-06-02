@@ -1,25 +1,21 @@
 import os
 
 # Worker runtime Python versions. One tarball serves every resource in an app,
-# so all resources must share a single Python version. GPU images ship 3.12
-# with torch pre-installed; 3.10 and 3.11 are available via side-by-side
-# install (~7 GB alt-Python overhead) in the same base image.
+# so all resources must share a single Python version. The GPU base image
+# ships every supported interpreter (3.10-3.13) side-by-side via the deadsnakes
+# PPA, but torch and CUDA-linked packages are pre-installed only for 3.12.
 WORKER_PYTHON_VERSION: str = "3.12"
-GPU_PYTHON_VERSIONS: tuple[str, ...] = ("3.10", "3.11", "3.12")
-CPU_PYTHON_VERSIONS: tuple[str, ...] = ("3.10", "3.11", "3.12")
+GPU_PYTHON_VERSIONS: tuple[str, ...] = ("3.10", "3.11", "3.12", "3.13")
+CPU_PYTHON_VERSIONS: tuple[str, ...] = ("3.10", "3.11", "3.12", "3.13")
 
-# Base image ships 3.12 with torch pre-installed; non-3.12 targets reinstall
-# torch side-by-side for the selected interpreter.
+# Non-3.12 targets use the same deadsnakes interpreter already in the image but
+# reinstall torch against the selected interpreter's ABI (cp310/cp311/cp313)
+# during build — the alternate Python itself is not re-downloaded.
 GPU_BASE_IMAGE_PYTHON_VERSION: str = "3.12"
 DEFAULT_PYTHON_VERSION: str = "3.12"
 
 # Python versions that can run the flash SDK locally (for flash build, etc.)
-SUPPORTED_PYTHON_VERSIONS: tuple[str, ...] = ("3.10", "3.11", "3.12")
-
-
-def local_python_version() -> str:
-    """Return the default worker Python version."""
-    return DEFAULT_PYTHON_VERSION
+SUPPORTED_PYTHON_VERSIONS: tuple[str, ...] = ("3.10", "3.11", "3.12", "3.13")
 
 
 # Image type to repository mapping
@@ -117,20 +113,10 @@ def get_image_name(
 
 # Docker image configuration
 FLASH_IMAGE_TAG = os.environ.get("FLASH_IMAGE_TAG", "latest")
-_RESOLVED_TAG = FLASH_IMAGE_TAG
 
-FLASH_GPU_IMAGE = os.environ.get(
-    "FLASH_GPU_IMAGE", f"runpod/flash:py{DEFAULT_PYTHON_VERSION}-{_RESOLVED_TAG}"
-)
-FLASH_CPU_IMAGE = os.environ.get(
-    "FLASH_CPU_IMAGE", f"runpod/flash-cpu:py{DEFAULT_PYTHON_VERSION}-{_RESOLVED_TAG}"
-)
-FLASH_LB_IMAGE = os.environ.get(
-    "FLASH_LB_IMAGE", f"runpod/flash-lb:py{DEFAULT_PYTHON_VERSION}-{_RESOLVED_TAG}"
-)
 FLASH_CPU_LB_IMAGE = os.environ.get(
     "FLASH_CPU_LB_IMAGE",
-    f"runpod/flash-lb-cpu:py{DEFAULT_PYTHON_VERSION}-{_RESOLVED_TAG}",
+    f"runpod/flash-lb-cpu:py{DEFAULT_PYTHON_VERSION}-{FLASH_IMAGE_TAG}",
 )
 
 # Worker configuration defaults

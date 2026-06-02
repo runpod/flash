@@ -244,28 +244,28 @@ class TestCpuDiskSizingIntegration:
         assert "cpu5c-1-2: max 15GB" in error_msg
 
 
-class TestLiveServerlessImageLockingIntegration:
-    """Test image locking integration in live serverless variants."""
+class TestLiveServerlessImageIntegration:
+    """Test image default + override behavior in live serverless variants (AE-3153)."""
 
     def test_live_serverless_image_consistency(self):
-        """Test that LiveServerless variants maintain image consistency."""
+        """LiveServerless variants default to distinct Flash runtime images."""
         gpu_live = LiveServerless(name="gpu-live")
         cpu_live = CpuLiveServerless(name="cpu-live")
 
-        # Verify different images are used
+        # Verify different default images are used per resource type.
         assert gpu_live.imageName != cpu_live.imageName
         assert "flash:" in gpu_live.imageName
         assert "flash-cpu:" in cpu_live.imageName
 
-        # Verify images remain locked despite attempts to change
-        original_gpu_image = gpu_live.imageName
-        original_cpu_image = cpu_live.imageName
+    def test_live_serverless_image_override_via_constructor(self):
+        """Caller-supplied imageName overrides the Flash runtime default (AE-3153)."""
+        gpu_live = LiveServerless(name="gpu-live", imageName="custom/image:latest")
+        cpu_live = CpuLiveServerless(
+            name="cpu-live", imageName="custom/cpu-image:latest"
+        )
 
-        gpu_live.imageName = "custom/image:latest"
-        cpu_live.imageName = "custom/image:latest"
-
-        assert gpu_live.imageName == original_gpu_image
-        assert cpu_live.imageName == original_cpu_image
+        assert gpu_live.imageName == "custom/image:latest"
+        assert cpu_live.imageName == "custom/cpu-image:latest"
 
     def test_live_serverless_template_integration(self):
         """Test live serverless template integration with disk sizing."""

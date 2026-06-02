@@ -245,13 +245,3 @@ def _release_fallback_lock(file_handle: BinaryIO) -> None:
 
     except Exception as e:
         log.error(f"Failed to remove fallback lock file: {e}")
-
-
-def get_platform_info() -> dict:
-    """Get information about current platform and available locking mechanisms."""
-    return {
-        "platform": platform.system(),
-        "windows_locking": _IS_WINDOWS and _WINDOWS_LOCKING_AVAILABLE,
-        "unix_locking": _IS_UNIX and _UNIX_LOCKING_AVAILABLE,
-        "fallback_only": not (_WINDOWS_LOCKING_AVAILABLE or _UNIX_LOCKING_AVAILABLE),
-    }

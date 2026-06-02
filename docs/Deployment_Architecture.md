@@ -31,7 +31,7 @@ flash build
     │
     ├── 4. Dependency Installation
     │   ├── Install Python packages for linux/x86_64
-    │   ├── Target the app's python_version for wheel ABI selection (3.10 / 3.11 / 3.12)
+    │   ├── Target the app's python_version for wheel ABI selection (3.10 / 3.11 / 3.12 / 3.13)
     │   └── Binary wheels only (no compilation)
     │
     └── 5. Packaging

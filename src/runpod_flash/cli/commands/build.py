@@ -16,11 +16,6 @@ from typing import Optional
 import typer
 from rich.console import Console
 
-try:
-    import tomllib  # Python 3.11+
-except ImportError:
-    import tomli as tomllib  # Python 3.10
-
 from runpod_flash.cli.utils.formatting import print_error, print_warning
 from runpod_flash.core.resources.constants import MAX_TARBALL_SIZE_MB
 
@@ -165,52 +160,6 @@ def _bundle_runpod_flash(build_dir: Path, flash_pkg: Path) -> None:
     )
 
     logger.debug("bundled runpod_flash from %s", flash_pkg)
-
-
-def _extract_runpod_flash_dependencies(flash_pkg_dir: Path) -> list[str]:
-    """Extract runtime dependencies from runpod_flash's pyproject.toml.
-
-    When bundling local runpod_flash source, we need to also install its dependencies
-    so they're available in the build environment.
-
-    Args:
-        flash_pkg_dir: Path to runpod_flash package directory (src/runpod_flash)
-
-    Returns:
-        List of dependency strings, empty list if parsing fails
-    """
-    try:
-        # Navigate from runpod_flash package to project root
-        # flash_pkg_dir is src/runpod_flash, need to go up 2 levels to reach project root
-        project_root = flash_pkg_dir.parent.parent
-        pyproject_path = project_root / "pyproject.toml"
-
-        if not pyproject_path.exists():
-            console.print(
-                "[yellow]⚠ runpod_flash pyproject.toml not found, "
-                "dependencies may be missing[/yellow]"
-            )
-            return []
-
-        # Parse TOML
-        with open(pyproject_path, "rb") as f:
-            data = tomllib.load(f)
-
-        # Extract dependencies from [project.dependencies]
-        dependencies = data.get("project", {}).get("dependencies", [])
-
-        if dependencies:
-            console.print(
-                f"[dim]Found {len(dependencies)} runpod_flash dependencies to install[/dim]"
-            )
-
-        return dependencies
-
-    except Exception as e:
-        console.print(
-            f"[yellow]⚠ Failed to parse runpod_flash dependencies: {e}[/yellow]"
-        )
-        return []
 
 
 def _normalize_package_name(name: str) -> str:
@@ -1083,17 +1032,6 @@ def create_tarball(
                 continue
             arcname = f"./{rel}"
             tar.add(str(item), arcname=arcname)
-
-
-def cleanup_build_directory(build_base: Path) -> None:
-    """
-    Remove build directory.
-
-    Args:
-        build_base: .build directory to remove
-    """
-    if build_base.exists():
-        shutil.rmtree(build_base)
 
 
 def _display_build_summary(
