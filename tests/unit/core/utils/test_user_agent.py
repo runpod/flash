@@ -1,14 +1,18 @@
 """Tests for user_agent module."""
 
+import os
 import platform
 import re
+from unittest.mock import patch
 
 
 def test_get_user_agent_format():
     """Test User-Agent string format matches expected pattern."""
     from runpod_flash.core.utils.user_agent import get_user_agent
 
-    ua = get_user_agent()
+    with patch.dict(os.environ, {}, clear=False):
+        os.environ.pop("CLAUDECODE", None)
+        ua = get_user_agent()
 
     # Should match: "Runpod Flash/<version> (Python <py_version>; <OS> <OS_version>; <arch>)"
     pattern = r"^Runpod Flash/[\w\.]+ \(Python [\d\.]+; \w+ [\w\.\-]+; [\w\d_]+\)$"
@@ -79,7 +83,9 @@ def test_get_user_agent_structure():
     """Test User-Agent has correct structure."""
     from runpod_flash.core.utils.user_agent import get_user_agent
 
-    ua = get_user_agent()
+    with patch.dict(os.environ, {}, clear=False):
+        os.environ.pop("CLAUDECODE", None)
+        ua = get_user_agent()
 
     # Should have exactly one opening and closing parenthesis
     assert ua.count("(") == 1, "User-Agent should have exactly one opening parenthesis"
@@ -97,3 +103,28 @@ def test_get_user_agent_consistency():
     ua2 = get_user_agent()
 
     assert ua1 == ua2, "User-Agent should be consistent across calls"
+
+
+def test_get_user_agent_with_claude_code():
+    """Test User-Agent includes claude-code agent tag."""
+    from runpod_flash.core.utils.user_agent import get_user_agent
+
+    with patch.dict(os.environ, {"CLAUDECODE": "1"}):
+        ua = get_user_agent()
+
+    assert ua.endswith("(via claude-code)"), (
+        f"User-Agent should end with '(via claude-code)', got: {ua}"
+    )
+
+
+def test_get_user_agent_without_claude_code():
+    """Test User-Agent excludes agent tag when env var is not set."""
+    from runpod_flash.core.utils.user_agent import get_user_agent
+
+    with patch.dict(os.environ, {}, clear=False):
+        os.environ.pop("CLAUDECODE", None)
+        ua = get_user_agent()
+
+    assert "via claude-code" not in ua, (
+        f"User-Agent should not contain agent tag, got: {ua}"
+    )

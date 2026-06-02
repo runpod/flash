@@ -8,7 +8,6 @@ from runpod_flash.cli.utils.formatting import (
     format_datetime,
     print_error,
     print_warning,
-    state_dot,
 )
 
 
@@ -111,17 +110,3 @@ class TestPrintWarning:
         print_warning(console, "\nwatch out")
         output = buf.getvalue()
         assert "watch out" in output
-
-
-class TestStateDot:
-    def test_healthy(self):
-        assert "[green]●[/green]" in state_dot("HEALTHY")
-
-    def test_building(self):
-        assert "[yellow]●[/yellow]" in state_dot("BUILDING")
-
-    def test_error(self):
-        assert "[red]●[/red]" in state_dot("ERROR")
-
-    def test_unknown_defaults_yellow(self):
-        assert "[yellow]●[/yellow]" in state_dot("WHATEVER")

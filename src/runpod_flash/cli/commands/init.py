@@ -9,6 +9,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from ..utils.skeleton import create_project_skeleton, detect_file_conflicts
+from ...rules import install_agent_files
 
 console = Console()
 
@@ -76,6 +77,10 @@ def init_command(
     )
     with console.status(status_msg):
         create_project_skeleton(project_dir, should_overwrite)
+        installed_agent_files = install_agent_files(project_dir)
+
+    agents_md_created = (project_dir / "AGENTS.md") in installed_agent_files
+    claude_md_created = (project_dir / "CLAUDE.md") in installed_agent_files
 
     # Success output
     if is_current_dir:
@@ -93,6 +98,12 @@ def init_command(
     panel_content += "  ├── pyproject.toml\n"
     panel_content += "  ├── .env.example\n"
     panel_content += "  ├── requirements.txt\n"
+    if agents_md_created:
+        panel_content += (
+            "  ├── AGENTS.md             # AI agent rules (auto-generated)\n"
+        )
+    if claude_md_created:
+        panel_content += "  ├── CLAUDE.md             # symlink → AGENTS.md\n"
     panel_content += "  └── README.md\n"
 
     title = "Project Initialized" if is_current_dir else "Project Created"

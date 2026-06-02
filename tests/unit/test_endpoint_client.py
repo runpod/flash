@@ -199,6 +199,132 @@ class TestEndpointJobWait:
                 await job.wait(timeout=0.3)
 
 
+@pytest.fixture
+def fast_poll(monkeypatch):
+    """shrink the poll intervals so retry tests don't sit on real sleeps."""
+    monkeypatch.setattr("runpod_flash.endpoint._POLL_INITIAL_INTERVAL", 0.001)
+    monkeypatch.setattr("runpod_flash.endpoint._POLL_MAX_INTERVAL", 0.005)
+
+
+class TestEndpointJobWaitTransientErrors:
+    """retry behavior for transient httpx errors during wait() polling (AE-3154)."""
+
+    @staticmethod
+    def _make_job():
+        ep = Endpoint(id="ep-1")
+        ep._endpoint_url = "https://api.runpod.ai/v2/ep-1"
+        job = EndpointJob({"id": "j-1", "status": "IN_QUEUE"}, ep)
+        return ep, job
+
+    @pytest.mark.asyncio
+    async def test_transient_error_then_success(self, fast_poll):
+        """one RemoteProtocolError then COMPLETED — wait() returns normally."""
+        import httpx
+
+        ep, job = self._make_job()
+
+        side_effects = [
+            httpx.RemoteProtocolError("server disconnected"),
+            {"id": "j-1", "status": "COMPLETED", "output": {"r": 1}},
+        ]
+        ep._api_get = AsyncMock(side_effect=side_effects)
+
+        result = await job.wait()
+
+        assert result is job
+        assert job._data["status"] == "COMPLETED"
+        assert job.output == {"r": 1}
+        assert ep._api_get.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_repeated_transient_errors_exceed_threshold(self, fast_poll):
+        """5 consecutive RemoteProtocolErrors — wait() re-raises the httpx error."""
+        import httpx
+
+        from runpod_flash.endpoint import _POLL_MAX_CONSECUTIVE_ERRORS
+
+        ep, job = self._make_job()
+        ep._api_get = AsyncMock(
+            side_effect=httpx.RemoteProtocolError("server disconnected")
+        )
+
+        with pytest.raises(httpx.RemoteProtocolError):
+            await job.wait()
+
+        assert ep._api_get.call_count == _POLL_MAX_CONSECUTIVE_ERRORS
+
+    @pytest.mark.asyncio
+    async def test_counter_resets_on_successful_poll(self, fast_poll):
+        """error bursts under the threshold separated by successes do not abort."""
+        import httpx
+
+        ep, job = self._make_job()
+
+        side_effects = [
+            httpx.RemoteProtocolError("drop 1"),
+            httpx.RemoteProtocolError("drop 2"),
+            {"id": "j-1", "status": "IN_PROGRESS"},
+            httpx.RemoteProtocolError("drop 3"),
+            httpx.RemoteProtocolError("drop 4"),
+            httpx.RemoteProtocolError("drop 5"),
+            httpx.RemoteProtocolError("drop 6"),
+            {"id": "j-1", "status": "IN_PROGRESS"},
+            {"id": "j-1", "status": "COMPLETED", "output": {"r": 1}},
+        ]
+        ep._api_get = AsyncMock(side_effect=side_effects)
+
+        result = await job.wait()
+
+        assert result is job
+        assert job._data["status"] == "COMPLETED"
+        assert ep._api_get.call_count == len(side_effects)
+
+    @pytest.mark.asyncio
+    async def test_http_status_error_not_swallowed(self, fast_poll):
+        """4xx HTTPStatusError must propagate immediately (auth/config bugs)."""
+        import httpx
+
+        ep, job = self._make_job()
+
+        request = httpx.Request("GET", "https://api.runpod.ai/v2/ep-1/status/j-1")
+        response = httpx.Response(401, request=request)
+        ep._api_get = AsyncMock(
+            side_effect=httpx.HTTPStatusError(
+                "401 unauthorized", request=request, response=response
+            )
+        )
+
+        with pytest.raises(httpx.HTTPStatusError):
+            await job.wait()
+
+        # exactly one call: not retried
+        assert ep._api_get.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_timeout_still_authoritative(self, fast_poll, monkeypatch):
+        """when deadline is hit before threshold, raise TimeoutError not httpx error.
+
+        Raises the threshold above the number of retries the deadline allows, so
+        the test actually exercises the retry path (multiple suppressed httpx
+        errors) before the deadline trips -- not just the pre-sleep guard.
+        """
+        import httpx
+
+        monkeypatch.setattr("runpod_flash.endpoint._POLL_MAX_CONSECUTIVE_ERRORS", 1000)
+
+        ep, job = self._make_job()
+        ep._api_get = AsyncMock(
+            side_effect=httpx.RemoteProtocolError("server disconnected")
+        )
+
+        with pytest.raises(TimeoutError, match="did not complete within"):
+            await job.wait(timeout=0.05)
+
+        # proves the retry path was exercised: status() was called and the
+        # httpx error was suppressed at least once before the deadline tripped.
+        assert ep._api_get.call_count >= 2
+
+
 # -- Endpoint.run / runsync / cancel --
 
 

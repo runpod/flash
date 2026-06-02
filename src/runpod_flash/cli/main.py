@@ -45,7 +45,6 @@ app.command("build")(build.build_command)
 app.command("login")(login.login_command)
 app.command("deploy")(deploy.deploy_command)
 app.command("update")(update.update_command)
-# app.command("report")(resource.report_command)
 
 
 # command: flash env <subcommand>

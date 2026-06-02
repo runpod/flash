@@ -1,5 +1,6 @@
 """Tests for flash init command."""
 
+from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -317,3 +318,60 @@ class TestInitCommandProjectNameHandling:
         assert (tmp_path / "my_awesome_project").exists()
         # Verify it's a directory
         assert (tmp_path / "my_awesome_project").is_dir()
+
+
+class TestInitInstallsAgentFiles:
+    def test_init_calls_install_agent_files(self, tmp_path, monkeypatch):
+        from typer.testing import CliRunner
+
+        from runpod_flash.cli.main import app
+
+        monkeypatch.chdir(tmp_path)
+
+        with (
+            patch("runpod_flash.cli.commands.init.install_agent_files") as mock_install,
+            patch("runpod_flash.cli.commands.init.create_project_skeleton"),
+            patch(
+                "runpod_flash.cli.commands.init.detect_file_conflicts", return_value=[]
+            ),
+        ):
+            result = CliRunner().invoke(app, ["init", "test_project"])
+
+        assert result.exit_code == 0, result.output
+        mock_install.assert_called_once()
+        call_args = mock_install.call_args[0]
+        assert call_args[0] == Path("test_project")
+
+    @pytest.mark.skipif(
+        __import__("sys").platform == "win32",
+        reason="CLAUDE.md symlink creation requires developer mode on Windows",
+    )
+    def test_init_writes_agents_and_claude_files_end_to_end(
+        self, tmp_path, monkeypatch
+    ):
+        """End-to-end: `flash init <name>` produces AGENTS.md + CLAUDE.md on disk.
+
+        Mocks are intentionally absent for install_agent_files and
+        create_project_skeleton — the goal is to catch wiring regressions
+        between the CLI and the rules installer.
+        """
+        from typer.testing import CliRunner
+
+        from runpod_flash.cli.main import app
+
+        monkeypatch.chdir(tmp_path)
+
+        result = CliRunner().invoke(app, ["init", "demo"])
+
+        assert result.exit_code == 0, result.output
+
+        project = tmp_path / "demo"
+        agents = project / "AGENTS.md"
+        claude = project / "CLAUDE.md"
+
+        assert agents.is_file()
+        assert "Use the Flash CLI" in agents.read_text(encoding="utf-8")
+        assert claude.is_symlink()
+        import os
+
+        assert os.readlink(claude) == "AGENTS.md"
