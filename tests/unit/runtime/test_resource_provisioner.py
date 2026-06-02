@@ -473,7 +473,7 @@ class TestCreateResourceFromManifest:
             "imageName": "runpod/flash:latest",
             "networkVolumes": [
                 {"name": "vol-eu", "size": 100, "dataCenterId": "EU-RO-1"},
-                {"name": "vol-us", "size": 200, "dataCenterId": "US-GA-2"},
+                {"name": "vol-us", "size": 200, "dataCenterId": "US-CA-2"},
             ],
         }
 
@@ -487,7 +487,7 @@ class TestCreateResourceFromManifest:
             assert resource.networkVolumes[0].dataCenterId.value == "EU-RO-1"
             assert resource.networkVolumes[1].name == "vol-us"
             assert resource.networkVolumes[1].size == 200
-            assert resource.networkVolumes[1].dataCenterId.value == "US-GA-2"
+            assert resource.networkVolumes[1].dataCenterId.value == "US-CA-2"
 
     def test_create_resource_multi_volumes_takes_precedence_over_singular(self):
         """networkVolumes takes precedence over networkVolume when both present."""

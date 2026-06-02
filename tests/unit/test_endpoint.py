@@ -12,7 +12,8 @@ from runpod_flash.core.resources.constants import (
 from runpod_flash.endpoint import Endpoint, _normalize_workers
 from runpod_flash.core.resources.cpu import CpuInstanceType
 from runpod_flash.core.resources.gpu import GpuGroup, GpuType
-from runpod_flash.core.resources.network_volume import DataCenter, NetworkVolume
+from runpod_flash.core.resources.network_volume import NetworkVolume
+from runpod_flash.core.resources.datacenter import DataCenter
 from runpod_flash.core.resources.serverless import ServerlessScalerType
 from runpod_flash.core.resources.template import PodTemplate
 
@@ -136,7 +137,7 @@ class TestEndpointInit:
 
     def test_volume_list(self):
         v1 = NetworkVolume(name="v1", size=50, dataCenterId=DataCenter.EU_RO_1)
-        v2 = NetworkVolume(name="v2", size=50, dataCenterId=DataCenter.US_GA_2)
+        v2 = NetworkVolume(name="v2", size=50, dataCenterId=DataCenter.US_CA_2)
         ep = Endpoint(name="test", volume=[v1, v2])
         assert ep.volume == [v1, v2]
 
@@ -145,22 +146,30 @@ class TestEndpointInit:
         assert ep.volume is None
 
     def test_datacenter_single(self):
-        ep = Endpoint(name="test", datacenter=DataCenter.US_GA_2)
-        assert ep.datacenter == DataCenter.US_GA_2
+        ep = Endpoint(name="test", datacenter=DataCenter.US_CA_2)
+        assert ep.datacenter == DataCenter.US_CA_2
 
     def test_datacenter_string(self):
-        ep = Endpoint(name="test", datacenter="US-GA-2")
-        assert ep.datacenter == "US-GA-2"
+        ep = Endpoint(name="test", datacenter="US-CA-2")
+        assert ep.datacenter == "US-CA-2"
 
     def test_datacenter_list(self):
         ep = Endpoint(
             name="test",
-            datacenter=[DataCenter.EU_RO_1, DataCenter.US_GA_2],
+            datacenter=[DataCenter.EU_RO_1, DataCenter.US_CA_2],
         )
-        assert ep.datacenter == [DataCenter.EU_RO_1, DataCenter.US_GA_2]
+        assert ep.datacenter == [DataCenter.EU_RO_1, DataCenter.US_CA_2]
 
     def test_datacenter_none_default(self):
         ep = Endpoint(name="test")
+        assert ep.datacenter == DataCenter.all()
+
+    def test_datacenter_none_default_cpu(self):
+        ep = Endpoint(name="test", cpu=CpuInstanceType.CPU3G_2_8)
+        assert ep.datacenter is None
+
+    def test_datacenter_none_default_client(self):
+        ep = Endpoint(id="abc123")
         assert ep.datacenter is None
 
     def test_scaler_type_defaults(self):
