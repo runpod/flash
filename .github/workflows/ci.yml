@@ -21,16 +21,85 @@ env:
   PYTHON_VERSION: '3.11'
 
 jobs:
-  # Sentinel for release-please bot PRs (head_ref begins with release-please--).
-  # Those PRs only contain CHANGELOG.md + .release-please-manifest.json updates
-  # generated from already-merged commits, so re-running the matrix would be
-  # pure waste -- but branch protection still requires the "Quality Gates (X)"
-  # check names to be green. This job mirrors that matrix and trivially passes,
-  # so the bot's PRs can merge without disabling required checks.
+  # Single source of truth for "what mode should this run be in?". Inspects the
+  # PR diff and outputs:
+  #   mode = release-please-bypass | full
+  #   should_build = true | false
+  # The classification is content-based, not just branch-name-based -- that
+  # closes the CI-bypass hole where a contributor opens a PR from a branch
+  # named release-please-- and inherits sentinel passes for free.
+  guard:
+    name: Guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      mode: ${{ steps.classify.outputs.mode }}
+      should_build: ${{ steps.classify.outputs.should_build }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: classify
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+
+          # Push to main: always run full CI; always build.
+          if [ "$EVENT_NAME" = "push" ]; then
+            echo "mode=full" >> "$GITHUB_OUTPUT"
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          CHANGED="$(git diff --name-only "origin/${BASE_REF}...HEAD")"
+          echo "Changed files in this PR:"
+          echo "$CHANGED"
+
+          # release-please bypass: branch prefix AND diff is metadata-only.
+          # Both conditions required -- a contributor naming a branch
+          # release-please-- but changing source code falls through to full CI.
+          if [[ "$HEAD_REF" == release-please--* ]]; then
+            ALLOWED='^(CHANGELOG\.md|\.release-please-manifest\.json)$'
+            UNEXPECTED="$(echo "$CHANGED" | grep -vE "$ALLOWED" || true)"
+            if [ -z "$UNEXPECTED" ]; then
+              echo "Classification: release-please bot PR (metadata only)."
+              echo "mode=release-please-bypass" >> "$GITHUB_OUTPUT"
+              echo "should_build=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "release-please-- branch contains non-metadata files; falling through to full CI."
+            echo "Unexpected files:"
+            echo "$UNEXPECTED"
+          fi
+
+          # Default: full CI. Build only when packaging-relevant files changed
+          # or a new non-Python file is added under src/ (data files need
+          # explicit package-data inclusion or they're silently dropped from
+          # the wheel).
+          echo "mode=full" >> "$GITHUB_OUTPUT"
+          if echo "$CHANGED" | grep -qE '^(pyproject\.toml|Makefile|MANIFEST\.in|scripts/validate-wheel\.sh)$'; then
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if git diff --name-only --diff-filter=A "origin/${BASE_REF}...HEAD" | grep -E '^src/.+' | grep -qv '\.py$'; then
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "should_build=false" >> "$GITHUB_OUTPUT"
+
+  # Sentinel for verified release-please bot PRs. The classification in `guard`
+  # guarantees this only fires when the diff is genuinely metadata-only, so
+  # it's safe to short-circuit the full matrix and emit matching "Quality
+  # Gates (X)" check names to satisfy branch protection.
   release-please-sentinel:
     name: Quality Gates
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please--') }}
+    needs: [guard]
+    if: ${{ needs.guard.outputs.mode == 'release-please-bypass' }}
     strategy:
       matrix:
         python-version: ['3.10', '3.11', '3.12', '3.13']
@@ -40,33 +109,36 @@ jobs:
           echo "Release-please bot PR: CHANGELOG/manifest only."
           echo "Underlying commits were validated by ci.yml when merged to main."
 
-  # Fast-fail formatting/lint check. ~10s, no project install. Catches the
-  # common case (ruff format/check fail) before paying for the full matrix.
+  # Fast-fail formatting/lint check. Installs only the dev dependency group
+  # from the lockfile (warm-cache install is ~1s), then runs ruff via
+  # `uv run` so we get the exact pinned ruff version that `make
+  # ci-quality-github` uses. Avoids `uvx ruff` -- that pulls the latest
+  # ruff, which can drift from the lock and produce CI verdicts that don't
+  # match local `make quality-check`.
   pre-check:
     name: Pre-check (format + lint)
     runs-on: ubuntu-latest
+    needs: [guard]
+    if: ${{ needs.guard.outputs.mode == 'full' }}
     timeout-minutes: 3
-    if: ${{ !startsWith(github.head_ref, 'release-please--') }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-          cache-dependency-glob: pyproject.toml
+          cache-dependency-glob: uv.lock
+      - name: Install dev group (frozen, no project)
+        run: uv sync --only-group dev --frozen
       - name: Ruff format
-        run: uvx ruff format --check .
+        run: uv run ruff format --check .
       - name: Ruff lint
-        run: uvx ruff check . --output-format=github
+        run: uv run ruff check . --output-format=github
 
   quality-gates:
     name: Quality Gates
     runs-on: ubuntu-latest
-    needs: [pre-check]
-    # Explicit `if:` instead of relying on needs cascade. If pre-check is
-    # skipped (release-please bot path), this job would also skip via `needs`
-    # default semantics, masking the intent. Being explicit also makes the
-    # symmetry with the sentinel job above easy to audit.
-    if: ${{ !startsWith(github.head_ref, 'release-please--') }}
+    needs: [guard, pre-check]
+    if: ${{ needs.guard.outputs.mode == 'full' }}
     strategy:
       fail-fast: false
       matrix:
@@ -101,52 +173,11 @@ jobs:
           name: test-results-${{ matrix.python-version }}
           path: pytest-results-*.xml
 
-  # Decide whether to run the wheel build on this run. Push to main always
-  # builds; pull requests only build when packaging-relevant files changed
-  # (validate-wheel.sh catches regressions that pytest can't, e.g. stale
-  # package-data globs, missing MANIFEST entries, dropped non-Python data
-  # files in the wheel).
-  packaging-guard:
-    name: Packaging guard
-    runs-on: ubuntu-latest
-    if: ${{ !startsWith(github.head_ref, 'release-please--') }}
-    outputs:
-      should_build: ${{ steps.check.outputs.should_build }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - id: check
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          BASE_REF: ${{ github.base_ref }}
-        run: |
-          set -euo pipefail
-          if [ "$EVENT_NAME" = "push" ]; then
-            echo "should_build=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          CHANGED="$(git diff --name-only "origin/${BASE_REF}...HEAD")"
-          echo "Changed files in this PR:"
-          echo "$CHANGED"
-          # Files that affect what ends up in the wheel.
-          if echo "$CHANGED" | grep -qE '^(pyproject\.toml|Makefile|MANIFEST\.in|scripts/validate-wheel\.sh)$'; then
-            echo "should_build=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          # New non-Python files anywhere under src/ -- these need explicit
-          # package-data inclusion or they'll be silently dropped from the wheel.
-          if git diff --name-only --diff-filter=A "origin/${BASE_REF}...HEAD" | grep -E '^src/.+' | grep -qv '\.py$'; then
-            echo "should_build=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          echo "should_build=false" >> "$GITHUB_OUTPUT"
-
   build:
     name: Build Package
     runs-on: ubuntu-latest
-    needs: [quality-gates, packaging-guard]
-    if: ${{ needs.packaging-guard.outputs.should_build == 'true' }}
+    needs: [guard, quality-gates]
+    if: ${{ needs.guard.outputs.mode == 'full' && needs.guard.outputs.should_build == 'true' }}
     timeout-minutes: 5
 
     steps:
