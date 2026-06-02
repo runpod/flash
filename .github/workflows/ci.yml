@@ -91,24 +91,6 @@ jobs:
           fi
           echo "should_build=false" >> "$GITHUB_OUTPUT"
 
-  # Sentinel for verified release-please bot PRs. The classification in `guard`
-  # guarantees this only fires when the diff is genuinely metadata-only, so
-  # it's safe to short-circuit the full matrix and emit matching "Quality
-  # Gates (X)" check names to satisfy branch protection.
-  release-please-sentinel:
-    name: Quality Gates
-    runs-on: ubuntu-latest
-    needs: [guard]
-    if: ${{ needs.guard.outputs.mode == 'release-please-bypass' }}
-    strategy:
-      matrix:
-        python-version: ['3.10', '3.11', '3.12', '3.13']
-    steps:
-      - name: Auto-pass for release-please bot PR
-        run: |
-          echo "Release-please bot PR: CHANGELOG/manifest only."
-          echo "Underlying commits were validated by ci.yml when merged to main."
-
   # Fast-fail formatting/lint check. Installs only the dev dependency group
   # from the lockfile (warm-cache install is ~1s), then runs ruff via
   # `uv run` so we get the exact pinned ruff version that `make
@@ -198,3 +180,40 @@ jobs:
 
       - name: Validate wheel packaging
         run: ./scripts/validate-wheel.sh
+
+  # Single aggregator. Branch protection on `main` should require ONLY this
+  # check ("CI / Validation"). This job runs unconditionally (`if: always()`)
+  # and treats "skipped" as success -- so release-please-bypass runs (where
+  # pre-check / quality-gates / build are all deliberately skipped by the
+  # guard) pass cleanly. Anything that genuinely failed or was cancelled
+  # upstream flips this to red.
+  #
+  # Adding or removing upstream jobs (new Python version, new security scan,
+  # etc.) no longer requires a branch-protection update: just include the new
+  # job in `needs:` and the results array.
+  validation:
+    name: Validation
+    runs-on: ubuntu-latest
+    needs: [guard, pre-check, quality-gates, build]
+    if: always()
+    timeout-minutes: 1
+    steps:
+      - name: Aggregate upstream results
+        env:
+          GUARD: ${{ needs.guard.result }}
+          PRE_CHECK: ${{ needs.pre-check.result }}
+          QUALITY_GATES: ${{ needs.quality-gates.result }}
+          BUILD: ${{ needs.build.result }}
+        run: |
+          set -euo pipefail
+          echo "guard=$GUARD"
+          echo "pre-check=$PRE_CHECK"
+          echo "quality-gates=$QUALITY_GATES"
+          echo "build=$BUILD"
+          for r in "$GUARD" "$PRE_CHECK" "$QUALITY_GATES" "$BUILD"; do
+            if [ "$r" != "success" ] && [ "$r" != "skipped" ]; then
+              echo "::error::Upstream job failed or was cancelled (got: $r)"
+              exit 1
+            fi
+          done
+          echo "All upstream jobs succeeded or were intentionally skipped."
