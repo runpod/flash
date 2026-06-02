@@ -48,8 +48,28 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Push to main: always run full CI; always build.
+          # Push to main: classify by diff against the previous commit.
+          # When release-please's release PR is merged, the resulting commit on
+          # main only changes CHANGELOG.md + .release-please-manifest.json --
+          # the same code that was already validated when the underlying
+          # feature PRs merged. Re-running the full matrix would be pure waste,
+          # so we bypass; release-please.yml's pypi-publish builds its own
+          # wheel before publishing, so we don't need ci.yml's build either.
+          # Any other push:main (feature merges, direct admin pushes) gets the
+          # full matrix and build.
           if [ "$EVENT_NAME" = "push" ]; then
+            CHANGED="$(git diff --name-only HEAD~1...HEAD)"
+            echo "Changed files in this push:"
+            echo "$CHANGED"
+            ALLOWED='^(CHANGELOG\.md|\.release-please-manifest\.json)$'
+            UNEXPECTED="$(echo "$CHANGED" | grep -vE "$ALLOWED" || true)"
+            if [ -n "$CHANGED" ] && [ -z "$UNEXPECTED" ]; then
+              echo "Classification: release-please release commit on main (metadata only)."
+              echo "mode=release-please-bypass" >> "$GITHUB_OUTPUT"
+              echo "should_build=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "Classification: regular push to main."
             echo "mode=full" >> "$GITHUB_OUTPUT"
             echo "should_build=true" >> "$GITHUB_OUTPUT"
             exit 0
