@@ -373,17 +373,6 @@ class TestRunpodGraphQLClientEndpoints:
             assert result["name"] == "updated_endpoint"
 
     @pytest.mark.asyncio
-    async def test_get_endpoint_not_implemented(self):
-        """Test that get_endpoint is not currently implemented."""
-        client = RunpodGraphQLClient(api_key="test_key")
-
-        # get_endpoint is not implemented in current schema
-        with pytest.raises(
-            NotImplementedError, match="not available in current schema"
-        ):
-            await client.get_endpoint("endpoint_123")
-
-    @pytest.mark.asyncio
     async def test_delete_endpoint(self):
         """Test deleting an endpoint."""
         client = RunpodGraphQLClient(api_key="test_key")
@@ -421,45 +410,6 @@ class TestRunpodGraphQLClientEndpoints:
             exists = await client.endpoint_exists("endpoint_123")
 
             assert exists is False
-
-
-class TestRunpodGraphQLClientGPUCPU:
-    """Test GPU and CPU type methods."""
-
-    @pytest.mark.asyncio
-    async def test_get_cpu_types(self):
-        """Test getting available CPU types."""
-        client = RunpodGraphQLClient(api_key="test_key")
-
-        expected_cpu_types = [
-            {"id": "cpu1", "displayName": "CPU Type 1"},
-            {"id": "cpu2", "displayName": "CPU Type 2"},
-        ]
-
-        with patch.object(client, "_execute_graphql") as mock_execute:
-            mock_execute.return_value = {"cpuTypes": expected_cpu_types}
-
-            result = await client.get_cpu_types()
-
-            assert result == expected_cpu_types
-
-    @pytest.mark.asyncio
-    async def test_get_gpu_types(self):
-        """Test getting available GPU types."""
-        client = RunpodGraphQLClient(api_key="test_key")
-
-        gpu_filter = {"available": True}
-        expected_gpu_types = [
-            {"id": "gpu1", "displayName": "NVIDIA RTX 4090"},
-            {"id": "gpu2", "displayName": "NVIDIA A100"},
-        ]
-
-        with patch.object(client, "_execute_graphql") as mock_execute:
-            mock_execute.return_value = {"gpuTypes": expected_gpu_types}
-
-            result = await client.get_gpu_types(gpu_filter)
-
-            assert result == expected_gpu_types
 
 
 class TestRunpodGraphQLClientContextManager:

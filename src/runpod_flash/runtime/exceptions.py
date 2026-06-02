@@ -49,12 +49,6 @@ class GraphQLQueryError(GraphQLError):
     pass
 
 
-class ManifestError(FlashRuntimeError):
-    """Raised when manifest is invalid, missing, or has unexpected structure."""
-
-    pass
-
-
 class ManifestServiceUnavailableError(FlashRuntimeError):
     """Raised when manifest service is unavailable."""
 

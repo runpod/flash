@@ -13,7 +13,6 @@ import platform
 import tempfile
 import time
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -21,47 +20,9 @@ from runpod_flash.core.utils.file_lock import (
     file_lock,
     FileLockError,
     FileLockTimeout,
-    get_platform_info,
     _acquire_fallback_lock,
     _release_fallback_lock,
 )
-
-
-class TestPlatformDetection:
-    """Test platform detection and capabilities."""
-
-    def test_get_platform_info(self):
-        """Test that platform info returns expected structure."""
-        info = get_platform_info()
-
-        required_keys = ["platform", "windows_locking", "unix_locking", "fallback_only"]
-        assert all(key in info for key in required_keys)
-
-        # Platform should be one of the expected values
-        assert info["platform"] in ("Windows", "Linux", "Darwin")
-
-        # Exactly one locking mechanism should be available (or fallback)
-        locking_mechanisms = [
-            info["windows_locking"],
-            info["unix_locking"],
-            info["fallback_only"],
-        ]
-        assert sum(locking_mechanisms) >= 1  # At least fallback should work
-
-    @patch("runpod_flash.core.utils.file_lock.platform.system", return_value="Windows")
-    def test_platform_detection_windows(self, mock_system):
-        """Test Windows platform detection via get_platform_info()."""
-        # Don't use reload() — it pollutes module-level state (_IS_WINDOWS,
-        # _UNIX_LOCKING_AVAILABLE, etc.) for all subsequent tests.
-        # get_platform_info() calls platform.system() at runtime, so patching suffices.
-        info = get_platform_info()
-        assert info["platform"] == "Windows"
-
-    @patch("runpod_flash.core.utils.file_lock.platform.system", return_value="Linux")
-    def test_platform_detection_linux(self, mock_system):
-        """Test Linux platform detection via get_platform_info()."""
-        info = get_platform_info()
-        assert info["platform"] == "Linux"
 
 
 class TestFileLocking:

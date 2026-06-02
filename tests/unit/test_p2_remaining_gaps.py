@@ -521,60 +521,6 @@ class TestRemoteClassWrapperClassType:
 # ---------------------------------------------------------------------------
 
 
-class TestLoadBalancerRandomStrategy:
-    """LoadBalancer RANDOM strategy selects from the endpoint pool and varies over runs."""
-
-    @pytest.mark.asyncio
-    async def test_random_strategy_selects_from_pool(self):
-        """LB-ROUTE-003: _random_select returns one of the provided endpoints."""
-        from runpod_flash.runtime.load_balancer import LoadBalancer
-        from runpod_flash.runtime.reliability_config import LoadBalancerStrategy
-
-        lb = LoadBalancer(strategy=LoadBalancerStrategy.RANDOM)
-        endpoints = ["http://ep1", "http://ep2", "http://ep3"]
-
-        result = await lb._random_select(endpoints)
-        assert result in endpoints
-
-    @pytest.mark.asyncio
-    async def test_random_strategy_produces_varied_results(self):
-        """LB-ROUTE-003: Over many calls, random strategy selects more than one endpoint."""
-        from runpod_flash.runtime.load_balancer import LoadBalancer
-        from runpod_flash.runtime.reliability_config import LoadBalancerStrategy
-
-        lb = LoadBalancer(strategy=LoadBalancerStrategy.RANDOM)
-        endpoints = ["http://ep-a", "http://ep-b", "http://ep-c"]
-
-        seen = {await lb._random_select(endpoints) for _ in range(60)}
-        # With 60 draws from 3 options, seeing at least 2 different values is
-        # virtually certain (probability of seeing only 1 is (1/3)^59 ≈ 0).
-        assert len(seen) >= 2
-
-    @pytest.mark.asyncio
-    async def test_random_strategy_via_select_endpoint(self):
-        """LB-ROUTE-003: select_endpoint with RANDOM strategy returns an endpoint."""
-        from runpod_flash.runtime.load_balancer import LoadBalancer
-        from runpod_flash.runtime.reliability_config import LoadBalancerStrategy
-
-        lb = LoadBalancer(strategy=LoadBalancerStrategy.RANDOM)
-        endpoints = ["http://ep-x", "http://ep-y"]
-
-        result = await lb.select_endpoint(endpoints)
-        assert result in endpoints
-
-    @pytest.mark.asyncio
-    async def test_random_strategy_single_endpoint_returns_it(self):
-        """LB-ROUTE-003: With a single endpoint, random always returns it."""
-        from runpod_flash.runtime.load_balancer import LoadBalancer
-        from runpod_flash.runtime.reliability_config import LoadBalancerStrategy
-
-        lb = LoadBalancer(strategy=LoadBalancerStrategy.RANDOM)
-        endpoints = ["http://only-one"]
-
-        result = await lb._random_select(endpoints)
-        assert result == "http://only-one"
-
-
 # ---------------------------------------------------------------------------
 # RT-SER-005: Serialize/deserialize with complex objects (no numpy/PIL)
 # ---------------------------------------------------------------------------

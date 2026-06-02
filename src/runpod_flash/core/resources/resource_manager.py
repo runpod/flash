@@ -219,9 +219,6 @@ class ResourceManager(SingletonMixin):
         """
         return await config._do_deploy()
 
-    async def get_resource_from_store(self, uid: str):
-        return self._resources.get(uid)
-
     async def get_or_deploy_resource(
         self, config: DeployableResource
     ) -> DeployableResource:
