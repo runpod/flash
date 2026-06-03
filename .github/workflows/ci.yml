@@ -45,26 +45,42 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           BASE_REF: ${{ github.base_ref }}
           HEAD_REF: ${{ github.head_ref }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
           set -euo pipefail
 
-          # Push to main: classify by diff against the previous commit.
-          # When release-please's release PR is merged, the resulting commit on
-          # main only changes CHANGELOG.md + .release-please-manifest.json --
-          # the same code that was already validated when the underlying
-          # feature PRs merged. Re-running the full matrix would be pure waste,
-          # so we bypass; release-please.yml's pypi-publish builds its own
-          # wheel before publishing, so we don't need ci.yml's build either.
-          # Any other push:main (feature merges, direct admin pushes) gets the
-          # full matrix and build.
+          # Files release-please touches when cutting a release for this repo.
+          # Keep in sync with release-please-config.json: the .packages."." entry
+          # determines which files are bumped. Today (release-type=python +
+          # extra-files=src/runpod_flash/__init__.py) those are:
+          #   - CHANGELOG.md                          (always)
+          #   - .release-please-manifest.json         (always)
+          #   - pyproject.toml                        (release-type=python)
+          #   - src/runpod_flash/__init__.py          (extra-files)
+          # If you change release-please-config.json, update this regex too.
+          ALLOWED='^(CHANGELOG\.md|\.release-please-manifest\.json|pyproject\.toml|src/runpod_flash/__init__\.py)$'
+
+          # Identity check: real release-please bot PRs are authored by the
+          # GitHub App. Used as a defense-in-depth layer on top of the branch
+          # prefix + diff content check.
+          BOT_AUTHOR='runpod-release-please-bot[bot]'
+
+          # Push to main: classify by diff against the previous commit. When
+          # release-please's release PR is squash-merged, the resulting commit
+          # on main only touches the files in ALLOWED -- same code, just
+          # version-bumped. Re-running the full matrix would be pure waste, and
+          # release-please.yml's pypi-publish builds its own wheel before
+          # publishing, so we don't need ci.yml's build either. Anything else
+          # (feature merges, direct admin pushes) gets the full matrix.
+          # On push events the actor isn't a reliable signal (admins can merge
+          # the bot's PR by hand) -- diff content is the only check.
           if [ "$EVENT_NAME" = "push" ]; then
             CHANGED="$(git diff --name-only HEAD~1...HEAD)"
             echo "Changed files in this push:"
             echo "$CHANGED"
-            ALLOWED='^(CHANGELOG\.md|\.release-please-manifest\.json)$'
             UNEXPECTED="$(echo "$CHANGED" | grep -vE "$ALLOWED" || true)"
             if [ -n "$CHANGED" ] && [ -z "$UNEXPECTED" ]; then
-              echo "Classification: release-please release commit on main (metadata only)."
+              echo "Classification: release-please release commit on main (release-please files only)."
               echo "mode=release-please-bypass" >> "$GITHUB_OUTPUT"
               echo "should_build=false" >> "$GITHUB_OUTPUT"
               exit 0
@@ -79,21 +95,27 @@ jobs:
           echo "Changed files in this PR:"
           echo "$CHANGED"
 
-          # release-please bypass: branch prefix AND diff is metadata-only.
-          # Both conditions required -- a contributor naming a branch
-          # release-please-- but changing source code falls through to full CI.
-          if [[ "$HEAD_REF" == release-please--* ]]; then
-            ALLOWED='^(CHANGELOG\.md|\.release-please-manifest\.json)$'
+          # release-please bypass on PR: requires ALL THREE:
+          #   1. Branch prefix matches `release-please--`
+          #   2. PR author is the release-please GitHub App
+          #   3. Diff contains only release-please-managed files
+          # Any one missing -> fall through to full CI. Together these mean a
+          # contributor can't fake the bypass by naming a branch
+          # release-please-- (author check fails) or by spoofing the bot
+          # account (write-access required to push as the bot is even stronger).
+          if [[ "$HEAD_REF" == release-please--* ]] && [ "$PR_AUTHOR" = "$BOT_AUTHOR" ]; then
             UNEXPECTED="$(echo "$CHANGED" | grep -vE "$ALLOWED" || true)"
             if [ -z "$UNEXPECTED" ]; then
-              echo "Classification: release-please bot PR (metadata only)."
+              echo "Classification: release-please bot PR (release-please files only)."
               echo "mode=release-please-bypass" >> "$GITHUB_OUTPUT"
               echo "should_build=false" >> "$GITHUB_OUTPUT"
               exit 0
             fi
-            echo "release-please-- branch contains non-metadata files; falling through to full CI."
+            echo "release-please-- branch from bot contains unexpected files; falling through to full CI."
             echo "Unexpected files:"
             echo "$UNEXPECTED"
+          elif [[ "$HEAD_REF" == release-please--* ]]; then
+            echo "release-please-- branch but author is '$PR_AUTHOR' (not '$BOT_AUTHOR'); running full CI."
           fi
 
           # Default: full CI. Build only when packaging-relevant files changed
@@ -160,7 +182,7 @@ jobs:
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-          cache-dependency-glob: pyproject.toml
+          cache-dependency-glob: uv.lock
 
       - name: Install dependencies
         run: make dev
@@ -190,7 +212,7 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-          cache-dependency-glob: pyproject.toml
+          cache-dependency-glob: uv.lock
 
       - name: Build package
         run: make build

@@ -101,10 +101,16 @@ format-check: # Check code formatting
 typecheck: # Check types with mypy
 	uv run mypy .
 
-# Quality gates. ci-quality-github is the canonical CI gate; local aliases run
-# the same recipe. Local invocations will see GitHub Actions annotation markers
-# (::group::, --output-format=github) in their output -- these are inert
-# outside Actions but cosmetically noisy. Single source of truth wins.
+# Quality gates.
+#
+# - quality-check / quality-check-serial: aliases for ci-quality-github /
+#   ci-quality-github-serial. These are the canonical CI gates. When invoked
+#   locally you'll see GitHub Actions annotation markers (::group::,
+#   --output-format=github) in the output -- inert outside Actions but
+#   cosmetically noisy. The alias guarantees local and CI run the same recipe.
+# - quality-check-strict: NOT an alias. Adds mypy typecheck on top of the
+#   plain format/lint/test-coverage targets, with plain output (no annotation
+#   markers, no JUnit XML). Use when you want stricter local feedback.
 quality-check: ci-quality-github # Essential quality gate (parallel by default)
 quality-check-strict: format-check lint typecheck test-coverage # Strict quality gate with type checking
 quality-check-serial: ci-quality-github-serial # Serial quality gate for debugging
