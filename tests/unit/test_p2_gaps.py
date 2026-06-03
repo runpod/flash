@@ -314,8 +314,7 @@ class TestRunpodDefaultLocations:
     @patch.dict(os.environ, {}, clear=True)
     def test_datacenter_syncs_to_locations(self):
         """When datacenter is set, locations is synced from it."""
-        from runpod_flash.core.resources import LiveServerless
-        from runpod_flash.core.resources.network_volume import DataCenter
+        from runpod_flash.core.resources import LiveServerless, DataCenter
 
         resource = LiveServerless(name="loc-test", datacenter=DataCenter.EU_RO_1)
         assert resource.locations == "EU-RO-1"
