@@ -1,5 +1,6 @@
 """Unit tests for credential storage and retrieval."""
 
+import logging
 import os
 import sys
 from pathlib import Path
@@ -236,3 +237,17 @@ class TestSaveApiKey:
         text = isolate_credentials_file.read_text()
         assert "# managed by runpodctl" in text
         assert "# flash credentials" in text
+
+    def test_recovers_from_corrupt_existing_file(
+        self, isolate_credentials_file, caplog
+    ):
+        """A malformed config (already unloadable) must not block login: fall
+        back to a fresh minimal document and warn rather than raise.
+        """
+        isolate_credentials_file.parent.mkdir(parents=True, exist_ok=True)
+        isolate_credentials_file.write_text("not valid toml {{{{\n")
+        with caplog.at_level(logging.WARNING):
+            save_api_key("new-key")
+        parsed = tomllib.loads(isolate_credentials_file.read_text())
+        assert parsed == {"default": {"api_key": "new-key"}}
+        assert any(record.levelno == logging.WARNING for record in caplog.records)
