@@ -49,25 +49,37 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Files release-please touches when cutting a release for this repo.
-          # Keep in sync with release-please-config.json: the .packages."." entry
-          # determines which files are bumped. Today (release-type=python +
-          # extra-files=src/runpod_flash/__init__.py) those are:
-          #   - CHANGELOG.md                          (always)
-          #   - .release-please-manifest.json         (always)
-          #   - pyproject.toml                        (release-type=python)
-          #   - src/runpod_flash/__init__.py          (extra-files)
-          # If you change release-please-config.json, update this regex too.
-          ALLOWED='^(CHANGELOG\.md|\.release-please-manifest\.json|pyproject\.toml|src/runpod_flash/__init__\.py)$'
+          # Derive the list of release-please-managed files from
+          # release-please-config.json so this stays in sync automatically.
+          # Implicit files that release-please always touches:
+          #   - CHANGELOG.md
+          #   - .release-please-manifest.json
+          #   - pyproject.toml (release-type=python bumps the version field)
+          # Anything declared in `.packages."."."extra-files"` is appended.
+          # If release-type changes (currently "python"), audit this list.
+          allowed_files() {
+            printf '%s\n' \
+              'CHANGELOG.md' \
+              '.release-please-manifest.json' \
+              'pyproject.toml'
+            jq -r '.packages["."]["extra-files"][]?' release-please-config.json
+          }
+
+          # Use fixed-string exact-line matching (`grep -Fxvf`) instead of a
+          # hand-built regex -- removes the need to escape filenames at all.
+          is_unexpected() {
+            # $1 = newline-separated changed files
+            echo "$1" | grep -Fxvf <(allowed_files) || true
+          }
 
           # Identity check: real release-please bot PRs are authored by the
-          # GitHub App. Used as a defense-in-depth layer on top of the branch
-          # prefix + diff content check.
+          # GitHub App. Used as defense-in-depth alongside the branch prefix +
+          # diff content check.
           BOT_AUTHOR='runpod-release-please-bot[bot]'
 
           # Push to main: classify by diff against the previous commit. When
           # release-please's release PR is squash-merged, the resulting commit
-          # on main only touches the files in ALLOWED -- same code, just
+          # on main only touches the allowed-files set -- same code, just
           # version-bumped. Re-running the full matrix would be pure waste, and
           # release-please.yml's pypi-publish builds its own wheel before
           # publishing, so we don't need ci.yml's build either. Anything else
@@ -78,7 +90,7 @@ jobs:
             CHANGED="$(git diff --name-only HEAD~1...HEAD)"
             echo "Changed files in this push:"
             echo "$CHANGED"
-            UNEXPECTED="$(echo "$CHANGED" | grep -vE "$ALLOWED" || true)"
+            UNEXPECTED="$(is_unexpected "$CHANGED")"
             if [ -n "$CHANGED" ] && [ -z "$UNEXPECTED" ]; then
               echo "Classification: release-please release commit on main (release-please files only)."
               echo "mode=release-please-bypass" >> "$GITHUB_OUTPUT"
@@ -99,12 +111,9 @@ jobs:
           #   1. Branch prefix matches `release-please--`
           #   2. PR author is the release-please GitHub App
           #   3. Diff contains only release-please-managed files
-          # Any one missing -> fall through to full CI. Together these mean a
-          # contributor can't fake the bypass by naming a branch
-          # release-please-- (author check fails) or by spoofing the bot
-          # account (write-access required to push as the bot is even stronger).
+          # Any one missing -> fall through to full CI.
           if [[ "$HEAD_REF" == release-please--* ]] && [ "$PR_AUTHOR" = "$BOT_AUTHOR" ]; then
-            UNEXPECTED="$(echo "$CHANGED" | grep -vE "$ALLOWED" || true)"
+            UNEXPECTED="$(is_unexpected "$CHANGED")"
             if [ -z "$UNEXPECTED" ]; then
               echo "Classification: release-please bot PR (release-please files only)."
               echo "mode=release-please-bypass" >> "$GITHUB_OUTPUT"
@@ -119,15 +128,16 @@ jobs:
           fi
 
           # Default: full CI. Build only when packaging-relevant files changed
-          # or a new non-Python file is added under src/ (data files need
-          # explicit package-data inclusion or they're silently dropped from
-          # the wheel).
+          # or a non-Python file under src/ is added or modified (data files
+          # need explicit package-data inclusion or they're silently dropped
+          # from the wheel; content edits to existing data files should also
+          # be exercised by validate-wheel.sh).
           echo "mode=full" >> "$GITHUB_OUTPUT"
           if echo "$CHANGED" | grep -qE '^(pyproject\.toml|Makefile|MANIFEST\.in|scripts/validate-wheel\.sh)$'; then
             echo "should_build=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          if git diff --name-only --diff-filter=A "origin/${BASE_REF}...HEAD" | grep -E '^src/.+' | grep -qv '\.py$'; then
+          if git diff --name-only --diff-filter=AM "origin/${BASE_REF}...HEAD" | grep -E '^src/.+' | grep -qv '\.py$'; then
             echo "should_build=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -153,10 +163,13 @@ jobs:
           cache-dependency-glob: uv.lock
       - name: Install dev group (frozen, no project)
         run: uv sync --only-group dev --frozen
+      # `uv run` defaults to syncing the environment before each invocation,
+      # which would undo the dev-only install above and pull in the full
+      # project. `--no-sync` runs ruff from the existing .venv directly.
       - name: Ruff format
-        run: uv run ruff format --check .
+        run: uv run --no-sync ruff format --check .
       - name: Ruff lint
-        run: uv run ruff check . --output-format=github
+        run: uv run --no-sync ruff check . --output-format=github
 
   quality-gates:
     name: Quality Gates
