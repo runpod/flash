@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.17.0](https://github.com/runpod/flash/compare/v1.16.0...v1.17.0) (2026-06-04)
+
+
+### Features
+
+* add agent source tracking to user-agent header ([#342](https://github.com/runpod/flash/issues/342)) ([5707093](https://github.com/runpod/flash/commit/5707093f13ce2a1b597e1025464104a53b594796))
+* **rules:** agent rules layer with CLI-first directive ([#341](https://github.com/runpod/flash/issues/341)) ([4b65121](https://github.com/runpod/flash/commit/4b65121bffb8e1919dab588b4bebff448af4962a))
+* **sdk:** accept python 3.13 as a target version ([#338](https://github.com/runpod/flash/issues/338)) ([0665ba8](https://github.com/runpod/flash/commit/0665ba8391875159249853bec6895b2c947869f3))
+
+
+### Bug Fixes
+
+* align datacenter enum with valid real-world targets ([#336](https://github.com/runpod/flash/issues/336)) ([107a2d1](https://github.com/runpod/flash/commit/107a2d135b9cba1221cf7bd2cd04574f221c621f))
+* **endpoint:** retry EndpointJob.wait() on transient httpx errors ([#340](https://github.com/runpod/flash/issues/340)) ([c126357](https://github.com/runpod/flash/commit/c126357ba3cb83935a2afe9c5bbe04ba75024917))
+* **resources:** honor caller-supplied imageName in Live* resources ([#339](https://github.com/runpod/flash/issues/339)) ([62df62c](https://github.com/runpod/flash/commit/62df62c249fc5a70fff9a2862860934a106ade73))
+
 ## [1.16.0](https://github.com/runpod/flash/compare/v1.15.0...v1.16.0) (2026-04-28)
 
 
