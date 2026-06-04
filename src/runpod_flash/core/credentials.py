@@ -98,8 +98,24 @@ def _upsert_default_api_key(content: str, api_key: str) -> str:
     `apikey`/`apiurl`), sibling profile sections, comments, and the file's
     original line endings are preserved. Only `[default].api_key` is mutated;
     a missing `[default]` table is created.
+
+    If the existing file is malformed TOML it is already unloadable (runpodctl
+    cannot read it either), so we cannot preserve it. Rather than block login,
+    fall back to a fresh document and warn -- the discarded content held no
+    recoverable credentials.
     """
-    doc = tomlkit.parse(content) if content else tomlkit.document()
+    if content:
+        try:
+            doc = tomlkit.parse(content)
+        except tomlkit.exceptions.TOMLKitError:
+            log.warning(
+                "Existing credentials file is not valid TOML; replacing it "
+                "with a fresh [default] section. Unrelated content was lost.",
+                exc_info=True,
+            )
+            doc = tomlkit.document()
+    else:
+        doc = tomlkit.document()
 
     section = doc.get(_DEFAULT_SECTION)
     if isinstance(section, (tomlkit.items.Table, tomlkit.items.InlineTable)):
