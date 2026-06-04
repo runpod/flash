@@ -72,6 +72,64 @@ jobs:
             echo "$1" | grep -Fxvf <(allowed_files) || true
           }
 
+          # Content-shape check: a metadata-only file list isn't enough on
+          # push:main, where actor isn't a reliable bypass signal. Verify the
+          # diffs themselves are version-bump-shaped: pyproject.toml only
+          # changes its `version = "..."` line, src/runpod_flash/__init__.py
+          # only changes its `__version__ = "..."` line. Defeats the
+          # exploitation path where a direct push touches only the metadata
+          # filenames but smuggles non-version edits (deps, ruff config,
+          # scripts) into pyproject.toml.
+          # $1 = git diff base (HEAD~1 for push, origin/BASE_REF for PR).
+          verify_version_shape() {
+            local base="$1"
+            local bad
+            if git diff --name-only "${base}...HEAD" -- pyproject.toml | grep -q .; then
+              bad="$(git diff "${base}...HEAD" -- pyproject.toml \
+                | grep -E '^[-+]' \
+                | grep -vE '^(---|\+\+\+)' \
+                | grep -vE '^[-+]version[[:space:]]*=[[:space:]]*"[^"]+"[[:space:]]*$' || true)"
+              if [ -n "$bad" ]; then
+                echo "Bypass rejected: pyproject.toml diff touches non-version lines:"
+                echo "$bad"
+                return 1
+              fi
+            fi
+            if git diff --name-only "${base}...HEAD" -- src/runpod_flash/__init__.py | grep -q .; then
+              bad="$(git diff "${base}...HEAD" -- src/runpod_flash/__init__.py \
+                | grep -E '^[-+]' \
+                | grep -vE '^(---|\+\+\+)' \
+                | grep -vE '^[-+]__version__[[:space:]]*=[[:space:]]*"[^"]+"[[:space:]]*$' || true)"
+              if [ -n "$bad" ]; then
+                echo "Bypass rejected: src/runpod_flash/__init__.py diff touches non-__version__ lines:"
+                echo "$bad"
+                return 1
+              fi
+            fi
+            return 0
+          }
+
+          # Build-trigger heuristic shared between push:main and PR full-mode.
+          # Build runs when packaging-relevant files change OR a non-Python
+          # file under src/ is added or modified (data files need explicit
+          # package-data inclusion; content edits should be smoke-tested by
+          # validate-wheel.sh).
+          # $1 = git diff base.
+          compute_should_build() {
+            local base="$1"
+            local changed
+            changed="$(git diff --name-only "${base}...HEAD")"
+            if echo "$changed" | grep -qE '^(pyproject\.toml|Makefile|MANIFEST\.in|scripts/validate-wheel\.sh)$'; then
+              echo "true"
+              return
+            fi
+            if git diff --name-only --diff-filter=AM "${base}...HEAD" | grep -E '^src/.+' | grep -qv '\.py$'; then
+              echo "true"
+              return
+            fi
+            echo "false"
+          }
+
           # Identity check: real release-please bot PRs are authored by the
           # GitHub App. Used as defense-in-depth alongside the branch prefix +
           # diff content check.
@@ -79,27 +137,27 @@ jobs:
 
           # Push to main: classify by diff against the previous commit. When
           # release-please's release PR is squash-merged, the resulting commit
-          # on main only touches the allowed-files set -- same code, just
-          # version-bumped. Re-running the full matrix would be pure waste, and
-          # release-please.yml's pypi-publish builds its own wheel before
-          # publishing, so we don't need ci.yml's build either. Anything else
-          # (feature merges, direct admin pushes) gets the full matrix.
-          # On push events the actor isn't a reliable signal (admins can merge
-          # the bot's PR by hand) -- diff content is the only check.
+          # on main only touches the allowed-files set with version-shaped
+          # diffs -- same code, just version-bumped. Re-running the full
+          # matrix would be pure waste, and release-please.yml's pypi-publish
+          # builds its own wheel before publishing. Anything else (feature
+          # merges, direct admin pushes) gets the full matrix.
+          # On push events the actor isn't a reliable signal (admins can
+          # merge the bot's PR by hand) -- diff content is the only check.
           if [ "$EVENT_NAME" = "push" ]; then
             CHANGED="$(git diff --name-only HEAD~1...HEAD)"
             echo "Changed files in this push:"
             echo "$CHANGED"
             UNEXPECTED="$(is_unexpected "$CHANGED")"
-            if [ -n "$CHANGED" ] && [ -z "$UNEXPECTED" ]; then
-              echo "Classification: release-please release commit on main (release-please files only)."
+            if [ -n "$CHANGED" ] && [ -z "$UNEXPECTED" ] && verify_version_shape HEAD~1; then
+              echo "Classification: release-please release commit on main (version-bump shape)."
               echo "mode=release-please-bypass" >> "$GITHUB_OUTPUT"
               echo "should_build=false" >> "$GITHUB_OUTPUT"
               exit 0
             fi
             echo "Classification: regular push to main."
             echo "mode=full" >> "$GITHUB_OUTPUT"
-            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            echo "should_build=$(compute_should_build HEAD~1)" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -107,41 +165,32 @@ jobs:
           echo "Changed files in this PR:"
           echo "$CHANGED"
 
-          # release-please bypass on PR: requires ALL THREE:
+          # release-please bypass on PR: requires ALL FOUR:
           #   1. Branch prefix matches `release-please--`
           #   2. PR author is the release-please GitHub App
           #   3. Diff contains only release-please-managed files
+          #   4. pyproject.toml/__init__.py diffs are version-bump-shaped
           # Any one missing -> fall through to full CI.
           if [[ "$HEAD_REF" == release-please--* ]] && [ "$PR_AUTHOR" = "$BOT_AUTHOR" ]; then
             UNEXPECTED="$(is_unexpected "$CHANGED")"
-            if [ -z "$UNEXPECTED" ]; then
-              echo "Classification: release-please bot PR (release-please files only)."
+            if [ -z "$UNEXPECTED" ] && verify_version_shape "origin/${BASE_REF}"; then
+              echo "Classification: release-please bot PR (version-bump shape)."
               echo "mode=release-please-bypass" >> "$GITHUB_OUTPUT"
               echo "should_build=false" >> "$GITHUB_OUTPUT"
               exit 0
             fi
-            echo "release-please-- branch from bot contains unexpected files; falling through to full CI."
-            echo "Unexpected files:"
-            echo "$UNEXPECTED"
+            if [ -n "$UNEXPECTED" ]; then
+              echo "release-please-- branch from bot contains unexpected files; falling through to full CI."
+              echo "Unexpected files:"
+              echo "$UNEXPECTED"
+            fi
           elif [[ "$HEAD_REF" == release-please--* ]]; then
             echo "release-please-- branch but author is '$PR_AUTHOR' (not '$BOT_AUTHOR'); running full CI."
           fi
 
-          # Default: full CI. Build only when packaging-relevant files changed
-          # or a non-Python file under src/ is added or modified (data files
-          # need explicit package-data inclusion or they're silently dropped
-          # from the wheel; content edits to existing data files should also
-          # be exercised by validate-wheel.sh).
+          # Default: full CI; build conditional on content.
           echo "mode=full" >> "$GITHUB_OUTPUT"
-          if echo "$CHANGED" | grep -qE '^(pyproject\.toml|Makefile|MANIFEST\.in|scripts/validate-wheel\.sh)$'; then
-            echo "should_build=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if git diff --name-only --diff-filter=AM "origin/${BASE_REF}...HEAD" | grep -E '^src/.+' | grep -qv '\.py$'; then
-            echo "should_build=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          echo "should_build=false" >> "$GITHUB_OUTPUT"
+          echo "should_build=$(compute_should_build "origin/${BASE_REF}")" >> "$GITHUB_OUTPUT"
 
   # Fast-fail formatting/lint check. Installs only the dev dependency group
   # from the lockfile (warm-cache install is ~1s), then runs ruff via

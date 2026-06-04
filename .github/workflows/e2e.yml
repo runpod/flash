@@ -118,14 +118,15 @@ jobs:
 
           passed = (total - failures) if total is not None else None
 
+          def _num(v):
+              return str(v) if v is not None else "-"
+          def _dur(v):
+              return f"{v:.1f}s" if v is not None else "-"
+
           print("# E2E Results\n", file=out)
           print("| Status | Passed | Failed | Total | Duration |", file=out)
           print("|---|---|---|---|---|", file=out)
-          print(f"| {status} | "
-                f"{passed if passed is not None else '-'} | "
-                f"{failures if failures is not None else '-'} | "
-                f"{total if total is not None else '-'} | "
-                f"{duration:.1f}s |" if duration is not None else "- |",
+          print(f"| {status} | {_num(passed)} | {_num(failures)} | {_num(total)} | {_dur(duration)} |",
                 file=out)
           print("", file=out)
 
