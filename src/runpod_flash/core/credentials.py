@@ -8,11 +8,11 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 from pathlib import Path
 from typing import Optional
 
 import runpod.cli.groups.config.functions as _runpod_config
+import tomlkit
 
 from runpod.cli.groups.config.functions import (
     get_credentials,
@@ -23,10 +23,11 @@ log = logging.getLogger(__name__)
 # runpodctl writes top-level `apikey`/`apiurl` keys into the same config.toml
 # that runpod-python uses for its `[default]` profile. We must preserve those
 # (and any other unrelated content) when updating flash's api_key, so flash
-# login does not clobber runpodctl's credentials.
-_DEFAULT_HEADER_RE = re.compile(r"^\s*\[default\]\s*$")
-_SECTION_HEADER_RE = re.compile(r"^\s*\[[^\]]+\]\s*$")
-_API_KEY_LINE_RE = re.compile(r"^\s*api_key\s*=")
+# login does not clobber runpodctl's credentials. tomlkit round-trips comments,
+# foreign keys, sibling profiles, and line endings, so we only mutate the one
+# value we own.
+_DEFAULT_SECTION = "default"
+_API_KEY_FIELD = "api_key"
 
 _OLD_XDG_PATH = Path.home() / ".config" / "runpod" / "credentials.toml"
 
@@ -73,9 +74,15 @@ def save_api_key(api_key: str) -> Path:
     path = get_credentials_path()
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    existing = path.read_text(encoding="utf-8") if path.exists() else ""
+    # newline="" disables universal-newline translation so tomlkit sees (and
+    # preserves) the file's original line endings rather than collapsing CRLF.
+    existing = ""
+    if path.exists():
+        with path.open("r", encoding="utf-8", newline="") as f:
+            existing = f.read()
     new_content = _upsert_default_api_key(existing, api_key)
-    path.write_text(new_content, encoding="utf-8")
+    with path.open("w", encoding="utf-8", newline="") as f:
+        f.write(new_content)
 
     try:
         os.chmod(path, 0o600)
@@ -84,47 +91,25 @@ def save_api_key(api_key: str) -> Path:
     return path
 
 
-def _toml_quote(value: str) -> str:
-    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
-    return f'"{escaped}"'
-
-
 def _upsert_default_api_key(content: str, api_key: str) -> str:
-    """Update `[default].api_key` in TOML text, leaving the rest intact."""
-    new_line = f"api_key = {_toml_quote(api_key)}"
+    """Update `[default].api_key` in TOML text, leaving the rest intact.
 
-    if not content:
-        return f"[default]\n{new_line}\n"
+    Parses with tomlkit so foreign top-level keys (runpodctl's
+    `apikey`/`apiurl`), sibling profile sections, comments, and the file's
+    original line endings are preserved. Only `[default].api_key` is mutated;
+    a missing `[default]` table is created.
+    """
+    doc = tomlkit.parse(content) if content else tomlkit.document()
 
-    lines = content.splitlines(keepends=True)
+    section = doc.get(_DEFAULT_SECTION)
+    if isinstance(section, (tomlkit.items.Table, tomlkit.items.InlineTable)):
+        section[_API_KEY_FIELD] = api_key
+    else:
+        table = tomlkit.table()
+        table[_API_KEY_FIELD] = api_key
+        doc[_DEFAULT_SECTION] = table
 
-    default_start: Optional[int] = None
-    default_end = len(lines)
-    for i, line in enumerate(lines):
-        if _DEFAULT_HEADER_RE.match(line):
-            default_start = i
-            for j in range(i + 1, len(lines)):
-                if _SECTION_HEADER_RE.match(lines[j]):
-                    default_end = j
-                    break
-            break
-
-    if default_start is None:
-        suffix = "" if content.endswith("\n") else "\n"
-        separator = "\n" if content.strip() else ""
-        return f"{content}{suffix}{separator}[default]\n{new_line}\n"
-
-    for i in range(default_start + 1, default_end):
-        if _API_KEY_LINE_RE.match(lines[i]):
-            ending = "\n" if lines[i].endswith("\n") else ""
-            lines[i] = new_line + ending
-            return "".join(lines)
-
-    insert_idx = default_end
-    while insert_idx > default_start + 1 and lines[insert_idx - 1].strip() == "":
-        insert_idx -= 1
-    lines.insert(insert_idx, new_line + "\n")
-    return "".join(lines)
+    return tomlkit.dumps(doc)
 
 
 def check_and_migrate_legacy_credentials() -> None:
