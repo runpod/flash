@@ -1,4 +1,4 @@
-__version__ = "1.16.0"  # x-release-please-version
+__version__ = "1.17.0"  # x-release-please-version
 
 # Load .env vars from file before everything else
 # usecwd=True walks up from CWD (user's project) instead of from the

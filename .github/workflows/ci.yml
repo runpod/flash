@@ -2,9 +2,9 @@ name: CI
 
 on:
   pull_request:
-    branches: [ main ]
+    branches: [main]
   push:
-    branches: [ main ]
+    branches: [main]
 
 permissions:
   contents: read
@@ -12,19 +12,225 @@ permissions:
   issues: write
   actions: read
 
+# Cancel in-flight PR runs when a new commit is pushed; never cancel main runs.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   PYTHON_VERSION: '3.11'
 
 jobs:
+  # Single source of truth for "what mode should this run be in?". Inspects the
+  # PR diff and outputs:
+  #   mode = release-please-bypass | full
+  #   should_build = true | false
+  # The classification is content-based, not just branch-name-based -- that
+  # closes the CI-bypass hole where a contributor opens a PR from a branch
+  # named release-please-- and inherits sentinel passes for free.
+  guard:
+    name: Guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      mode: ${{ steps.classify.outputs.mode }}
+      should_build: ${{ steps.classify.outputs.should_build }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: classify
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          set -euo pipefail
+
+          # Derive the list of release-please-managed files from
+          # release-please-config.json so this stays in sync automatically.
+          # Implicit files that release-please always touches:
+          #   - CHANGELOG.md
+          #   - .release-please-manifest.json
+          #   - pyproject.toml (release-type=python bumps the version field)
+          # Anything declared in `.packages."."."extra-files"` is appended.
+          # If release-type changes (currently "python"), audit this list.
+          allowed_files() {
+            printf '%s\n' \
+              'CHANGELOG.md' \
+              '.release-please-manifest.json' \
+              'pyproject.toml'
+            jq -r '.packages["."]["extra-files"][]?' release-please-config.json
+          }
+
+          # Use fixed-string exact-line matching (`grep -Fxvf`) instead of a
+          # hand-built regex -- removes the need to escape filenames at all.
+          is_unexpected() {
+            # $1 = newline-separated changed files
+            echo "$1" | grep -Fxvf <(allowed_files) || true
+          }
+
+          # Content-shape check: a metadata-only file list isn't enough on
+          # push:main, where actor isn't a reliable bypass signal. Verify the
+          # diffs themselves are version-bump-shaped: pyproject.toml only
+          # changes its `version = "..."` line, src/runpod_flash/__init__.py
+          # only changes its `__version__ = "..."` line. Defeats the
+          # exploitation path where a direct push touches only the metadata
+          # filenames but smuggles non-version edits (deps, ruff config,
+          # scripts) into pyproject.toml.
+          # $1 = git diff base (HEAD~1 for push, origin/BASE_REF for PR).
+          verify_version_shape() {
+            local base="$1"
+            local bad
+            if git diff --name-only "${base}...HEAD" -- pyproject.toml | grep -q .; then
+              bad="$(git diff "${base}...HEAD" -- pyproject.toml \
+                | grep -E '^[-+]' \
+                | grep -vE '^(---|\+\+\+)' \
+                | grep -vE '^[-+]version[[:space:]]*=[[:space:]]*"[^"]+"[[:space:]]*$' || true)"
+              if [ -n "$bad" ]; then
+                echo "Bypass rejected: pyproject.toml diff touches non-version lines:"
+                echo "$bad"
+                return 1
+              fi
+            fi
+            if git diff --name-only "${base}...HEAD" -- src/runpod_flash/__init__.py | grep -q .; then
+              bad="$(git diff "${base}...HEAD" -- src/runpod_flash/__init__.py \
+                | grep -E '^[-+]' \
+                | grep -vE '^(---|\+\+\+)' \
+                | grep -vE '^[-+]__version__[[:space:]]*=[[:space:]]*"[^"]+"[[:space:]]*$' || true)"
+              if [ -n "$bad" ]; then
+                echo "Bypass rejected: src/runpod_flash/__init__.py diff touches non-__version__ lines:"
+                echo "$bad"
+                return 1
+              fi
+            fi
+            return 0
+          }
+
+          # Build-trigger heuristic shared between push:main and PR full-mode.
+          # Build runs when packaging-relevant files change OR a non-Python
+          # file under src/ is added or modified (data files need explicit
+          # package-data inclusion; content edits should be smoke-tested by
+          # validate-wheel.sh).
+          # $1 = git diff base.
+          compute_should_build() {
+            local base="$1"
+            local changed
+            changed="$(git diff --name-only "${base}...HEAD")"
+            if echo "$changed" | grep -qE '^(pyproject\.toml|Makefile|MANIFEST\.in|scripts/validate-wheel\.sh)$'; then
+              echo "true"
+              return
+            fi
+            if git diff --name-only --diff-filter=AM "${base}...HEAD" | grep -E '^src/.+' | grep -qv '\.py$'; then
+              echo "true"
+              return
+            fi
+            echo "false"
+          }
+
+          # Identity check: real release-please bot PRs are authored by the
+          # GitHub App. Used as defense-in-depth alongside the branch prefix +
+          # diff content check.
+          BOT_AUTHOR='runpod-release-please-bot[bot]'
+
+          # Push to main: classify by diff against the previous commit. When
+          # release-please's release PR is squash-merged, the resulting commit
+          # on main only touches the allowed-files set with version-shaped
+          # diffs -- same code, just version-bumped. Re-running the full
+          # matrix would be pure waste, and release-please.yml's pypi-publish
+          # builds its own wheel before publishing. Anything else (feature
+          # merges, direct admin pushes) gets the full matrix.
+          # On push events the actor isn't a reliable signal (admins can
+          # merge the bot's PR by hand) -- diff content is the only check.
+          if [ "$EVENT_NAME" = "push" ]; then
+            CHANGED="$(git diff --name-only HEAD~1...HEAD)"
+            echo "Changed files in this push:"
+            echo "$CHANGED"
+            UNEXPECTED="$(is_unexpected "$CHANGED")"
+            if [ -n "$CHANGED" ] && [ -z "$UNEXPECTED" ] && verify_version_shape HEAD~1; then
+              echo "Classification: release-please release commit on main (version-bump shape)."
+              echo "mode=release-please-bypass" >> "$GITHUB_OUTPUT"
+              echo "should_build=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "Classification: regular push to main."
+            echo "mode=full" >> "$GITHUB_OUTPUT"
+            echo "should_build=$(compute_should_build HEAD~1)" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          CHANGED="$(git diff --name-only "origin/${BASE_REF}...HEAD")"
+          echo "Changed files in this PR:"
+          echo "$CHANGED"
+
+          # release-please bypass on PR: requires ALL FOUR:
+          #   1. Branch prefix matches `release-please--`
+          #   2. PR author is the release-please GitHub App
+          #   3. Diff contains only release-please-managed files
+          #   4. pyproject.toml/__init__.py diffs are version-bump-shaped
+          # Any one missing -> fall through to full CI.
+          if [[ "$HEAD_REF" == release-please--* ]] && [ "$PR_AUTHOR" = "$BOT_AUTHOR" ]; then
+            UNEXPECTED="$(is_unexpected "$CHANGED")"
+            if [ -z "$UNEXPECTED" ] && verify_version_shape "origin/${BASE_REF}"; then
+              echo "Classification: release-please bot PR (version-bump shape)."
+              echo "mode=release-please-bypass" >> "$GITHUB_OUTPUT"
+              echo "should_build=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            if [ -n "$UNEXPECTED" ]; then
+              echo "release-please-- branch from bot contains unexpected files; falling through to full CI."
+              echo "Unexpected files:"
+              echo "$UNEXPECTED"
+            fi
+          elif [[ "$HEAD_REF" == release-please--* ]]; then
+            echo "release-please-- branch but author is '$PR_AUTHOR' (not '$BOT_AUTHOR'); running full CI."
+          fi
+
+          # Default: full CI; build conditional on content.
+          echo "mode=full" >> "$GITHUB_OUTPUT"
+          echo "should_build=$(compute_should_build "origin/${BASE_REF}")" >> "$GITHUB_OUTPUT"
+
+  # Fast-fail formatting/lint check. Installs only the dev dependency group
+  # from the lockfile (warm-cache install is ~1s), then runs ruff via
+  # `uv run` so we get the exact pinned ruff version that `make
+  # ci-quality-github` uses. Avoids `uvx ruff` -- that pulls the latest
+  # ruff, which can drift from the lock and produce CI verdicts that don't
+  # match local `make quality-check`.
+  pre-check:
+    name: Pre-check (format + lint)
+    runs-on: ubuntu-latest
+    needs: [guard]
+    if: ${{ needs.guard.outputs.mode == 'full' }}
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Install dev group (frozen, no project)
+        run: uv sync --only-group dev --frozen
+      # `uv run` defaults to syncing the environment before each invocation,
+      # which would undo the dev-only install above and pull in the full
+      # project. `--no-sync` runs ruff from the existing .venv directly.
+      - name: Ruff format
+        run: uv run --no-sync ruff format --check .
+      - name: Ruff lint
+        run: uv run --no-sync ruff check . --output-format=github
+
   quality-gates:
     name: Quality Gates
     runs-on: ubuntu-latest
+    needs: [guard, pre-check]
+    if: ${{ needs.guard.outputs.mode == 'full' }}
     strategy:
       fail-fast: false
       matrix:
         python-version: ['3.10', '3.11', '3.12', '3.13']
     timeout-minutes: 15
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -35,14 +241,14 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v2
+        uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-          cache-dependency-glob: "pyproject.toml"
+          cache-dependency-glob: uv.lock
 
       - name: Install dependencies
         run: make dev
-          
+
       - name: Quality checks
         run: make ci-quality-github
 
@@ -51,27 +257,24 @@ jobs:
         if: always()
         with:
           name: test-results-${{ matrix.python-version }}
-          path: pytest-results.xml
+          path: pytest-results-*.xml
 
   build:
     name: Build Package
     runs-on: ubuntu-latest
-    needs: [quality-gates]
+    needs: [guard, quality-gates]
+    if: ${{ needs.guard.outputs.mode == 'full' && needs.guard.outputs.should_build == 'true' }}
     timeout-minutes: 5
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v2
+      - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
+          cache-dependency-glob: uv.lock
 
       - name: Build package
         run: make build
@@ -82,9 +285,39 @@ jobs:
       - name: Validate wheel packaging
         run: ./scripts/validate-wheel.sh
 
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist
-          path: dist/
-
+  # Single aggregator. Branch protection on `main` should require ONLY this
+  # check ("CI / Validation"). This job runs unconditionally (`if: always()`)
+  # and treats "skipped" as success -- so release-please-bypass runs (where
+  # pre-check / quality-gates / build are all deliberately skipped by the
+  # guard) pass cleanly. Anything that genuinely failed or was cancelled
+  # upstream flips this to red.
+  #
+  # Adding or removing upstream jobs (new Python version, new security scan,
+  # etc.) no longer requires a branch-protection update: just include the new
+  # job in `needs:` and the results array.
+  validation:
+    name: Validation
+    runs-on: ubuntu-latest
+    needs: [guard, pre-check, quality-gates, build]
+    if: always()
+    timeout-minutes: 1
+    steps:
+      - name: Aggregate upstream results
+        env:
+          GUARD: ${{ needs.guard.result }}
+          PRE_CHECK: ${{ needs.pre-check.result }}
+          QUALITY_GATES: ${{ needs.quality-gates.result }}
+          BUILD: ${{ needs.build.result }}
+        run: |
+          set -euo pipefail
+          echo "guard=$GUARD"
+          echo "pre-check=$PRE_CHECK"
+          echo "quality-gates=$QUALITY_GATES"
+          echo "build=$BUILD"
+          for r in "$GUARD" "$PRE_CHECK" "$QUALITY_GATES" "$BUILD"; do
+            if [ "$r" != "success" ] && [ "$r" != "skipped" ]; then
+              echo "::error::Upstream job failed or was cancelled (got: $r)"
+              exit 1
+            fi
+          done
+          echo "All upstream jobs succeeded or were intentionally skipped."
