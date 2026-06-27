@@ -4,7 +4,24 @@ Provides clear, actionable error messages for common failure scenarios.
 """
 
 
-class RunpodAPIKeyError(Exception):
+class FlashError(Exception):
+    """Base class for all runpod_flash domain errors.
+
+    Catch this to handle any flash-raised error; catch a subclass for a
+    specific failure mode.
+    """
+
+
+class FlashUsageError(FlashError):
+    """Raised when the SDK is used in a way that is not supported.
+
+    Currently raised when a CLI-managed lifecycle operation (deploy, undeploy,
+    app/environment management) is invoked directly from the SDK instead of
+    through the flash CLI. The message names the equivalent CLI command.
+    """
+
+
+class RunpodAPIKeyError(FlashError):
     """Raised when RUNPOD_API_KEY environment variable is missing or invalid.
 
     This exception provides helpful guidance on how to obtain and configure
