@@ -20,6 +20,7 @@ from pydantic import (
 from runpod.endpoint.runner import Job
 
 from ..api.runpod import RunpodGraphQLClient
+from ..cli_context import cli_only
 from ..exceptions import RunpodAPIKeyError
 from ..utils.backoff import get_backoff_delay
 from .base import DeployableResource
@@ -1114,6 +1115,7 @@ class ServerlessResource(DeployableResource):
             log.error(f"{self} failed to deploy: {e}")
             raise
 
+    @cli_only("flash deploy")
     async def update(self, new_config: "ServerlessResource") -> "ServerlessResource":
         """Update existing endpoint with new configuration.
 
@@ -1317,6 +1319,7 @@ class ServerlessResource(DeployableResource):
 
         return False
 
+    @cli_only("flash deploy")
     async def deploy(self) -> "DeployableResource":
         resource_manager = ResourceManager()
         resource = await resource_manager.get_or_deploy_resource(self)
@@ -1369,6 +1372,7 @@ class ServerlessResource(DeployableResource):
 
             return False
 
+    @cli_only("flash undeploy")
     async def undeploy(self) -> Dict[str, Any]:
         resource_manager = ResourceManager()
         result = await resource_manager.undeploy_resource(self.resource_id)

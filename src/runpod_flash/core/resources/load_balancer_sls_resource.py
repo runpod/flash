@@ -45,7 +45,8 @@ class LoadBalancerSlsResource(ServerlessResource):
             workersMin=1,
             workersMax=3,
         )
-        await lb.deploy()
+
+    Deploy via the CLI (`flash deploy`); SDK lifecycle calls are CLI-only.
     """
 
     # Override default type to LB
@@ -209,7 +210,8 @@ class CpuLoadBalancerSlsResource(CpuEndpointMixin, LoadBalancerSlsResource):
             workersMin=1,
             workersMax=3,
         )
-        await cpu_lb.deploy()
+
+    Deploy via the CLI (`flash deploy`); SDK lifecycle calls are CLI-only.
     """
 
     instanceIds: Optional[List[CpuInstanceType]] = [CpuInstanceType.CPU3G_2_8]
