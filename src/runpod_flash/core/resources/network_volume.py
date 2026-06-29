@@ -108,8 +108,29 @@ class NetworkVolume(DeployableResource):
     async def is_deployed(self) -> bool:
         """
         Checks if the network volume resource is deployed and available.
+
+        A cached id alone is not sufficient: the volume may have been deleted
+        on Runpod out of band, leaving a stale id in local state
+        (``.flash/resources.pkl``). Validate the id against the live API so a
+        stale id triggers re-resolution/recreation rather than a hard failure
+        downstream (see SLS-337). On a transient API error, treat the volume as
+        not deployed so deploy() falls back to resolve-by-name, which is
+        idempotent.
         """
-        return self.id is not None
+        if not self.id:
+            return False
+        try:
+            async with RunpodRestClient() as client:
+                return await self._volume_id_exists(client, self.id)
+        except Exception as e:
+            log.debug(f"Error checking {self}: {e}")
+            return False
+
+    async def _volume_id_exists(self, client, volume_id: str) -> bool:
+        """Return True if a volume with the given id still exists on Runpod."""
+        volumes_response = await client.list_network_volumes()
+        existing_volumes = self._normalize_volumes_response(volumes_response)
+        return any(volume.get("id") == volume_id for volume in existing_volumes)
 
     def _normalize_volumes_response(self, volumes_response) -> list:
         """Normalize API response to list format."""
@@ -163,17 +184,30 @@ class NetworkVolume(DeployableResource):
         Returns a DeployableResource object.
         """
         try:
-            # If the resource is already deployed, return it
+            # If the resource is already deployed (id validated against the
+            # live API), return it. is_deployed() returns False for a stale
+            # cached id, so we fall through to re-resolve/recreate below.
             if await self.is_deployed():
                 log.debug(f"{self} exists")
                 return self
 
             async with RunpodRestClient() as client:
-                # Check for existing volume first
+                # Resolve by name first (source of truth). This also refreshes a
+                # stale cached id to the live one when the name still resolves.
                 if existing_volume := await self._find_existing_volume(client):
                     return existing_volume
 
-                # No existing volume found, create a new one
+                # Not found by name. Without a name there is nothing to
+                # re-resolve or safely recreate, so a stale id is terminal.
+                if not self.name:
+                    raise ValueError(
+                        f"Network volume id '{self.id}' no longer exists and "
+                        "cannot be re-resolved without a name."
+                    )
+
+                # Drop any stale cached id so it is not sent in the create
+                # payload, then create a fresh volume by name.
+                self.id = None
                 return await self._create_new_volume(client)
 
         except Exception as e:
