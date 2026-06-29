@@ -199,6 +199,108 @@ class TestNetworkVolumeIdempotent:
             NetworkVolume(name="data", sizee=500)
 
     @pytest.mark.asyncio
+    async def test_is_deployed_false_when_no_id(self):
+        """is_deployed() is False without an id and makes no API call."""
+        volume = NetworkVolume(name="deanq")
+
+        with patch(
+            "runpod_flash.core.resources.network_volume.RunpodRestClient"
+        ) as mock_client_class:
+            assert await volume.is_deployed() is False
+            mock_client_class.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_is_deployed_true_when_cached_id_exists(
+        self, mock_runpod_client, sample_volume_data
+    ):
+        """is_deployed() validates the cached id against the live API."""
+        volume = NetworkVolume(name="deanq")
+        volume.id = "vol-123456"
+        mock_runpod_client.list_network_volumes.return_value = [sample_volume_data]
+
+        with patch(
+            "runpod_flash.core.resources.network_volume.RunpodRestClient"
+        ) as mock_client_class:
+            mock_client_class.return_value.__aenter__.return_value = mock_runpod_client
+            mock_client_class.return_value.__aexit__ = AsyncMock()
+            assert await volume.is_deployed() is True
+
+    @pytest.mark.asyncio
+    async def test_is_deployed_false_when_cached_id_missing(self, mock_runpod_client):
+        """A stale cached id (deleted out of band) reads as not deployed."""
+        volume = NetworkVolume(name="deanq")
+        volume.id = "stale-id"
+        mock_runpod_client.list_network_volumes.return_value = []
+
+        with patch(
+            "runpod_flash.core.resources.network_volume.RunpodRestClient"
+        ) as mock_client_class:
+            mock_client_class.return_value.__aenter__.return_value = mock_runpod_client
+            mock_client_class.return_value.__aexit__ = AsyncMock()
+            assert await volume.is_deployed() is False
+
+    @pytest.mark.asyncio
+    async def test_do_deploy_recreates_by_name_when_cached_id_stale(
+        self, mock_runpod_client, sample_volume_data
+    ):
+        """Stale cached id falls back to resolve-by-name and create-if-missing."""
+        volume = NetworkVolume(name="deanq", size=50)
+        volume.id = "stale-id"
+
+        # Volume was deleted out of band: not present in the live list.
+        mock_runpod_client.list_network_volumes.return_value = []
+        mock_runpod_client.create_network_volume.return_value = sample_volume_data
+
+        with patch(
+            "runpod_flash.core.resources.network_volume.RunpodRestClient"
+        ) as mock_client_class:
+            mock_client_class.return_value.__aenter__.return_value = mock_runpod_client
+            mock_client_class.return_value.__aexit__ = AsyncMock()
+            result = await volume._do_deploy()
+
+        mock_runpod_client.create_network_volume.assert_called_once()
+        # The create payload must not carry the stale id forward.
+        payload = mock_runpod_client.create_network_volume.call_args.args[0]
+        assert "id" not in payload
+        assert result.id == "vol-123456"
+
+    @pytest.mark.asyncio
+    async def test_do_deploy_reuses_when_cached_id_valid(
+        self, mock_runpod_client, sample_volume_data
+    ):
+        """A valid cached id short-circuits without creating a new volume."""
+        volume = NetworkVolume(name="deanq", size=50)
+        volume.id = "vol-123456"
+        mock_runpod_client.list_network_volumes.return_value = [sample_volume_data]
+
+        with patch(
+            "runpod_flash.core.resources.network_volume.RunpodRestClient"
+        ) as mock_client_class:
+            mock_client_class.return_value.__aenter__.return_value = mock_runpod_client
+            mock_client_class.return_value.__aexit__ = AsyncMock()
+            result = await volume._do_deploy()
+
+        mock_runpod_client.create_network_volume.assert_not_called()
+        assert result.id == "vol-123456"
+
+    @pytest.mark.asyncio
+    async def test_do_deploy_raises_for_stale_id_only_volume(self, mock_runpod_client):
+        """An id-only volume that no longer exists cannot be re-resolved."""
+        volume = NetworkVolume(id="stale-id")
+        mock_runpod_client.list_network_volumes.return_value = []
+
+        with patch(
+            "runpod_flash.core.resources.network_volume.RunpodRestClient"
+        ) as mock_client_class:
+            mock_client_class.return_value.__aenter__.return_value = mock_runpod_client
+            # __aexit__ must not suppress the exception (return falsy).
+            mock_client_class.return_value.__aexit__ = AsyncMock(return_value=False)
+            with pytest.raises(ValueError, match="stale-id"):
+                await volume._do_deploy()
+
+        mock_runpod_client.create_network_volume.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_deploy_uses_resource_manager_to_register(self, sample_volume_data):
         """deploy() should go through the ResourceManager for persistence."""
         volume = NetworkVolume(name="manager-volume", size=50)
