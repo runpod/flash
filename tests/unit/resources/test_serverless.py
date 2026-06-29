@@ -2658,6 +2658,67 @@ class TestInjectTemplateEnv:
         type_entries = [e for e in template_env if e["key"] == "FLASH_ENDPOINT_TYPE"]
         assert len(type_entries) == 0
 
+    @pytest.mark.asyncio
+    async def test_do_deploy_lb_injects_api_key_when_makes_remote_calls(self):
+        """LB endpoints that make remote calls must get RUNPOD_API_KEY injected.
+
+        Regression test for SLS-336: under ``flash run`` an LB route is
+        provisioned directly via ``lb_execute`` (bypassing the manifest path
+        that injects the token in ``flash deploy``). Without injection here the
+        LB worker has no token and cross-endpoint calls fail with HTTP 401.
+        """
+        from runpod_flash.core.resources.load_balancer_sls_resource import (
+            LoadBalancerSlsResource,
+        )
+
+        resource = LoadBalancerSlsResource(
+            name="lb-remote-caller",
+            imageName="test:latest",
+            env={"LOG_LEVEL": "INFO"},
+            flashboot=False,
+        )
+
+        mock_client = AsyncMock()
+        mock_client.save_endpoint = AsyncMock(
+            return_value={
+                "id": "endpoint-lb-remote",
+                "name": "lb-remote-caller",
+                "templateId": "tpl-lb-remote",
+                "gpuIds": "AMPERE_48",
+                "allowedCudaVersions": "",
+            }
+        )
+
+        with patch(
+            "runpod_flash.core.resources.serverless.RunpodGraphQLClient"
+        ) as mock_client_class:
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+            mock_client_class.return_value.__aexit__.return_value = None
+
+            with patch.object(
+                ServerlessResource,
+                "_ensure_network_volume_deployed",
+                new=AsyncMock(),
+            ):
+                with patch.object(
+                    LoadBalancerSlsResource, "is_deployed", return_value=False
+                ):
+                    with patch.object(
+                        ServerlessResource,
+                        "_check_makes_remote_calls",
+                        return_value=True,
+                    ):
+                        with patch.dict(
+                            os.environ, {"RUNPOD_API_KEY": "test-lb-key-789"}
+                        ):
+                            await resource._do_deploy()
+
+        payload = mock_client.save_endpoint.call_args.args[0]
+        template_env = payload.get("template", {}).get("env", [])
+        api_key_entries = [e for e in template_env if e["key"] == "RUNPOD_API_KEY"]
+        assert len(api_key_entries) == 1
+        assert api_key_entries[0]["value"] == "test-lb-key-789"
+
 
 class TestBuildTemplateUpdatePayload:
     """Test _build_template_update_payload always includes env."""
