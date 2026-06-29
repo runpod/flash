@@ -982,33 +982,37 @@ class ServerlessResource(DeployableResource):
     def _inject_runtime_template_vars(self) -> None:
         """Inject runtime env vars into template.env without mutating self.env.
 
-        For QB endpoints making remote calls: injects RUNPOD_API_KEY.
-        For LB endpoints: injects FLASH_MODULE_PATH.
+        For any endpoint making remote calls (QB or LB): injects RUNPOD_API_KEY.
+        For LB endpoints: also injects FLASH_MODULE_PATH.
 
         Called by both _do_deploy (initial) and update (env changes) so
         runtime vars survive template updates.
         """
         env_dict = self.env or {}
 
-        if self.type == ServerlessType.QB:
-            if self._check_makes_remote_calls():
-                if "RUNPOD_API_KEY" not in env_dict:
-                    from runpod_flash.core.credentials import get_api_key
+        # Inject RUNPOD_API_KEY for any endpoint that makes remote calls,
+        # regardless of type. flash deploy gets the token via
+        # create_resource_from_manifest, but flash run provisions LB endpoints
+        # directly through lb_execute, which bypasses that path. Injecting here
+        # keeps deploy and run symmetric so cross-endpoint calls carry the
+        # token (SLS-336).
+        if self._check_makes_remote_calls() and "RUNPOD_API_KEY" not in env_dict:
+            from runpod_flash.core.credentials import get_api_key
 
-                    api_key = get_api_key()
-                    if api_key:
-                        self._inject_template_env("RUNPOD_API_KEY", api_key)
-                        log.debug(
-                            f"{self.name}: Injected RUNPOD_API_KEY for remote calls "
-                            f"(makes_remote_calls=True)"
-                        )
-                    else:
-                        log.warning(
-                            f"{self.name}: makes_remote_calls=True but RUNPOD_API_KEY not set. "
-                            f"Remote calls to other endpoints will fail."
-                        )
+            api_key = get_api_key()
+            if api_key:
+                self._inject_template_env("RUNPOD_API_KEY", api_key)
+                log.debug(
+                    f"{self.name}: Injected RUNPOD_API_KEY for remote calls "
+                    f"(makes_remote_calls=True)"
+                )
+            else:
+                log.warning(
+                    f"{self.name}: makes_remote_calls=True but RUNPOD_API_KEY not set. "
+                    f"Remote calls to other endpoints will fail."
+                )
 
-        elif self.type == ServerlessType.LB:
+        if self.type == ServerlessType.LB:
             module_path = self._get_module_path()
             if module_path and "FLASH_MODULE_PATH" not in env_dict:
                 self._inject_template_env("FLASH_MODULE_PATH", module_path)
