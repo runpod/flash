@@ -12,21 +12,13 @@ from runpod_flash.core.cli_context import (
     cli_only,
     is_cli_invocation,
     mark_cli_invocation,
-    _invoked_by_cli,
 )
 from runpod_flash.core.exceptions import FlashError, FlashUsageError
 
+# The conftest ``_flash_cli_context`` fixture forces the CLI context to False for
+# every no_cli_context test and restores it afterwards, so these tests start from
+# a clean default regardless of order.
 pytestmark = pytest.mark.no_cli_context
-
-
-@pytest.fixture(autouse=True)
-def _reset_cli_context():
-    """Guarantee a clean default (False) context around each test."""
-    token = _invoked_by_cli.set(False)
-    try:
-        yield
-    finally:
-        _invoked_by_cli.reset(token)
 
 
 @cli_only("flash deploy")
