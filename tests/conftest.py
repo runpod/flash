@@ -17,7 +17,6 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from runpod_flash.core.cli_context import _invoked_by_cli, allow_lifecycle_operations
 from runpod_flash.core.resources.resource_manager import ResourceManager
 from runpod_flash.core.utils.singleton import SingletonMixin
 
@@ -30,36 +29,6 @@ def pytest_configure(config):
     """
     # This hook is called early in pytest initialization
     # xdist will check for this during test distribution
-    config.addinivalue_line(
-        "markers",
-        "no_cli_context: run with the flash CLI context disabled so guarded "
-        "lifecycle methods raise FlashUsageError (used by guard tests).",
-    )
-
-
-@pytest.fixture(autouse=True)
-def _flash_cli_context(request):
-    """Permit CLI-managed lifecycle operations during tests.
-
-    Lifecycle methods (deploy/undeploy/app/env management) are restricted to
-    flash CLI invocation. Most tests drive them directly, so enable the context
-    by default. Guard tests opt out with @pytest.mark.no_cli_context.
-
-    The opt-out branch actively forces the context to False (rather than merely
-    skipping the enable) and restores it afterwards. ``mark_cli_invocation()`` is
-    set-and-leave, so a CLI test that ran earlier in the same worker could leave
-    the ContextVar True; forcing False here makes guard tests independent of test
-    order instead of relying on each guard module to reset the var itself.
-    """
-    if request.node.get_closest_marker("no_cli_context"):
-        token = _invoked_by_cli.set(False)
-        try:
-            yield
-        finally:
-            _invoked_by_cli.reset(token)
-    else:
-        with allow_lifecycle_operations():
-            yield
 
 
 def pytest_collection_modifyitems(config, items):

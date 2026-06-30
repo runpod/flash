@@ -15,7 +15,6 @@ from ..api.runpod import RunpodRestClient
 from ..urls import RUNPOD_CONSOLE_URL
 from .base import DeployableResource
 from .resource_manager import ResourceManager
-from ..cli_context import cli_only
 
 log = logging.getLogger(__name__)
 
@@ -215,7 +214,6 @@ class NetworkVolume(DeployableResource):
             log.error(f"{self} failed to deploy: {e}")
             raise
 
-    @cli_only("flash deploy")
     async def deploy(self) -> "DeployableResource":
         resource_manager = ResourceManager()
         resource = await resource_manager.get_or_deploy_resource(self)
