@@ -1326,6 +1326,24 @@ class ServerlessResource(DeployableResource):
         self.templateId = getattr(resource, "templateId", None)
         return self
 
+    async def _delete_template_best_effort(self, client) -> None:
+        """Delete this endpoint's backing template; never raises.
+
+        Templates are created implicitly by saveEndpoint and are not removed when
+        the endpoint is deleted, so they orphan and block the next deploy of the
+        same endpoint (SLS-343). The endpoint must already be deleted — the server
+        refuses to delete a template still associated with an aiApi.
+        """
+        if not self.templateId:
+            return
+        try:
+            await client.delete_template_by_id(self.templateId)
+            log.debug(f"{self} deleted backing template {self.templateId}")
+        except Exception as e:
+            log.warning(
+                f"{self} failed to delete backing template {self.templateId}: {e}"
+            )
+
     async def _do_undeploy(self) -> bool:
         """
         Undeploys (deletes) the serverless endpoint.
@@ -1341,7 +1359,10 @@ class ServerlessResource(DeployableResource):
             return False
 
         async with RunpodGraphQLClient() as client:
-            return await _delete_endpoint_idempotent(client, self.id)
+            deleted = await _delete_endpoint_idempotent(client, self.id)
+            if deleted:
+                await self._delete_template_best_effort(client)
+            return deleted
 
     async def undeploy(self) -> Dict[str, Any]:
         resource_manager = ResourceManager()
