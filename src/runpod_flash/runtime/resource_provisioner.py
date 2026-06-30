@@ -126,6 +126,9 @@ def create_resource_from_manifest(
     # Use per-resource target_python_version (set by manifest builder based on
     # resource type: GPU uses 3.12 base image, CPU uses DEFAULT_PYTHON_VERSION).
     # Falls back to the caller-provided python_version for backward compatibility.
+    # the resource's declared python_version, or DEFAULT_PYTHON_VERSION when
+    # not specified). Falls back to the caller-provided python_version for
+    # backward compatibility.
     effective_python_version = (
         resource_data.get("target_python_version") or python_version
     )

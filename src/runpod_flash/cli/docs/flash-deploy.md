@@ -88,7 +88,7 @@ flash deploy [OPTIONS]
 - `--exclude`: Comma-separated packages to exclude (e.g., 'torch,torchvision')
 - `--output, -o`: Custom archive name (default: artifact.tar.gz)
 - `--preview`: Build and launch local preview environment instead of deploying
-- `--python-version`: Target Python version for worker images (`3.10`, `3.11`, or `3.12`). Overrides per-resource `python_version`.
+- `--python-version`: Target Python version for worker images (`3.10`, `3.11`, `3.12`, or `3.13`). Overrides per-resource `python_version` declarations and the local-interpreter default. By default, `flash deploy` targets the Python version you're running flash from.
 
 ## Examples
 

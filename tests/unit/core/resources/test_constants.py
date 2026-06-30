@@ -28,6 +28,17 @@ class TestSupportedPythonVersions:
     def test_default_python_version_is_3_12(self):
         assert DEFAULT_PYTHON_VERSION == "3.12"
 
+    def test_supported_python_versions_contains_310_through_313(self):
+        from runpod_flash.core.resources.constants import SUPPORTED_PYTHON_VERSIONS
+
+        assert SUPPORTED_PYTHON_VERSIONS == ("3.10", "3.11", "3.12", "3.13")
+
+    def test_default_python_version_unchanged_for_latest_alias(self):
+        """DEFAULT_PYTHON_VERSION drives the :latest tag alias, not SDK fallback."""
+        from runpod_flash.core.resources.constants import DEFAULT_PYTHON_VERSION
+
+        assert DEFAULT_PYTHON_VERSION == "3.12"
+
 
 class TestGetImageName:
     def test_gpu_3_12(self):
@@ -83,6 +94,7 @@ class TestGetImageName:
     def test_invalid_python_version_raises(self):
         with pytest.raises(ValueError, match="not supported"):
             get_image_name("gpu", "3.99")
+            get_image_name("gpu", "3.14")
 
     def test_custom_tag(self):
         assert get_image_name("gpu", "3.12", tag="v2.0") == "runpod/flash:py3.12-v2.0"
@@ -121,6 +133,7 @@ class TestValidatePythonVersion:
     def test_invalid_version_raises(self):
         with pytest.raises(ValueError, match="not supported"):
             validate_python_version("3.99")
+            validate_python_version("3.14")
 
     def test_old_version_raises(self):
         with pytest.raises(ValueError, match="not supported"):
