@@ -1371,6 +1371,11 @@ class ServerlessResource(DeployableResource):
         the endpoint is deleted, so they orphan and block the next deploy of the
         same endpoint (SLS-343). The endpoint must already be deleted — the server
         refuses to delete a template still associated with an aiApi.
+
+        The Ctrl+C cleanup path (cli/commands/run.py _cleanup_live_endpoints) relies
+        on templateId being present in the pickled resource: _do_deploy sets
+        self.templateId at serverless.py:1142 before the post-deploy object is
+        persisted to .flash/resources.pkl via ResourceManager._add_resource.
         """
         if not self.templateId:
             return
