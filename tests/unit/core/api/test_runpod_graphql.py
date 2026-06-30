@@ -386,6 +386,38 @@ class TestRunpodGraphQLClientEndpoints:
             mock_execute.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_delete_template_by_id(self):
+        """Deleting a template by id emits deleteTemplateById and reports success."""
+        client = RunpodGraphQLClient(api_key="test_key")
+
+        with patch.object(client, "_execute_graphql") as mock_execute:
+            mock_execute.return_value = {"deleteTemplateById": None}
+
+            result = await client.delete_template_by_id("tmpl_123")
+
+            assert result == {"success": True}
+            mock_execute.assert_called_once()
+            mutation, variables = mock_execute.call_args.args
+            assert "deleteTemplateById" in mutation
+            assert variables == {"id": "tmpl_123"}
+
+    @pytest.mark.asyncio
+    async def test_delete_template_by_name(self):
+        """Deleting a template by name emits deleteTemplate and reports success."""
+        client = RunpodGraphQLClient(api_key="test_key")
+
+        with patch.object(client, "_execute_graphql") as mock_execute:
+            mock_execute.return_value = {"deleteTemplate": None}
+
+            result = await client.delete_template_by_name("res__tmpl")
+
+            assert result == {"success": True}
+            mock_execute.assert_called_once()
+            mutation, variables = mock_execute.call_args.args
+            assert "deleteTemplate(" in mutation
+            assert variables == {"templateName": "res__tmpl"}
+
+    @pytest.mark.asyncio
     async def test_endpoint_exists_true(self):
         """Test checking if endpoint exists (returns True)."""
         client = RunpodGraphQLClient(api_key="test_key")

@@ -435,6 +435,45 @@ class RunpodGraphQLClient:
 
         return {"success": "deleteEndpoint" in result}
 
+    async def delete_template_by_id(self, template_id: str) -> Dict[str, Any]:
+        """Delete a pod/serverless template by its id.
+
+        The endpoint that referenced the template must already be deleted; the
+        server refuses deletion while a template is still associated with an aiApi.
+        """
+        mutation = """
+        mutation deleteTemplateById($id: String!) {
+            deleteTemplateById(id: $id)
+        }
+        """
+
+        variables = {"id": template_id}
+        log.debug(f"Deleting template by id: {template_id}")
+
+        result = await self._execute_graphql(mutation, variables)
+
+        # Mutation returns Void (null) on success; presence of the key means it ran.
+        return {"success": "deleteTemplateById" in result}
+
+    async def delete_template_by_name(self, name: str) -> Dict[str, Any]:
+        """Delete a template by name (legacy server entry point).
+
+        Used by deploy self-heal where only the deterministic template name is
+        known. Prefer delete_template_by_id where the id is available.
+        """
+        mutation = """
+        mutation deleteTemplate($templateName: String) {
+            deleteTemplate(templateName: $templateName)
+        }
+        """
+
+        variables = {"templateName": name}
+        log.debug(f"Deleting template by name: {name}")
+
+        result = await self._execute_graphql(mutation, variables)
+
+        return {"success": "deleteTemplate" in result}
+
     async def list_flash_apps(self) -> List[Dict]:
         """
         List all flash apps in Runpod.
