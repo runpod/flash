@@ -2306,6 +2306,67 @@ class TestServerlessResourceUndeploy:
 
         assert result["success"] is False
 
+    @pytest.mark.asyncio
+    async def test_delete_template_best_effort_deletes_when_id_present(self):
+        """Best-effort cleanup deletes the backing template by id."""
+        serverless = ServerlessResource(name="test")
+        serverless.templateId = "tmpl_123"
+
+        client = AsyncMock()
+        client.delete_template_by_id = AsyncMock(return_value={"success": True})
+
+        await serverless._delete_template_best_effort(client)
+
+        client.delete_template_by_id.assert_awaited_once_with("tmpl_123")
+
+    @pytest.mark.asyncio
+    async def test_delete_template_best_effort_noop_without_id(self):
+        """No template id means nothing to delete."""
+        serverless = ServerlessResource(name="test")
+        serverless.templateId = None
+
+        client = AsyncMock()
+        client.delete_template_by_id = AsyncMock()
+
+        await serverless._delete_template_best_effort(client)
+
+        client.delete_template_by_id.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_delete_template_best_effort_swallows_errors(self):
+        """A template-delete failure must not propagate (teardown must not regress)."""
+        serverless = ServerlessResource(name="test")
+        serverless.templateId = "tmpl_123"
+
+        client = AsyncMock()
+        client.delete_template_by_id = AsyncMock(side_effect=Exception("still in use"))
+
+        # Must not raise.
+        await serverless._delete_template_best_effort(client)
+
+    @pytest.mark.asyncio
+    async def test_do_undeploy_deletes_template_after_endpoint(self):
+        """After the endpoint is deleted, _do_undeploy deletes its template."""
+        serverless = ServerlessResource(name="test")
+        serverless.id = "endpoint-123"
+        serverless.templateId = "tmpl_123"
+
+        mock_client = AsyncMock()
+        mock_client.delete_endpoint = AsyncMock(return_value={"success": True})
+        mock_client.delete_template_by_id = AsyncMock(return_value={"success": True})
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+
+        with patch(
+            "runpod_flash.core.resources.serverless.RunpodGraphQLClient"
+        ) as MockClient:
+            MockClient.return_value = mock_client
+            result = await serverless._do_undeploy()
+
+        assert result is True
+        mock_client.delete_endpoint.assert_awaited_once_with("endpoint-123")
+        mock_client.delete_template_by_id.assert_awaited_once_with("tmpl_123")
+
 
 class TestHealthModels:
     """Test health-related models."""
