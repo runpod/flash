@@ -17,7 +17,6 @@ from .commands import (
     update,
 )
 from .update_checker import start_background_check
-from ..core.cli_context import mark_cli_invocation
 
 
 def get_version() -> str:
@@ -79,11 +78,6 @@ def main(
     version: bool = typer.Option(False, "--version", "-v", help="Show version"),
 ):
     """Runpod Flash CLI - Distributed inference and serving framework."""
-    # Mark this process as a CLI invocation so resource lifecycle operations
-    # (deploy/undeploy/app/env management) are permitted. Direct SDK calls
-    # outside the CLI raise FlashUsageError. See core.cli_context.
-    mark_cli_invocation()
-
     if version:
         console.print(f"Runpod Flash CLI v{get_version()}")
         raise typer.Exit()

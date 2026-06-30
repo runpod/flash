@@ -5,7 +5,6 @@ from typing import Dict, Optional, Union, Tuple, TYPE_CHECKING, Any, List
 import logging
 
 from ..api.runpod import RunpodGraphQLClient
-from ..cli_context import cli_only
 
 from .constants import (
     TARBALL_CONTENT_TYPE,
@@ -326,7 +325,6 @@ class FlashApp:
             self._hydrated = True
             return
 
-    @cli_only("flash env create")
     async def create_environment(self, environment_name: str) -> Dict[str, Any]:
         """Create an environment within an app.
 
@@ -364,7 +362,6 @@ class FlashApp:
                 {"flashAppId": self.id, "tarballSize": tarball_size}
             )
 
-    @cli_only("flash deploy")
     async def deploy_build_to_environment(
         self,
         build_id: str,
@@ -497,14 +494,12 @@ class FlashApp:
         return cls(app_name, id=result["id"], eager_hydrate=False)
 
     @classmethod
-    @cli_only("flash app create")
     async def create(cls, app_name: str) -> "FlashApp":
         async with RunpodGraphQLClient() as client:
             result = await client.create_flash_app({"name": app_name})
         return cls(app_name, id=result["id"], eager_hydrate=False)
 
     @classmethod
-    @cli_only("flash app create")
     async def get_or_create(cls, app_name: str) -> "FlashApp":
         try:
             return await cls.from_name(app_name)
@@ -514,7 +509,6 @@ class FlashApp:
             return cls(app_name, id=result["id"], eager_hydrate=False)
 
     @classmethod
-    @cli_only("flash app create")
     async def create_environment_and_app(
         cls, app_name: str, environment_name: str
     ) -> Tuple["FlashApp", Dict]:
@@ -528,7 +522,6 @@ class FlashApp:
             return await client.list_flash_apps()
 
     @classmethod
-    @cli_only("flash app delete")
     async def delete(
         cls, app_name: Optional[str] = None, app_id: Optional[str] = None
     ) -> bool:
@@ -547,7 +540,6 @@ class FlashApp:
             result = await client.delete_flash_app(app_id)
         return result.get("success", False)
 
-    @cli_only("flash env delete")
     async def delete_environment(self, environment_name: str) -> bool:
         """Delete an environment from this flash app.
 
