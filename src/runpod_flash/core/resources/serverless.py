@@ -1067,6 +1067,44 @@ class ServerlessResource(DeployableResource):
             )
             log.debug(f"{self.name}: Preserved platform env var '{key}'")
 
+    # Substring of the GraphQL error raised when a template name already exists
+    # (PodTemplate has a [userId, name] uniqueness constraint).
+    _TEMPLATE_NAME_COLLISION_MARKER = "template names must be unique"
+
+    async def _save_endpoint_with_self_heal(self, client, payload: dict) -> dict:
+        """Save the endpoint; recover from an orphaned-template name collision.
+
+        A prior `flash dev` (or crashed run) can leave a server-side template whose
+        name collides with the one this save submits (SLS-343). On that specific
+        error, delete the orphaned template by name and retry once. The orphan has
+        no live endpoint, so deletion succeeds; if it is still in use (a dev session
+        is running), surface an actionable error instead of looping.
+        """
+        try:
+            return await client.save_endpoint(payload)
+        except Exception as e:
+            if self._TEMPLATE_NAME_COLLISION_MARKER not in str(e).lower():
+                raise
+
+            template_name = (payload.get("template") or {}).get("name")
+            if not template_name:
+                raise
+
+            log.warning(
+                f"{self} template name collision on '{template_name}'; "
+                "deleting orphaned template and retrying deploy"
+            )
+            try:
+                await client.delete_template_by_name(template_name)
+            except Exception as del_err:
+                raise RuntimeError(
+                    f"Could not clear the colliding template '{template_name}': "
+                    f"{del_err}. A dev session for this endpoint may still be "
+                    "running; stop it (Ctrl+C) and retry."
+                ) from del_err
+
+            return await client.save_endpoint(payload)
+
     async def _do_deploy(self) -> "DeployableResource":
         """
         Deploys the serverless resource using the provided configuration.
@@ -1095,7 +1133,7 @@ class ServerlessResource(DeployableResource):
                 # inject multi-volume IDs if available
                 self._inject_multi_volume_payload(payload)
 
-                result = await client.save_endpoint(payload)
+                result = await self._save_endpoint_with_self_heal(client, payload)
 
             if endpoint := self.__class__(**result):
                 endpoint = await self._sync_graphql_object_with_inputs(endpoint)
