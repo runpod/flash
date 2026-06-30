@@ -1,3 +1,4 @@
+import json
 import logging
 import re
 from dataclasses import dataclass
@@ -32,6 +33,67 @@ class QBRequestLogBatch:
     phase: QBRequestLogPhase
     worker_metrics: dict[str, int] = field(default_factory=dict)
     ready_worker_ids: List[str] = field(default_factory=list)
+
+
+@dataclass
+class SSEEvent:
+    id: str
+    data: dict[str, Any]
+
+
+@dataclass
+class LogEvent:
+    source: str
+    line: str
+    ts: str
+
+
+def parse_sse_event(data: str) -> Optional[SSEEvent]:
+    """
+    Parses an SSE line into a dictionary
+    """
+    if not data:
+        return None
+
+    try:
+        event_id_line, data_line = filter(bool, data.split("\n"))
+        event_id = event_id_line.split(":", 1)[1].strip()
+        data_json = data_line.split(":", 1)[1].strip()
+        data = json.loads(data_json)
+        return SSEEvent(id=event_id, data=data)
+    except Exception as e:
+        log.error("Failed to parse SSE event: %s", e)
+        return None
+
+
+def parse_log_event(data: dict[str, Any]) -> Optional[LogEvent]:
+    """
+    Parses a log event from a dictionary
+    """
+    try:
+        return LogEvent(source=data["source"], line=data["line"], ts=data["ts"])
+    except Exception as e:
+        log.error("Failed to parse log event: %s", e)
+        return None
+
+
+async def stream_pod_logs(pod_id: str, tail: int = 0):
+    """
+    Streams logs from pod using SSE
+    """
+    if tail < 0:
+        raise ValueError("tail must be greater than 0")
+
+    url = f"{RUNPOD_HAPI_URL}/v1/pod/{pod_id}/logs?stream=true&tail={tail}"
+
+    async with get_authenticated_httpx_client() as client:
+        async with client.get(url) as response:
+            async for line in response.aiter_lines():
+                event = parse_sse_event(line)
+                if event:
+                    log_event = parse_log_event(event.data)
+                    if log_event:
+                        yield log_event
 
 
 class QBRequestLogFetcher:
