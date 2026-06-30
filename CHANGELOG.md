@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.18.0](https://github.com/runpod/flash/compare/v1.17.0...v1.18.0) (2026-06-30)
+
+
+### Features
+
+* **sdk:** make endpoint/app lifecycle operations CLI-only ([#346](https://github.com/runpod/flash/issues/346)) ([d8f6ae3](https://github.com/runpod/flash/commit/d8f6ae3fb668da9817bb08641af26d6200120ba9))
+
+
+### Bug Fixes
+
+* **network-volume:** re-resolve stale cached volume id by name ([#348](https://github.com/runpod/flash/issues/348)) ([efb3cc1](https://github.com/runpod/flash/commit/efb3cc18bf3d3d519155835b577d1a9ea61dda28))
+* **run:** inject API token for LB cross-endpoint calls ([#347](https://github.com/runpod/flash/issues/347)) ([8bf0e7e](https://github.com/runpod/flash/commit/8bf0e7ee7f544eaa5947a3a5d0da75414ce9f5cc))
+
 ## [1.17.0](https://github.com/runpod/flash/compare/v1.16.0...v1.17.0) (2026-06-04)
 
 
