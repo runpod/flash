@@ -3574,3 +3574,68 @@ class TestCreateNewTemplateEnvFieldSet:
         template = resource._create_new_template()
 
         assert "env" not in template.model_fields_set
+
+
+class TestSaveEndpointWithSelfHeal:
+    """Tests for _save_endpoint_with_self_heal — deploy-time collision recovery."""
+
+    @pytest.mark.asyncio
+    async def test_self_heal_retries_after_template_collision(self):
+        """On a unique-template-name error, delete the orphan by name and retry once."""
+        serverless = ServerlessResource(name="test")
+        payload = {"name": "test", "template": {"name": "res__tmpl"}}
+        endpoint = {"id": "ep_1", "templateId": "tmpl_new"}
+
+        client = AsyncMock()
+        client.save_endpoint = AsyncMock(
+            side_effect=[
+                Exception(
+                    "GraphQL errors: endpoint template names must be unique. "
+                    "check that you do not already have an endpoint with a similar template."
+                ),
+                endpoint,
+            ]
+        )
+        client.delete_template_by_name = AsyncMock(return_value={"success": True})
+
+        result = await serverless._save_endpoint_with_self_heal(client, payload)
+
+        assert result == endpoint
+        client.delete_template_by_name.assert_awaited_once_with("res__tmpl")
+        assert client.save_endpoint.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_self_heal_ignores_unrelated_errors(self):
+        """Errors other than the unique-name collision propagate without retry."""
+        serverless = ServerlessResource(name="test")
+        payload = {"name": "test", "template": {"name": "res__tmpl"}}
+
+        client = AsyncMock()
+        client.save_endpoint = AsyncMock(side_effect=Exception("quota exceeded"))
+        client.delete_template_by_name = AsyncMock()
+
+        with pytest.raises(Exception, match="quota exceeded"):
+            await serverless._save_endpoint_with_self_heal(client, payload)
+
+        client.delete_template_by_name.assert_not_called()
+        assert client.save_endpoint.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_self_heal_actionable_error_when_delete_fails(self):
+        """If the colliding template can't be deleted (e.g. live dev session), raise an actionable error."""
+        serverless = ServerlessResource(name="test")
+        payload = {"name": "test", "template": {"name": "res__tmpl"}}
+
+        client = AsyncMock()
+        client.save_endpoint = AsyncMock(
+            side_effect=Exception("endpoint template names must be unique")
+        )
+        client.delete_template_by_name = AsyncMock(
+            side_effect=Exception("Template is associated with AI API ep_live")
+        )
+
+        with pytest.raises(RuntimeError, match="dev session"):
+            await serverless._save_endpoint_with_self_heal(client, payload)
+
+        # save_endpoint attempted once; no retry because the delete failed.
+        assert client.save_endpoint.await_count == 1
