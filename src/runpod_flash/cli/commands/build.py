@@ -18,6 +18,7 @@ from rich.console import Console
 
 from runpod_flash.cli.utils.formatting import print_error, print_warning
 from runpod_flash.core.resources.constants import MAX_TARBALL_SIZE_MB
+from runpod_flash.stubs.local_modules import resolve_local_modules
 
 from ..utils.ignore import get_file_tree, load_ignore_patterns
 from .build_utils.handler_generator import HandlerGenerator
@@ -29,6 +30,32 @@ from .build_utils.scanner import RuntimeScanner
 logger = logging.getLogger(__name__)
 
 console = Console()
+
+
+def augment_with_local_modules(files: list[Path], project_dir: Path) -> list[Path]:
+    """Force-include local modules imported by project code but dropped by ignores.
+
+    Walks the import closure of every non-ignored ``.py`` file in *files* and adds
+    any backing local file under *project_dir* that is not already present. Local
+    imports that cannot be resolved raise ``LocalModuleResolutionError`` so the
+    build fails loudly instead of shipping a broken tarball.
+    """
+    project_dir = project_dir.resolve()
+    present = {f.resolve() for f in files}
+    extra: dict[Path, None] = {}
+
+    for py_file in [f for f in files if f.suffix == ".py"]:
+        resolved = resolve_local_modules(
+            py_file.read_text(encoding="utf-8"), py_file, project_dir
+        )
+        for warning in resolved.warnings:
+            console.print(f"[yellow]warning:[/yellow] {warning}")
+        for abs_path in resolved.files.values():
+            p = Path(abs_path).resolve()
+            if p not in present:
+                extra[p] = None
+
+    return list(files) + list(extra)
 
 
 def compute_source_fingerprint(project_dir: Path, files: list[Path]) -> str:
@@ -261,6 +288,7 @@ def run_build(
 
     spec = load_ignore_patterns(project_dir)
     files = get_file_tree(project_dir, spec)
+    files = augment_with_local_modules(files, project_dir)
 
     # Resolved later by ManifestBuilder from resource configs (or the override
     # above). Pip wheel selection re-reads this via _resolve_pip_python_version.
