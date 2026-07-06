@@ -132,6 +132,7 @@ class TestRemoteWithLoadBalancerIntegration:
         # Guard against a future regression where both paths collapse to the
         # same default (e.g. the override branch reverting to a no-op).
         assert default_lb.imageName != custom_lb.imageName
+
     def test_live_load_balancer_default_image(self):
         """Test that LiveLoadBalancer uses GPU LB base image by default."""
         lb = LiveLoadBalancer(name="test-api")
@@ -170,50 +171,50 @@ class TestRemoteWithLoadBalancerIntegration:
         assert qb_func.__remote_config__["path"] is None
 
     def test_scanner_discovers_load_balancer_resources(self):
-        """Test that scanner can discover LiveLoadBalancer and LoadBalancerSlsResource."""
+        """Test that scanner discovers @Endpoint load-balanced route handlers."""
         from runpod_flash.cli.commands.build_utils.scanner import RuntimeScanner
         from pathlib import Path
         import tempfile
 
-        # Create temporary Python file with LoadBalancer resource
+        # Uses the current @Endpoint API (remote is deprecated). The worker file
+        # must NOT be named test_*.py — the scanner skips test files, so a
+        # test-prefixed fixture would yield zero discovered functions.
         code = """
-from runpod_flash import LiveLoadBalancer, LoadBalancerSlsResource, remote
+from runpod_flash.endpoint import Endpoint
+from runpod_flash.core.resources.gpu import GpuGroup
 
-# Test LiveLoadBalancer discovery
-api = LiveLoadBalancer(name="test-api")
+api = Endpoint(name="test-api", gpu=GpuGroup.AMPERE_16)
 
-@remote(api, method="POST", path="/api/process")
+@api.post("/api/process")
 async def process_data(x: int):
     return {"result": x}
 
-# Test LoadBalancerSlsResource discovery
-deployed = LoadBalancerSlsResource(name="deployed-api", imageName="test:latest")
+status_api = Endpoint(name="deployed-api", gpu=GpuGroup.AMPERE_16)
 
-@remote(deployed, method="GET", path="/api/status")
+@status_api.get("/api/status")
 def get_status():
     return {"status": "ok"}
 """
 
         with tempfile.TemporaryDirectory() as tmpdir:
             project_dir = Path(tmpdir)
-            py_file = project_dir / "test_api.py"
+            py_file = project_dir / "worker_api.py"
             py_file.write_text(code)
 
             scanner = RuntimeScanner(project_dir)
             functions = scanner.discover_remote_functions()
 
-            # Verify both resources were discovered
+            # Both LB route handlers are discovered.
             assert len(functions) == 2
 
-            # Verify resource types are correctly identified
-            resource_types = {f.resource_type for f in functions}
-            assert "LiveLoadBalancer" in resource_types
-            assert "LoadBalancerSlsResource" in resource_types
+            # Endpoint(gpu=...) with route handlers resolves to LiveLoadBalancer.
+            assert {f.resource_type for f in functions} == {"LiveLoadBalancer"}
+            assert all(f.is_load_balanced for f in functions)
 
-            # Verify resource configs were extracted
-            assert "test-api-fb" in scanner.resource_types
-            assert scanner.resource_types["test-api-fb"] == "LiveLoadBalancer"
-            assert "deployed-api-fb" in scanner.resource_types
-            assert (
-                scanner.resource_types["deployed-api-fb"] == "LoadBalancerSlsResource"
-            )
+            # HTTP method and path are captured per route.
+            routes = {(f.http_method, f.http_path) for f in functions}
+            assert routes == {("POST", "/api/process"), ("GET", "/api/status")}
+
+            # Resource configs are tracked by name.
+            assert scanner.resource_types["test-api"] == "LiveLoadBalancer"
+            assert scanner.resource_types["deployed-api"] == "LiveLoadBalancer"

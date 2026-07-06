@@ -5,8 +5,8 @@ import os
 
 import pytest
 from runpod_flash.core.resources.constants import (
+    DEFAULT_PYTHON_VERSION,
     GPU_BASE_IMAGE_PYTHON_VERSION,
-    local_python_version,
 )
 from runpod_flash.core.resources.cpu import CpuInstanceType
 from runpod_flash.core.resources.live_serverless import (
@@ -202,7 +202,7 @@ class TestCpuLiveLoadBalancer:
         os.environ.pop("FLASH_IMAGE_TAG", None)
 
         lb = CpuLiveLoadBalancer(name="test-lb")
-        assert f"py{local_python_version()}" in lb.imageName
+        assert f"py{DEFAULT_PYTHON_VERSION}" in lb.imageName
         assert lb.template is not None
         assert lb.template.imageName == lb.imageName
 

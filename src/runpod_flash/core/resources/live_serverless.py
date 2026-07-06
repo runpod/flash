@@ -1,14 +1,9 @@
 # Ship serverless code as you write it. No builds, no deploys -- just run.
-from typing import Any, ClassVar
+from typing import Any
 
-# Ship serverless code as you write it. No builds, no deploys — just run.
 from pydantic import model_validator
 
-from .constants import (
-    GPU_BASE_IMAGE_PYTHON_VERSION,
-    get_image_name,
-    local_python_version,
-)
+from .constants import DEFAULT_PYTHON_VERSION, get_image_name
 from .injection import build_injection_cmd
 from .load_balancer_sls_resource import (
     CpuLoadBalancerSlsResource,
@@ -22,31 +17,30 @@ from .template import PodTemplate
 class LiveServerlessMixin:
     """Common mixin for live serverless endpoints.
 
-    Treats the Flash runtime image as a *default*: if the caller passes an
-    ``imageName`` (e.g. via ``Endpoint(image=...)`` in client mode), that
-    value wins. Otherwise the Flash runtime image for this resource type is
-    used so decorator-mode workloads continue to deploy the Flash wrapper.
+    Configures process injection via ``dockerArgs`` for any base image, and
+    treats the Flash runtime image as a *default*: if the caller passes an
+    ``imageName`` (e.g. via ``Endpoint(image=...)`` in client mode), that value
+    wins. Otherwise the Flash runtime image for this resource type is applied by
+    the ``@model_validator(mode="before")`` on each concrete subclass (see
+    ``_apply_default_live_image``), so decorator-mode workloads continue to
+    deploy the Flash wrapper.
 
-    The default is applied via the ``@model_validator(mode="before")`` on each
-    concrete subclass (see ``_apply_default_live_image``); reads and writes of
-    ``imageName`` go through the normal Pydantic field machinery so model
-    serialization, drift detection, and ``setattr`` all stay consistent.
-    """Configures process injection via dockerArgs for any base image.
-
-    Sets a default base image (user can override via imageName) and generates
-    dockerArgs to download, extract, and run the flash-worker tarball at container
-    start time. QB vs LB mode is determined by FLASH_ENDPOINT_TYPE env var at
-    runtime, not by the Docker image.
+    The injection ``dockerArgs`` download, extract, and run the flash-worker
+    tarball at container start; QB vs LB mode is determined by the
+    ``FLASH_ENDPOINT_TYPE`` env var at runtime, not by the Docker image.
     """
 
-    _image_type: ClassVar[str] = (
-        ""  # override in subclasses: 'gpu', 'cpu', 'lb', 'lb-cpu'
-    )
+    def _create_new_template(self) -> PodTemplate:
+        """Create template with dockerArgs for process injection."""
+        template = super()._create_new_template()  # type: ignore[misc]
+        template.dockerArgs = build_injection_cmd()
+        return template
 
-    @property
-    def _live_image(self) -> str:
-        python_version = getattr(self, "python_version", None) or DEFAULT_PYTHON_VERSION
-        return get_image_name(self._image_type, python_version)
+    def _configure_existing_template(self) -> None:
+        """Configure existing template, adding dockerArgs for injection if not user-set."""
+        super()._configure_existing_template()  # type: ignore[misc]
+        if self.template is not None and not self.template.dockerArgs:  # type: ignore[attr-defined]
+            self.template.dockerArgs = build_injection_cmd()  # type: ignore[attr-defined]
 
 
 def _apply_default_live_image(data: Any, image_type: str):
@@ -63,18 +57,6 @@ def _apply_default_live_image(data: Any, image_type: str):
         data["imageName"] = get_image_name(image_type, python_version)
     return data
 
-    def _create_new_template(self) -> PodTemplate:
-        """Create template with dockerArgs for process injection."""
-        template = super()._create_new_template()  # type: ignore[misc]
-        template.dockerArgs = build_injection_cmd()
-        return template
-
-    def _configure_existing_template(self) -> None:
-        """Configure existing template, adding dockerArgs for injection if not user-set."""
-        super()._configure_existing_template()  # type: ignore[misc]
-        if self.template is not None and not self.template.dockerArgs:  # type: ignore[attr-defined]
-            self.template.dockerArgs = build_injection_cmd()  # type: ignore[attr-defined]
-
 
 class LiveServerless(LiveServerlessMixin, ServerlessEndpoint):
     """GPU-only live serverless endpoint."""
@@ -84,11 +66,6 @@ class LiveServerless(LiveServerlessMixin, ServerlessEndpoint):
     def set_live_serverless_template(cls, data: dict):
         """Default to the GPU Flash runtime image when none is supplied."""
         return _apply_default_live_image(data, "gpu")
-        """Set default GPU image for Live Serverless."""
-        if "imageName" not in data:
-            python_version = data.get("python_version") or GPU_BASE_IMAGE_PYTHON_VERSION
-            data["imageName"] = get_image_name("gpu", python_version)
-        return data
 
 
 class CpuLiveServerless(LiveServerlessMixin, CpuServerlessEndpoint):
@@ -99,11 +76,6 @@ class CpuLiveServerless(LiveServerlessMixin, CpuServerlessEndpoint):
     def set_live_serverless_template(cls, data: dict):
         """Default to the CPU Flash runtime image when none is supplied."""
         return _apply_default_live_image(data, "cpu")
-        """Set default CPU image for Live Serverless."""
-        if "imageName" not in data:
-            python_version = data.get("python_version") or local_python_version()
-            data["imageName"] = get_image_name("cpu", python_version)
-        return data
 
 
 class LiveLoadBalancer(LiveServerlessMixin, LoadBalancerSlsResource):
@@ -114,11 +86,6 @@ class LiveLoadBalancer(LiveServerlessMixin, LoadBalancerSlsResource):
     def set_live_lb_template(cls, data: dict):
         """Default to the LB Flash runtime image when none is supplied."""
         return _apply_default_live_image(data, "lb")
-        """Set default image for Live Load-Balanced endpoint."""
-        if "imageName" not in data:
-            python_version = data.get("python_version") or GPU_BASE_IMAGE_PYTHON_VERSION
-            data["imageName"] = get_image_name("lb", python_version)
-        return data
 
 
 class CpuLiveLoadBalancer(LiveServerlessMixin, CpuLoadBalancerSlsResource):
@@ -129,8 +96,3 @@ class CpuLiveLoadBalancer(LiveServerlessMixin, CpuLoadBalancerSlsResource):
     def set_live_cpu_lb_template(cls, data: dict):
         """Default to the CPU LB Flash runtime image when none is supplied."""
         return _apply_default_live_image(data, "lb-cpu")
-        """Set default CPU image for Live Load-Balanced endpoint."""
-        if "imageName" not in data:
-            python_version = data.get("python_version") or local_python_version()
-            data["imageName"] = get_image_name("lb-cpu", python_version)
-        return data
