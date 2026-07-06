@@ -113,15 +113,28 @@ def _walk(
             for alias in node.names:
                 _consider(alias.name, 0, current_dir, root, result, visited, origin)
         elif isinstance(node, ast.ImportFrom):
-            _consider(
-                node.module or "",
-                node.level,
-                current_dir,
-                root,
-                result,
-                visited,
-                origin,
-            )
+            if node.level > 0 and node.module is None:
+                # `from . import a, b` — each name is a candidate local submodule
+                for alias in node.names:
+                    _consider(
+                        alias.name,
+                        node.level,
+                        current_dir,
+                        root,
+                        result,
+                        visited,
+                        origin,
+                    )
+            else:
+                _consider(
+                    node.module or "",
+                    node.level,
+                    current_dir,
+                    root,
+                    result,
+                    visited,
+                    origin,
+                )
         elif isinstance(node, ast.Call):
             _consider_dynamic(node, current_dir, root, result, visited, origin)
 

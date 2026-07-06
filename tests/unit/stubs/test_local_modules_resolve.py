@@ -88,3 +88,22 @@ def test_dynamic_nonliteral_warns_not_raises(tmp_path: Path):
     result = resolve_local_modules(entry.read_text(), entry, tmp_path)
     assert result.files == {}
     assert any("dynamic import" in w for w in result.warnings)
+
+
+def test_bare_relative_import_resolves_submodule(tmp_path):
+    (tmp_path / "__init__.py").write_text("\n")
+    (tmp_path / "helper.py").write_text("X = 1\n")
+    entry = _entry(
+        tmp_path, "from . import helper\n\ndef handler():\n    return helper.X\n"
+    )
+    result = resolve_local_modules(entry.read_text(), entry, tmp_path)
+    assert "helper.py" in result.files
+
+
+def test_local_file_outside_project_root_raises(tmp_path):
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (tmp_path / "utils.py").write_text("x = 1\n")
+    entry = _entry(tmp_path, "import utils\n\ndef handler():\n    return utils.x\n")
+    with pytest.raises(LocalModuleResolutionError):
+        resolve_local_modules(entry.read_text(), entry, proj)
