@@ -25,6 +25,8 @@ from typing import Any, Callable, Dict, get_type_hints
 from fastapi import FastAPI, File, Form, Request
 from pydantic import BaseModel, create_model
 
+from runpod_flash.runtime.module_loader import materialized_modules
+
 logger = logging.getLogger(__name__)
 
 _BODY_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
@@ -323,7 +325,8 @@ def create_lb_handler(
                 # Execute function in isolated namespace
                 namespace: Dict[str, Any] = {}
                 try:
-                    exec(function_code, namespace)
+                    with materialized_modules(body.get("modules", {}) or {}):
+                        exec(function_code, namespace)
                 except SyntaxError as e:
                     logger.error(f"Syntax error in function code: {e}")
                     return {
