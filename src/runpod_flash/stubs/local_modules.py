@@ -84,6 +84,14 @@ def resolve_local_modules(
     Raises:
         LocalModuleResolutionError: a relative import, a local package submodule,
             or a local file outside the project root could not be handled.
+
+    Note (live-serverless path): when *project_root* is the endpoint source file's
+    directory, a module imported by ABSOLUTE name from a PARENT directory (e.g.
+    `import shared` where `shared.py` lives above the endpoint) is classified as
+    external and silently omitted — it will raise ModuleNotFoundError on the worker.
+    Only relative imports fail loudly. Keep an endpoint at or above its local
+    dependencies, or use `flash deploy` (which uses the project directory as the
+    root). Tracked as a follow-up.
     """
     root = Path(project_root).resolve()
     start_dir = Path(source_file).resolve().parent

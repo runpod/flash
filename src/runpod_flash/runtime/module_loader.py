@@ -27,6 +27,13 @@ def materialized_modules(modules: dict[str, str]) -> Iterator[str | None]:
 
     Yields:
         The temp dir path added to ``sys.path``, or ``None`` when *modules* is empty.
+
+    Concurrency note: this mutates the process-global ``sys.path``. It assumes one
+    function executes at a time per worker process (the current worker model). If a
+    worker runs multiple handler invocations concurrently (e.g. async concurrency >
+    1), the inserted temp dir is visible to other in-flight invocations and cleanup
+    on exit could remove files mid-import. Isolating sys.path per invocation is a
+    follow-up if concurrent execution is enabled.
     """
     if not modules:
         yield None
