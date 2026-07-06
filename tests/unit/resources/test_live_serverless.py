@@ -53,6 +53,7 @@ class TestLiveServerless:
         """LiveServerless still defaults to the Flash GPU runtime image."""
         live_serverless = LiveServerless(name="example_gpu_live_serverless")
         assert "flash:" in live_serverless.imageName
+
     def test_live_serverless_user_can_override_image(self):
         """Test user can set custom imageName (BYOI)."""
         live_serverless = LiveServerless(
@@ -128,6 +129,7 @@ class TestCpuLiveServerless:
             instanceIds=[CpuInstanceType.CPU3G_1_4],
         )
         assert "flash-cpu:" in live_serverless.imageName
+
     def test_cpu_live_serverless_user_can_override_image(self):
         """Test CpuLiveServerless allows user to set custom image."""
         live_serverless = CpuLiveServerless(name="test", imageName="python:3.11-slim")
@@ -200,13 +202,28 @@ class TestLiveServerlessMixin:
 
     def test_image_name_property_gpu(self):
         """LiveServerless defaults imageName to the Flash runtime image when none supplied."""
+        from runpod_flash.core.resources.constants import (
+            DEFAULT_PYTHON_VERSION,
+            get_image_name,
+        )
+
         live_serverless = LiveServerless(name="test")
-        assert live_serverless.imageName == live_serverless._live_image
+        assert live_serverless.imageName == get_image_name(
+            "gpu", DEFAULT_PYTHON_VERSION
+        )
 
     def test_image_name_property_cpu(self):
         """CpuLiveServerless defaults imageName to the Flash runtime image when none supplied."""
+        from runpod_flash.core.resources.constants import (
+            DEFAULT_PYTHON_VERSION,
+            get_image_name,
+        )
+
         live_serverless = CpuLiveServerless(name="test")
-        assert live_serverless.imageName == live_serverless._live_image
+        assert live_serverless.imageName == get_image_name(
+            "cpu", DEFAULT_PYTHON_VERSION
+        )
+
     def test_all_live_classes_have_docker_args(self):
         """Test all Live* classes set dockerArgs on their templates."""
         classes_and_kwargs = [
@@ -262,6 +279,7 @@ class TestLiveServerlessMixin:
         original = LiveServerless(name="test", imageName="byo/image:v1")
         revalidated = LiveServerless.model_validate(original)
         assert revalidated.imageName == "byo/image:v1"
+
     def test_live_serverless_byoi_gpu(self):
         """Test LiveServerless respects user-provided imageName."""
         live_serverless = LiveServerless(name="test", imageName="custom/gpu:v1")
