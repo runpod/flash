@@ -306,6 +306,38 @@ class TestExecuteEndpoint:
         response = client.post("/execute", json={})
         assert response.status_code == 404
 
+    def test_execute_function_imports_shipped_module_inside_body(self, client):
+        """Regression: shipped module must still be importable when the function runs.
+
+        The function body imports the shipped module lazily (i.e. at call
+        time, not at def time), which is how real endpoint code frequently
+        imports local siblings. If `materialized_modules` is exited before
+        the function is invoked, this import raises ModuleNotFoundError even
+        though the request is otherwise well-formed.
+        """
+        from runpod_flash.runtime.serialization import deserialize_arg, serialize_arg
+
+        response = client.post(
+            "/execute",
+            json={
+                "function_name": "compute",
+                "function_code": (
+                    "def compute(x):\n"
+                    "    import sls360_regression_helper\n"
+                    "    return sls360_regression_helper.MULTIPLIER * x\n"
+                ),
+                "args": [serialize_arg(3)],
+                "kwargs": {},
+                "modules": {
+                    "sls360_regression_helper.py": "MULTIPLIER = 7\n",
+                },
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True, data.get("error")
+        assert deserialize_arg(data["result"]) == 21
+
 
 class TestApiKeyMiddleware:
     """Test extract_api_key_middleware."""
