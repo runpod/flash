@@ -114,10 +114,24 @@ def _walk(
                 _consider(alias.name, 0, current_dir, root, result, visited, origin)
         elif isinstance(node, ast.ImportFrom):
             if node.level > 0 and node.module is None:
-                # `from . import a, b` — each name is a candidate local submodule
-                for alias in node.names:
+                # `from . import a, b` — each name is a candidate local submodule.
+                # `from . import *` carries the sentinel name "*", which is not a
+                # module; fall back to resolving the package __init__ itself.
+                names = [alias.name for alias in node.names if alias.name != "*"]
+                if names:
+                    for name in names:
+                        _consider(
+                            name,
+                            node.level,
+                            current_dir,
+                            root,
+                            result,
+                            visited,
+                            origin,
+                        )
+                else:
                     _consider(
-                        alias.name,
+                        "",
                         node.level,
                         current_dir,
                         root,

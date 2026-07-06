@@ -107,3 +107,10 @@ def test_local_file_outside_project_root_raises(tmp_path):
     entry = _entry(tmp_path, "import utils\n\ndef handler():\n    return utils.x\n")
     with pytest.raises(LocalModuleResolutionError):
         resolve_local_modules(entry.read_text(), entry, proj)
+
+
+def test_bare_relative_star_import_resolves_package_init(tmp_path):
+    (tmp_path / "__init__.py").write_text("VALUE = 1\n")
+    entry = _entry(tmp_path, "from . import *\n\ndef handler():\n    return VALUE\n")
+    result = resolve_local_modules(entry.read_text(), entry, tmp_path)
+    assert "__init__.py" in result.files
