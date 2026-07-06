@@ -244,15 +244,6 @@ class TestCpuDiskSizingIntegration:
         assert "cpu5c-1-2: max 15GB" in error_msg
 
 
-class TestLiveServerlessImageIntegration:
-    """Test image default + override behavior in live serverless variants (AE-3153)."""
-
-    def test_live_serverless_image_consistency(self):
-        """LiveServerless variants default to distinct Flash runtime images."""
-        gpu_live = LiveServerless(name="gpu-live")
-        cpu_live = CpuLiveServerless(name="cpu-live")
-
-        # Verify different default images are used per resource type.
 class TestLiveServerlessImageDefaultsIntegration:
     """Test image defaults in live serverless variants."""
 
