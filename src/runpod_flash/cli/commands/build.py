@@ -17,6 +17,7 @@ import typer
 from rich.console import Console
 
 from runpod_flash.cli.utils.formatting import print_error, print_warning
+from runpod_flash.core.exceptions import LocalModuleResolutionError
 from runpod_flash.core.resources.constants import MAX_TARBALL_SIZE_MB
 from runpod_flash.stubs.local_modules import resolve_local_modules
 
@@ -31,25 +32,76 @@ logger = logging.getLogger(__name__)
 
 console = Console()
 
+# Decorator names that mark a function/class as a Flash endpoint entry point.
+ENDPOINT_DECORATOR_NAMES: frozenset[str] = frozenset({"remote", "Endpoint"})
+
+
+def _defines_endpoint(py_file: Path) -> bool:
+    """Check whether *py_file* defines a function/class decorated as a Flash endpoint.
+
+    Recognizes ``@remote``, ``@remote(...)``, ``@Endpoint(...)``, and attribute
+    forms (e.g. ``@rf.Endpoint``). Parses the file as AST only -- it does not
+    import it, so decorators do not need to be resolvable.
+
+    Returns:
+        True if an endpoint decorator is found, False if none is found or the
+        file cannot be read/parsed.
+    """
+    try:
+        tree = ast.parse(py_file.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, SyntaxError):
+        return False
+
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for decorator in node.decorator_list:
+            target = decorator.func if isinstance(decorator, ast.Call) else decorator
+            if isinstance(target, ast.Attribute):
+                name = target.attr
+            elif isinstance(target, ast.Name):
+                name = target.id
+            else:
+                continue
+            if name in ENDPOINT_DECORATOR_NAMES:
+                return True
+
+    return False
+
 
 def augment_with_local_modules(files: list[Path], project_dir: Path) -> list[Path]:
     """Force-include local modules imported by project code but dropped by ignores.
 
     Walks the import closure of every non-ignored ``.py`` file in *files* and adds
-    any backing local file under *project_dir* that is not already present. Local
-    imports that cannot be resolved raise ``LocalModuleResolutionError`` so the
-    build fails loudly instead of shipping a broken tarball.
+    any backing local file under *project_dir* that is not already present.
+
+    Strictness is scoped to endpoint files: if a file defines a ``@remote``/
+    ``@Endpoint`` entry point and its import closure can't be resolved (broken
+    relative import, non-UTF-8 bytes, syntax error), the build fails loudly via
+    ``LocalModuleResolutionError`` -- shipping it would produce a broken
+    tarball. Incidental (non-endpoint) files with the same problems are skipped
+    with a warning instead, matching pre-existing behavior of shipping them
+    untouched.
     """
     project_dir = project_dir.resolve()
     present = {f.resolve() for f in files}
     extra: dict[Path, None] = {}
 
     for py_file in [f for f in files if f.suffix == ".py"]:
-        resolved = resolve_local_modules(
-            py_file.read_text(encoding="utf-8"), py_file, project_dir
-        )
+        try:
+            resolved = resolve_local_modules(
+                py_file.read_text(encoding="utf-8"), py_file, project_dir
+            )
+        except (LocalModuleResolutionError, UnicodeDecodeError, SyntaxError) as e:
+            if _defines_endpoint(py_file):
+                raise
+            print_warning(
+                console, f"Skipping local-module resolution for {py_file}: {e}"
+            )
+            continue
+
         for warning in resolved.warnings:
-            console.print(f"[yellow]warning:[/yellow] {warning}")
+            print_warning(console, warning)
         for abs_path in resolved.files.values():
             p = Path(abs_path).resolve()
             if p not in present:
@@ -288,7 +340,11 @@ def run_build(
 
     spec = load_ignore_patterns(project_dir)
     files = get_file_tree(project_dir, spec)
-    files = augment_with_local_modules(files, project_dir)
+    try:
+        files = augment_with_local_modules(files, project_dir)
+    except LocalModuleResolutionError as e:
+        print_error(console, str(e))
+        raise typer.Exit(1)
 
     # Resolved later by ManifestBuilder from resource configs (or the override
     # above). Pip wheel selection re-reads this via _resolve_pip_python_version.
