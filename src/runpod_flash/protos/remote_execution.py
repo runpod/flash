@@ -43,6 +43,15 @@ class FunctionRequest(BaseModel):
         default=None,
         description="Optional list of system dependencies to install before executing the function",
     )
+    modules: Dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Local (non-pip) module source files to make importable on the worker, "
+            "keyed by POSIX relative path (e.g. 'utils.py', 'helpers/__init__.py'). "
+            "Written to a temp dir on sys.path before the function code is exec'd. "
+            "Additive and backward compatible: absent/empty means today's behavior."
+        ),
+    )
 
     # NEW FIELDS FOR CLASS SUPPORT
     execution_type: str = Field(
