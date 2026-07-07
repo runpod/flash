@@ -50,6 +50,7 @@ def _make_mock_client():
         "id": "req-123",
         "expiresAt": None,
     }
+    client.verify_api_key.return_value = True
     client.__aenter__.return_value = client
     return client
 
@@ -75,10 +76,13 @@ class TestLoginFlow:
             ),
             patch("runpod_flash.cli.commands.login.console") as mock_console,
         ):
-            mock_console.input.return_value = "pasted-api-key"
+            mock_console.input.return_value = "rpa_pasted-api-key"
             await _login(open_browser=False)
             assert isolate_credentials_file.exists()
-            assert "pasted-api-key" in isolate_credentials_file.read_text()
+            assert "rpa_pasted-api-key" in isolate_credentials_file.read_text()
+            mock_console.input.assert_called_once_with(
+                "Paste the API key shown after authorization: ", password=True
+            )
 
     async def test_login_empty_key_raises(self):
         mock_client = _make_mock_client()
@@ -93,6 +97,37 @@ class TestLoginFlow:
         ):
             mock_console.input.return_value = "  "
             with pytest.raises(RuntimeError, match="no api key provided"):
+                await _login(open_browser=False)
+
+    async def test_login_invalid_key_format_raises(self):
+        mock_client = _make_mock_client()
+        _login = _get_login_fn()
+
+        with (
+            patch(
+                "runpod_flash.cli.commands.login.RunpodGraphQLClient",
+                return_value=mock_client,
+            ),
+            patch("runpod_flash.cli.commands.login.console") as mock_console,
+        ):
+            mock_console.input.return_value = "not-a-runpod-key"
+            with pytest.raises(RuntimeError, match="Runpod API keys start with rpa_"):
+                await _login(open_browser=False)
+
+    async def test_login_unverified_key_raises(self):
+        mock_client = _make_mock_client()
+        mock_client.verify_api_key.return_value = False
+        _login = _get_login_fn()
+
+        with (
+            patch(
+                "runpod_flash.cli.commands.login.RunpodGraphQLClient",
+                return_value=mock_client,
+            ),
+            patch("runpod_flash.cli.commands.login.console") as mock_console,
+        ):
+            mock_console.input.return_value = "rpa_bad-key"
+            with pytest.raises(RuntimeError, match="api key could not be verified"):
                 await _login(open_browser=False)
 
     async def test_no_request_id_raises(self):

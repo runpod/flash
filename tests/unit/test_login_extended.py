@@ -28,6 +28,7 @@ def _make_mock_client():
         "id": "req-123",
         "expiresAt": None,
     }
+    client.verify_api_key.return_value = True
     client.__aenter__.return_value = client
     return client
 
@@ -52,7 +53,7 @@ class TestLoginOpenBrowser:
             patch("runpod_flash.cli.commands.login.typer.launch") as mock_launch,
             patch("runpod_flash.cli.commands.login.console") as mock_console,
         ):
-            mock_console.input.return_value = "key-123"
+            mock_console.input.return_value = "rpa_key-123"
             await _fresh_login_module()._login(open_browser=True)
 
         mock_launch.assert_called_once()
@@ -89,7 +90,7 @@ class TestLoginCommand:
 
 @pytest.mark.serial
 class TestGraphQLAuthMethods:
-    """Direct tests for create_flash_auth_request."""
+    """Direct tests for GraphQL auth helpers."""
 
     @pytest.mark.asyncio
     async def test_create_flash_auth_request(self):
@@ -128,6 +129,30 @@ class TestGraphQLAuthMethods:
 
             result = await client.create_flash_auth_request()
             assert result == {}
+
+    @pytest.mark.asyncio
+    async def test_verify_api_key_returns_true_for_authenticated_user(self):
+        """verify_api_key returns true when the API returns a current user."""
+        with patch.dict(os.environ, {"RUNPOD_API_KEY": "test-key"}):
+            from runpod_flash.core.api.runpod import RunpodGraphQLClient
+
+            client = RunpodGraphQLClient()
+            client._execute_graphql = AsyncMock(
+                return_value={"myself": {"__typename": "User"}}
+            )
+
+            assert await client.verify_api_key() is True
+
+    @pytest.mark.asyncio
+    async def test_verify_api_key_returns_false_without_user(self):
+        """verify_api_key returns false when the current user is unavailable."""
+        with patch.dict(os.environ, {"RUNPOD_API_KEY": "test-key"}):
+            from runpod_flash.core.api.runpod import RunpodGraphQLClient
+
+            client = RunpodGraphQLClient()
+            client._execute_graphql = AsyncMock(return_value={"myself": None})
+
+            assert await client.verify_api_key() is False
 
 
 # -- GraphQL session without API key --

@@ -31,10 +31,20 @@ async def _login(open_browser: bool) -> None:
         if open_browser:
             typer.launch(auth_url)
 
-    api_key = console.input("Paste the API key shown after authorization: ").strip()
+    api_key = console.input(
+        "Paste the API key shown after authorization: ", password=True
+    ).strip()
 
     if not api_key:
         raise RuntimeError("no api key provided")
+    if not api_key.startswith("rpa_"):
+        raise RuntimeError("invalid api key format. Runpod API keys start with rpa_.")
+
+    async with RunpodGraphQLClient(api_key=api_key) as client:
+        if not await client.verify_api_key():
+            raise RuntimeError(
+                "api key could not be verified. Check the pasted key and try again."
+            )
 
     check_and_migrate_legacy_credentials()
     path = save_api_key(api_key)
