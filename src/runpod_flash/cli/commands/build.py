@@ -94,7 +94,17 @@ def augment_with_local_modules(files: list[Path], project_dir: Path) -> list[Pat
             )
         except (LocalModuleResolutionError, UnicodeDecodeError, SyntaxError) as e:
             if _defines_endpoint(py_file):
-                raise
+                # run_build() only catches LocalModuleResolutionError to emit a
+                # clean error. Syntax errors already arrive wrapped (see
+                # local_modules._walk) and re-raise directly; a raw
+                # UnicodeDecodeError from a non-UTF-8 dependency file is
+                # normalized here so an endpoint build fails loudly rather than
+                # surfacing a raw traceback.
+                if isinstance(e, LocalModuleResolutionError):
+                    raise
+                raise LocalModuleResolutionError(
+                    f"Cannot resolve local imports for endpoint file {py_file}: {e}"
+                ) from e
             print_warning(
                 console, f"Skipping local-module resolution for {py_file}: {e}"
             )

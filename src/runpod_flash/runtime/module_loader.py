@@ -9,6 +9,7 @@ be importable. This context manager writes them to a temp dir, prepends it to
 from __future__ import annotations
 
 import logging
+import shutil
 import sys
 import tempfile
 from collections.abc import Iterator
@@ -40,22 +41,31 @@ def materialized_modules(modules: dict[str, str]) -> Iterator[str | None]:
         return
 
     tmpdir = tempfile.mkdtemp(prefix="flash_modules_")
-    root = Path(tmpdir)
-    for rel_path, source in modules.items():
-        dest = root / rel_path
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(source, encoding="utf-8")
-
-    sys.path.insert(0, tmpdir)
+    root = Path(tmpdir).resolve()
+    inserted = False
     try:
+        for rel_path, source in modules.items():
+            # ``modules`` is untrusted request-body input: an absolute path or
+            # ``..`` segments in rel_path would escape ``root`` and let a caller
+            # write anywhere on disk. Fail secure by rejecting any path that does
+            # not resolve to a location strictly under the temp dir.
+            dest = (root / rel_path).resolve()
+            if not dest.is_relative_to(root):
+                raise ValueError(
+                    f"module path escapes materialization dir: {rel_path!r}"
+                )
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(source, encoding="utf-8")
+
+        sys.path.insert(0, tmpdir)
+        inserted = True
         yield tmpdir
     finally:
-        try:
-            sys.path.remove(tmpdir)
-        except ValueError:
-            log.warning(
-                "flash module temp dir %s already removed from sys.path", tmpdir
-            )
-        import shutil
-
+        if inserted:
+            try:
+                sys.path.remove(tmpdir)
+            except ValueError:
+                log.warning(
+                    "flash module temp dir %s already removed from sys.path", tmpdir
+                )
         shutil.rmtree(tmpdir, ignore_errors=True)

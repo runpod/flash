@@ -47,6 +47,27 @@ def test_endpoint_file_with_unresolvable_import_raises(tmp_path: Path):
         augment_with_local_modules(files, tmp_path)
 
 
+def test_endpoint_file_with_non_utf8_sibling_raises_resolution_error(tmp_path: Path):
+    # A valid endpoint importing a sibling with non-UTF-8 bytes triggers a raw
+    # UnicodeDecodeError during resolution. It must be normalized to
+    # LocalModuleResolutionError so run_build() reports it cleanly.
+    (tmp_path / "badsibling.py").write_bytes(b"\xff\xfe not valid utf-8\n")
+    endpoint = tmp_path / "endpoint.py"
+    endpoint.write_text(
+        "import badsibling\n\n"
+        "from runpod_flash import Endpoint\n\n"
+        "@Endpoint\n"
+        "def handler():\n"
+        "    return badsibling.value\n"
+    )
+    files = [endpoint]
+
+    with pytest.raises(LocalModuleResolutionError, match="endpoint.py") as excinfo:
+        augment_with_local_modules(files, tmp_path)
+    # the raw decode error is preserved as the cause for debugging
+    assert isinstance(excinfo.value.__cause__, UnicodeDecodeError)
+
+
 def test_non_endpoint_file_with_unresolvable_import_does_not_raise(tmp_path: Path):
     incidental = tmp_path / "incidental.py"
     incidental.write_text(
