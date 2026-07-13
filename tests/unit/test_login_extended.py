@@ -70,19 +70,34 @@ class TestLoginCommand:
 
     def test_login_command_raises_exit_on_error(self):
         """login_command raises typer.Exit(1) when _login raises RuntimeError."""
-        with patch(
-            "runpod_flash.cli.commands.login.asyncio.run",
-            side_effect=RuntimeError("auth failed"),
-        ):
+        login = AsyncMock(side_effect=RuntimeError("auth failed"))
+        with patch("runpod_flash.cli.commands.login._login", new=login):
             with pytest.raises(typer.Exit) as exc_info:
                 _fresh_login_module().login_command(no_open=True)
 
             assert exc_info.value.exit_code == 1
 
+    def test_login_command_handles_keyboard_interrupt(self):
+        login = AsyncMock(side_effect=KeyboardInterrupt)
+        with (
+            patch("runpod_flash.cli.commands.login._login", new=login),
+            patch("runpod_flash.cli.commands.login.print_error") as mock_print_error,
+            patch("runpod_flash.cli.commands.login.console") as mock_console,
+        ):
+            with pytest.raises(typer.Exit) as exc_info:
+                _fresh_login_module().login_command(no_open=True)
+
+            assert exc_info.value.exit_code == 130
+            mock_console.print.assert_called_once_with()
+            mock_print_error.assert_called_once_with(mock_console, "login cancelled")
+
     def test_login_command_succeeds(self):
         """login_command succeeds when _login completes normally."""
-        with patch("runpod_flash.cli.commands.login.asyncio.run"):
+        login = AsyncMock()
+        with patch("runpod_flash.cli.commands.login._login", new=login):
             _fresh_login_module().login_command(no_open=True)
+
+        login.assert_awaited_once_with(open_browser=False)
 
 
 # -- GraphQL auth methods --

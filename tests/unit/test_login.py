@@ -96,7 +96,7 @@ class TestLoginFlow:
             patch("runpod_flash.cli.commands.login.console") as mock_console,
         ):
             mock_console.input.return_value = "  "
-            with pytest.raises(RuntimeError, match="no api key provided"):
+            with pytest.raises(RuntimeError, match="copy the key shown"):
                 await _login(open_browser=False)
 
     async def test_login_invalid_key_format_raises(self):

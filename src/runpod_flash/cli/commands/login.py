@@ -36,7 +36,10 @@ async def _login(open_browser: bool) -> None:
     ).strip()
 
     if not api_key:
-        raise RuntimeError("no api key provided")
+        raise RuntimeError(
+            "no api key provided. copy the key shown in the browser after approval "
+            "and paste it here."
+        )
     if not api_key.startswith("rpa_"):
         raise RuntimeError("invalid api key format. Runpod API keys start with rpa_.")
 
@@ -61,3 +64,7 @@ def login_command(
     except RuntimeError as exc:
         print_error(console, str(exc))
         raise typer.Exit(code=1)
+    except KeyboardInterrupt:
+        console.print()
+        print_error(console, "login cancelled")
+        raise typer.Exit(code=130)
