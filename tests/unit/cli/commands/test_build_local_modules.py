@@ -4,32 +4,57 @@ import pytest
 
 from runpod_flash.cli.commands.build import (
     _defines_endpoint,
-    augment_with_local_modules,
+    validate_local_module_imports,
 )
 from runpod_flash.core.exceptions import LocalModuleResolutionError
 
 
-def test_force_includes_module_dropped_by_ignore_rule(tmp_path: Path):
-    # endpoint imports a module whose name matches the built-in test_*.py ignore rule
+def test_endpoint_import_of_ignored_file_raises(tmp_path: Path):
+    # endpoint imports a module whose file the ignore rules dropped (its name
+    # matches the built-in test_*.py rule), so it is not among the shipped files.
+    # Force-including it would silently override a deliberate exclusion; refuse.
     (tmp_path / "test_helpers.py").write_text("def h():\n    return 1\n")
     endpoint = tmp_path / "endpoint.py"
     endpoint.write_text(
         "import test_helpers\n\ndef handler():\n    return test_helpers.h()\n"
     )
+    files = [endpoint]  # test_helpers.py excluded by the ignore filter
 
-    # simulate the ignore filter having dropped test_helpers.py
-    files = [endpoint]
-    augmented = augment_with_local_modules(files, tmp_path)
-
-    assert (tmp_path / "test_helpers.py") in augmented
-    assert endpoint in augmented
+    with pytest.raises(LocalModuleResolutionError, match="test_helpers.py"):
+        validate_local_module_imports(files, tmp_path)
 
 
-def test_leaves_files_untouched_when_no_local_imports(tmp_path: Path):
+def test_non_endpoint_import_of_ignored_file_raises(tmp_path: Path):
+    # The refusal is not scoped to endpoint files: any shipped file that imports
+    # an excluded local module would break the worker, so the build fails loudly.
+    (tmp_path / "test_helpers.py").write_text("def h():\n    return 1\n")
+    incidental = tmp_path / "incidental.py"
+    incidental.write_text(
+        "import test_helpers\n\ndef helper():\n    return test_helpers.h()\n"
+    )
+    files = [incidental]
+
+    with pytest.raises(LocalModuleResolutionError, match="test_helpers.py"):
+        validate_local_module_imports(files, tmp_path)
+
+
+def test_leaves_build_alone_when_all_imports_are_shipped(tmp_path: Path):
+    # A locally imported sibling that is itself shipped is not a conflict.
+    sibling = tmp_path / "helpers.py"
+    sibling.write_text("def h():\n    return 1\n")
+    endpoint = tmp_path / "endpoint.py"
+    endpoint.write_text("import helpers\n\ndef handler():\n    return helpers.h()\n")
+    files = [endpoint, sibling]
+
+    assert validate_local_module_imports(files, tmp_path) is None
+
+
+def test_leaves_build_alone_when_no_local_imports(tmp_path: Path):
     endpoint = tmp_path / "endpoint.py"
     endpoint.write_text("import os\n\ndef handler():\n    return os.getpid()\n")
     files = [endpoint]
-    assert augment_with_local_modules(files, tmp_path) == [endpoint]
+
+    assert validate_local_module_imports(files, tmp_path) is None
 
 
 def test_endpoint_file_with_unresolvable_import_raises(tmp_path: Path):
@@ -44,7 +69,7 @@ def test_endpoint_file_with_unresolvable_import_raises(tmp_path: Path):
     files = [endpoint]
 
     with pytest.raises(LocalModuleResolutionError):
-        augment_with_local_modules(files, tmp_path)
+        validate_local_module_imports(files, tmp_path)
 
 
 def test_endpoint_file_with_non_utf8_sibling_raises_resolution_error(tmp_path: Path):
@@ -63,7 +88,7 @@ def test_endpoint_file_with_non_utf8_sibling_raises_resolution_error(tmp_path: P
     files = [endpoint]
 
     with pytest.raises(LocalModuleResolutionError, match="endpoint.py") as excinfo:
-        augment_with_local_modules(files, tmp_path)
+        validate_local_module_imports(files, tmp_path)
     # the raw decode error is preserved as the cause for debugging
     assert isinstance(excinfo.value.__cause__, UnicodeDecodeError)
 
@@ -77,9 +102,7 @@ def test_non_endpoint_file_with_unresolvable_import_does_not_raise(tmp_path: Pat
     )
     files = [incidental]
 
-    augmented = augment_with_local_modules(files, tmp_path)
-
-    assert augmented == [incidental]
+    assert validate_local_module_imports(files, tmp_path) is None
 
 
 def test_defines_endpoint_true_for_decorated_functions(tmp_path: Path):

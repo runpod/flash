@@ -148,8 +148,9 @@ def _walk(
                         origin,
                     )
             else:
+                module = node.module or ""
                 _consider(
-                    node.module or "",
+                    module,
                     node.level,
                     current_dir,
                     root,
@@ -157,6 +158,25 @@ def _walk(
                     visited,
                     origin,
                 )
+                # `from pkg import a, b`: each name may be a submodule of pkg
+                # (pkg/a.py) rather than a symbol re-exported by pkg/__init__.py.
+                # Try them as submodule candidates so package submodules are
+                # bundled; a name that is only a re-exported symbol will not
+                # resolve to a file and is skipped (soft), never an error.
+                for alias in node.names:
+                    if alias.name == "*":
+                        continue
+                    candidate = f"{module}.{alias.name}" if module else alias.name
+                    _consider(
+                        candidate,
+                        node.level,
+                        current_dir,
+                        root,
+                        result,
+                        visited,
+                        origin,
+                        soft=True,
+                    )
         elif isinstance(node, ast.Call):
             _consider_dynamic(node, current_dir, root, result, visited, origin)
 
@@ -169,7 +189,11 @@ def _consider(
     result: ResolvedModules,
     visited: set[Path],
     origin: str,
+    soft: bool = False,
 ) -> None:
+    # soft: a best-effort submodule candidate from `from pkg import name`. When it
+    # does not back a local file it is a re-exported symbol, not a missing module,
+    # so it is skipped rather than raised — even on the relative-import path.
     if level == 0:
         if not dotted or is_stdlib(dotted):
             return
@@ -186,6 +210,8 @@ def _consider(
             candidate = base / "__init__.py"
             path = candidate if candidate.is_file() else None
         if path is None:
+            if soft:
+                return
             raise LocalModuleResolutionError(
                 f"{origin}: relative import (level={level}, module={dotted!r}) "
                 f"could not be resolved to a local file under {base}"

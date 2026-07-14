@@ -49,6 +49,52 @@ def test_pulls_package_init_for_submodule(tmp_path: Path):
     assert set(result.files) == {"helpers/__init__.py", "helpers/audio.py"}
 
 
+def test_from_package_import_submodule_by_name(tmp_path: Path):
+    # `from helpers import audio` where audio is a submodule (helpers/audio.py),
+    # not a symbol re-exported by helpers/__init__.py. The submodule file must be
+    # bundled, otherwise the worker raises ModuleNotFoundError at import time.
+    pkg = tmp_path / "helpers"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("\n")
+    (pkg / "audio.py").write_text("def load():\n    return 1\n")
+    entry = _entry(
+        tmp_path,
+        "from helpers import audio\n\ndef handler():\n    return audio.load()\n",
+    )
+    result = resolve_local_modules(entry.read_text(), entry, tmp_path)
+    assert set(result.files) == {"helpers/__init__.py", "helpers/audio.py"}
+
+
+def test_from_package_import_reexported_symbol_is_not_a_module(tmp_path: Path):
+    # `from helpers import load` where load is a function defined in __init__.py,
+    # not a submodule. Only the package init ships; the name is not mistaken for a
+    # missing submodule file and does not raise.
+    pkg = tmp_path / "helpers"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("def load():\n    return 1\n")
+    entry = _entry(
+        tmp_path,
+        "from helpers import load\n\ndef handler():\n    return load()\n",
+    )
+    result = resolve_local_modules(entry.read_text(), entry, tmp_path)
+    assert set(result.files) == {"helpers/__init__.py"}
+
+
+def test_relative_from_package_import_submodule_by_name(tmp_path: Path):
+    # Relative form: `from .helpers import audio`. A name that does not back a
+    # submodule file (a re-exported symbol) must not raise on the relative path.
+    pkg = tmp_path / "helpers"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("VALUE = 1\n")
+    (pkg / "audio.py").write_text("def load():\n    return 1\n")
+    entry = _entry(
+        tmp_path,
+        "from .helpers import audio, VALUE\n\ndef handler():\n    return audio.load()\n",
+    )
+    result = resolve_local_modules(entry.read_text(), entry, tmp_path)
+    assert set(result.files) == {"helpers/__init__.py", "helpers/audio.py"}
+
+
 def test_in_body_import_is_discovered(tmp_path: Path):
     (tmp_path / "utils.py").write_text("def x():\n    return 1\n")
     entry = _entry(tmp_path, "def handler():\n    import utils\n    return utils.x()\n")

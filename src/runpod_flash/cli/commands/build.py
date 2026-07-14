@@ -69,23 +69,32 @@ def _defines_endpoint(py_file: Path) -> bool:
     return False
 
 
-def augment_with_local_modules(files: list[Path], project_dir: Path) -> list[Path]:
-    """Force-include local modules imported by project code but dropped by ignores.
+def validate_local_module_imports(files: list[Path], project_dir: Path) -> None:
+    """Fail the build when shipped code imports a local module the ignores dropped.
 
-    Walks the import closure of every non-ignored ``.py`` file in *files* and adds
-    any backing local file under *project_dir* that is not already present.
+    Walks the import closure of every shipped ``.py`` file in *files*. A local
+    import that resolves to a file under *project_dir* which is not itself among
+    *files* was excluded by the ignore rules (``.gitignore`` or the built-in
+    defaults). Force-including it would silently override a deliberate exclusion;
+    omitting it would break the worker with ``ModuleNotFoundError``. So the build
+    is refused with an actionable error naming the excluded file and its importer.
 
-    Strictness is scoped to endpoint files: if a file defines a ``@remote``/
-    ``@Endpoint`` entry point and its import closure can't be resolved (broken
-    relative import, non-UTF-8 bytes, syntax error), the build fails loudly via
-    ``LocalModuleResolutionError`` -- shipping it would produce a broken
-    tarball. Incidental (non-endpoint) files with the same problems are skipped
-    with a warning instead, matching pre-existing behavior of shipping them
-    untouched.
+    Strictness for *unresolvable* imports (broken relative import, non-UTF-8
+    bytes, syntax error) is scoped to endpoint files: an ``@remote``/``@Endpoint``
+    entry point fails the build loudly via ``LocalModuleResolutionError`` --
+    shipping it would produce a broken tarball -- while an incidental
+    (non-endpoint) file is skipped with a warning, matching pre-existing behavior
+    of shipping such files untouched.
+
+    Raises:
+        LocalModuleResolutionError: an endpoint's import closure cannot be
+            resolved, or any shipped file imports a local module the ignore rules
+            excluded from the build.
     """
     project_dir = project_dir.resolve()
     present = {f.resolve() for f in files}
-    extra: dict[Path, None] = {}
+    # excluded module file -> the shipped file that imported it
+    excluded: dict[Path, Path] = {}
 
     for py_file in [f for f in files if f.suffix == ".py"]:
         try:
@@ -115,9 +124,23 @@ def augment_with_local_modules(files: list[Path], project_dir: Path) -> list[Pat
         for abs_path in resolved.files.values():
             p = Path(abs_path).resolve()
             if p not in present:
-                extra[p] = None
+                excluded.setdefault(p, py_file.resolve())
 
-    return list(files) + list(extra)
+    if excluded:
+        listing = "\n".join(
+            f"  {p.relative_to(project_dir)} (imported by "
+            f"{importer.relative_to(project_dir)})"
+            for p, importer in sorted(excluded.items())
+        )
+        raise LocalModuleResolutionError(
+            "Shipped code imports local modules that the build ignore rules "
+            "(.gitignore or built-in defaults) exclude:\n"
+            f"{listing}\n\n"
+            "Shipping them would silently override a deliberate exclusion, and "
+            "omitting them would break the worker with ModuleNotFoundError. Remove "
+            "the matching ignore pattern or stop importing these modules from "
+            "shipped code."
+        )
 
 
 def compute_source_fingerprint(project_dir: Path, files: list[Path]) -> str:
@@ -351,7 +374,7 @@ def run_build(
     spec = load_ignore_patterns(project_dir)
     files = get_file_tree(project_dir, spec)
     try:
-        files = augment_with_local_modules(files, project_dir)
+        validate_local_module_imports(files, project_dir)
     except LocalModuleResolutionError as e:
         print_error(console, str(e))
         raise typer.Exit(1)
