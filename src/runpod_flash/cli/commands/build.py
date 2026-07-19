@@ -26,47 +26,11 @@ from .build_utils.handler_generator import HandlerGenerator
 from .build_utils.lb_handler_generator import LBHandlerGenerator
 from .build_utils.manifest import ManifestBuilder
 from .build_utils.resource_config_generator import generate_all_resource_configs
-from .build_utils.scanner import RuntimeScanner
+from .build_utils.scanner import RuntimeScanner, defines_endpoint
 
 logger = logging.getLogger(__name__)
 
 console = Console()
-
-# Decorator names that mark a function/class as a Flash endpoint entry point.
-ENDPOINT_DECORATOR_NAMES: frozenset[str] = frozenset({"remote", "Endpoint"})
-
-
-def _defines_endpoint(py_file: Path) -> bool:
-    """Check whether *py_file* defines a function/class decorated as a Flash endpoint.
-
-    Recognizes ``@remote``, ``@remote(...)``, ``@Endpoint(...)``, and attribute
-    forms (e.g. ``@rf.Endpoint``). Parses the file as AST only -- it does not
-    import it, so decorators do not need to be resolvable.
-
-    Returns:
-        True if an endpoint decorator is found, False if none is found or the
-        file cannot be read/parsed.
-    """
-    try:
-        tree = ast.parse(py_file.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, SyntaxError):
-        return False
-
-    for node in ast.walk(tree):
-        if not isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
-            continue
-        for decorator in node.decorator_list:
-            target = decorator.func if isinstance(decorator, ast.Call) else decorator
-            if isinstance(target, ast.Attribute):
-                name = target.attr
-            elif isinstance(target, ast.Name):
-                name = target.id
-            else:
-                continue
-            if name in ENDPOINT_DECORATOR_NAMES:
-                return True
-
-    return False
 
 
 def validate_local_module_imports(files: list[Path], project_dir: Path) -> None:
@@ -102,7 +66,7 @@ def validate_local_module_imports(files: list[Path], project_dir: Path) -> None:
                 py_file.read_text(encoding="utf-8"), py_file, project_dir
             )
         except (LocalModuleResolutionError, UnicodeDecodeError, SyntaxError) as e:
-            if _defines_endpoint(py_file):
+            if defines_endpoint(py_file):
                 # run_build() only catches LocalModuleResolutionError to emit a
                 # clean error. Syntax errors already arrive wrapped (see
                 # local_modules._walk) and re-raise directly; a raw

@@ -2,10 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from runpod_flash.cli.commands.build import (
-    _defines_endpoint,
-    validate_local_module_imports,
-)
+from runpod_flash.cli.commands.build import validate_local_module_imports
+from runpod_flash.cli.commands.build_utils.scanner import defines_endpoint
 from runpod_flash.core.exceptions import LocalModuleResolutionError
 
 
@@ -115,12 +113,12 @@ def test_defines_endpoint_true_for_decorated_functions(tmp_path: Path):
         "from runpod_flash import remote\n\n@remote\ndef handler():\n    return 1\n"
     )
 
-    assert _defines_endpoint(endpoint_call) is True
-    assert _defines_endpoint(remote_plain) is True
+    assert defines_endpoint(endpoint_call) is True
+    assert defines_endpoint(remote_plain) is True
 
 
 def test_defines_endpoint_false_for_plain_module(tmp_path: Path):
     plain = tmp_path / "plain.py"
     plain.write_text("def helper():\n    return 1\n")
 
-    assert _defines_endpoint(plain) is False
+    assert defines_endpoint(plain) is False
