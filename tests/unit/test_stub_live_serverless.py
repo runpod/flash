@@ -156,6 +156,31 @@ class TestLiveServerlessStub:
         assert len(request.args) == 1
         assert "y" in request.kwargs
 
+    @pytest.mark.asyncio
+    async def test_prepare_request_includes_local_sibling_module(self, stub):
+        """Local imports inside the function body are inlined into request.modules."""
+        import pathlib
+
+        def uses_sibling():
+            from _live_serverless_prepare_request_sibling import sibling_value
+
+            return sibling_value()
+
+        with patch(
+            "runpod_flash.stubs.dependency_resolver.resolve_dependencies",
+            new_callable=AsyncMock,
+            return_value=[],
+        ):
+            request = await stub.prepare_request(uses_sibling, [], [], True)
+
+        sibling_path = (
+            pathlib.Path(__file__).parent
+            / "_live_serverless_prepare_request_sibling.py"
+        )
+        assert request.modules == {
+            "_live_serverless_prepare_request_sibling.py": sibling_path.read_text()
+        }
+
     def test_handle_response_success(self, stub):
         """handle_response returns deserialized result on success."""
         result_data = {"key": "value"}

@@ -101,6 +101,25 @@ class TestLoadBalancerSlsStubPrepareRequest:
         assert request["dependencies"] == dependencies
         assert request["system_dependencies"] == system_deps
 
+    @pytest.mark.asyncio
+    async def test_prepare_request_includes_local_sibling_module(self):
+        """Local imports inside the function body are inlined into `modules`."""
+        import pathlib
+
+        stub = LoadBalancerSlsStub(test_lb_resource)
+
+        def uses_sibling():
+            from _lb_prepare_request_sibling import sibling_value
+
+            return sibling_value()
+
+        request = await stub._prepare_request(uses_sibling, None, None, True)
+
+        sibling_path = pathlib.Path(__file__).parent / "_lb_prepare_request_sibling.py"
+        assert request["modules"] == {
+            "_lb_prepare_request_sibling.py": sibling_path.read_text()
+        }
+
 
 class TestLoadBalancerSlsStubHandleResponse:
     """Test suite for _handle_response method."""
