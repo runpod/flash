@@ -25,6 +25,8 @@ from typing import Any, Callable, Dict, get_type_hints
 from fastapi import FastAPI, File, Form, Request
 from pydantic import BaseModel, create_model
 
+from runpod_flash.runtime.module_loader import materialized_modules
+
 logger = logging.getLogger(__name__)
 
 _BODY_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
@@ -320,10 +322,46 @@ def create_lb_handler(
                         "error": f"Failed to deserialize arguments: {e}",
                     }
 
-                # Execute function in isolated namespace
+                # Execute function in isolated namespace.
+                #
+                # NOTE: shipped local modules must stay importable through the
+                # function CALL, not just through exec(). Endpoint functions
+                # frequently import local siblings inside their body (i.e.
+                # def-now/call-later), so `materialized_modules` has to remain
+                # active until the function has actually run (including
+                # `await` for async functions). Exiting the context manager
+                # right after exec() (and before the call) would drop the temp
+                # dir from sys.path before those in-body imports execute,
+                # causing a spurious ModuleNotFoundError for otherwise-correct
+                # code. The with-block is therefore widened to also cover the
+                # function lookup and the call itself.
                 namespace: Dict[str, Any] = {}
                 try:
-                    exec(function_code, namespace)
+                    with materialized_modules(body.get("modules", {}) or {}):
+                        exec(function_code, namespace)
+
+                        # Get function from namespace
+                        if function_name not in namespace:
+                            return {
+                                "success": False,
+                                "error": f"Function '{function_name}' not found in executed code",
+                            }
+
+                        func = namespace[function_name]
+
+                        # Execute function
+                        try:
+                            result = func(*args, **kwargs)
+
+                            # Handle async functions
+                            if inspect.iscoroutine(result):
+                                result = await result
+                        except Exception as e:
+                            logger.error(f"Function execution failed: {e}")
+                            return {
+                                "success": False,
+                                "error": f"Function execution failed: {e}",
+                            }
                 except SyntaxError as e:
                     logger.error(f"Syntax error in function code: {e}")
                     return {
@@ -335,29 +373,6 @@ def create_lb_handler(
                     return {
                         "success": False,
                         "error": f"Error executing function code: {e}",
-                    }
-
-                # Get function from namespace
-                if function_name not in namespace:
-                    return {
-                        "success": False,
-                        "error": f"Function '{function_name}' not found in executed code",
-                    }
-
-                func = namespace[function_name]
-
-                # Execute function
-                try:
-                    result = func(*args, **kwargs)
-
-                    # Handle async functions
-                    if inspect.iscoroutine(result):
-                        result = await result
-                except Exception as e:
-                    logger.error(f"Function execution failed: {e}")
-                    return {
-                        "success": False,
-                        "error": f"Function execution failed: {e}",
                     }
 
                 # Serialize result

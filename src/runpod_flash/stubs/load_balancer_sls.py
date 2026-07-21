@@ -18,7 +18,7 @@ from runpod_flash.runtime.serialization import (
 )
 from runpod_flash.core.resources.constants import DEFAULT_LB_STUB_TIMEOUT
 
-from .live_serverless import get_function_source
+from .live_serverless import build_modules_map, get_function_source
 
 log = logging.getLogger(__name__)
 
@@ -237,6 +237,9 @@ class LoadBalancerSlsStub:
             "system_dependencies": system_dependencies or [],
             "accelerate_downloads": accelerate_downloads,
         }
+
+        source_file = original_func.__globals__.get("__file__")
+        request["modules"] = build_modules_map(source, source_file)
 
         # Serialize arguments using cloudpickle + base64
         if args:
