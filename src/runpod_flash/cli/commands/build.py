@@ -17,18 +17,94 @@ import typer
 from rich.console import Console
 
 from runpod_flash.cli.utils.formatting import print_error, print_warning
+from runpod_flash.core.exceptions import LocalModuleResolutionError
 from runpod_flash.core.resources.constants import MAX_TARBALL_SIZE_MB
+from runpod_flash.stubs.local_modules import resolve_local_modules
 
 from ..utils.ignore import get_file_tree, load_ignore_patterns
 from .build_utils.handler_generator import HandlerGenerator
 from .build_utils.lb_handler_generator import LBHandlerGenerator
 from .build_utils.manifest import ManifestBuilder
 from .build_utils.resource_config_generator import generate_all_resource_configs
-from .build_utils.scanner import RuntimeScanner
+from .build_utils.scanner import RuntimeScanner, defines_endpoint
 
 logger = logging.getLogger(__name__)
 
 console = Console()
+
+
+def validate_local_module_imports(files: list[Path], project_dir: Path) -> None:
+    """Fail the build when shipped code imports a local module the ignores dropped.
+
+    Walks the import closure of every shipped ``.py`` file in *files*. A local
+    import that resolves to a file under *project_dir* which is not itself among
+    *files* was excluded by the ignore rules (``.gitignore`` or the built-in
+    defaults). Force-including it would silently override a deliberate exclusion;
+    omitting it would break the worker with ``ModuleNotFoundError``. So the build
+    is refused with an actionable error naming the excluded file and its importer.
+
+    Strictness for *unresolvable* imports (broken relative import, non-UTF-8
+    bytes, syntax error) is scoped to endpoint files: an ``@remote``/``@Endpoint``
+    entry point fails the build loudly via ``LocalModuleResolutionError`` --
+    shipping it would produce a broken tarball -- while an incidental
+    (non-endpoint) file is skipped with a warning, matching pre-existing behavior
+    of shipping such files untouched.
+
+    Raises:
+        LocalModuleResolutionError: an endpoint's import closure cannot be
+            resolved, or any shipped file imports a local module the ignore rules
+            excluded from the build.
+    """
+    project_dir = project_dir.resolve()
+    present = {f.resolve() for f in files}
+    # excluded module file -> the shipped file that imported it
+    excluded: dict[Path, Path] = {}
+
+    for py_file in [f for f in files if f.suffix == ".py"]:
+        try:
+            resolved = resolve_local_modules(
+                py_file.read_text(encoding="utf-8"), py_file, project_dir
+            )
+        except (LocalModuleResolutionError, UnicodeDecodeError, SyntaxError) as e:
+            if defines_endpoint(py_file):
+                # run_build() only catches LocalModuleResolutionError to emit a
+                # clean error. Syntax errors already arrive wrapped (see
+                # local_modules._walk) and re-raise directly; a raw
+                # UnicodeDecodeError from a non-UTF-8 dependency file is
+                # normalized here so an endpoint build fails loudly rather than
+                # surfacing a raw traceback.
+                if isinstance(e, LocalModuleResolutionError):
+                    raise
+                raise LocalModuleResolutionError(
+                    f"Cannot resolve local imports for endpoint file {py_file}: {e}"
+                ) from e
+            print_warning(
+                console, f"Skipping local-module resolution for {py_file}: {e}"
+            )
+            continue
+
+        for warning in resolved.warnings:
+            print_warning(console, warning)
+        for abs_path in resolved.files.values():
+            p = Path(abs_path).resolve()
+            if p not in present:
+                excluded.setdefault(p, py_file.resolve())
+
+    if excluded:
+        listing = "\n".join(
+            f"  {p.relative_to(project_dir)} (imported by "
+            f"{importer.relative_to(project_dir)})"
+            for p, importer in sorted(excluded.items())
+        )
+        raise LocalModuleResolutionError(
+            "Shipped code imports local modules that the build ignore rules "
+            "(.gitignore or built-in defaults) exclude:\n"
+            f"{listing}\n\n"
+            "Shipping them would silently override a deliberate exclusion, and "
+            "omitting them would break the worker with ModuleNotFoundError. Remove "
+            "the matching ignore pattern or stop importing these modules from "
+            "shipped code."
+        )
 
 
 def compute_source_fingerprint(project_dir: Path, files: list[Path]) -> str:
@@ -261,6 +337,11 @@ def run_build(
 
     spec = load_ignore_patterns(project_dir)
     files = get_file_tree(project_dir, spec)
+    try:
+        validate_local_module_imports(files, project_dir)
+    except LocalModuleResolutionError as e:
+        print_error(console, str(e))
+        raise typer.Exit(1)
 
     # Resolved later by ManifestBuilder from resource configs (or the override
     # above). Pip wheel selection re-reads this via _resolve_pip_python_version.

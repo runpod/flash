@@ -50,6 +50,49 @@ def file_to_module_path(file_path: Path, project_root: Path) -> str:
     return str(rel).replace(os.sep, ".").replace("/", ".")
 
 
+# Decorator names that mark a function/class as a Flash endpoint entry point.
+ENDPOINT_DECORATOR_NAMES: frozenset[str] = frozenset({"remote", "Endpoint"})
+
+
+def defines_endpoint(py_file: Path) -> bool:
+    """Check whether *py_file* defines a function/class decorated as a Flash endpoint.
+
+    Recognizes ``@remote``, ``@remote(...)``, ``@Endpoint(...)``, and attribute
+    forms (e.g. ``@rf.Endpoint``). Parses the file as AST only -- it does not
+    import it, so decorators do not need to be resolvable.
+
+    This is the AST-only counterpart to the scanner's live discovery
+    (``discover_remote_functions``): the scanner imports modules and inspects
+    stamped ``__remote_config__`` objects, which requires the imports to
+    succeed. This helper is consulted precisely when imports may be broken (the
+    pre-copy local-module validation), so it cannot go through the import path.
+
+    Returns:
+        True if an endpoint decorator is found, False if none is found or the
+        file cannot be read/parsed.
+    """
+    try:
+        tree = ast.parse(py_file.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, SyntaxError):
+        return False
+
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for decorator in node.decorator_list:
+            target = decorator.func if isinstance(decorator, ast.Call) else decorator
+            if isinstance(target, ast.Attribute):
+                name = target.attr
+            elif isinstance(target, ast.Name):
+                name = target.id
+            else:
+                continue
+            if name in ENDPOINT_DECORATOR_NAMES:
+                return True
+
+    return False
+
+
 @dataclass
 class RemoteFunctionMetadata:
     """Metadata about a @remote decorated function or class."""

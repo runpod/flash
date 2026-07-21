@@ -7,6 +7,9 @@ import traceback
 import threading
 import cloudpickle
 import logging
+from pathlib import Path
+
+from ..core.exceptions import LocalModulePayloadTooLargeError
 from ..core.resources import LiveServerless
 from ..protos.remote_execution import (
     FunctionRequest,
@@ -14,6 +17,7 @@ from ..protos.remote_execution import (
     RemoteExecutorStub,
 )
 from ..runtime.serialization import serialize_args, serialize_kwargs
+from .local_modules import MAX_INLINE_MODULE_BYTES, resolve_local_modules
 
 log = logging.getLogger(__name__)
 
@@ -64,6 +68,46 @@ def get_function_source(func):
     source_hash = hashlib.sha256(function_source.encode("utf-8")).hexdigest()
 
     return function_source, source_hash
+
+
+def build_modules_map(func_source: str, source_file: str | None) -> dict[str, str]:
+    """Collect the endpoint's local-module source for inline shipping.
+
+    Resolves the transitive local-import closure of *func_source* against the
+    source file's directory and returns {relative_path: source_text}. Enforces the
+    inline size cap.
+
+    Args:
+        func_source: Extracted function source (from ``get_function_source``).
+        source_file: Absolute path of the file the function was defined in, or
+            ``None`` (e.g. functions with no ``__file__``), in which case nothing
+            is bundled.
+
+    Raises:
+        LocalModulePayloadTooLargeError: total inline source exceeds the cap.
+    """
+    if not source_file:
+        return {}
+
+    project_root = Path(source_file).resolve().parent
+    resolved = resolve_local_modules(func_source, source_file, project_root)
+    for warning in resolved.warnings:
+        log.warning(warning)
+
+    modules: dict[str, str] = {}
+    total = len(func_source.encode("utf-8"))
+    for rel_path, abs_path in resolved.files.items():
+        source = Path(abs_path).read_text(encoding="utf-8")
+        total += len(source.encode("utf-8"))
+        modules[rel_path] = source
+
+    if total > MAX_INLINE_MODULE_BYTES:
+        raise LocalModulePayloadTooLargeError(
+            f"Inline module payload is {total} bytes, over the "
+            f"{MAX_INLINE_MODULE_BYTES}-byte live-serverless cap. "
+            f"Use `flash deploy` for endpoints with large local dependencies."
+        )
+    return modules
 
 
 class LiveServerlessStub(RemoteExecutorStub):
@@ -121,6 +165,9 @@ class LiveServerlessStub(RemoteExecutorStub):
                 _SERIALIZED_FUNCTION_CACHE[src_hash] = source
 
             request["function_code"] = _SERIALIZED_FUNCTION_CACHE[src_hash]
+
+        source_file = original_func.__globals__.get("__file__")
+        request["modules"] = build_modules_map(source, source_file)
 
         # Serialize arguments using cloudpickle
         if args:

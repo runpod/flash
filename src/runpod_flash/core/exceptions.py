@@ -39,3 +39,21 @@ class RunpodAPIKeyError(Exception):
             "\n"
             "Get a key: https://docs.runpod.io/get-started/api-keys"
         )
+
+
+class LocalModuleResolutionError(Exception):
+    """Raised when an imported local module cannot be resolved to a bundle-able file.
+
+    Covers relative imports that do not resolve, package submodules whose file is
+    missing, and local modules that live outside the project root. External names
+    (stdlib / installed pip packages) are NOT errors — they are left to the worker
+    image.
+    """
+
+
+class LocalModulePayloadTooLargeError(Exception):
+    """Raised when inline local-module source exceeds the live-serverless size cap.
+
+    The live path ships module source inside the request payload; past the cap the
+    user should switch to ``flash deploy``.
+    """
