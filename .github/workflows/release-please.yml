@@ -24,6 +24,7 @@ jobs:
 
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
 
     steps:
       - name: Generate GitHub App Token
@@ -69,3 +70,36 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           verbose: true
+
+  # Linear release tracking (SLS-163)
+  linear-sync:
+    name: Linear Release Sync
+    needs: release-please
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: linear/linear-release-action@v0
+        with:
+          access_key: ${{ secrets.LINEAR_RELEASE_ACCESS_KEY }}
+          command: sync
+          version: ${{ needs.release-please.outputs.tag_name }}
+          name: ${{ needs.release-please.outputs.tag_name && format('flash {0}', needs.release-please.outputs.tag_name) || '' }}
+
+  linear-complete:
+    name: Linear Release Complete
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    needs: [release-please, linear-sync]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: linear/linear-release-action@v0
+        with:
+          access_key: ${{ secrets.LINEAR_RELEASE_ACCESS_KEY }}
+          command: complete
+          version: ${{ needs.release-please.outputs.tag_name }}
