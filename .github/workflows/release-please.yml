@@ -71,7 +71,7 @@ jobs:
         with:
           verbose: true
 
-  # Linear release tracking (SLS-163)
+  # Linear release tracking
   linear-sync:
     name: Linear Release Sync
     needs: release-please
