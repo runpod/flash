@@ -67,8 +67,8 @@ This is different from `flash dev`, where your FastAPI app runs locally on your 
 
 | Aspect | `flash dev` | `flash deploy` |
 |--------|-------------|----------------|
-| **App runs on** | Your machine (localhost) | RunPod Serverless |
-| **Endpoint functions run on** | RunPod Serverless | RunPod Serverless |
+| **App runs on** | Your machine (localhost) | Runpod Serverless |
+| **Endpoint functions run on** | Runpod Serverless | Runpod Serverless |
 | **Endpoint naming** | `live-` prefix (e.g., `live-gpu-worker`) | No prefix (e.g., `gpu-worker`) |
 | **Hot reload** | Yes | No |
 | **Use case** | Development and testing | Production deployment |

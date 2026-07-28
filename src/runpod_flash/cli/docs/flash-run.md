@@ -6,9 +6,9 @@ Start the Flash development server for testing, debugging, and local development
 
 ## Overview
 
-`flash dev` starts a local development server that auto-discovers your `Endpoint` definitions and serves them on your machine while deploying live ephemeral workers to RunPod Serverless. This hybrid architecture lets you rapidly iterate on your application with hot-reload while testing real GPU/CPU workloads in the cloud.
+`flash dev` starts a local development server that auto-discovers your `Endpoint` definitions and serves them on your machine while deploying live ephemeral workers to Runpod Serverless. This hybrid architecture lets you rapidly iterate on your application with hot-reload while testing real GPU/CPU workloads in the cloud.
 
-Use `flash dev` for local development and testing. When ready for production, use `flash deploy` to package and deploy everything to RunPod. See [flash deploy](./flash-deploy.md) for details.
+Use `flash dev` for local development and testing. When ready for production, use `flash deploy` to package and deploy everything to Runpod. See [flash deploy](./flash-deploy.md) for details.
 
 ## Architecture: local app + remote workers
 
@@ -37,11 +37,11 @@ Use `flash dev` for local development and testing. When ready for production, us
 - **`flash dev` auto-discovers `Endpoint` definitions** and generates `.flash/server.py`
 - **Queue-based (QB) routes execute locally** at `/{file_prefix}/runsync`
 - **Load-balanced (LB) routes are served locally** at `/{endpoint_name}/{path}`
-- **Endpoint functions run on RunPod** as serverless endpoints
+- **Endpoint functions run on Runpod** as serverless endpoints
 - **Hot reload** watches for `.py` file changes via watchfiles
 - **Endpoints are prefixed with `live-`** to distinguish development endpoints from production (e.g., `gpu-worker` becomes `live-gpu-worker`)
 
-This is different from `flash deploy`, where **everything** (including your FastAPI app) runs on RunPod. See [flash deploy](./flash-deploy.md) for the fully-deployed architecture.
+This is different from `flash deploy`, where **everything** (including your FastAPI app) runs on Runpod. See [flash deploy](./flash-deploy.md) for the fully-deployed architecture.
 
 ## Usage
 
@@ -81,7 +81,7 @@ flash dev --host 0.0.0.0 --port 8000
 
 ### How it works
 
-When you call an `Endpoint` function via `flash dev`, Flash deploys a live ephemeral Serverless endpoint to RunPod. These are actual cloud resources that incur costs.
+When you call an `Endpoint` function via `flash dev`, Flash deploys a live ephemeral Serverless endpoint to Runpod. These are actual cloud resources that incur costs.
 
 ```
 flash dev
@@ -94,7 +94,7 @@ flash dev
     │
     └── On Endpoint function call:
         └── Deploys a Serverless endpoint (if not cached)
-            └── Executes on the RunPod cloud
+            └── Executes on the Runpod cloud
 ```
 
 ### Provisioning modes

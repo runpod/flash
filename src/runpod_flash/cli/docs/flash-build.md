@@ -228,7 +228,7 @@ After building:
 
 1. **Test locally**: Run `flash dev` to test the application
 2. **Preview**: Test with `flash deploy --preview` before production deployment
-3. **Deploy**: Use `flash deploy` to deploy to RunPod Serverless
+3. **Deploy**: Use `flash deploy` to deploy to Runpod Serverless
 4. **Monitor**: Use `flash env get` to check deployment status
 
 ## Related commands

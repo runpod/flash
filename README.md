@@ -17,7 +17,7 @@ asyncio.run(hello())
 print("Done!")
 ```
 
-Write `@Endpoint` decorated Python functions on your local machine. Deploy them with `flash deploy`, then call them by running the same script. Flash handles GPU/CPU provisioning and worker scaling on [RunPod Serverless](https://docs.runpod.io/serverless/overview).
+Write `@Endpoint` decorated Python functions on your local machine. Deploy them with `flash deploy`, then call them by running the same script. Flash handles GPU/CPU provisioning and worker scaling on [Runpod Serverless](https://docs.runpod.io/serverless/overview).
 
 ## Setup
 
@@ -101,7 +101,7 @@ def gpu_matrix_multiply(size):
     }
 
 async def main():
-    print("Running matrix multiplication on RunPod GPU...")
+    print("Running matrix multiplication on Runpod GPU...")
     result = await gpu_matrix_multiply(1000)
     print(f"Matrix size: {result['matrix_size']}x{result['matrix_size']}")
     print(f"Result mean: {result['result_mean']:.4f}")
@@ -124,7 +124,7 @@ Flash has two modes: **deploy** and **dev**.
 
 ### Deploy and run (`flash deploy` + `python script.py`)
 
-Deploy packages your code and provisions endpoints on RunPod. After deploying, run your script directly and Flash routes calls to your deployed endpoints via implicit resolution:
+Deploy packages your code and provisions endpoints on Runpod. After deploying, run your script directly and Flash routes calls to your deployed endpoints via implicit resolution:
 
 ```bash
 flash deploy                 # build, upload, provision endpoints
@@ -140,7 +140,7 @@ FLASH_ENV=staging            # defaults to "production"
 
 ### Dev mode (`flash dev`)
 
-For local development and testing, `flash dev` starts a hybrid dev server that runs your FastAPI app locally while provisioning live ephemeral workers on RunPod:
+For local development and testing, `flash dev` starts a hybrid dev server that runs your FastAPI app locally while provisioning live ephemeral workers on Runpod:
 
 ```bash
 flash dev                    # starts local server + provisions workers
@@ -150,7 +150,7 @@ flash dev --auto-provision   # provision all endpoints at startup
 
 ## What Flash does
 
-- **Remote execution**: `@Endpoint` functions run on RunPod Serverless GPUs/CPUs
+- **Remote execution**: `@Endpoint` functions run on Runpod Serverless GPUs/CPUs
 - **Implicit endpoint resolution**: `python script.py` routes to deployed endpoints automatically
 - **Auto-scaling**: workers scale from 0 to N based on demand
 - **Dependency management**: packages install automatically on remote workers
@@ -168,7 +168,7 @@ Full documentation: **[docs.runpod.io/flash](https://docs.runpod.io/flash)**
 
 ## Flash apps
 
-When you're ready to move beyond scripts and build a production-ready API, you can create a [Flash app](https://docs.runpod.io/flash/apps/overview) (a collection of interconnected endpoints with diverse hardware configurations) and deploy it to RunPod.
+When you're ready to move beyond scripts and build a production-ready API, you can create a [Flash app](https://docs.runpod.io/flash/apps/overview) (a collection of interconnected endpoints with diverse hardware configurations) and deploy it to Runpod.
 
 [Follow this tutorial to build your first Flash app](https://docs.runpod.io/flash/apps/build-app).
 
@@ -188,7 +188,7 @@ Browse working examples: **[github.com/runpod/flash-examples](https://github.com
 
 - Python 3.10-3.13
 - macOS or Linux (Windows support in development)
-- A [RunPod account](https://runpod.io/console) (email must be verified) with an API key
+- A [Runpod account](https://runpod.io/console) (email must be verified) with an API key
 
 ## Contributing
 
