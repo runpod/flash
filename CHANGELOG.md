@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.19.0](https://github.com/runpod/flash/compare/v1.18.0...v1.19.0) (2026-07-28)
+
+
+### Features
+
+* bundle local (non-pip) modules for serverless endpoints ([#352](https://github.com/runpod/flash/issues/352)) ([8ff78c6](https://github.com/runpod/flash/commit/8ff78c6ca713afa467681a29f34c70f541403593))
+
 ## [1.18.0](https://github.com/runpod/flash/compare/v1.17.0...v1.18.0) (2026-06-30)
 
 
