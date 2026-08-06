@@ -1,42 +1,46 @@
 # Ship serverless code as you write it. No builds, no deploys -- just run.
-from typing import Any, ClassVar
+from typing import Any
 
 from pydantic import model_validator
 
-from .constants import (
-    DEFAULT_PYTHON_VERSION,
-    get_image_name,
-)
+from .constants import DEFAULT_PYTHON_VERSION, get_image_name
+from .injection import build_injection_cmd
 from .load_balancer_sls_resource import (
     CpuLoadBalancerSlsResource,
     LoadBalancerSlsResource,
 )
 from .serverless import ServerlessEndpoint
 from .serverless_cpu import CpuServerlessEndpoint
+from .template import PodTemplate
 
 
 class LiveServerlessMixin:
     """Common mixin for live serverless endpoints.
 
-    Treats the Flash runtime image as a *default*: if the caller passes an
-    ``imageName`` (e.g. via ``Endpoint(image=...)`` in client mode), that
-    value wins. Otherwise the Flash runtime image for this resource type is
-    used so decorator-mode workloads continue to deploy the Flash wrapper.
+    Configures process injection via ``dockerArgs`` for any base image, and
+    treats the Flash runtime image as a *default*: if the caller passes an
+    ``imageName`` (e.g. via ``Endpoint(image=...)`` in client mode), that value
+    wins. Otherwise the Flash runtime image for this resource type is applied by
+    the ``@model_validator(mode="before")`` on each concrete subclass (see
+    ``_apply_default_live_image``), so decorator-mode workloads continue to
+    deploy the Flash wrapper.
 
-    The default is applied via the ``@model_validator(mode="before")`` on each
-    concrete subclass (see ``_apply_default_live_image``); reads and writes of
-    ``imageName`` go through the normal Pydantic field machinery so model
-    serialization, drift detection, and ``setattr`` all stay consistent.
+    The injection ``dockerArgs`` download, extract, and run the flash-worker
+    tarball at container start; QB vs LB mode is determined by the
+    ``FLASH_ENDPOINT_TYPE`` env var at runtime, not by the Docker image.
     """
 
-    _image_type: ClassVar[str] = (
-        ""  # override in subclasses: 'gpu', 'cpu', 'lb', 'lb-cpu'
-    )
+    def _create_new_template(self) -> PodTemplate:
+        """Create template with dockerArgs for process injection."""
+        template = super()._create_new_template()  # type: ignore[misc]
+        template.dockerArgs = build_injection_cmd()
+        return template
 
-    @property
-    def _live_image(self) -> str:
-        python_version = getattr(self, "python_version", None) or DEFAULT_PYTHON_VERSION
-        return get_image_name(self._image_type, python_version)
+    def _configure_existing_template(self) -> None:
+        """Configure existing template, adding dockerArgs for injection if not user-set."""
+        super()._configure_existing_template()  # type: ignore[misc]
+        if self.template is not None and not self.template.dockerArgs:  # type: ignore[attr-defined]
+            self.template.dockerArgs = build_injection_cmd()  # type: ignore[attr-defined]
 
 
 def _apply_default_live_image(data: Any, image_type: str):
@@ -57,8 +61,6 @@ def _apply_default_live_image(data: Any, image_type: str):
 class LiveServerless(LiveServerlessMixin, ServerlessEndpoint):
     """GPU-only live serverless endpoint."""
 
-    _image_type: ClassVar[str] = "gpu"
-
     @model_validator(mode="before")
     @classmethod
     def set_live_serverless_template(cls, data: dict):
@@ -68,8 +70,6 @@ class LiveServerless(LiveServerlessMixin, ServerlessEndpoint):
 
 class CpuLiveServerless(LiveServerlessMixin, CpuServerlessEndpoint):
     """CPU-only live serverless endpoint with automatic disk sizing."""
-
-    _image_type: ClassVar[str] = "cpu"
 
     @model_validator(mode="before")
     @classmethod
@@ -81,8 +81,6 @@ class CpuLiveServerless(LiveServerlessMixin, CpuServerlessEndpoint):
 class LiveLoadBalancer(LiveServerlessMixin, LoadBalancerSlsResource):
     """Live load-balanced endpoint."""
 
-    _image_type: ClassVar[str] = "lb"
-
     @model_validator(mode="before")
     @classmethod
     def set_live_lb_template(cls, data: dict):
@@ -92,8 +90,6 @@ class LiveLoadBalancer(LiveServerlessMixin, LoadBalancerSlsResource):
 
 class CpuLiveLoadBalancer(LiveServerlessMixin, CpuLoadBalancerSlsResource):
     """CPU-only live load-balanced endpoint."""
-
-    _image_type: ClassVar[str] = "lb-cpu"
 
     @model_validator(mode="before")
     @classmethod
