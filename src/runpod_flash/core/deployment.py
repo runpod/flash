@@ -6,7 +6,7 @@ import threading
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import List
+from typing import List, Optional
 
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
@@ -55,7 +55,9 @@ class DeploymentOrchestrator:
         self.manager = ResourceManager()
         self.results: List[DeploymentResult] = []
 
-    def deploy_all_background(self, resources: List[DeployableResource]) -> None:
+    def deploy_all_background(
+        self, resources: List[DeployableResource]
+    ) -> Optional[threading.Thread]:
         """Deploy all resources in background thread.
 
         This method spawns a background thread to deploy resources without
@@ -63,10 +65,17 @@ class DeploymentOrchestrator:
 
         Args:
             resources: List of resources to deploy
+
+        Returns:
+            The worker thread, or None when there was nothing to deploy.
+            Callers that need the deployment to finish within a bounded scope
+            (notably tests, which patch the deploy path) must join it —
+            otherwise the daemon thread outlives that scope and mutates
+            ResourceManager's class-level state afterwards.
         """
         if not resources:
             console.print("[dim]No resources to deploy[/dim]")
-            return
+            return None
 
         def run_async_deployment():
             """Run async deployment in background thread."""
@@ -90,6 +99,7 @@ class DeploymentOrchestrator:
         console.print(
             f"[dim]Auto-provisioning {len(resources)} resource(s) in background...[/dim]"
         )
+        return thread
 
     async def deploy_all(
         self, resources: List[DeployableResource], show_progress: bool = True
