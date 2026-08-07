@@ -2,6 +2,7 @@
 
 import pytest
 import asyncio
+import threading
 from unittest.mock import MagicMock, AsyncMock, patch
 
 from runpod_flash.core.deployment import (
@@ -204,17 +205,43 @@ class TestDeploymentOrchestrator:
             mock_deploy.side_effect = mock_resources
 
             # Should not block
-            orchestrator.deploy_all_background(mock_resources)
+            thread = orchestrator.deploy_all_background(mock_resources)
 
-            # Background thread should be started
-            # (not much we can test here without waiting for thread)
+            # Join inside the patch context so the worker cannot outlive the
+            # mock and reach the real deploy path. See the returns-a-thread
+            # test below for why this matters.
+            thread.join(timeout=10)
+            assert not thread.is_alive()
+
+    def test_deploy_all_background_returns_joinable_thread(self, mock_resources):
+        """Callers must be able to await background deployment.
+
+        Without a handle to join, the daemon thread outlives the caller's
+        patches and runs the real deploy path afterwards, writing mock
+        resources into the ResourceManager class-level state. That state is
+        shared process-wide, so an unrelated test later fails when it tries
+        to cloudpickle the leftover mock.
+        """
+        orchestrator = DeploymentOrchestrator()
+
+        with patch.object(
+            orchestrator.manager, "get_or_deploy_resource", new_callable=AsyncMock
+        ) as mock_deploy:
+            mock_deploy.side_effect = mock_resources
+
+            thread = orchestrator.deploy_all_background(mock_resources)
+
+            assert isinstance(thread, threading.Thread)
+            thread.join(timeout=10)
+            assert not thread.is_alive()
+            assert mock_deploy.await_count == len(mock_resources)
 
     def test_deploy_all_background_empty_list(self):
         """Test background deployment with empty list."""
         orchestrator = DeploymentOrchestrator()
 
-        # Should handle gracefully
-        orchestrator.deploy_all_background([])
+        # Nothing to deploy means no thread to join.
+        assert orchestrator.deploy_all_background([]) is None
 
     @pytest.mark.asyncio
     async def test_deploy_all_raises_api_key_error_before_deploying(
