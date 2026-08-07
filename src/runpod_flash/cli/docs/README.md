@@ -18,7 +18,7 @@ cd my-project
 uv sync                          # or: pip install -r requirements.txt
 ```
 
-Authenticate with RunPod (saves API key to `~/.runpod/config.toml`):
+Authenticate with Runpod (saves API key to `~/.runpod/config.toml`):
 ```bash
 flash login
 ```
@@ -29,7 +29,7 @@ export RUNPOD_API_KEY=your_api_key_here
 # or add to .env file
 ```
 
-Deploy your application to RunPod:
+Deploy your application to Runpod:
 
 ```bash
 flash deploy
@@ -101,7 +101,7 @@ flash build --exclude torch,torchvision,torchaudio
 
 ### flash deploy
 
-Build and deploy Flash applications to RunPod Serverless endpoints.
+Build and deploy Flash applications to Runpod Serverless endpoints.
 
 ```bash
 flash deploy [OPTIONS]
@@ -213,7 +213,7 @@ flash app delete --app my-project
 
 ### flash undeploy
 
-Manage and delete RunPod serverless endpoints.
+Manage and delete Runpod serverless endpoints.
 
 ```bash
 flash undeploy [NAME|list] [OPTIONS]
