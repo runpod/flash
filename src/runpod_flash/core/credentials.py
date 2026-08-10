@@ -12,13 +12,22 @@ from pathlib import Path
 from typing import Optional
 
 import runpod.cli.groups.config.functions as _runpod_config
+import tomlkit
 
 from runpod.cli.groups.config.functions import (
     get_credentials,
-    set_credentials,
 )
 
 log = logging.getLogger(__name__)
+
+# runpodctl writes top-level `apikey`/`apiurl` keys into the same config.toml
+# that runpod-python uses for its `[default]` profile. We must preserve those
+# (and any other unrelated content) when updating flash's api_key, so flash
+# login does not clobber runpodctl's credentials. tomlkit round-trips comments,
+# foreign keys, sibling profiles, and line endings, so we only mutate the one
+# value we own.
+_DEFAULT_SECTION = "default"
+_API_KEY_FIELD = "api_key"
 
 _OLD_XDG_PATH = Path.home() / ".config" / "runpod" / "credentials.toml"
 
@@ -50,7 +59,11 @@ def get_api_key() -> Optional[str]:
 
 
 def save_api_key(api_key: str) -> Path:
-    """Save API key to ~/.runpod/config.toml via runpod-python.
+    """Save API key into the [default] section of ~/.runpod/config.toml.
+
+    Updates only flash's `[default].api_key` value, preserving any other
+    content in the file (notably runpodctl's top-level `apikey`/`apiurl`
+    keys and other profile sections).
 
     Args:
         api_key: The API key to save.
@@ -59,12 +72,60 @@ def save_api_key(api_key: str) -> Path:
         Path to the credentials file.
     """
     path = get_credentials_path()
-    set_credentials(api_key, overwrite=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    # newline="" disables universal-newline translation so tomlkit sees (and
+    # preserves) the file's original line endings rather than collapsing CRLF.
+    existing = ""
+    if path.exists():
+        with path.open("r", encoding="utf-8", newline="") as f:
+            existing = f.read()
+    new_content = _upsert_default_api_key(existing, api_key)
+    with path.open("w", encoding="utf-8", newline="") as f:
+        f.write(new_content)
+
     try:
         os.chmod(path, 0o600)
     except OSError:
         pass
     return path
+
+
+def _upsert_default_api_key(content: str, api_key: str) -> str:
+    """Update `[default].api_key` in TOML text, leaving the rest intact.
+
+    Parses with tomlkit so foreign top-level keys (runpodctl's
+    `apikey`/`apiurl`), sibling profile sections, comments, and the file's
+    original line endings are preserved. Only `[default].api_key` is mutated;
+    a missing `[default]` table is created.
+
+    If the existing file is malformed TOML it is already unloadable (runpodctl
+    cannot read it either), so we cannot preserve it. Rather than block login,
+    fall back to a fresh document and warn -- the discarded content held no
+    recoverable credentials.
+    """
+    if content:
+        try:
+            doc = tomlkit.parse(content)
+        except tomlkit.exceptions.TOMLKitError:
+            log.warning(
+                "Existing credentials file is not valid TOML; replacing it "
+                "with a fresh [default] section. Unrelated content was lost.",
+                exc_info=True,
+            )
+            doc = tomlkit.document()
+    else:
+        doc = tomlkit.document()
+
+    section = doc.get(_DEFAULT_SECTION)
+    if isinstance(section, (tomlkit.items.Table, tomlkit.items.InlineTable)):
+        section[_API_KEY_FIELD] = api_key
+    else:
+        table = tomlkit.table()
+        table[_API_KEY_FIELD] = api_key
+        doc[_DEFAULT_SECTION] = table
+
+    return tomlkit.dumps(doc)
 
 
 def check_and_migrate_legacy_credentials() -> None:
