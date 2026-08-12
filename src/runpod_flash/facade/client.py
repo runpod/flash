@@ -7,6 +7,10 @@ owns a raw-id QueueClient with plain auth headers.
 
 from typing import Any, Optional
 
+# NOTE: `_headers` is a private (underscore-prefixed) apps symbol. the facade
+# depends on it because apps.targets has no public header-builder for a raw
+# endpoint id. replace with a public equivalent once one lands upstream
+# (tracked separately, see gap G3 above).
 from runpod.apps.targets import QueueClient, _headers
 
 _TERMINAL_STATUSES = frozenset({"COMPLETED", "FAILED", "CANCELLED", "TIMED_OUT"})
