@@ -1,8 +1,10 @@
 """unified endpoint class for flash."""
 
+from __future__ import annotations
+
 import logging
 import os
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 from .core.resources.constants import DEFAULT_WORKERS_MAX, DEFAULT_WORKERS_MIN
 from .core.resources.cpu import CpuInstanceType
@@ -11,9 +13,10 @@ from .core.resources.network_volume import NetworkVolume
 from .core.resources.datacenter import DataCenter
 from .core.resources.serverless import CudaVersion, ServerlessScalerType
 from .core.resources.template import PodTemplate
-from .facade.client import AppsEndpointJob, apps_qb_client
-from .facade.dispatch import apps_sentinel_lb_request
 from .facade.flags import use_apps_dispatch
+
+if TYPE_CHECKING:
+    from .facade.client import AppsEndpointJob
 
 log = logging.getLogger(__name__)
 
@@ -883,6 +886,8 @@ class Endpoint:
             webhook: optional URL that runpod will POST to when the job completes.
         """
         if use_apps_dispatch() and self.id is not None:
+            from .facade.client import AppsEndpointJob, apps_qb_client
+
             client = apps_qb_client(self.id)
             payload: Dict[str, Any] = {"input": input_data}
             if webhook is not None:
@@ -906,6 +911,8 @@ class Endpoint:
         print(job.output)
         """
         if use_apps_dispatch() and self.id is not None:
+            from .facade.client import AppsEndpointJob, apps_qb_client
+
             client = apps_qb_client(self.id)
             data = await client.runsync({"input": input_data}, timeout=timeout)
             return AppsEndpointJob(data, client)
@@ -924,6 +931,8 @@ class Endpoint:
         await ep.cancel(job.id)  # or via the endpoint directly
         """
         if use_apps_dispatch() and self.id is not None:
+            from .facade.client import AppsEndpointJob, apps_qb_client
+
             client = apps_qb_client(self.id)
             data = await client.cancel(job_id)
             return AppsEndpointJob(data, client)
@@ -954,6 +963,8 @@ class Endpoint:
 
                 app_name, env_name = ctx
                 if use_apps_dispatch():
+                    from .facade.dispatch import apps_sentinel_lb_request
+
                     return await apps_sentinel_lb_request(
                         app_name,
                         env_name,

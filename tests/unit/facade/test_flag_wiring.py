@@ -26,7 +26,9 @@ async def test_endpoint_run_uses_facade_client_when_flag_on(monkeypatch):
         async def run(self, payload):
             return {"id": "j9", "status": "IN_QUEUE"}
 
-    monkeypatch.setattr(ep_mod, "apps_qb_client", lambda eid: FakeQC(), raising=False)
+    monkeypatch.setattr(
+        "runpod_flash.facade.client.apps_qb_client", lambda eid: FakeQC()
+    )
 
     ep = ep_mod.Endpoint(id="ep-xyz")
     job = await ep.run({"prompt": "hi"})
