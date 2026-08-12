@@ -153,4 +153,4 @@ exclude = [".venv", ".git", "__pycache__", "dist", "build"]
 select = ["E4", "E7", "E9", "F"]
 
 [tool.uv.sources]
-runpod = { git = "https://github.com/runpod/runpod-python", rev = "main" }
+runpod = { git = "https://github.com/runpod/runpod-python", rev = "feat/apps-sdk" }
