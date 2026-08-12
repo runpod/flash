@@ -867,10 +867,12 @@ class Endpoint:
 
     async def run(
         self, input_data: Any, *, webhook: Optional[str] = None
-    ) -> EndpointJob:
+    ) -> EndpointJob | AppsEndpointJob:
         """submit a QB job asynchronously.
 
-        returns an EndpointJob that can be polled or awaited:
+        returns an EndpointJob (or, when FLASH_USE_APPS_DISPATCH is on and
+        this is a raw-id client, an AppsEndpointJob) that can be polled or
+        awaited:
 
             job = await ep.run({"prompt": "hello"})
             await job.wait()
@@ -895,7 +897,9 @@ class Endpoint:
         data = await self._api_post(f"{url}/run", payload)
         return EndpointJob(data, self)
 
-    async def runsync(self, input_data: Any, timeout: float = 60.0) -> EndpointJob:
+    async def runsync(
+        self, input_data: Any, timeout: float = 60.0
+    ) -> EndpointJob | AppsEndpointJob:
         """submit a QB job and wait for the result.
 
         job = await ep.runsync({"prompt": "hello"})
@@ -912,7 +916,7 @@ class Endpoint:
         )
         return EndpointJob(data, self)
 
-    async def cancel(self, job_id: str) -> EndpointJob:
+    async def cancel(self, job_id: str) -> EndpointJob | AppsEndpointJob:
         """cancel a previously submitted QB job.
 
         job = await ep.run({"prompt": "hello"})
