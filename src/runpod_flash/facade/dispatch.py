@@ -30,3 +30,17 @@ async def apps_sentinel_qb_execute(
     body = args_to_input(fn, args, kwargs)
     target = SentinelTarget(app, env, normalize_resource_name(resource))
     return await target.invoke({"input": body})
+
+
+async def apps_sentinel_lb_request(
+    app: str,
+    env: str,
+    resource: str,
+    method: str,
+    path: str,
+    body: Any = None,
+    timeout: float = 60.0,
+) -> Any:
+    """dispatch a load-balanced HTTP call through the apps sentinel target."""
+    target = SentinelTarget(app, env, normalize_resource_name(resource))
+    return await target.request(method, path, body, timeout=timeout)
