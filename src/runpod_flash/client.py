@@ -7,6 +7,8 @@ from typing import Any, List, Optional
 
 from .core.resources import LoadBalancerSlsResource, ResourceManager, ServerlessResource
 from .execute_class import create_remote_class
+from .facade.dispatch import apps_sentinel_qb_execute
+from .facade.flags import use_apps_dispatch
 from .stubs import stub_resource
 
 log = logging.getLogger(__name__)
@@ -241,6 +243,15 @@ def remote(
                     from .flash_sentinel import sentinel_qb_execute
 
                     app_name, env_name = ctx
+                    if use_apps_dispatch():
+                        return await apps_sentinel_qb_execute(
+                            app_name,
+                            env_name,
+                            resource_config.name,
+                            func_or_class,
+                            *args,
+                            **kwargs,
+                        )
                     return await sentinel_qb_execute(
                         app_name,
                         env_name,

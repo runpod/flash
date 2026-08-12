@@ -11,6 +11,9 @@ from .core.resources.network_volume import NetworkVolume
 from .core.resources.datacenter import DataCenter
 from .core.resources.serverless import CudaVersion, ServerlessScalerType
 from .core.resources.template import PodTemplate
+from .facade.client import AppsEndpointJob, apps_qb_client
+from .facade.dispatch import apps_sentinel_lb_request
+from .facade.flags import use_apps_dispatch
 
 log = logging.getLogger(__name__)
 
@@ -877,8 +880,16 @@ class Endpoint:
             input_data: payload to send as the job input.
             webhook: optional URL that runpod will POST to when the job completes.
         """
+        if use_apps_dispatch() and self.id is not None:
+            client = apps_qb_client(self.id)
+            payload: Dict[str, Any] = {"input": input_data}
+            if webhook is not None:
+                payload["webhook"] = webhook
+            data = await client.run(payload)
+            return AppsEndpointJob(data, client)
+
         url = await self._ensure_endpoint_ready()
-        payload: Dict[str, Any] = {"input": input_data}
+        payload = {"input": input_data}
         if webhook is not None:
             payload["webhook"] = webhook
         data = await self._api_post(f"{url}/run", payload)
@@ -890,6 +901,11 @@ class Endpoint:
         job = await ep.runsync({"prompt": "hello"})
         print(job.output)
         """
+        if use_apps_dispatch() and self.id is not None:
+            client = apps_qb_client(self.id)
+            data = await client.runsync({"input": input_data}, timeout=timeout)
+            return AppsEndpointJob(data, client)
+
         url = await self._ensure_endpoint_ready()
         data = await self._api_post(
             f"{url}/runsync", {"input": input_data}, timeout=timeout
@@ -903,6 +919,11 @@ class Endpoint:
         await job.cancel()       # via the job object
         await ep.cancel(job.id)  # or via the endpoint directly
         """
+        if use_apps_dispatch() and self.id is not None:
+            client = apps_qb_client(self.id)
+            data = await client.cancel(job_id)
+            return AppsEndpointJob(data, client)
+
         url = await self._ensure_endpoint_ready()
         data = await self._api_post(f"{url}/cancel/{job_id}", None)
         return EndpointJob(data, self)
@@ -928,6 +949,16 @@ class Endpoint:
                 from .flash_sentinel import sentinel_lb_request
 
                 app_name, env_name = ctx
+                if use_apps_dispatch():
+                    return await apps_sentinel_lb_request(
+                        app_name,
+                        env_name,
+                        _normalize_resource_name(self.name),
+                        method,
+                        path,
+                        body=data,
+                        timeout=timeout,
+                    )
                 return await sentinel_lb_request(
                     app_name,
                     env_name,
