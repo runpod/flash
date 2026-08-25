@@ -194,10 +194,56 @@ class TestAppsGet:
 
 
 class TestAppsDelete:
+    @staticmethod
+    def _flash_app(removed=None, failed=None):
+        flash_app = MagicMock()
+        flash_app.delete_endpoints = AsyncMock(
+            return_value=(removed or [], failed or [])
+        )
+        return flash_app
+
+    @patch("runpod_flash.cli.commands.apps.FlashApp.from_name", new_callable=AsyncMock)
     @patch("runpod_flash.cli.commands.apps.FlashApp.delete", new_callable=AsyncMock)
     def test_delete_app_success(
-        self, mock_delete, runner, mock_asyncio_run_coro, patched_console
+        self,
+        mock_delete,
+        mock_from_name,
+        runner,
+        mock_asyncio_run_coro,
+        patched_console,
     ):
+        mock_from_name.return_value = self._flash_app()
+        mock_delete.return_value = True
+
+        with patch(
+            "runpod_flash.cli.commands.apps.asyncio.run",
+            side_effect=mock_asyncio_run_coro,
+        ):
+            result = runner.invoke(app, ["app", "delete", "demo"])
+
+        assert result.exit_code == 0
+        mock_from_name.assert_awaited_once_with("demo")
+        mock_delete.assert_awaited_once_with(app_name="demo")
+        printed = " ".join(
+            str(call.args[0])
+            for call in patched_console.print.call_args_list
+            if call.args
+        )
+        assert "deleted" in printed
+        assert "demo" in printed
+
+    @patch("runpod_flash.cli.commands.apps.FlashApp.from_name", new_callable=AsyncMock)
+    @patch("runpod_flash.cli.commands.apps.FlashApp.delete", new_callable=AsyncMock)
+    def test_delete_app_removes_endpoints(
+        self,
+        mock_delete,
+        mock_from_name,
+        runner,
+        mock_asyncio_run_coro,
+        patched_console,
+    ):
+        removed = [{"id": "ep-1", "name": "api", "env": "dev"}]
+        mock_from_name.return_value = self._flash_app(removed=removed)
         mock_delete.return_value = True
 
         with patch(
@@ -213,13 +259,50 @@ class TestAppsDelete:
             for call in patched_console.print.call_args_list
             if call.args
         )
-        assert "deleted" in printed
-        assert "demo" in printed
+        assert "deleted endpoint" in printed
+        assert "api" in printed
+        assert "ep-1" in printed
 
+    @patch("runpod_flash.cli.commands.apps.FlashApp.from_name", new_callable=AsyncMock)
+    @patch("runpod_flash.cli.commands.apps.FlashApp.delete", new_callable=AsyncMock)
+    def test_delete_app_endpoint_failure_blocks_app_delete(
+        self,
+        mock_delete,
+        mock_from_name,
+        runner,
+        mock_asyncio_run_coro,
+        patched_console,
+    ):
+        failed = [{"id": "ep-fail", "name": "api", "env": "dev"}]
+        mock_from_name.return_value = self._flash_app(failed=failed)
+
+        with patch(
+            "runpod_flash.cli.commands.apps.asyncio.run",
+            side_effect=mock_asyncio_run_coro,
+        ):
+            result = runner.invoke(app, ["app", "delete", "demo"])
+
+        assert result.exit_code == 1
+        mock_delete.assert_not_awaited()
+        printed = " ".join(
+            str(call.args[0])
+            for call in patched_console.print.call_args_list
+            if call.args
+        )
+        assert "endpoint ep-fail not removed" in printed
+        assert "runpodctl serverless delete ep-fail" in printed
+
+    @patch("runpod_flash.cli.commands.apps.FlashApp.from_name", new_callable=AsyncMock)
     @patch("runpod_flash.cli.commands.apps.FlashApp.delete", new_callable=AsyncMock)
     def test_delete_app_failure_raises_exit(
-        self, mock_delete, runner, mock_asyncio_run_coro, patched_console
+        self,
+        mock_delete,
+        mock_from_name,
+        runner,
+        mock_asyncio_run_coro,
+        patched_console,
     ):
+        mock_from_name.return_value = self._flash_app()
         mock_delete.return_value = False
 
         with patch(

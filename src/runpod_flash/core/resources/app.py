@@ -561,6 +561,81 @@ class FlashApp:
             result = await client.delete_flash_environment(environment_id)
         return result.get("success", False)
 
+    async def delete_endpoints(
+        self,
+    ) -> Tuple[List[Dict[str, str]], List[Dict[str, str]]]:
+        """Delete all serverless endpoints registered to this app's environments.
+
+        Endpoints are discovered server-side from each environment record, so
+        this works without local resource tracking (e.g. in CI or from a
+        different machine than the deployer).
+
+        Safe to retry: endpoints that no longer exist remotely are treated as
+        already removed, so a partially-failed earlier attempt does not block
+        a subsequent run.
+
+        Returns:
+            Tuple of (removed, failed) endpoint descriptors. Each descriptor is
+            a dict with 'id', 'name', and 'env' keys.
+
+        Raises:
+            RuntimeError: If app is not hydrated (no ID available)
+        """
+        removed: List[Dict[str, str]] = []
+        failed: List[Dict[str, str]] = []
+
+        await self._hydrate()
+        async with RunpodGraphQLClient() as client:
+            environments = await client.list_flash_environments_by_app_id(self.id)
+            for environment in environments:
+                env_name = environment.get("name") or ""
+                env = await client.get_flash_environment(
+                    {"flashEnvironmentId": environment["id"]}
+                )
+                for endpoint in (env or {}).get("endpoints") or []:
+                    endpoint_id = endpoint.get("id")
+                    descriptor = {
+                        "id": endpoint_id or "",
+                        "name": endpoint.get("name") or "",
+                        "env": env_name,
+                    }
+                    if not endpoint_id:
+                        log.warning(
+                            "Environment '%s' lists an endpoint with no id", env_name
+                        )
+                        failed.append(descriptor)
+                        continue
+                    deleted = await self._delete_endpoint(client, endpoint_id)
+                    (removed if deleted else failed).append(descriptor)
+
+        return removed, failed
+
+    @staticmethod
+    async def _delete_endpoint(client: RunpodGraphQLClient, endpoint_id: str) -> bool:
+        """Delete a single endpoint; treat already-deleted endpoints as removed.
+
+        Mirrors ServerlessResource._do_undeploy: if the delete call fails, the
+        endpoint is re-checked and a missing endpoint counts as removed, so
+        retries of a partially-completed teardown can proceed.
+        """
+        try:
+            result = await client.delete_endpoint(endpoint_id)
+            return bool(result.get("success", False))
+        except Exception as exc:
+            log.debug(f"failed to delete endpoint {endpoint_id}: {exc}")
+
+            # Deletion failed. Check if endpoint still exists.
+            # If it doesn't exist, treat as successfully removed (already deleted).
+            try:
+                if not await client.endpoint_exists(endpoint_id):
+                    log.debug(f"endpoint {endpoint_id} no longer exists on RunPod")
+                    return True
+            except Exception as check_error:
+                log.warning(
+                    f"Could not verify endpoint {endpoint_id} existence: {check_error}"
+                )
+            return False
+
     async def list_builds(self) -> List[Dict[str, Any]]:
         """List all builds for this app.
 
