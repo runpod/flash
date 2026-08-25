@@ -294,6 +294,35 @@ class TestAppsDelete:
 
     @patch("runpod_flash.cli.commands.apps.FlashApp.from_name", new_callable=AsyncMock)
     @patch("runpod_flash.cli.commands.apps.FlashApp.delete", new_callable=AsyncMock)
+    def test_delete_app_endpoint_without_id_reports_console_remediation(
+        self,
+        mock_delete,
+        mock_from_name,
+        runner,
+        mock_asyncio_run_coro,
+        patched_console,
+    ):
+        failed = [{"id": "", "name": "mystery", "env": "dev"}]
+        mock_from_name.return_value = self._flash_app(failed=failed)
+
+        with patch(
+            "runpod_flash.cli.commands.apps.asyncio.run",
+            side_effect=mock_asyncio_run_coro,
+        ):
+            result = runner.invoke(app, ["app", "delete", "demo"])
+
+        assert result.exit_code == 1
+        mock_delete.assert_not_awaited()
+        printed = " ".join(
+            str(call.args[0])
+            for call in patched_console.print.call_args_list
+            if call.args
+        )
+        assert "mystery" in printed
+        assert "remove it from the RunPod console" in printed
+
+    @patch("runpod_flash.cli.commands.apps.FlashApp.from_name", new_callable=AsyncMock)
+    @patch("runpod_flash.cli.commands.apps.FlashApp.delete", new_callable=AsyncMock)
     def test_delete_app_failure_raises_exit(
         self,
         mock_delete,

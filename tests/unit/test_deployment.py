@@ -221,7 +221,7 @@ class TestDeploymentOrchestrator:
         orchestrator = DeploymentOrchestrator()
 
         # Should handle gracefully
-        orchestrator.deploy_all_background([])
+        assert orchestrator.deploy_all_background([]) is None
 
     @pytest.mark.asyncio
     async def test_deploy_all_raises_api_key_error_before_deploying(

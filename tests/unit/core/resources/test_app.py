@@ -600,6 +600,48 @@ class TestFlashAppDeleteEndpoints:
         assert failed == [{"id": "", "name": "mystery", "env": "dev"}]
         mock_client.delete_endpoint.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_environment_detail_missing_or_none_is_skipped(self):
+        """Environments with no endpoint data (None or missing key) are empty."""
+        app = FlashApp("my-app", id="app-1")
+        app._hydrated = True
+
+        with patch("runpod_flash.core.resources.app.RunpodGraphQLClient") as MockClient:
+            mock_client = self._mock_client(
+                MockClient,
+                list_flash_environments_by_app_id=[
+                    {"id": "env-1", "name": "dev"},
+                    {"id": "env-2", "name": "prod"},
+                ],
+            )
+            mock_client.get_flash_environment.side_effect = [None, {}]
+
+            removed, failed = await app.delete_endpoints()
+
+        assert removed == []
+        assert failed == []
+        mock_client.delete_endpoint.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_unsuccessful_delete_without_exception_counts_as_failed(self):
+        """A {'success': False} delete is a hard failure — no existence re-check."""
+        app = FlashApp("my-app", id="app-1")
+        app._hydrated = True
+
+        with patch("runpod_flash.core.resources.app.RunpodGraphQLClient") as MockClient:
+            mock_client = self._mock_client(
+                MockClient,
+                list_flash_environments_by_app_id=[{"id": "env-1", "name": "dev"}],
+                get_flash_environment={"endpoints": [{"id": "ep-1", "name": "api"}]},
+                delete_endpoint={"success": False},
+            )
+
+            removed, failed = await app.delete_endpoints()
+
+        assert removed == []
+        assert failed == [{"id": "ep-1", "name": "api", "env": "dev"}]
+        mock_client.endpoint_exists.assert_not_called()
+
 
 class TestIsCertVerificationError:
     """Test _is_cert_verification_error classifier."""

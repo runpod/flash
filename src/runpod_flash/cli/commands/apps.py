@@ -122,7 +122,10 @@ async def delete_flash_app(app_name: str):
         )
 
     if failed:
-        print_error(console, f"failed to delete app '{app_name}'")
+        print_error(
+            console,
+            f"could not remove all endpoints for app '{app_name}'; app was not deleted",
+        )
         for endpoint in failed:
             endpoint_id = endpoint["id"]
             if endpoint_id:

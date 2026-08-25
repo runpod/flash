@@ -4,7 +4,7 @@ import json
 from typing import Dict, Optional, Union, Tuple, TYPE_CHECKING, Any, List
 import logging
 
-from ..api.runpod import RunpodGraphQLClient
+from ..api.runpod import RunpodGraphQLClient, _delete_endpoint_idempotent
 
 from .constants import (
     TARBALL_CONTENT_TYPE,
@@ -605,36 +605,10 @@ class FlashApp:
                         )
                         failed.append(descriptor)
                         continue
-                    deleted = await self._delete_endpoint(client, endpoint_id)
+                    deleted = await _delete_endpoint_idempotent(client, endpoint_id)
                     (removed if deleted else failed).append(descriptor)
 
         return removed, failed
-
-    @staticmethod
-    async def _delete_endpoint(client: RunpodGraphQLClient, endpoint_id: str) -> bool:
-        """Delete a single endpoint; treat already-deleted endpoints as removed.
-
-        Mirrors ServerlessResource._do_undeploy: if the delete call fails, the
-        endpoint is re-checked and a missing endpoint counts as removed, so
-        retries of a partially-completed teardown can proceed.
-        """
-        try:
-            result = await client.delete_endpoint(endpoint_id)
-            return bool(result.get("success", False))
-        except Exception as exc:
-            log.debug(f"failed to delete endpoint {endpoint_id}: {exc}")
-
-            # Deletion failed. Check if endpoint still exists.
-            # If it doesn't exist, treat as successfully removed (already deleted).
-            try:
-                if not await client.endpoint_exists(endpoint_id):
-                    log.debug(f"endpoint {endpoint_id} no longer exists on RunPod")
-                    return True
-            except Exception as check_error:
-                log.warning(
-                    f"Could not verify endpoint {endpoint_id} existence: {check_error}"
-                )
-            return False
 
     async def list_builds(self) -> List[Dict[str, Any]]:
         """List all builds for this app.
