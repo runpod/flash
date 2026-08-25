@@ -263,6 +263,62 @@ jobs:
       - name: Quality checks
         run: make ci-quality-github
 
+      - name: Coverage summary
+        if: always()
+        run: |
+          python - coverage.xml 'pytest-results-*.xml' <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import glob, sys, xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          cov, junit = sys.argv[1], sys.argv[2:]
+          o = ["## Coverage Report", ""]
+
+          t = f = s = 0
+          seen = False
+          for pat in junit:
+              for path in sorted(glob.glob(pat)):
+                  try:
+                      r = ET.parse(path).getroot()
+                  except ET.ParseError:
+                      continue
+                  seen = True
+                  for su in (r.iter("testsuite") if r.tag == "testsuites" else [r]):
+                      t += int(su.get("tests") or 0)
+                      f += int(su.get("failures") or 0) + int(su.get("errors") or 0)
+                      s += int(su.get("skipped") or 0)
+          if seen:
+              o += ["### Test Results", "",
+                    "| Status | Passed | Failed | Skipped | Total |",
+                    "|---|---:|---:|---:|---:|",
+                    f"| {'✅ Passed' if not f else '❌ Failed'} | {t - f - s} | {f} | {s} | {t} |", ""]
+
+          p = Path(cov)
+          if not p.exists():
+              o += [f"> No coverage report at `{cov}`."]
+          else:
+              r = ET.parse(p).getroot()
+              c, v = int(r.get("lines-covered") or 0), int(r.get("lines-valid") or 0)
+              o += ["### Coverage Summary", "", "| Metric | Value |", "|---|---:|",
+                    f"| Line coverage | **{(100.0 * c / v if v else 0):.1f}%** |",
+                    f"| Lines covered | {c:,} / {v:,} |",
+                    f"| Lines missing | {v - c:,} |", ""]
+              rows = []
+              for cl in r.iter("class"):
+                  ls = list(cl.iter("line"))
+                  if ls:
+                      h = sum(1 for x in ls if int(x.get("hits") or 0) > 0)
+                      rows.append((100.0 * h / len(ls),
+                                   cl.get("filename") or cl.get("name") or "?", h, len(ls)))
+              rows.sort()
+              if rows:
+                  o += ["<details>",
+                        f"<summary>Per-file coverage ({len(rows)} files, least covered first)</summary>",
+                        "", "| File | Coverage | Covered / Total |", "|---|---:|---:|"]
+                  o += [f"| `{n}` | {q:.1f}% | {h} / {tt} |" for q, n, h, tt in rows]
+                  o += ["", "</details>", ""]
+          print("\n".join(o))
+          PY
+
       - name: Upload test results
         uses: actions/upload-artifact@v4
         if: always()
