@@ -282,6 +282,36 @@ class ManifestBuilder:
 
         return config
 
+    @staticmethod
+    def _derive_path_fields(
+        file_path: Optional[Path], project_root: Path, module_path: str
+    ) -> tuple[str, str, str]:
+        """Derive (file_path_str, local_path_prefix, resource_module_path).
+
+        ``file_path`` is the source file a resource was declared in. When it
+        lives under ``project_root`` the fields describe the project-relative
+        location; otherwise (outside the root, or the path does not exist,
+        e.g. relative test paths) the raw path string is kept and the URL
+        prefix is derived from the module path instead.
+        """
+        file_path_str = ""
+        local_path_prefix = ""
+        resource_module_path = module_path
+        if file_path and file_path.exists():
+            try:
+                file_path_str = str(file_path.relative_to(project_root))
+                local_path_prefix = file_to_url_prefix(file_path, project_root)
+                resource_module_path = file_to_module_path(file_path, project_root)
+            except ValueError:
+                # File is outside project root — fall back to module_path
+                file_path_str = str(file_path)
+                local_path_prefix = "/" + module_path.replace(".", "/")
+        elif file_path:
+            # File path may be relative (in test scenarios)
+            file_path_str = str(file_path)
+            local_path_prefix = "/" + module_path.replace(".", "/")
+        return file_path_str, local_path_prefix, resource_module_path
+
     def _add_client_endpoints(
         self, resources_dict: Dict[str, Dict[str, Any]], project_root: Path
     ) -> None:
@@ -309,23 +339,12 @@ class ManifestBuilder:
                 )
 
             info = client_endpoints[name]
-            file_path = info.get("file_path")
 
-            file_path_str = ""
-            local_path_prefix = ""
-            resource_module_path = info.get("module_path", "")
-            if file_path and file_path.exists():
-                try:
-                    file_path_str = str(file_path.relative_to(project_root))
-                    local_path_prefix = file_to_url_prefix(file_path, project_root)
-                    resource_module_path = file_to_module_path(file_path, project_root)
-                except ValueError:
-                    # File is outside project root — fall back to module_path
-                    file_path_str = str(file_path)
-                    local_path_prefix = "/" + resource_module_path.replace(".", "/")
-            elif file_path:
-                file_path_str = str(file_path)
-                local_path_prefix = "/" + resource_module_path.replace(".", "/")
+            file_path_str, local_path_prefix, resource_module_path = (
+                self._derive_path_fields(
+                    info.get("file_path"), project_root, info.get("module_path", "")
+                )
+            )
 
             deployment_config, resource_type = self._extract_client_deployment_config(
                 name, info
@@ -508,24 +527,13 @@ class ManifestBuilder:
 
             # Derive path fields from the first function's source file.
             # All functions in a resource share the same source file per convention.
-            first_file = functions[0].file_path if functions else None
-            file_path_str = ""
-            local_path_prefix = ""
-            resource_module_path = functions[0].module_path if functions else ""
-
-            if first_file and first_file.exists():
-                try:
-                    file_path_str = str(first_file.relative_to(project_root))
-                    local_path_prefix = file_to_url_prefix(first_file, project_root)
-                    resource_module_path = file_to_module_path(first_file, project_root)
-                except ValueError:
-                    # File is outside project root — fall back to module_path
-                    file_path_str = str(first_file)
-                    local_path_prefix = "/" + functions[0].module_path.replace(".", "/")
-            elif first_file:
-                # File path may be relative (in test scenarios)
-                file_path_str = str(first_file)
-                local_path_prefix = "/" + functions[0].module_path.replace(".", "/")
+            file_path_str, local_path_prefix, resource_module_path = (
+                self._derive_path_fields(
+                    functions[0].file_path if functions else None,
+                    project_root,
+                    functions[0].module_path if functions else "",
+                )
+            )
 
             # Validate and collect routing for LB endpoints
             resource_routes = {}
