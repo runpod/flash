@@ -639,28 +639,34 @@ class RuntimeScanner:
                 or member.id is not None
             ):
                 continue
-            name = member.name or ""
+            # image-based endpoints always carry a name: Endpoint.__init__
+            # raises when name is None and image is set.
+            name = member.name
             existing = self.client_endpoints.get(name)
-            if existing is not None:
-                if existing["object_id"] == id(member):
-                    continue  # aliased under a second variable name
-                if existing["file_path"] != file_path:
-                    if existing["image"] == member.image:
-                        # re-exported from another file; keep the first record
-                        continue
-                    raise ValueError(
-                        f"endpoint '{name}' is defined in multiple files: "
-                        f"{existing['file_path']}, {file_path}. "
-                        f"each endpoint name must be unique across the project."
-                    )
-                # two distinct objects with the same name in one file: last wins
-            self.client_endpoints[name] = {
+            record = {
                 "var_name": member_name,
                 "file_path": file_path,
                 "module_path": module_path,
                 "object_id": id(member),
                 "image": member.image,
             }
+            if existing is None:
+                self.client_endpoints[name] = record
+                continue
+            if existing["object_id"] == id(member):
+                continue  # aliased under a second variable name
+            if existing["file_path"] == file_path:
+                # two distinct objects with the same name in one file: last wins
+                self.client_endpoints[name] = record
+                continue
+            if existing["image"] == member.image:
+                # re-exported from another file; keep the first record
+                continue
+            raise ValueError(
+                f"endpoint '{name}' is defined in multiple files: "
+                f"{existing['file_path']}, {file_path}. "
+                f"each endpoint name must be unique across the project."
+            )
 
     def _populate_resource_dicts(self, functions: List[RemoteFunctionMetadata]) -> None:
         """populate resource tracking dicts for ManifestBuilder compatibility."""
