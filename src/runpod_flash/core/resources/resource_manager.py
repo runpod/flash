@@ -235,6 +235,10 @@ class ResourceManager(SingletonMixin):
 
         Thread-safe implementation that prevents concurrent deployments.
         """
+        placement_validator = getattr(config, "_validate_unrestricted_placement", None)
+        if placement_validator is not None:
+            placement_validator()
+
         # Use name-based key instead of hash
         resource_key = config.get_resource_key()
         new_config_hash = config.config_hash
@@ -253,6 +257,12 @@ class ResourceManager(SingletonMixin):
             existing = self._resources.get(resource_key)
 
             if existing:
+                existing_placement_validator = getattr(
+                    existing, "_validate_unrestricted_placement", None
+                )
+                if existing_placement_validator is not None:
+                    existing_placement_validator()
+
                 # Resource exists - check if still valid
                 if not await existing.is_deployed():
                     log.warning(f"{existing} is no longer valid, redeploying.")

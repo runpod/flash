@@ -6,7 +6,7 @@ This module contains all CPU-related serverless functionality, separate from GPU
 
 import hashlib
 import json
-from typing import List, Optional
+from typing import ClassVar, List, Optional
 
 from pydantic import field_serializer, model_validator
 
@@ -22,6 +22,7 @@ from .template import KeyValuePair, PodTemplate
 class CpuEndpointMixin:
     """Mixin class that provides CPU-specific functionality for serverless endpoints."""
 
+    SUPPORTS_UNRESTRICTED_LOCATIONS: ClassVar[bool] = False
     instanceIds: Optional[List[CpuInstanceType]]
 
     def _is_cpu_endpoint(self) -> bool:
@@ -128,6 +129,7 @@ class CpuServerlessEndpoint(CpuEndpointMixin, ServerlessEndpoint):
         "networkVolume",
         "networkVolumes",
         "python_version",
+        "unrestrictedLocations",
     }
 
     # Override GPU field from parent to None for CPU endpoints

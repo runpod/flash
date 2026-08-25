@@ -135,6 +135,7 @@ class LoadBalancerSlsResource(ServerlessResource):
         """
         # Validate before deploying
         self._validate_lb_configuration()
+        self._validate_unrestricted_placement()
 
         # Check if already deployed
         if await self.is_deployed():
@@ -164,6 +165,7 @@ class LoadBalancerSlsResource(ServerlessResource):
         Returns:
             True if the endpoint exists, False otherwise
         """
+        self._validate_unrestricted_placement()
         if not self.id:
             return False
 
@@ -232,6 +234,7 @@ class CpuLoadBalancerSlsResource(CpuEndpointMixin, LoadBalancerSlsResource):
         "networkVolume",
         "networkVolumes",
         "python_version",
+        "unrestrictedLocations",
     }
 
     def _setup_cpu_template(self) -> None:

@@ -1,11 +1,16 @@
 """Unit tests for ResourceManager."""
 
+import os
+
 import pytest
 from unittest.mock import MagicMock, patch, AsyncMock
 
 from runpod_flash.core.resources.resource_manager import ResourceManager
 from runpod_flash.core.utils.singleton import SingletonMixin
-from runpod_flash.core.resources.serverless import ServerlessResource
+from runpod_flash.core.resources.serverless import (
+    ServerlessEndpoint,
+    ServerlessResource,
+)
 from runpod_flash.core.exceptions import RunpodAPIKeyError
 
 
@@ -16,6 +21,7 @@ class TestResourceManager:
     def reset_singleton(self):
         """Reset singleton state before each test."""
         ResourceManager._resources = {}
+        ResourceManager._resource_configs = {}
         ResourceManager._deployment_locks = {}
         ResourceManager._resources_initialized = False
         ResourceManager._lock_initialized = False
@@ -23,6 +29,7 @@ class TestResourceManager:
         yield
         # Cleanup after test
         ResourceManager._resources = {}
+        ResourceManager._resource_configs = {}
         ResourceManager._deployment_locks = {}
         ResourceManager._resources_initialized = False
         ResourceManager._lock_initialized = False
@@ -347,6 +354,176 @@ class TestResourceManager:
         mock_add.assert_called_once_with(resource_key, updated)
         assert result is updated
 
+    @pytest.mark.asyncio
+    async def test_rejects_restricted_to_unrestricted_update_before_api_mutation(
+        self, mock_resource_file
+    ):
+        manager = ResourceManager()
+        existing = ServerlessEndpoint(
+            name="restricted-endpoint",
+            id="endpoint-existing",
+            imageName="example/image:v1",
+            flashboot=False,
+            locations="US-TX-3",
+        )
+        new_config = ServerlessEndpoint(
+            name="restricted-endpoint",
+            imageName="example/image:v1",
+            flashboot=False,
+            unrestrictedLocations=True,
+        )
+        resource_key = new_config.get_resource_key()
+        manager._resources[resource_key] = existing
+        manager._resource_configs[resource_key] = existing.config_hash
+
+        with (
+            patch.object(
+                ServerlessEndpoint,
+                "is_deployed",
+                new=AsyncMock(return_value=True),
+            ),
+            patch(
+                "runpod_flash.core.resources.serverless.RunpodGraphQLClient"
+            ) as client_class,
+            patch.object(manager, "_add_resource") as add_resource,
+        ):
+            with pytest.raises(ValueError, match="restricted endpoint"):
+                await manager.get_or_deploy_resource(new_config)
+
+        client_class.assert_not_called()
+        add_resource.assert_not_called()
+        assert manager._resources[resource_key] is existing
+        assert existing.unrestrictedLocations is None
+        assert existing.locations == "US-TX-3"
+
+    @pytest.mark.asyncio
+    @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "true"}, clear=True)
+    async def test_reuses_cached_hydrated_unrestricted_resource(
+        self, mock_resource_file
+    ):
+        manager = ResourceManager()
+        config = ServerlessEndpoint(
+            name="cached-unrestricted",
+            imageName="example/image:v1",
+            flashboot=False,
+            unrestrictedLocations=True,
+        )
+        hydrated = config._hydrate_graphql_result(
+            {
+                "id": "endpoint-cached",
+                "name": "cached-unrestricted",
+                "templateId": "template-cached",
+                "gpuIds": config.gpuIds,
+            }
+        )
+        resource_key = config.get_resource_key()
+        manager._resources[resource_key] = hydrated
+        manager._resource_configs[resource_key] = config.config_hash
+
+        result = await manager.get_or_deploy_resource(config)
+
+        assert result is hydrated
+        assert result._get_provider_hydrated_unrestricted_id() == result.id
+
+    @pytest.mark.asyncio
+    async def test_rejects_cached_hydrated_id_substitution_before_reuse(
+        self, mock_resource_file
+    ):
+        manager = ResourceManager()
+        config = ServerlessEndpoint(
+            name="cached-substituted-id",
+            imageName="example/image:v1",
+            flashboot=False,
+            unrestrictedLocations=True,
+        )
+        hydrated = config._hydrate_graphql_result(
+            {
+                "id": "trusted-id",
+                "name": "cached-substituted-id",
+                "templateId": "template-cached",
+                "gpuIds": config.gpuIds,
+            }
+        )
+        hydrated.id = "substituted-id"
+        resource_key = config.get_resource_key()
+        manager._resources[resource_key] = hydrated
+        manager._resource_configs[resource_key] = config.config_hash
+
+        with patch(
+            "runpod_flash.core.resources.serverless.RunpodGraphQLClient"
+        ) as client_class:
+            with pytest.raises(ValueError, match="exact provider-hydrated endpoint"):
+                await manager.get_or_deploy_resource(config)
+
+        client_class.assert_not_called()
+        assert manager._resources[resource_key] is hydrated
+
+    @pytest.mark.asyncio
+    @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "true"}, clear=True)
+    async def test_persisted_unrestricted_resource_reloads_and_reuses(
+        self, mock_resource_file
+    ):
+        config = ServerlessEndpoint(
+            name="persisted-unrestricted",
+            imageName="example/image:v1",
+            flashboot=False,
+            unrestrictedLocations=True,
+        )
+        hydrated = config._hydrate_graphql_result(
+            {
+                "id": "endpoint-persisted",
+                "name": "persisted-unrestricted",
+                "templateId": "template-persisted",
+                "gpuIds": config.gpuIds,
+            }
+        )
+        resource_key = config.get_resource_key()
+
+        with patch(
+            "runpod_flash.core.resources.resource_manager.FLASH_STATE_DIR",
+            mock_resource_file.parent,
+        ):
+            manager = ResourceManager()
+            manager._add_resource(resource_key, hydrated)
+
+            ResourceManager._resources = {}
+            ResourceManager._resource_configs = {}
+            ResourceManager._deployment_locks = {}
+            ResourceManager._resources_initialized = False
+            ResourceManager._lock_initialized = False
+            SingletonMixin._instances.pop(ResourceManager, None)
+
+            reloaded_manager = ResourceManager()
+            result = await reloaded_manager.get_or_deploy_resource(config)
+
+        assert result.id == "endpoint-persisted"
+        assert result._get_provider_hydrated_unrestricted_id() == result.id
+        result._validate_unrestricted_placement()
+
+    @pytest.mark.asyncio
+    async def test_rejects_mutated_unrestricted_id_before_caching(
+        self, mock_resource_file
+    ):
+        manager = ResourceManager()
+        config = ServerlessEndpoint(
+            name="mutated-unrestricted-id",
+            imageName="example/image:v1",
+            flashboot=False,
+            unrestrictedLocations=True,
+        )
+        resource_key = config.get_resource_key()
+        config.id = "endpoint-existing"
+
+        with patch(
+            "runpod_flash.core.resources.serverless.RunpodGraphQLClient"
+        ) as client_class:
+            with pytest.raises(ValueError, match="newly provisioned"):
+                await manager.get_or_deploy_resource(config)
+
+        client_class.assert_not_called()
+        assert resource_key not in manager._resources
+        assert resource_key not in manager._resource_configs
+
 
 class TestConfigHashStability:
     """Test that config_hash is stable and excludes dynamic fields like env."""
@@ -355,11 +532,13 @@ class TestConfigHashStability:
     def reset_singleton(self):
         """Reset singleton state before each test."""
         ResourceManager._resources = {}
+        ResourceManager._resource_configs = {}
         ResourceManager._deployment_locks = {}
         ResourceManager._resources_initialized = False
         ResourceManager._lock_initialized = False
         yield
         ResourceManager._resources = {}
+        ResourceManager._resource_configs = {}
         ResourceManager._deployment_locks = {}
         ResourceManager._resources_initialized = False
         ResourceManager._lock_initialized = False
@@ -469,11 +648,13 @@ class TestCpuEndpointConfigHash:
     def reset_singleton(self):
         """Reset singleton state before each test."""
         ResourceManager._resources = {}
+        ResourceManager._resource_configs = {}
         ResourceManager._deployment_locks = {}
         ResourceManager._resources_initialized = False
         ResourceManager._lock_initialized = False
         yield
         ResourceManager._resources = {}
+        ResourceManager._resource_configs = {}
         ResourceManager._deployment_locks = {}
         ResourceManager._resources_initialized = False
         ResourceManager._lock_initialized = False

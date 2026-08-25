@@ -417,6 +417,7 @@ class Endpoint:
         template: Optional[PodTemplate] = None,
         min_cuda_version: Optional[CudaVersion | str] = CudaVersion.V12_8,
         max_concurrency: int = 1,
+        unrestricted_locations: bool = False,
     ):
         if gpu is not None and cpu is not None:
             raise ValueError(
@@ -429,6 +430,23 @@ class Endpoint:
             )
         if name is None and id is None and image is not None:
             raise ValueError("name or id is required when image= is set.")
+        if unrestricted_locations:
+            if id is not None:
+                raise ValueError(
+                    "unrestricted_locations is only valid for newly provisioned endpoints."
+                )
+            if cpu is not None:
+                raise ValueError(
+                    "unrestricted_locations is only valid for gpu endpoints."
+                )
+            if datacenter is not None:
+                raise ValueError(
+                    "datacenter cannot be set when unrestricted_locations is enabled."
+                )
+            if volume is not None:
+                raise ValueError(
+                    "network volume cannot be set when unrestricted_locations is enabled."
+                )
 
         if max_concurrency < 1:
             raise ValueError(f"max_concurrency must be >= 1, got {max_concurrency}")
@@ -463,6 +481,7 @@ class Endpoint:
         self.scaler_value = scaler_value
         self.template = template
         self.min_cuda_version = min_cuda_version
+        self.unrestricted_locations = unrestricted_locations
 
         # if no gpu or cpu specified, default to gpu any. image= still provisions
         # a new endpoint, so only id-only clients (connecting to an existing
@@ -473,7 +492,12 @@ class Endpoint:
         # make sure default datacenters are set when provisioning a new endpoint.
         # image= still provisions, so only id-only clients skip this. not CPU
         # though, that gets pinned to specific datacenters.
-        if not self._is_cpu and self.id is None and not self.datacenter:
+        if (
+            not self._is_cpu
+            and self.id is None
+            and not self.datacenter
+            and not self.unrestricted_locations
+        ):
             self.datacenter = DataCenter.all()
 
         # lb routes registered via .get()/.post()/etc (decorator mode only)
@@ -569,6 +593,9 @@ class Endpoint:
             ),
             "scalerValue": self.scaler_value,
         }
+
+        if self.unrestricted_locations:
+            kwargs["unrestrictedLocations"] = True
 
         if self.template is not None:
             # serialize to dict to avoid pydantic model identity issues

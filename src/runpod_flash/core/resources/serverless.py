@@ -6,6 +6,7 @@ import re
 from collections import Counter
 from datetime import datetime, timezone
 from enum import Enum
+from functools import partial
 from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Optional, Set
 
@@ -200,6 +201,19 @@ class ServerlessResource(DeployableResource):
     Base class for GPU serverless resource
     """
 
+    SUPPORTS_UNRESTRICTED_LOCATIONS: ClassVar[bool] = True
+    _UNRESTRICTED_PROVENANCE_STATE_KEY: ClassVar[str] = (
+        "__runpod_flash_unrestricted_endpoint_id__"
+    )
+    _UNRESTRICTED_MARKER_NAMES: ClassVar[frozenset[str]] = frozenset(
+        {
+            "providerHydratedUnrestricted",
+            "provider_hydrated_unrestricted",
+            "_provider_hydrated_unrestricted",
+            "_provider_hydrated_unrestricted_id",
+        }
+    )
+
     _input_only = {
         "id",
         "cudaVersions",
@@ -212,6 +226,7 @@ class ServerlessResource(DeployableResource):
         "networkVolume",
         "networkVolumes",
         "python_version",
+        "unrestrictedLocations",
     }
 
     _hashed_fields = {
@@ -233,6 +248,7 @@ class ServerlessResource(DeployableResource):
         "workersPFBTarget",
         "allowedCudaVersions",
         "type",
+        "unrestrictedLocations",
     }
 
     # Fields assigned by API that shouldn't affect drift detection
@@ -269,6 +285,7 @@ class ServerlessResource(DeployableResource):
         default=None,
         description="Python version for runtime image selection. Defaults to the local interpreter version at build time.",
     )
+    unrestrictedLocations: Optional[bool] = None
 
     # === Input Fields ===
     executionTimeoutMs: Optional[int] = 0
@@ -290,6 +307,7 @@ class ServerlessResource(DeployableResource):
 
     # === Private Attributes ===
     _deployed_volume_ids: list[str] = PrivateAttr(default_factory=list)
+    _provider_hydrated_unrestricted_id: Optional[str] = PrivateAttr(default=None)
 
     # === Runtime Fields ===
     activeBuildid: Optional[str] = None
@@ -546,6 +564,181 @@ class ServerlessResource(DeployableResource):
 
         return hash_value
 
+    @model_validator(mode="before")
+    @classmethod
+    def discard_public_unrestricted_provenance(cls, data):
+        if isinstance(data, dict):
+            data = dict(data)
+            for marker_name in cls._UNRESTRICTED_MARKER_NAMES:
+                data.pop(marker_name, None)
+            data.pop(cls._UNRESTRICTED_PROVENANCE_STATE_KEY, None)
+        return data
+
+    @classmethod
+    def model_construct(cls, _fields_set=None, **values):
+        for marker_name in cls._UNRESTRICTED_MARKER_NAMES:
+            values.pop(marker_name, None)
+        values.pop(cls._UNRESTRICTED_PROVENANCE_STATE_KEY, None)
+        model = super().model_construct(_fields_set=_fields_set, **values)
+        model._set_provider_hydrated_unrestricted_id(None)
+        return model
+
+    def model_copy(self, *, update=None, deep=False):
+        sanitized_update = dict(update or {})
+        for marker_name in self._UNRESTRICTED_MARKER_NAMES:
+            sanitized_update.pop(marker_name, None)
+        sanitized_update.pop(self._UNRESTRICTED_PROVENANCE_STATE_KEY, None)
+
+        copied = super().model_copy(update=sanitized_update, deep=deep)
+        trusted_id = self._get_provider_hydrated_unrestricted_id()
+        if (
+            not copied.unrestrictedLocations
+            or copied.id != self.id
+            or trusted_id != self.id
+        ):
+            trusted_id = None
+        copied._set_provider_hydrated_unrestricted_id(trusted_id)
+        return copied
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name in self._UNRESTRICTED_MARKER_NAMES:
+            raise ValueError("unrestricted placement provenance is internal")
+        previous_id = self.id if name == "id" else None
+        super().__setattr__(name, value)
+        if name == "id" and previous_id != value:
+            self._set_provider_hydrated_unrestricted_id(None)
+
+    def __getstate__(self) -> Dict[str, Any]:
+        state = super().__getstate__()
+        for marker_name in self._UNRESTRICTED_MARKER_NAMES:
+            state.pop(marker_name, None)
+
+        trusted_id = self._get_provider_hydrated_unrestricted_id()
+        if self.unrestrictedLocations and self.id is not None and trusted_id == self.id:
+            state[self._UNRESTRICTED_PROVENANCE_STATE_KEY] = trusted_id
+        return state
+
+    def __reduce_ex__(self, protocol: int):
+        reduced = super().__reduce_ex__(protocol)
+        constructor, args, *parts = reduced
+        state = parts[0] if parts else None
+        list_items = parts[1] if len(parts) > 1 else None
+        dict_items = parts[2] if len(parts) > 2 else None
+        trusted_id = state.get(self._UNRESTRICTED_PROVENANCE_STATE_KEY)
+        return (
+            constructor,
+            args,
+            state,
+            list_items,
+            dict_items,
+            partial(ServerlessResource._setstate_from_pickle, trusted_id=trusted_id),
+        )
+
+    @staticmethod
+    def _setstate_from_pickle(
+        resource,
+        state: Dict[str, Any],
+        *,
+        trusted_id: Optional[str],
+    ) -> None:
+        resource._restore_serialized_state(state, trusted_id=trusted_id)
+
+    def __setstate__(self, state: Dict[str, Any]) -> None:
+        self._restore_serialized_state(state, trusted_id=None)
+
+    def _restore_serialized_state(
+        self,
+        state: Dict[str, Any],
+        *,
+        trusted_id: Optional[str],
+    ) -> None:
+        restored_state = dict(state)
+        for marker_name in self._UNRESTRICTED_MARKER_NAMES:
+            restored_state.pop(marker_name, None)
+        state_provenance = restored_state.pop(
+            self._UNRESTRICTED_PROVENANCE_STATE_KEY, None
+        )
+
+        super().__setstate__(restored_state)
+        private_values = {
+            name: private_attr.get_default()
+            for name, private_attr in self.__private_attributes__.items()
+        }
+        object.__setattr__(self, "__pydantic_private__", private_values)
+        object.__setattr__(self, "__pydantic_extra__", None)
+        object.__setattr__(
+            self,
+            "__pydantic_fields_set__",
+            set(restored_state).intersection(self.__class__.model_fields),
+        )
+        self._set_provider_hydrated_unrestricted_id(None)
+
+        if trusted_id is None:
+            if self.unrestrictedLocations and self.id is not None:
+                if state_provenance is None:
+                    message = "missing trusted provider provenance"
+                elif (
+                    not isinstance(state_provenance, str) or state_provenance != self.id
+                ):
+                    message = "mismatched provider provenance"
+                else:
+                    message = "untrusted provider provenance"
+                raise ValueError(f"unrestricted endpoint state has {message}")
+            return
+        if (
+            not isinstance(trusted_id, str)
+            or state_provenance != trusted_id
+            or not self.unrestrictedLocations
+            or self.id is None
+            or trusted_id != self.id
+        ):
+            raise ValueError(
+                "unrestricted endpoint state has mismatched provider provenance"
+            )
+
+        self._set_provider_hydrated_unrestricted_id(trusted_id)
+        self._validate_unrestricted_placement()
+
+    def _get_provider_hydrated_unrestricted_id(self) -> Optional[str]:
+        private_values = getattr(self, "__pydantic_private__", None)
+        if not isinstance(private_values, dict):
+            return None
+        trusted_id = private_values.get("_provider_hydrated_unrestricted_id")
+        return trusted_id if isinstance(trusted_id, str) else None
+
+    def _set_provider_hydrated_unrestricted_id(self, trusted_id: Optional[str]) -> None:
+        private_values = getattr(self, "__pydantic_private__", None)
+        if not isinstance(private_values, dict):
+            private_values = {}
+            object.__setattr__(self, "__pydantic_private__", private_values)
+        private_values["_provider_hydrated_unrestricted_id"] = trusted_id
+        self.__dict__.pop("_provider_hydrated_unrestricted_id", None)
+
+    def _validate_unrestricted_placement(self) -> None:
+        if not self.unrestrictedLocations:
+            return
+        if not self.SUPPORTS_UNRESTRICTED_LOCATIONS or self._has_cpu_instances():
+            raise ValueError("unrestrictedLocations is only valid for GPU endpoints")
+        trusted_id = self._get_provider_hydrated_unrestricted_id()
+        if self.id is not None and trusted_id != self.id:
+            raise ValueError(
+                "unrestrictedLocations is only valid for newly provisioned endpoints "
+                "or the exact provider-hydrated endpoint"
+            )
+        if self.datacenter is not None or self.locations is not None:
+            raise ValueError(
+                "datacenter and locations cannot be set when unrestrictedLocations is enabled"
+            )
+        if (
+            self.networkVolume is not None
+            or self.networkVolumes
+            or self.networkVolumeId is not None
+            or getattr(self, "_deployed_volume_ids", [])
+        ):
+            raise ValueError(
+                "network volumes cannot be set when unrestrictedLocations is enabled"
+            )
+
     @model_validator(mode="after")
     def sync_input_fields(self):
         """Sync between temporary inputs and exported fields.
@@ -570,19 +763,22 @@ class ServerlessResource(DeployableResource):
                 self.name = self.name[:-3]
             self.flashBootType = "FLASHBOOT"
 
-        # sync datacenter list to locations field for API
-        env_locations = os.getenv("RUNPOD_DEFAULT_LOCATIONS")
-        env_datacenter = os.getenv("RUNPOD_DEFAULT_DATACENTER")
-        if env_locations:
-            self.locations = env_locations
-        elif not self.locations:
-            if env_datacenter:
-                try:
-                    self.locations = DataCenter(env_datacenter).value
-                except ValueError:
-                    self.locations = env_datacenter
-            elif self.datacenter:
-                self.locations = ",".join(dc.value for dc in self.datacenter)
+        self._validate_unrestricted_placement()
+
+        if not self.unrestrictedLocations:
+            # sync datacenter list to locations field for API
+            env_locations = os.getenv("RUNPOD_DEFAULT_LOCATIONS")
+            env_datacenter = os.getenv("RUNPOD_DEFAULT_DATACENTER")
+            if env_locations:
+                self.locations = env_locations
+            elif not self.locations:
+                if env_datacenter:
+                    try:
+                        self.locations = DataCenter(env_datacenter).value
+                    except ValueError:
+                        self.locations = env_datacenter
+                elif self.datacenter:
+                    self.locations = ",".join(dc.value for dc in self.datacenter)
 
         # validate that all network volume DCs are within the endpoint's datacenter list
         all_volumes = self.networkVolumes or (
@@ -742,15 +938,39 @@ class ServerlessResource(DeployableResource):
             if self.env or not has_explicit_template_env:
                 self.template.env = KeyValuePair.from_dict(self.env)
 
-    async def _sync_graphql_object_with_inputs(
-        self, returned_endpoint: "ServerlessResource"
-    ):
-        for _input_field in self._input_only or set():
-            if getattr(self, _input_field) is not None:
-                # sync input only fields stripped from gql request back to endpoint
-                setattr(returned_endpoint, _input_field, getattr(self, _input_field))
+    def _hydrate_graphql_result(
+        self,
+        result: Dict[str, Any],
+        *,
+        expected_id: Optional[str] = None,
+    ) -> "ServerlessResource":
+        """Build a deployed model while preserving validated input-only intent."""
+        if self.unrestrictedLocations and (
+            result.get("networkVolumeId") or result.get("networkVolumeIds")
+        ):
+            raise ValueError(
+                "network volumes cannot be set when unrestrictedLocations is enabled"
+            )
 
-        return returned_endpoint
+        hydrated_data = dict(result)
+        for input_field in self._input_only or set():
+            if input_field == "id":
+                continue
+            value = getattr(self, input_field)
+            if value is not None:
+                hydrated_data[input_field] = value
+
+        hydrated_id = hydrated_data.pop("id", None)
+        if expected_id is not None and hydrated_id != expected_id:
+            raise ValueError(
+                "provider returned an endpoint id that does not match the updated endpoint"
+            )
+        hydrated = self.__class__.model_validate(hydrated_data)
+        hydrated.id = hydrated_id
+        if hydrated.unrestrictedLocations and hydrated_id is not None:
+            hydrated._set_provider_hydrated_unrestricted_id(hydrated_id)
+        hydrated._validate_unrestricted_placement()
+        return hydrated
 
     def _sync_input_fields_gpu(self):
         if self.gpuIds:
@@ -783,6 +1003,13 @@ class ServerlessResource(DeployableResource):
         Sets networkVolumeId (singular) for backward compat with the first volume.
         Populates _deployed_volume_ids for multi-volume API payloads.
         """
+        if self.unrestrictedLocations and (
+            self.networkVolumeId or self._deployed_volume_ids
+        ):
+            raise ValueError(
+                "network volumes cannot be set when unrestrictedLocations is enabled"
+            )
+
         self._deployed_volume_ids = []
 
         if self.networkVolumeId:
@@ -808,6 +1035,7 @@ class ServerlessResource(DeployableResource):
         """
         Checks if the serverless resource is deployed and available.
         """
+        self._validate_unrestricted_placement()
         try:
             if not self.id:
                 return False
@@ -1077,6 +1305,8 @@ class ServerlessResource(DeployableResource):
         Returns a DeployableResource object.
         """
         try:
+            self._validate_unrestricted_placement()
+
             # If the resource is already deployed, return it
             if await self.is_deployed():
                 log.debug(f"{self} exists")
@@ -1097,9 +1327,11 @@ class ServerlessResource(DeployableResource):
 
                 result = await client.save_endpoint(payload)
 
-            if endpoint := self.__class__(**result):
-                endpoint = await self._sync_graphql_object_with_inputs(endpoint)
+            if endpoint := self._hydrate_graphql_result(result):
                 self.id = endpoint.id
+                self._set_provider_hydrated_unrestricted_id(
+                    endpoint._get_provider_hydrated_unrestricted_id()
+                )
                 self.templateId = endpoint.templateId
                 self.template = (
                     None  # templateId takes precedence; clear to avoid conflict
@@ -1132,6 +1364,14 @@ class ServerlessResource(DeployableResource):
         """
         if not self.id:
             raise ValueError("Cannot update: endpoint not deployed")
+        self._validate_unrestricted_placement()
+        if new_config.unrestrictedLocations:
+            if not self.unrestrictedLocations:
+                raise ValueError(
+                    "Cannot update a restricted endpoint to unrestricted placement; "
+                    "provision a new endpoint instead"
+                )
+            self._validate_unrestricted_placement()
 
         try:
             resolved_template_id = self.templateId or new_config.templateId
@@ -1140,6 +1380,7 @@ class ServerlessResource(DeployableResource):
                 log.debug("updating endpoint '%s' (ID: %s)", self.name, self.id)
 
             # Ensure network volumes are deployed if specified
+            new_config._validate_unrestricted_placement()
             await new_config._ensure_network_volume_deployed()
 
             async with RunpodGraphQLClient() as client:
@@ -1242,16 +1483,16 @@ class ServerlessResource(DeployableResource):
                             "be resolved; skipping separate saveTemplate call"
                         )
 
-            if updated := self.__class__(**result):
-                if not updated.templateId:
-                    updated.templateId = (
-                        resolved_template_id or self.templateId or new_config.templateId
-                    )
-                # Keep local input-only state on the hydrated model. The GraphQL
-                # response does not include many user-provided fields (for example
-                # env, networkVolume, datacenter), and dropping them causes
-                # repeated false drift on subsequent deploys.
-                updated = await new_config._sync_graphql_object_with_inputs(updated)
+            hydrated_result = dict(result)
+            hydrated_result["templateId"] = (
+                result.get("templateId")
+                or resolved_template_id
+                or self.templateId
+                or new_config.templateId
+            )
+            if updated := new_config._hydrate_graphql_result(
+                hydrated_result, expected_id=self.id
+            ):
                 log.debug(
                     f"Successfully updated endpoint '{self.name}' (ID: {self.id})"
                 )
@@ -1323,6 +1564,11 @@ class ServerlessResource(DeployableResource):
         # hydrate the id onto the resource so it's usable when this is called directly
         # on a config
         self.id = resource.id
+        if isinstance(resource, ServerlessResource):
+            self._set_provider_hydrated_unrestricted_id(
+                resource._get_provider_hydrated_unrestricted_id()
+            )
+        self._validate_unrestricted_placement()
         self.templateId = getattr(resource, "templateId", None)
         return self
 
