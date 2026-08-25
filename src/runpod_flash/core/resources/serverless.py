@@ -286,6 +286,10 @@ class ServerlessResource(DeployableResource):
     type: Optional[ServerlessType] = ServerlessType.QB
     workersMax: Optional[int] = DEFAULT_WORKERS_MAX
     workersMin: Optional[int] = DEFAULT_WORKERS_MIN
+    # RunPod defaults an omitted workersStandby server-side (to a warm worker),
+    # which breaks scale-to-zero for workersMin=0. Defaulting to workersMin
+    # keeps the deployed config matching the requested (min, max) range.
+    workersStandby: Optional[int] = None
     workersPFBTarget: Optional[int] = 0
 
     # === Private Attributes ===
@@ -637,6 +641,33 @@ class ServerlessResource(DeployableResource):
             raise ValueError(
                 f"workersMin ({self.workersMin}) cannot be greater than "
                 f"workersMax ({self.workersMax})"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def default_and_validate_workers_standby(self):
+        """Default workersStandby to workersMin and validate explicit values.
+
+        Only validate explicit standby values against bounds when the
+        (workersMin, workersMax) range itself is valid; invalid ranges raise
+        in validate_worker_range.
+        """
+        if self.workersStandby is None:
+            self.workersStandby = self.workersMin
+            return self
+
+        range_valid = (
+            self.workersMin is None
+            or self.workersMax is None
+            or self.workersMin <= self.workersMax
+        )
+        if range_valid and not (
+            (self.workersMin is None or self.workersStandby >= self.workersMin)
+            and (self.workersMax is None or self.workersStandby <= self.workersMax)
+        ):
+            raise ValueError(
+                f"workersStandby ({self.workersStandby}) must be between "
+                f"workersMin ({self.workersMin}) and workersMax ({self.workersMax})"
             )
         return self
 
