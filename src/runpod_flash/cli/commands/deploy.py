@@ -217,9 +217,20 @@ async def _resolve_and_deploy(
 ) -> None:
     import time as _time
 
-    app, resolved_env_name = await _resolve_environment(app_name, env_name)
-
     local_manifest = validate_local_manifest()
+
+    # Client-mode endpoints (Endpoint(image=...) with no decorated functions)
+    # leave the manifest's resources map empty. Nothing is provisioned here;
+    # those endpoints provision lazily on first run(), so don't claim a
+    # successful deployment.
+    if not local_manifest.get("resources"):
+        console.print(
+            "[yellow]no deployable resources found; "
+            "client-mode endpoints provision on first run()[/yellow]"
+        )
+        return
+
+    app, resolved_env_name = await _resolve_environment(app_name, env_name)
 
     from rich.progress import (
         BarColumn,
