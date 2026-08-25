@@ -377,6 +377,50 @@ class TestServerlessResourceValidation:
         ):
             ServerlessResource(name="test", workersMin=5, workersMax=1)
 
+    def test_workers_standby_defaults_to_workers_min(self):
+        """workersStandby follows workersMin so workers=(0, N) scales to zero."""
+        serverless = ServerlessResource(name="test", workersMin=0, workersMax=1)
+        assert serverless.workersStandby == 0
+
+    def test_workers_standby_defaults_to_nonzero_min(self):
+        serverless = ServerlessResource(name="test", workersMin=2, workersMax=5)
+        assert serverless.workersStandby == 2
+
+    def test_workers_standby_in_deploy_payload(self):
+        """The saveEndpoint payload carries the requested worker scaling config."""
+        serverless = ServerlessResource(name="test", workersMin=0, workersMax=1)
+        payload = serverless.model_dump(
+            exclude=serverless._payload_exclude(), exclude_none=True, mode="json"
+        )
+        assert payload["workersMin"] == 0
+        assert payload["workersStandby"] == 0
+
+    def test_workers_standby_explicit_value_respected(self):
+        serverless = ServerlessResource(
+            name="test", workersMin=0, workersMax=3, workersStandby=1
+        )
+        assert serverless.workersStandby == 1
+
+    def test_workers_standby_above_max_raises(self):
+        with pytest.raises(
+            ValueError,
+            match=r"workersStandby \(4\) must be between workersMin \(0\) "
+            r"and workersMax \(3\)",
+        ):
+            ServerlessResource(
+                name="test", workersMin=0, workersMax=3, workersStandby=4
+            )
+
+    def test_workers_standby_below_min_raises(self):
+        with pytest.raises(
+            ValueError,
+            match=r"workersStandby \(1\) must be between workersMin \(2\) "
+            r"and workersMax \(5\)",
+        ):
+            ServerlessResource(
+                name="test", workersMin=2, workersMax=5, workersStandby=1
+            )
+
     @pytest.mark.parametrize("idle_timeout", [0, -1, 3601])
     def test_idle_timeout_must_be_between_1_and_3600(self, idle_timeout):
         with pytest.raises(
