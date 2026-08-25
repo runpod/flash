@@ -225,7 +225,7 @@ async def _resolve_and_deploy(
     # manifest). Nothing is provisioned here, so don't claim a deployment.
     if not local_manifest.get("resources"):
         console.print(
-            "[yellow]no deployable resources found; nothing was deployed[/yellow]"
+            "[yellow]No deployable resources found; nothing was deployed[/yellow]"
         )
         return
 

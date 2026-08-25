@@ -318,9 +318,9 @@ class HandlerGenerator:
             # Skip client-mode resources (image-based, external service):
             # they have no functions, so there is no handler to generate.
             client_mode = (
-                resource_data.get("client_mode", False)
-                if isinstance(resource_data, dict)
-                else getattr(resource_data, "client_mode", False)
+                resource_data.client_mode
+                if hasattr(resource_data, "client_mode")
+                else resource_data.get("client_mode", False)
             )
             if client_mode:
                 continue

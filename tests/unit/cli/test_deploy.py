@@ -511,7 +511,7 @@ class TestDeployCommandEmptyResources:
             str(call.args[0]) if call.args else ""
             for call in patched_console.print.call_args_list
         )
-        assert "no deployable resources found" in printed_output
+        assert "No deployable resources found" in printed_output
         assert "deployed to" not in printed_output
         # Nothing should be uploaded or provisioned
         mock_from_name.assert_not_awaited()
@@ -597,7 +597,7 @@ class TestDeployCommandClientModeEndpoints:
             for call in patched_console.print.call_args_list
         )
         assert "deployed to" in printed_output
-        assert "no deployable resources found" not in printed_output
+        assert "No deployable resources found" not in printed_output
         # post-deploy guidance lists the provisioned endpoint
         assert "vllm-server" in printed_output
         assert "https://vllm-xyz.api.runpod.ai/runsync" in printed_output

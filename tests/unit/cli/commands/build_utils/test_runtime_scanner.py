@@ -914,3 +914,44 @@ class TestCollectClientEndpoints:
         scanner = RuntimeScanner(tmp_path)
         with pytest.raises(ValueError, match="defined in multiple files"):
             scanner.discover_remote_functions()
+
+    def test_same_file_alias_records_once(self, tmp_path):
+        """``b = vllm`` exposes one object under two names; it is recorded once."""
+        _write_worker(
+            tmp_path,
+            "aliases.py",
+            """\
+            from runpod_flash import Endpoint
+
+            vllm = Endpoint(name="vllm-server", image="img:v1")
+            b = vllm
+            """,
+        )
+        scanner = RuntimeScanner(tmp_path)
+        scanner.discover_remote_functions()
+        assert len(scanner.client_endpoints) == 1
+        assert scanner.client_endpoints["vllm-server"]["image"] == "img:v1"
+
+    def test_same_name_same_file_last_wins(self, tmp_path):
+        """two distinct same-name endpoints in ONE file: last wins, no raise.
+
+        Deliberately asymmetric with the cross-file raise: across files a
+        duplicate name is ambiguous, but within one module dir() iteration is
+        deterministic, so pinning the resolution is cheap and explicit.
+        """
+        _write_worker(
+            tmp_path,
+            "dups.py",
+            """\
+            from runpod_flash import Endpoint
+
+            a = Endpoint(name="dup", image="img:v1")
+            z = Endpoint(name="dup", image="img:v2")
+            """,
+        )
+        scanner = RuntimeScanner(tmp_path)
+        scanner.discover_remote_functions()
+        assert len(scanner.client_endpoints) == 1
+        # dir() iterates alphabetically, so z is seen last and overwrites a
+        assert scanner.client_endpoints["dup"]["var_name"] == "z"
+        assert scanner.client_endpoints["dup"]["image"] == "img:v2"
