@@ -204,10 +204,17 @@ class TestDeploymentOrchestrator:
             mock_deploy.side_effect = mock_resources
 
             # Should not block
-            orchestrator.deploy_all_background(mock_resources)
+            thread = orchestrator.deploy_all_background(mock_resources)
 
-            # Background thread should be started
-            # (not much we can test here without waiting for thread)
+            # Join before the test exits: a leaked daemon thread would run
+            # the real ResourceManager after fixture teardown, caching
+            # spec'd MagicMock resources into _save_resources (PicklingError)
+            # and truncating the shared state file for later tests.
+            assert thread is not None
+            thread.join(timeout=10)
+
+        assert not thread.is_alive()
+        assert mock_deploy.await_count == 3
 
     def test_deploy_all_background_empty_list(self):
         """Test background deployment with empty list."""
