@@ -42,7 +42,7 @@ class TestDeployCommand:
     )
     @patch(
         "runpod_flash.cli.commands.deploy.validate_local_manifest",
-        return_value={"resources": {}},
+        return_value={"resources": {"my_resource": {}}},
     )
     @patch(
         "runpod_flash.cli.commands.deploy.FlashApp.from_name", new_callable=AsyncMock
@@ -92,7 +92,7 @@ class TestDeployCommand:
     )
     @patch(
         "runpod_flash.cli.commands.deploy.validate_local_manifest",
-        return_value={"resources": {}},
+        return_value={"resources": {"my_resource": {}}},
     )
     @patch(
         "runpod_flash.cli.commands.deploy.FlashApp.from_name", new_callable=AsyncMock
@@ -190,7 +190,7 @@ class TestDeployCommand:
     )
     @patch(
         "runpod_flash.cli.commands.deploy.validate_local_manifest",
-        return_value={"resources": {}},
+        return_value={"resources": {"my_resource": {}}},
     )
     @patch("runpod_flash.cli.commands.deploy.run_build")
     @patch("runpod_flash.cli.commands.deploy.discover_flash_project")
@@ -265,7 +265,7 @@ class TestDeployCommand:
     )
     @patch(
         "runpod_flash.cli.commands.deploy.validate_local_manifest",
-        return_value={"resources": {}},
+        return_value={"resources": {"my_resource": {}}},
     )
     @patch(
         "runpod_flash.cli.commands.deploy.FlashApp.from_name", new_callable=AsyncMock
@@ -315,7 +315,7 @@ class TestDeployCommand:
     )
     @patch(
         "runpod_flash.cli.commands.deploy.validate_local_manifest",
-        return_value={"resources": {}},
+        return_value={"resources": {"my_resource": {}}},
     )
     @patch(
         "runpod_flash.cli.commands.deploy.FlashApp.from_name", new_callable=AsyncMock
@@ -363,7 +363,7 @@ class TestDeployCommand:
     )
     @patch(
         "runpod_flash.cli.commands.deploy.validate_local_manifest",
-        return_value={"resources": {}},
+        return_value={"resources": {"my_resource": {}}},
     )
     @patch(
         "runpod_flash.cli.commands.deploy.FlashApp.from_name", new_callable=AsyncMock
@@ -418,7 +418,7 @@ class TestDeployCommand:
     )
     @patch(
         "runpod_flash.cli.commands.deploy.validate_local_manifest",
-        return_value={"resources": {}},
+        return_value={"resources": {"my_resource": {}}},
     )
     @patch(
         "runpod_flash.cli.commands.deploy.FlashApp.from_name", new_callable=AsyncMock
@@ -460,6 +460,61 @@ class TestDeployCommand:
 
         assert result.exit_code == 0
         mock_from_name.assert_awaited_once_with("custom-app")
+
+
+class TestDeployCommandEmptyResources:
+    """flash deploy with an empty manifest resources map is not a deployment."""
+
+    @patch(
+        "runpod_flash.cli.commands.deploy.deploy_from_uploaded_build",
+        new_callable=AsyncMock,
+    )
+    @patch(
+        "runpod_flash.cli.commands.deploy.validate_local_manifest",
+        return_value={"resources": {}},
+    )
+    @patch(
+        "runpod_flash.cli.commands.deploy.FlashApp.from_name", new_callable=AsyncMock
+    )
+    @patch("runpod_flash.cli.commands.deploy.run_build")
+    @patch("runpod_flash.cli.commands.deploy.discover_flash_project")
+    def test_deploy_empty_resources_reports_no_deployment(
+        self,
+        mock_discover,
+        mock_build,
+        mock_from_name,
+        mock_validate,
+        mock_deploy,
+        runner,
+        mock_asyncio_run_coro,
+        patched_console,
+    ):
+        """Client-mode endpoints (no decorated functions) produce empty
+        resources; deploy must report that honestly instead of claiming success."""
+        mock_discover.return_value = (Path("/tmp/project"), "my-app")
+        _archive = MagicMock(spec=Path)
+        _archive.stat.return_value.st_size = 1024 * 1024
+        mock_build.return_value = _archive
+
+        with (
+            patch(
+                "runpod_flash.cli.commands.deploy.asyncio.run",
+                side_effect=mock_asyncio_run_coro,
+            ),
+            patch("runpod_flash.cli.commands.deploy.shutil"),
+        ):
+            result = runner.invoke(app, ["deploy"])
+
+        assert result.exit_code == 0
+        printed_output = " ".join(
+            str(call.args[0]) if call.args else ""
+            for call in patched_console.print.call_args_list
+        )
+        assert "no deployable resources found" in printed_output
+        assert "deployed to" not in printed_output
+        # Nothing should be uploaded or provisioned
+        mock_from_name.assert_not_awaited()
+        mock_deploy.assert_not_awaited()
 
 
 class TestDisplayPostDeploymentGuidance:
