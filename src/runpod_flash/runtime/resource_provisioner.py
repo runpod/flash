@@ -6,6 +6,19 @@ from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
+# Resource classes that create_resource_from_manifest can construct from a
+# manifest entry. "Endpoint" is accepted separately (resolved to one of these
+# via gpuIds). ManifestBuilder gates client-mode resource_type names against
+# this list so the manifest never names a class this module cannot rebuild.
+PROVISIONABLE_RESOURCE_TYPES = (
+    "ServerlessResource",
+    "LiveServerless",
+    "CpuLiveServerless",
+    "LoadBalancerSlsResource",
+    "LiveLoadBalancer",
+    "CpuLiveLoadBalancer",
+)
+
 
 def create_resource_from_manifest(
     resource_name: str,
@@ -59,14 +72,7 @@ def create_resource_from_manifest(
             resource_type = "CpuLiveServerless"
 
     # Support both Serverless and LoadBalancer resource types
-    if resource_type not in [
-        "ServerlessResource",
-        "LiveServerless",
-        "CpuLiveServerless",
-        "LoadBalancerSlsResource",
-        "LiveLoadBalancer",
-        "CpuLiveLoadBalancer",
-    ]:
+    if resource_type not in PROVISIONABLE_RESOURCE_TYPES:
         raise ValueError(
             f"Unsupported resource type for auto-provisioning: {resource_type}"
         )

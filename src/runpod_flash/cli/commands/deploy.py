@@ -219,14 +219,13 @@ async def _resolve_and_deploy(
 
     local_manifest = validate_local_manifest()
 
-    # Client-mode endpoints (Endpoint(image=...) with no decorated functions)
-    # leave the manifest's resources map empty. Nothing is provisioned here;
-    # those endpoints provision lazily on first run(), so don't claim a
-    # successful deployment.
+    # An empty resources map means the project declares no deployable
+    # endpoints at all (no @remote functions, no client-mode
+    # Endpoint(image=...) declarations -- the build registers those in the
+    # manifest). Nothing is provisioned here, so don't claim a deployment.
     if not local_manifest.get("resources"):
         console.print(
-            "[yellow]no deployable resources found; "
-            "client-mode endpoints provision on first run()[/yellow]"
+            "[yellow]no deployable resources found; nothing was deployed[/yellow]"
         )
         return
 
