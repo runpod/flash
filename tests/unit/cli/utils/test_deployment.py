@@ -636,3 +636,209 @@ async def test_missing_source_fingerprint_backward_compatible(tmp_path):
         local_manifest["resources_endpoints"]["worker"]
         == "https://worker.api.runpod.ai"
     )
+
+
+@pytest.mark.asyncio
+async def test_client_mode_resource_provisioned_on_first_deploy(tmp_path):
+    """A client_mode manifest entry (Endpoint(image=...), no functions) is
+    provisioned through the same create_resource_from_manifest +
+    get_or_deploy_resource path as decorated resources."""
+    import json
+
+    flash_dir = tmp_path / ".flash"
+    flash_dir.mkdir()
+
+    client_config = {
+        "resource_type": "LiveServerless",
+        "client_mode": True,
+        "imageName": "runpod/vllm-openai:stable",
+        "gpuIds": "ADA_24",
+        "functions": [],
+        "is_load_balanced": False,
+        "makes_remote_calls": False,
+        "env": {"MODEL_NAME": "m"},
+    }
+    local_manifest = {
+        "source_fingerprint": "fingerprint_abc",
+        "resources": {"vllm-server": dict(client_config)},
+        "resources_endpoints": {},
+    }
+    (flash_dir / "flash_manifest.json").write_text(json.dumps(local_manifest))
+
+    app = AsyncMock()
+    app.name = "my-app"
+    app.get_build_manifest = AsyncMock(return_value={})  # first deploy
+    app.update_build_manifest = AsyncMock()
+
+    deployed = MagicMock()
+    deployed.endpoint_url = "https://vllm.api.runpod.ai"
+    deployed.endpoint_id = "endpoint-xyz"
+
+    with (
+        patch("pathlib.Path.cwd", return_value=tmp_path),
+        patch("runpod_flash.cli.utils.deployment.ResourceManager") as mock_manager_cls,
+        patch(
+            "runpod_flash.cli.utils.deployment.create_resource_from_manifest"
+        ) as mock_create_resource,
+    ):
+        mock_manager = MagicMock()
+        mock_manager.get_or_deploy_resource = AsyncMock(return_value=deployed)
+        mock_manager_cls.return_value = mock_manager
+        mock_create_resource.return_value = MagicMock()
+
+        endpoints = await reconcile_and_provision_resources(
+            app,
+            "build-123",
+            "production",
+            local_manifest,
+            environment_id="env-1",
+            show_progress=False,
+        )
+
+    # the client entry is provisioned like any other resource
+    mock_create_resource.assert_called_once()
+    create_args, create_kwargs = mock_create_resource.call_args
+    assert create_args[0] == "vllm-server"
+    assert create_args[1]["imageName"] == "runpod/vllm-openai:stable"
+    assert create_args[1]["client_mode"] is True
+    mock_manager.get_or_deploy_resource.assert_awaited_once()
+
+    # endpoint info lands in the manifest + returned endpoints map
+    assert endpoints == {"vllm-server": "https://vllm.api.runpod.ai"}
+    assert local_manifest["resources"]["vllm-server"]["endpoint_id"] == "endpoint-xyz"
+
+    # state manifest persisted so a later deploy sees the resource
+    app.update_build_manifest.assert_awaited_once()
+    persisted = app.update_build_manifest.call_args[0][1]
+    assert (
+        persisted["resources_endpoints"]["vllm-server"] == "https://vllm.api.runpod.ai"
+    )
+
+    # source fingerprint is NOT injected: code-only changes must not churn
+    # external-service endpoints
+    assert "_FLASH_SOURCE_FINGERPRINT" not in persisted["resources"]["vllm-server"].get(
+        "env", {}
+    )
+
+
+@pytest.mark.asyncio
+async def test_client_mode_resource_reused_on_redeploy(tmp_path):
+    """Re-running deploy with unchanged config must not re-provision the
+    client-mode endpoint (no duplicate endpoints)."""
+    import json
+
+    flash_dir = tmp_path / ".flash"
+    flash_dir.mkdir()
+
+    client_config = {
+        "resource_type": "LiveServerless",
+        "client_mode": True,
+        "imageName": "runpod/vllm-openai:stable",
+        "gpuIds": "ADA_24",
+        "functions": [],
+        "env": {"MODEL_NAME": "m"},
+    }
+    local_manifest = {
+        "resources": {"vllm-server": dict(client_config)},
+        "resources_endpoints": {},
+    }
+    (flash_dir / "flash_manifest.json").write_text(json.dumps(local_manifest))
+
+    state_manifest = {
+        "resources": {
+            "vllm-server": {
+                **client_config,
+                "endpoint_id": "endpoint-xyz",
+            }
+        },
+        "resources_endpoints": {
+            "vllm-server": "https://vllm.api.runpod.ai",
+        },
+    }
+
+    app = AsyncMock()
+    app.get_build_manifest = AsyncMock(return_value=state_manifest)
+    app.update_build_manifest = AsyncMock()
+
+    with (
+        patch("pathlib.Path.cwd", return_value=tmp_path),
+        patch("runpod_flash.cli.utils.deployment.ResourceManager") as mock_manager_cls,
+        patch(
+            "runpod_flash.cli.utils.deployment.create_resource_from_manifest"
+        ) as mock_create_resource,
+    ):
+        mock_manager = MagicMock()
+        mock_manager.get_or_deploy_resource = AsyncMock()
+        mock_manager_cls.return_value = mock_manager
+
+        endpoints = await reconcile_and_provision_resources(
+            app, "build-456", "production", local_manifest, show_progress=False
+        )
+
+    # unchanged config + existing endpoint -> no provisioning, no duplicates
+    mock_create_resource.assert_not_called()
+    mock_manager.get_or_deploy_resource.assert_not_called()
+
+    # endpoint info carried over from state
+    assert endpoints == {"vllm-server": "https://vllm.api.runpod.ai"}
+    assert local_manifest["resources"]["vllm-server"]["endpoint_id"] == "endpoint-xyz"
+
+
+@pytest.mark.asyncio
+async def test_source_fingerprint_skipped_for_client_mode_resources(tmp_path):
+    """Fingerprint injection drives rolling releases for code-running
+    resources; client-mode endpoints run a user image and are exempt."""
+    import json
+
+    flash_dir = tmp_path / ".flash"
+    flash_dir.mkdir()
+
+    local_manifest = {
+        "source_fingerprint": "fingerprint_abc",
+        "resources": {
+            "worker": {
+                "resource_type": "LiveServerless",
+                "config": "same",
+                "env": {},
+            },
+            "vllm-server": {
+                "resource_type": "LiveServerless",
+                "client_mode": True,
+                "imageName": "runpod/vllm-openai:stable",
+                "config": "same",
+            },
+        },
+        "resources_endpoints": {},
+    }
+    (flash_dir / "flash_manifest.json").write_text(json.dumps(local_manifest))
+
+    app = AsyncMock()
+    app.name = "my-app"
+    app.get_build_manifest = AsyncMock(return_value={})
+    app.update_build_manifest = AsyncMock()
+
+    deployed = MagicMock()
+    deployed.endpoint_url = "https://x.api.runpod.ai"
+    deployed.endpoint_id = "endpoint-id"
+
+    with (
+        patch("pathlib.Path.cwd", return_value=tmp_path),
+        patch("runpod_flash.cli.utils.deployment.ResourceManager") as mock_manager_cls,
+        patch(
+            "runpod_flash.cli.utils.deployment.create_resource_from_manifest"
+        ) as mock_create_resource,
+    ):
+        mock_manager = MagicMock()
+        mock_manager.get_or_deploy_resource = AsyncMock(return_value=deployed)
+        mock_manager_cls.return_value = mock_manager
+        mock_create_resource.return_value = MagicMock()
+
+        await reconcile_and_provision_resources(
+            app, "build-123", "production", local_manifest, show_progress=False
+        )
+
+    worker_env = local_manifest["resources"]["worker"]["env"]
+    assert worker_env["_FLASH_SOURCE_FINGERPRINT"] == "fingerprint_abc"
+
+    client_env = local_manifest["resources"]["vllm-server"].get("env", {})
+    assert "_FLASH_SOURCE_FINGERPRINT" not in client_env

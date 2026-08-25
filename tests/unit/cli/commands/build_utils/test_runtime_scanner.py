@@ -807,3 +807,110 @@ class TestClassAsyncDetection:
         assert len(functions) == 1
         assert functions[0].is_class is True
         assert functions[0].is_async is True
+
+
+# ---------------------------------------------------------------------------
+# client-mode Endpoint collection
+# ---------------------------------------------------------------------------
+
+
+class TestCollectClientEndpoints:
+    """RuntimeScanner.client_endpoints records top-level Endpoint(image=...)."""
+
+    def test_collects_image_endpoint_without_functions(self, tmp_path):
+        """a client-mode endpoint is collected even with no decorated functions."""
+        _write_worker(
+            tmp_path,
+            "vllm_ep.py",
+            """\
+            from runpod_flash import Endpoint
+            from runpod_flash.core.resources.gpu import GpuGroup
+
+            vllm = Endpoint(
+                name="vllm-server",
+                image="runpod/vllm-openai:stable",
+                gpu=GpuGroup.ADA_24,
+            )
+            """,
+        )
+        scanner = RuntimeScanner(tmp_path)
+        functions = scanner.discover_remote_functions()
+        assert functions == []
+        assert set(scanner.client_endpoints) == {"vllm-server"}
+        info = scanner.client_endpoints["vllm-server"]
+        assert info["var_name"] == "vllm"
+        assert info["module_path"] == "vllm_ep"
+        assert info["file_path"] == tmp_path / "vllm_ep.py"
+
+    def test_skips_id_endpoints(self, tmp_path):
+        """Endpoint(id=...) attaches to an existing endpoint; nothing to provision."""
+        _write_worker(
+            tmp_path,
+            "attach.py",
+            """\
+            from runpod_flash import Endpoint
+
+            existing = Endpoint(name="existing", id="ep-123")
+            """,
+        )
+        scanner = RuntimeScanner(tmp_path)
+        scanner.discover_remote_functions()
+        assert scanner.client_endpoints == {}
+
+    def test_skips_decorator_mode_endpoints(self, tmp_path):
+        """Endpoint without image= is decorator-mode, not a client endpoint."""
+        _write_remote_worker(tmp_path)
+        scanner = RuntimeScanner(tmp_path)
+        functions = scanner.discover_remote_functions()
+        assert len(functions) == 1
+        assert scanner.client_endpoints == {}
+
+    def test_dedupes_reexported_endpoint_across_files(self, tmp_path):
+        """an endpoint imported into a second module is recorded only once."""
+        _write_worker(
+            tmp_path,
+            "a_defs.py",
+            """\
+            from runpod_flash import Endpoint
+
+            vllm = Endpoint(name="vllm-server", image="img:v1")
+            """,
+        )
+        _write_worker(
+            tmp_path,
+            "b_reexport.py",
+            """\
+            from a_defs import vllm
+            """,
+        )
+        scanner = RuntimeScanner(tmp_path)
+        scanner.discover_remote_functions()
+        assert set(scanner.client_endpoints) == {"vllm-server"}
+        # recorded against the defining file (a_defs.py sorts first)
+        assert scanner.client_endpoints["vllm-server"]["file_path"] == (
+            tmp_path / "a_defs.py"
+        )
+
+    def test_same_name_in_two_files_raises(self, tmp_path):
+        """two distinct endpoints sharing a name fail the scan loudly."""
+        _write_worker(
+            tmp_path,
+            "a_defs.py",
+            """\
+            from runpod_flash import Endpoint
+
+            ep = Endpoint(name="dup", image="img:v1")
+            """,
+        )
+        _write_worker(
+            tmp_path,
+            "b_defs.py",
+            """\
+            from runpod_flash import Endpoint
+
+            ep = Endpoint(name="dup", image="img:v2")
+            """,
+        )
+        scanner = RuntimeScanner(tmp_path)
+        with pytest.raises(ValueError, match="defined in multiple files"):
+            scanner.discover_remote_functions()
