@@ -72,10 +72,10 @@ test-integration-serial: # Run integration tests serially (for debugging)
 	uv run pytest tests/integration/ -v -m integration
 
 test-coverage: # Run tests with coverage report (parallel non-serial, then serial pass for state isolation)
-	uv run pytest tests/ -v -n auto -m "not serial" --cov=runpod_flash --cov-report=xml
+	uv run pytest tests/ -v -n auto -m "not serial" --cov=runpod_flash --cov-branch --cov-report=xml
 	# Re-emit the XML after appending the serial tests, or coverage.xml is left
 	# holding only the parallel run and undercounts.
-	uv run pytest tests/ -v -m "serial" --cov=runpod_flash --cov-append --cov-report=term-missing --cov-report=xml
+	uv run pytest tests/ -v -m "serial" --cov=runpod_flash --cov-branch --cov-append --cov-report=term-missing --cov-report=xml
 
 test-coverage-serial: # Run tests with coverage report (serial execution)
 	uv run pytest tests/ -v --cov=runpod_flash --cov-report=term-missing
@@ -126,7 +126,7 @@ ci-quality-github: # Quality checks with GitHub Actions formatting (parallel by 
 	uv run ruff check . --output-format=github
 	@echo "::endgroup::"
 	@echo "::group::Test suite with coverage (parallel non-serial)"
-	uv run pytest tests/ --junitxml=pytest-results-parallel.xml -v -n auto -m "not serial" --cov=runpod_flash --cov-report=xml --cov-fail-under=0
+	uv run pytest tests/ --junitxml=pytest-results-parallel.xml -v -n auto -m "not serial" --cov=runpod_flash --cov-branch --cov-report=xml --cov-fail-under=0
 	@echo "::endgroup::"
 	@echo "::group::Test suite with coverage (serial pass)"
 	# Re-emit the XML after appending the serial tests, or coverage.xml is left
@@ -143,7 +143,7 @@ ci-quality-github: # Quality checks with GitHub Actions formatting (parallel by 
 	# `-`/`|| true` so this always ran would let a red parallel suite exit 0.
 	# The weekly report only reads runs whose status is success, so an
 	# undercount on an already-failing run is not consumed by anything.
-	uv run pytest tests/ --junitxml=pytest-results-serial.xml -v -m "serial" --cov=runpod_flash --cov-append --cov-report=term-missing --cov-report=xml
+	uv run pytest tests/ --junitxml=pytest-results-serial.xml -v -m "serial" --cov=runpod_flash --cov-branch --cov-append --cov-report=term-missing --cov-report=xml
 	@echo "::endgroup::"
 
 ci-quality-github-serial: # Serial quality checks for GitHub Actions (for debugging)
