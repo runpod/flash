@@ -231,6 +231,17 @@ jobs:
         python-version: ['3.10', '3.11', '3.12', '3.13']
     timeout-minutes: 15
 
+    # Without this the matrix is decorative. `make dev` runs a bare `uv sync`,
+    # and uv resolves its interpreter from .python-version (pinned to 3.11)
+    # rather than from whatever actions/setup-python just installed -- so every
+    # leg built a 3.11 venv and all four ran the same interpreter. UV_PYTHON
+    # takes precedence over the pin file, which restores real version coverage.
+    #
+    # Set at job level, not on the install step: `make ci-quality-github` runs
+    # `uv run pytest`, which resolves the interpreter again.
+    env:
+      UV_PYTHON: ${{ matrix.python-version }}
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
