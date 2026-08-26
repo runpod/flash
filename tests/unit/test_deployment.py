@@ -195,19 +195,44 @@ class TestDeploymentOrchestrator:
             assert results[0].duration >= 0.09
 
     def test_deploy_all_background(self, mock_resources):
-        """Test background deployment doesn't block."""
+        """Test background deployment starts a daemon thread without blocking."""
         orchestrator = DeploymentOrchestrator()
 
-        with patch.object(
-            orchestrator.manager, "get_or_deploy_resource", new_callable=AsyncMock
-        ) as mock_deploy:
+        # threading.Thread is stubbed rather than left to run for real.
+        #
+        # deploy_all_background() starts a daemon thread and returns
+        # immediately, so a real thread outlives this test: the patch below
+        # would be lifted while the thread was still starting, and the thread
+        # would then call the *unpatched* manager and register these
+        # MagicMock(spec=ServerlessResource) objects into the ResourceManager
+        # singleton -- during whichever unrelated test happened to be running
+        # at that moment. ResourceManager._save_resources() cloudpickles its
+        # whole state on every registration, and a MagicMock cannot be pickled,
+        # so an arbitrary later test died with
+        #
+        #   _pickle.PicklingError: args[0] from __newobj__ args has the wrong class
+        #
+        # Which test got hit depended on thread scheduling and on xdist's
+        # worker assignment, which is what made it flaky rather than simply
+        # broken. Stubbing the thread keeps the assertion this test actually
+        # makes -- that the call is non-blocking and spawns a daemon thread --
+        # and lets nothing escape the test.
+        with (
+            patch("runpod_flash.core.deployment.threading.Thread") as mock_thread_cls,
+            patch.object(
+                orchestrator.manager, "get_or_deploy_resource", new_callable=AsyncMock
+            ) as mock_deploy,
+        ):
             mock_deploy.side_effect = mock_resources
 
             # Should not block
             orchestrator.deploy_all_background(mock_resources)
 
-            # Background thread should be started
-            # (not much we can test here without waiting for thread)
+            # A daemon thread was started, and nothing ran inline.
+            mock_thread_cls.assert_called_once()
+            assert mock_thread_cls.call_args.kwargs["daemon"] is True
+            mock_thread_cls.return_value.start.assert_called_once()
+            mock_deploy.assert_not_called()
 
     def test_deploy_all_background_empty_list(self):
         """Test background deployment with empty list."""
