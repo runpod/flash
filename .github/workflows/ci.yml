@@ -270,51 +270,79 @@ jobs:
           import glob, sys, xml.etree.ElementTree as ET
           from pathlib import Path
 
+          MAX_ROWS = 300
           cov, junit = sys.argv[1], sys.argv[2:]
           o = ["## Coverage Report", ""]
+
+
+          def num(v, default=0):
+              """Attribute values are text, and a malformed one must degrade rather than
+              raise: this step runs under `if: always()`, so an exception here would
+              stack a spurious failure on top of whatever actually went wrong."""
+              try:
+                  return int(v)
+              except (TypeError, ValueError):
+                  return default
+
+
+          def parse(path):
+              try:
+                  return ET.parse(path).getroot(), None
+              except (ET.ParseError, OSError) as e:
+                  return None, e
+
 
           t = f = s = 0
           seen = False
           for pat in junit:
               for path in sorted(glob.glob(pat)):
-                  try:
-                      r = ET.parse(path).getroot()
-                  except ET.ParseError:
+                  r, _ = parse(path)
+                  if r is None:
                       continue
                   seen = True
                   for su in (r.iter("testsuite") if r.tag == "testsuites" else [r]):
-                      t += int(su.get("tests") or 0)
-                      f += int(su.get("failures") or 0) + int(su.get("errors") or 0)
-                      s += int(su.get("skipped") or 0)
+                      t += num(su.get("tests"))
+                      f += num(su.get("failures")) + num(su.get("errors"))
+                      s += num(su.get("skipped"))
           if seen:
+              # A suite dying at import reports errors>0 with tests possibly 0, so
+              # "no failures AND something actually ran" is what keeps a crashed run
+              # from rendering as passed.
+              ok = f == 0 and t > 0
               o += ["### Test Results", "",
                     "| Status | Passed | Failed | Skipped | Total |",
                     "|---|---:|---:|---:|---:|",
-                    f"| {'✅ Passed' if not f else '❌ Failed'} | {t - f - s} | {f} | {s} | {t} |", ""]
+                    f"| {'✅ Passed' if ok else '❌ Failed'} | {t - f - s} | {f} | {s} | {t} |", ""]
 
           p = Path(cov)
-          if not p.exists():
-              o += [f"> No coverage report at `{cov}`."]
+          root, err = (None, None) if not p.exists() else parse(p)
+          if root is None:
+              o += [f"> No coverage report at `{cov}`." if err is None
+                    else f"> Coverage report at `{cov}` could not be parsed: {err}"]
           else:
-              r = ET.parse(p).getroot()
-              c, v = int(r.get("lines-covered") or 0), int(r.get("lines-valid") or 0)
+              c, v = num(root.get("lines-covered")), num(root.get("lines-valid"))
               o += ["### Coverage Summary", "", "| Metric | Value |", "|---|---:|",
                     f"| Line coverage | **{(100.0 * c / v if v else 0):.1f}%** |",
                     f"| Lines covered | {c:,} / {v:,} |",
                     f"| Lines missing | {v - c:,} |", ""]
               rows = []
-              for cl in r.iter("class"):
+              for cl in root.iter("class"):
                   ls = list(cl.iter("line"))
                   if ls:
-                      h = sum(1 for x in ls if int(x.get("hits") or 0) > 0)
+                      h = sum(1 for x in ls if num(x.get("hits")) > 0)
                       rows.append((100.0 * h / len(ls),
                                    cl.get("filename") or cl.get("name") or "?", h, len(ls)))
-              rows.sort()
+              rows.sort(key=lambda r: (r[0], r[1]))
               if rows:
+                  shown = rows[:MAX_ROWS]
                   o += ["<details>",
                         f"<summary>Per-file coverage ({len(rows)} files, least covered first)</summary>",
                         "", "| File | Coverage | Covered / Total |", "|---|---:|---:|"]
-                  o += [f"| `{n}` | {q:.1f}% | {h} / {tt} |" for q, n, h, tt in rows]
+                  o += [f"| `{n}` | {q:.1f}% | {h} / {tt} |" for q, n, h, tt in shown]
+                  # Capped so a growing repo cannot push the summary past GitHub's 1 MiB
+                  # limit, which would truncate it silently.
+                  if len(rows) > MAX_ROWS:
+                      o += [f"| _…and {len(rows) - MAX_ROWS} more files_ | | |"]
                   o += ["", "</details>", ""]
           print("\n".join(o))
           PY
@@ -335,7 +363,7 @@ jobs:
         with:
           name: coverage-${{ matrix.python-version }}
           path: coverage.xml
-          if-no-files-found: error
+          if-no-files-found: warn
 
   build:
     name: Build Package

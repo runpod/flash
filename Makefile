@@ -131,6 +131,18 @@ ci-quality-github: # Quality checks with GitHub Actions formatting (parallel by 
 	@echo "::group::Test suite with coverage (serial pass)"
 	# Re-emit the XML after appending the serial tests, or coverage.xml is left
 	# holding only the parallel run and undercounts.
+	#
+	# This line, not the parallel one above, is the real coverage gate: the
+	# parallel invocation passes --cov-fail-under=0 to suppress the partial
+	# number, while this one inherits --cov-fail-under=65 from pyproject
+	# addopts. Do not "align" the two flags — that quietly disables the gate.
+	#
+	# Note also that make stops at the first failing recipe line, so if the
+	# parallel pass fails this re-emit never runs and coverage.xml holds the
+	# parallel subset. That is deliberate: guarding the parallel line with
+	# `-`/`|| true` so this always ran would let a red parallel suite exit 0.
+	# The weekly report only reads runs whose status is success, so an
+	# undercount on an already-failing run is not consumed by anything.
 	uv run pytest tests/ --junitxml=pytest-results-serial.xml -v -m "serial" --cov=runpod_flash --cov-append --cov-report=term-missing --cov-report=xml
 	@echo "::endgroup::"
 
