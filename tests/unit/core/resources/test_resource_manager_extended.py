@@ -9,6 +9,17 @@ from runpod_flash.core.resources.resource_manager import (
 )
 
 
+class _LegacyResource:
+    """Minimal picklable stand-in for a resource in the pre-1.12 state file.
+
+    Module-level, not defined inside a test: cloudpickle serialises a class
+    defined in a function body by value, which is the thing being avoided here.
+    """
+
+    def __init__(self, config_hash: str):
+        self.config_hash = config_hash
+
+
 @pytest.fixture(autouse=True)
 def reset_manager(isolate_resource_state_file, reset_singletons):
     """Reset singleton and state file between tests."""
@@ -56,7 +67,13 @@ class TestLoadResources:
         state_file = tmp_path / ".runpod" / "resources.pkl"
         state_file.parent.mkdir(parents=True)
 
-        resources = {"key1": MagicMock(config_hash="hash1")}
+        # A plain object rather than MagicMock: whether cloudpickle can pickle a
+        # Mock is version-dependent, and on 3.10 this failed with
+        # "Could not pickle object as excessively deep recursion required".
+        # Only .config_hash is read here (via _refresh_config_hashes), and the
+        # absence of get_resource_key is what keeps the legacy key un-migrated,
+        # which is exactly what this test is asserting.
+        resources = {"key1": _LegacyResource("hash1")}
         with open(state_file, "wb") as f:
             cloudpickle.dump(resources, f)
 

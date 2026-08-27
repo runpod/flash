@@ -231,6 +231,17 @@ jobs:
         python-version: ['3.10', '3.11', '3.12', '3.13']
     timeout-minutes: 15
 
+    # Without this the matrix is decorative. `make dev` runs a bare `uv sync`,
+    # and uv resolves its interpreter from .python-version (pinned to 3.11)
+    # rather than from whatever actions/setup-python just installed -- so every
+    # leg built a 3.11 venv and all four ran the same interpreter. UV_PYTHON
+    # takes precedence over the pin file, which restores real version coverage.
+    #
+    # Set at job level, not on the install step: `make ci-quality-github` runs
+    # `uv run pytest`, which resolves the interpreter again.
+    env:
+      UV_PYTHON: ${{ matrix.python-version }}
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -251,6 +262,28 @@ jobs:
 
       - name: Quality checks
         run: make ci-quality-github
+
+      # Shared with the other repos' coverage jobs. It lives in its own public
+      # repo because a public repository -- this one -- cannot resolve an action
+      # from a private one. An earlier attempt to consume it from the private
+      # internal-workflows repo failed at `Set up job` on every matrix leg with
+      # "Unable to resolve action, not found", so no tests ran at all.
+      #
+      # Pinned by commit rather than tag: a tag can be repointed at new code,
+      # and pinning means a change to the action cannot reach us until we bump
+      # it deliberately.
+      #
+      # This owns the coverage artifact upload. The test-results upload below
+      # stays separate -- the action uploads one artifact, and these are two.
+      - name: Coverage summary
+        if: always()
+        uses: runpod/coverage-summary-action@65b35a32ecfd9c2f0dc2352394eca1decfba4915
+        with:
+          format: cobertura
+          coverage-file: coverage.xml
+          results: pytest-results-*.xml
+          artifact-name: coverage-${{ matrix.python-version }}
+          if-no-files-found: warn
 
       - name: Upload test results
         uses: actions/upload-artifact@v4
