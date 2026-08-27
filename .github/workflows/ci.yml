@@ -263,89 +263,27 @@ jobs:
       - name: Quality checks
         run: make ci-quality-github
 
+      # Shared with the other repos' coverage jobs. It lives in its own public
+      # repo because a public repository -- this one -- cannot resolve an action
+      # from a private one. An earlier attempt to consume it from the private
+      # internal-workflows repo failed at `Set up job` on every matrix leg with
+      # "Unable to resolve action, not found", so no tests ran at all.
+      #
+      # Pinned by commit rather than tag: a tag can be repointed at new code,
+      # and pinning means a change to the action cannot reach us until we bump
+      # it deliberately.
+      #
+      # This owns the coverage artifact upload. The test-results upload below
+      # stays separate -- the action uploads one artifact, and these are two.
       - name: Coverage summary
         if: always()
-        run: |
-          python - coverage.xml 'pytest-results-*.xml' <<'PY' >> "$GITHUB_STEP_SUMMARY"
-          import glob, sys, xml.etree.ElementTree as ET
-          from pathlib import Path
-
-          MAX_ROWS = 300
-          cov, junit = sys.argv[1], sys.argv[2:]
-          o = ["## Coverage Report", ""]
-
-
-          def num(v, default=0):
-              """Attribute values are text, and a malformed one must degrade rather than
-              raise: this step runs under `if: always()`, so an exception here would
-              stack a spurious failure on top of whatever actually went wrong."""
-              try:
-                  return int(v)
-              except (TypeError, ValueError):
-                  return default
-
-
-          def parse(path):
-              try:
-                  return ET.parse(path).getroot(), None
-              except (ET.ParseError, OSError) as e:
-                  return None, e
-
-
-          t = f = s = 0
-          seen = False
-          for pat in junit:
-              for path in sorted(glob.glob(pat)):
-                  r, _ = parse(path)
-                  if r is None:
-                      continue
-                  seen = True
-                  for su in (r.iter("testsuite") if r.tag == "testsuites" else [r]):
-                      t += num(su.get("tests"))
-                      f += num(su.get("failures")) + num(su.get("errors"))
-                      s += num(su.get("skipped"))
-          if seen:
-              # A suite dying at import reports errors>0 with tests possibly 0, so
-              # "no failures AND something actually ran" is what keeps a crashed run
-              # from rendering as passed.
-              ok = f == 0 and t > 0
-              o += ["### Test Results", "",
-                    "| Status | Passed | Failed | Skipped | Total |",
-                    "|---|---:|---:|---:|---:|",
-                    f"| {'✅ Passed' if ok else '❌ Failed'} | {t - f - s} | {f} | {s} | {t} |", ""]
-
-          p = Path(cov)
-          root, err = (None, None) if not p.exists() else parse(p)
-          if root is None:
-              o += [f"> No coverage report at `{cov}`." if err is None
-                    else f"> Coverage report at `{cov}` could not be parsed: {err}"]
-          else:
-              c, v = num(root.get("lines-covered")), num(root.get("lines-valid"))
-              o += ["### Coverage Summary", "", "| Metric | Value |", "|---|---:|",
-                    f"| Line coverage | **{(100.0 * c / v if v else 0):.1f}%** |",
-                    f"| Lines covered | {c:,} / {v:,} |",
-                    f"| Lines missing | {v - c:,} |", ""]
-              rows = []
-              for cl in root.iter("class"):
-                  ls = list(cl.iter("line"))
-                  if ls:
-                      h = sum(1 for x in ls if num(x.get("hits")) > 0)
-                      rows.append((100.0 * h / len(ls),
-                                   cl.get("filename") or cl.get("name") or "?", h, len(ls)))
-              rows.sort(key=lambda r: (r[0], r[1]))
-              if rows:
-                  shown = rows[:MAX_ROWS]
-                  o += ["<details>",
-                        f"<summary>Per-file coverage ({len(rows)} files, least covered first)</summary>",
-                        "", "| File | Coverage | Covered / Total |", "|---|---:|---:|"]
-                  o += [f"| `{n}` | {q:.1f}% | {h} / {tt} |" for q, n, h, tt in shown]
-                  # Capped so a growing repo cannot push the summary past GitHub's 1 MiB
-                  # limit, which would truncate it silently.
-                  if len(rows) > MAX_ROWS:
-                      o += [f"| _…and {len(rows) - MAX_ROWS} more files_ | | |"]
-                  o += ["", "</details>", ""]
-          print("\n".join(o))
-          PY
+        uses: runpod/coverage-summary-action@65b35a32ecfd9c2f0dc2352394eca1decfba4915
+        with:
+          format: cobertura
+          coverage-file: coverage.xml
+          results: pytest-results-*.xml
+          artifact-name: coverage-${{ matrix.python-version }}
+          if-no-files-found: warn
 
       - name: Upload test results
         uses: actions/upload-artifact@v4
@@ -353,17 +291,6 @@ jobs:
         with:
           name: test-results-${{ matrix.python-version }}
           path: pytest-results-*.xml
-
-      # Consumed by the weekly coverage report, which reads the artifact from
-      # the newest successful run on main. Name is per-matrix-version because
-      # upload-artifact@v4 requires unique names within a run.
-      - name: Upload coverage report
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: coverage-${{ matrix.python-version }}
-          path: coverage.xml
-          if-no-files-found: warn
 
   build:
     name: Build Package
