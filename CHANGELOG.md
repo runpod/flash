@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.19.1](https://github.com/runpod/flash/compare/v1.19.0...v1.19.1) (2026-08-31)
+
+
+### Bug Fixes
+
+* **app:** tear down serverless endpoints on flash app delete ([#371](https://github.com/runpod/flash/issues/371)) ([5ed991a](https://github.com/runpod/flash/commit/5ed991aae745d9cbd0ce02b3dc7c0cb2e5d49beb))
+* **login:** preserve runpodctl credentials in ~/.runpod/config.toml ([#333](https://github.com/runpod/flash/issues/333)) ([26263c7](https://github.com/runpod/flash/commit/26263c7e001b1609d882893fb4daccb21d3bf5a9))
+
 ## [1.19.0](https://github.com/runpod/flash/compare/v1.18.0...v1.19.0) (2026-07-28)
 
 
