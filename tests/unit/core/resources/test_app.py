@@ -488,6 +488,161 @@ class TestFlashAppEnvironment:
             assert result["id"] == "env-new"
 
 
+class TestFlashAppDeleteEndpoints:
+    """Test FlashApp.delete_endpoints endpoint teardown."""
+
+    @staticmethod
+    def _mock_client(MockClient, **overrides):
+        mock_instance = AsyncMock()
+        mock_instance.list_flash_environments_by_app_id.return_value = []
+        for name, value in overrides.items():
+            setattr(mock_instance, name, AsyncMock(return_value=value))
+        MockClient.return_value.__aenter__ = AsyncMock(return_value=mock_instance)
+        MockClient.return_value.__aexit__ = AsyncMock(return_value=False)
+        return mock_instance
+
+    @pytest.mark.asyncio
+    async def test_no_environments_returns_empty(self):
+        app = FlashApp("my-app", id="app-1")
+        app._hydrated = True
+
+        with patch("runpod_flash.core.resources.app.RunpodGraphQLClient") as MockClient:
+            self._mock_client(MockClient)
+
+            removed, failed = await app.delete_endpoints()
+
+        assert removed == []
+        assert failed == []
+
+    @pytest.mark.asyncio
+    async def test_deletes_endpoints_across_environments(self):
+        app = FlashApp("my-app", id="app-1")
+        app._hydrated = True
+
+        with patch("runpod_flash.core.resources.app.RunpodGraphQLClient") as MockClient:
+            mock_client = self._mock_client(
+                MockClient,
+                list_flash_environments_by_app_id=[
+                    {"id": "env-1", "name": "dev"},
+                    {"id": "env-2", "name": "prod"},
+                ],
+            )
+            mock_client.get_flash_environment.side_effect = [
+                {"endpoints": [{"id": "ep-1", "name": "api"}]},
+                {"endpoints": [{"id": "ep-2", "name": "batch"}]},
+            ]
+            mock_client.delete_endpoint.return_value = {"success": True}
+
+            removed, failed = await app.delete_endpoints()
+
+        assert failed == []
+        assert removed == [
+            {"id": "ep-1", "name": "api", "env": "dev"},
+            {"id": "ep-2", "name": "batch", "env": "prod"},
+        ]
+        mock_client.delete_endpoint.assert_any_await("ep-1")
+        mock_client.delete_endpoint.assert_any_await("ep-2")
+
+    @pytest.mark.asyncio
+    async def test_failed_delete_reports_endpoint(self):
+        app = FlashApp("my-app", id="app-1")
+        app._hydrated = True
+
+        with patch("runpod_flash.core.resources.app.RunpodGraphQLClient") as MockClient:
+            mock_client = self._mock_client(
+                MockClient,
+                list_flash_environments_by_app_id=[{"id": "env-1", "name": "dev"}],
+                get_flash_environment={"endpoints": [{"id": "ep-1", "name": "api"}]},
+            )
+            mock_client.delete_endpoint.side_effect = Exception("delete failed")
+            mock_client.endpoint_exists.return_value = True
+
+            removed, failed = await app.delete_endpoints()
+
+        assert removed == []
+        assert failed == [{"id": "ep-1", "name": "api", "env": "dev"}]
+
+    @pytest.mark.asyncio
+    async def test_already_deleted_endpoint_counts_as_removed(self):
+        """Retry of a partial teardown treats missing endpoints as removed."""
+        app = FlashApp("my-app", id="app-1")
+        app._hydrated = True
+
+        with patch("runpod_flash.core.resources.app.RunpodGraphQLClient") as MockClient:
+            mock_client = self._mock_client(
+                MockClient,
+                list_flash_environments_by_app_id=[{"id": "env-1", "name": "dev"}],
+                get_flash_environment={"endpoints": [{"id": "ep-1", "name": "api"}]},
+            )
+            mock_client.delete_endpoint.side_effect = Exception("not found")
+            mock_client.endpoint_exists.return_value = False
+
+            removed, failed = await app.delete_endpoints()
+
+        assert failed == []
+        assert removed == [{"id": "ep-1", "name": "api", "env": "dev"}]
+
+    @pytest.mark.asyncio
+    async def test_endpoint_without_id_is_reported(self):
+        app = FlashApp("my-app", id="app-1")
+        app._hydrated = True
+
+        with patch("runpod_flash.core.resources.app.RunpodGraphQLClient") as MockClient:
+            mock_client = self._mock_client(
+                MockClient,
+                list_flash_environments_by_app_id=[{"id": "env-1", "name": "dev"}],
+                get_flash_environment={"endpoints": [{"name": "mystery"}]},
+            )
+
+            removed, failed = await app.delete_endpoints()
+
+        assert removed == []
+        assert failed == [{"id": "", "name": "mystery", "env": "dev"}]
+        mock_client.delete_endpoint.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_environment_detail_missing_or_none_is_skipped(self):
+        """Environments with no endpoint data (None or missing key) are empty."""
+        app = FlashApp("my-app", id="app-1")
+        app._hydrated = True
+
+        with patch("runpod_flash.core.resources.app.RunpodGraphQLClient") as MockClient:
+            mock_client = self._mock_client(
+                MockClient,
+                list_flash_environments_by_app_id=[
+                    {"id": "env-1", "name": "dev"},
+                    {"id": "env-2", "name": "prod"},
+                ],
+            )
+            mock_client.get_flash_environment.side_effect = [None, {}]
+
+            removed, failed = await app.delete_endpoints()
+
+        assert removed == []
+        assert failed == []
+        mock_client.delete_endpoint.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_unsuccessful_delete_without_exception_counts_as_failed(self):
+        """A {'success': False} delete is a hard failure — no existence re-check."""
+        app = FlashApp("my-app", id="app-1")
+        app._hydrated = True
+
+        with patch("runpod_flash.core.resources.app.RunpodGraphQLClient") as MockClient:
+            mock_client = self._mock_client(
+                MockClient,
+                list_flash_environments_by_app_id=[{"id": "env-1", "name": "dev"}],
+                get_flash_environment={"endpoints": [{"id": "ep-1", "name": "api"}]},
+                delete_endpoint={"success": False},
+            )
+
+            removed, failed = await app.delete_endpoints()
+
+        assert removed == []
+        assert failed == [{"id": "ep-1", "name": "api", "env": "dev"}]
+        mock_client.endpoint_exists.assert_not_called()
+
+
 class TestIsCertVerificationError:
     """Test _is_cert_verification_error classifier."""
 

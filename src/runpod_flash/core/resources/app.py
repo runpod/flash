@@ -4,7 +4,7 @@ import json
 from typing import Dict, Optional, Union, Tuple, TYPE_CHECKING, Any, List
 import logging
 
-from ..api.runpod import RunpodGraphQLClient
+from ..api.runpod import RunpodGraphQLClient, _delete_endpoint_idempotent
 
 from .constants import (
     TARBALL_CONTENT_TYPE,
@@ -560,6 +560,55 @@ class FlashApp:
         async with RunpodGraphQLClient() as client:
             result = await client.delete_flash_environment(environment_id)
         return result.get("success", False)
+
+    async def delete_endpoints(
+        self,
+    ) -> Tuple[List[Dict[str, str]], List[Dict[str, str]]]:
+        """Delete all serverless endpoints registered to this app's environments.
+
+        Endpoints are discovered server-side from each environment record, so
+        this works without local resource tracking (e.g. in CI or from a
+        different machine than the deployer).
+
+        Safe to retry: endpoints that no longer exist remotely are treated as
+        already removed, so a partially-failed earlier attempt does not block
+        a subsequent run.
+
+        Returns:
+            Tuple of (removed, failed) endpoint descriptors. Each descriptor is
+            a dict with 'id', 'name', and 'env' keys.
+
+        Raises:
+            RuntimeError: If app is not hydrated (no ID available)
+        """
+        removed: List[Dict[str, str]] = []
+        failed: List[Dict[str, str]] = []
+
+        await self._hydrate()
+        async with RunpodGraphQLClient() as client:
+            environments = await client.list_flash_environments_by_app_id(self.id)
+            for environment in environments:
+                env_name = environment.get("name") or ""
+                env = await client.get_flash_environment(
+                    {"flashEnvironmentId": environment["id"]}
+                )
+                for endpoint in (env or {}).get("endpoints") or []:
+                    endpoint_id = endpoint.get("id")
+                    descriptor = {
+                        "id": endpoint_id or "",
+                        "name": endpoint.get("name") or "",
+                        "env": env_name,
+                    }
+                    if not endpoint_id:
+                        log.warning(
+                            "Environment '%s' lists an endpoint with no id", env_name
+                        )
+                        failed.append(descriptor)
+                        continue
+                    deleted = await _delete_endpoint_idempotent(client, endpoint_id)
+                    (removed if deleted else failed).append(descriptor)
+
+        return removed, failed
 
     async def list_builds(self) -> List[Dict[str, Any]]:
         """List all builds for this app.
