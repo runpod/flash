@@ -173,6 +173,10 @@ def _parse_resources_from_manifest(manifest: dict) -> dict:
     # Parse resources from manifest
     manifest_resources = manifest.get("resources", {})
     for resource_name, resource_data in manifest_resources.items():
+        # Client-mode endpoints run a user-supplied image and are provisioned
+        # remotely by flash deploy; they are not launched as local containers.
+        if resource_data.get("client_mode", False):
+            continue
         resources[resource_name] = {
             "is_load_balanced": resource_data.get("is_load_balanced", False),
             "imageName": resource_data.get("imageName", FLASH_CPU_LB_IMAGE),

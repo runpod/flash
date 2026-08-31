@@ -217,9 +217,19 @@ async def _resolve_and_deploy(
 ) -> None:
     import time as _time
 
-    app, resolved_env_name = await _resolve_environment(app_name, env_name)
-
     local_manifest = validate_local_manifest()
+
+    # An empty resources map means the project declares no deployable
+    # endpoints at all (no @remote functions, no client-mode
+    # Endpoint(image=...) declarations -- the build registers those in the
+    # manifest). Nothing is provisioned here, so don't claim a deployment.
+    if not local_manifest.get("resources"):
+        console.print(
+            "[yellow]No deployable resources found; nothing was deployed[/yellow]"
+        )
+        return
+
+    app, resolved_env_name = await _resolve_environment(app_name, env_name)
 
     from rich.progress import (
         BarColumn,

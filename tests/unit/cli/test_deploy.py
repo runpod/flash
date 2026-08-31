@@ -42,7 +42,7 @@ class TestDeployCommand:
     )
     @patch(
         "runpod_flash.cli.commands.deploy.validate_local_manifest",
-        return_value={"resources": {}},
+        return_value={"resources": {"my_resource": {}}},
     )
     @patch(
         "runpod_flash.cli.commands.deploy.FlashApp.from_name", new_callable=AsyncMock
@@ -92,7 +92,7 @@ class TestDeployCommand:
     )
     @patch(
         "runpod_flash.cli.commands.deploy.validate_local_manifest",
-        return_value={"resources": {}},
+        return_value={"resources": {"my_resource": {}}},
     )
     @patch(
         "runpod_flash.cli.commands.deploy.FlashApp.from_name", new_callable=AsyncMock
@@ -190,7 +190,7 @@ class TestDeployCommand:
     )
     @patch(
         "runpod_flash.cli.commands.deploy.validate_local_manifest",
-        return_value={"resources": {}},
+        return_value={"resources": {"my_resource": {}}},
     )
     @patch("runpod_flash.cli.commands.deploy.run_build")
     @patch("runpod_flash.cli.commands.deploy.discover_flash_project")
@@ -265,7 +265,7 @@ class TestDeployCommand:
     )
     @patch(
         "runpod_flash.cli.commands.deploy.validate_local_manifest",
-        return_value={"resources": {}},
+        return_value={"resources": {"my_resource": {}}},
     )
     @patch(
         "runpod_flash.cli.commands.deploy.FlashApp.from_name", new_callable=AsyncMock
@@ -315,7 +315,7 @@ class TestDeployCommand:
     )
     @patch(
         "runpod_flash.cli.commands.deploy.validate_local_manifest",
-        return_value={"resources": {}},
+        return_value={"resources": {"my_resource": {}}},
     )
     @patch(
         "runpod_flash.cli.commands.deploy.FlashApp.from_name", new_callable=AsyncMock
@@ -363,7 +363,7 @@ class TestDeployCommand:
     )
     @patch(
         "runpod_flash.cli.commands.deploy.validate_local_manifest",
-        return_value={"resources": {}},
+        return_value={"resources": {"my_resource": {}}},
     )
     @patch(
         "runpod_flash.cli.commands.deploy.FlashApp.from_name", new_callable=AsyncMock
@@ -418,7 +418,7 @@ class TestDeployCommand:
     )
     @patch(
         "runpod_flash.cli.commands.deploy.validate_local_manifest",
-        return_value={"resources": {}},
+        return_value={"resources": {"my_resource": {}}},
     )
     @patch(
         "runpod_flash.cli.commands.deploy.FlashApp.from_name", new_callable=AsyncMock
@@ -460,6 +460,147 @@ class TestDeployCommand:
 
         assert result.exit_code == 0
         mock_from_name.assert_awaited_once_with("custom-app")
+
+
+class TestDeployCommandEmptyResources:
+    """flash deploy with an empty manifest resources map is not a deployment."""
+
+    @patch(
+        "runpod_flash.cli.commands.deploy.deploy_from_uploaded_build",
+        new_callable=AsyncMock,
+    )
+    @patch(
+        "runpod_flash.cli.commands.deploy.validate_local_manifest",
+        return_value={"resources": {}},
+    )
+    @patch(
+        "runpod_flash.cli.commands.deploy.FlashApp.from_name", new_callable=AsyncMock
+    )
+    @patch("runpod_flash.cli.commands.deploy.run_build")
+    @patch("runpod_flash.cli.commands.deploy.discover_flash_project")
+    def test_deploy_empty_resources_reports_no_deployment(
+        self,
+        mock_discover,
+        mock_build,
+        mock_from_name,
+        mock_validate,
+        mock_deploy,
+        runner,
+        mock_asyncio_run_coro,
+        patched_console,
+    ):
+        """A project with neither decorated resources nor client-mode
+        endpoints produces an empty resources map; deploy must report that
+        honestly instead of claiming success."""
+        mock_discover.return_value = (Path("/tmp/project"), "my-app")
+        _archive = MagicMock(spec=Path)
+        _archive.stat.return_value.st_size = 1024 * 1024
+        mock_build.return_value = _archive
+
+        with (
+            patch(
+                "runpod_flash.cli.commands.deploy.asyncio.run",
+                side_effect=mock_asyncio_run_coro,
+            ),
+            patch("runpod_flash.cli.commands.deploy.shutil"),
+        ):
+            result = runner.invoke(app, ["deploy"])
+
+        assert result.exit_code == 0
+        printed_output = " ".join(
+            str(call.args[0]) if call.args else ""
+            for call in patched_console.print.call_args_list
+        )
+        assert "No deployable resources found" in printed_output
+        assert "deployed to" not in printed_output
+        # Nothing should be uploaded or provisioned
+        mock_from_name.assert_not_awaited()
+        mock_deploy.assert_not_awaited()
+
+
+class TestDeployCommandClientModeEndpoints:
+    """Projects whose only endpoints are client-mode Endpoint(image=...)
+    declarations ARE deployable: the build registers them in the manifest
+    and the normal provisioning path creates the endpoints."""
+
+    _CLIENT_MANIFEST = {
+        "resources": {
+            "vllm-server": {
+                "resource_type": "LiveServerless",
+                "client_mode": True,
+                "imageName": "runpod/vllm-openai:stable",
+                "functions": [],
+                "is_load_balanced": False,
+                "makes_remote_calls": False,
+            }
+        }
+    }
+
+    @patch(
+        "runpod_flash.cli.commands.deploy.deploy_from_uploaded_build",
+        new_callable=AsyncMock,
+    )
+    @patch(
+        "runpod_flash.cli.commands.deploy.validate_local_manifest",
+        return_value=_CLIENT_MANIFEST,
+    )
+    @patch(
+        "runpod_flash.cli.commands.deploy.FlashApp.from_name", new_callable=AsyncMock
+    )
+    @patch("runpod_flash.cli.commands.deploy.run_build")
+    @patch("runpod_flash.cli.commands.deploy.discover_flash_project")
+    def test_deploy_provisions_client_mode_endpoints(
+        self,
+        mock_discover,
+        mock_build,
+        mock_from_name,
+        mock_validate,
+        mock_deploy,
+        runner,
+        mock_asyncio_run_coro,
+        patched_console,
+    ):
+        mock_discover.return_value = (Path("/tmp/project"), "my-app")
+        _archive = MagicMock(spec=Path)
+        _archive.stat.return_value.st_size = 1024 * 1024
+        mock_build.return_value = _archive
+        mock_deploy.return_value = {
+            "success": True,
+            "resources_endpoints": {"vllm-server": "https://vllm-xyz.api.runpod.ai"},
+            "local_manifest": self._CLIENT_MANIFEST,
+        }
+
+        flash_app = _make_flash_app(
+            list_environments=AsyncMock(
+                return_value=[{"name": "production", "id": "env-1"}]
+            ),
+        )
+        mock_from_name.return_value = flash_app
+
+        with (
+            patch(
+                "runpod_flash.cli.commands.deploy.asyncio.run",
+                side_effect=mock_asyncio_run_coro,
+            ),
+            patch("runpod_flash.cli.commands.deploy.shutil"),
+        ):
+            result = runner.invoke(app, ["deploy"])
+
+        assert result.exit_code == 0
+        # the client-mode manifest flows into the provisioning path untouched
+        mock_deploy.assert_awaited_once()
+        passed_manifest = mock_deploy.call_args[0][3]
+        assert passed_manifest["resources"]["vllm-server"]["client_mode"] is True
+
+        printed_output = " ".join(
+            str(call.args[0]) if call.args else ""
+            for call in patched_console.print.call_args_list
+        )
+        assert "deployed to" in printed_output
+        assert "No deployable resources found" not in printed_output
+        # post-deploy guidance lists the provisioned endpoint
+        assert "vllm-server" in printed_output
+        assert "https://vllm-xyz.api.runpod.ai/runsync" in printed_output
 
 
 class TestDisplayPostDeploymentGuidance:
