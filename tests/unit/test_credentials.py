@@ -57,6 +57,28 @@ class TestGetApiKey:
         isolate_credentials_file.write_text("not valid toml {{{{")
         assert get_api_key() is None
 
+    def test_falls_back_to_runpodctl_top_level_apikey(self, isolate_credentials_file):
+        """When only runpodctl-style top-level 'apikey' exists (no [default]
+        section), get_api_key() should find it. Fixes #363."""
+        isolate_credentials_file.parent.mkdir(parents=True, exist_ok=True)
+        isolate_credentials_file.write_text(
+            "apikey = 'rpa_runpodctl_key'\n"
+            "apiurl = 'https://api.runpod.io/graphql'\n"
+        )
+        assert get_api_key() == "rpa_runpodctl_key"
+
+    def test_default_section_takes_precedence_over_top_level(self, isolate_credentials_file):
+        """When both [default].api_key and top-level apikey exist, the
+        [default] section should win."""
+        isolate_credentials_file.parent.mkdir(parents=True, exist_ok=True)
+        isolate_credentials_file.write_text(
+            "apikey = 'rpa_runpodctl_key'\n"
+            "\n"
+            "[default]\n"
+            'api_key = "flash-key"\n'
+        )
+        assert get_api_key() == "flash-key"
+
 
 class TestSaveApiKey:
     def test_creates_file_and_directories(self, isolate_credentials_file):
