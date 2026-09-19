@@ -12,6 +12,7 @@ from runpod_flash.cli.commands.update import (
     _compare_versions,
     _fetch_pypi_metadata,
     _get_current_version,
+    _is_uv_tool_install,
     _parse_version,
     _run_install,
     update_command,
@@ -163,13 +164,97 @@ class TestFetchPypiMetadata:
                 _fetch_pypi_metadata()
 
 
-class TestBuildInstallCommand:
-    def test_uses_uv_when_available(self):
+class TestIsUvToolInstall:
+    def test_true_when_prefix_under_tool_dir(self):
+        with (
+            patch(
+                "runpod_flash.cli.commands.update.subprocess.run",
+                return_value=MagicMock(
+                    returncode=0, stdout="/home/u/.local/share/uv/tools\n"
+                ),
+            ),
+            patch(
+                "runpod_flash.cli.commands.update.sys.prefix",
+                "/home/u/.local/share/uv/tools/runpod-flash",
+            ),
+        ):
+            assert _is_uv_tool_install() is True
+
+    def test_false_when_prefix_outside_tool_dir(self):
+        with (
+            patch(
+                "runpod_flash.cli.commands.update.subprocess.run",
+                return_value=MagicMock(
+                    returncode=0, stdout="/home/u/.local/share/uv/tools\n"
+                ),
+            ),
+            patch(
+                "runpod_flash.cli.commands.update.sys.prefix",
+                "/home/u/project/.venv",
+            ),
+        ):
+            assert _is_uv_tool_install() is False
+
+    def test_false_when_uv_tool_dir_fails(self):
         with patch(
-            "runpod_flash.cli.commands.update.shutil.which", return_value="/usr/bin/uv"
+            "runpod_flash.cli.commands.update.subprocess.run",
+            side_effect=OSError("uv not found"),
+        ):
+            assert _is_uv_tool_install() is False
+
+    def test_false_when_uv_tool_dir_empty(self):
+        with patch(
+            "runpod_flash.cli.commands.update.subprocess.run",
+            return_value=MagicMock(returncode=0, stdout="\n"),
+        ):
+            assert _is_uv_tool_install() is False
+
+
+class TestBuildInstallCommand:
+    def test_uv_tool_install_when_tool_managed(self):
+        """uv tool installs must be upgraded via `uv tool install --force`."""
+        with (
+            patch(
+                "runpod_flash.cli.commands.update.shutil.which",
+                return_value="/usr/bin/uv",
+            ),
+            patch(
+                "runpod_flash.cli.commands.update._is_uv_tool_install",
+                return_value=True,
+            ),
         ):
             cmd = _build_install_command("1.5.0")
-        assert cmd == ["uv", "pip", "install", "runpod-flash==1.5.0", "--quiet"]
+        assert cmd == [
+            "uv",
+            "tool",
+            "install",
+            "runpod-flash==1.5.0",
+            "--force",
+            "--quiet",
+        ]
+
+    def test_uv_pip_targets_current_interpreter_in_venv(self):
+        """Non-tool uv installs target sys.executable so cwd doesn't matter."""
+        with (
+            patch(
+                "runpod_flash.cli.commands.update.shutil.which",
+                return_value="/usr/bin/uv",
+            ),
+            patch(
+                "runpod_flash.cli.commands.update._is_uv_tool_install",
+                return_value=False,
+            ),
+        ):
+            cmd = _build_install_command("1.5.0")
+        assert cmd == [
+            "uv",
+            "pip",
+            "install",
+            "runpod-flash==1.5.0",
+            "--python",
+            sys.executable,
+            "--quiet",
+        ]
 
     def test_falls_back_to_pip(self):
         with patch("runpod_flash.cli.commands.update.shutil.which", return_value=None):
