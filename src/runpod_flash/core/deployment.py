@@ -6,7 +6,7 @@ import threading
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional
+from typing import List
 
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
@@ -57,7 +57,7 @@ class DeploymentOrchestrator:
 
     def deploy_all_background(
         self, resources: List[DeployableResource]
-    ) -> Optional[threading.Thread]:
+    ) -> threading.Thread | None:
         """Deploy all resources in background thread.
 
         This method spawns a background thread to deploy resources without
@@ -99,6 +99,8 @@ class DeploymentOrchestrator:
         console.print(
             f"[dim]Auto-provisioning {len(resources)} resource(s) in background...[/dim]"
         )
+        return thread
+
         return thread
 
     async def deploy_all(
