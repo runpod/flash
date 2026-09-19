@@ -7,6 +7,7 @@ import sys
 import urllib.error
 import urllib.request
 from importlib import metadata
+from pathlib import Path
 from typing import Optional
 
 import typer
@@ -18,6 +19,7 @@ console = Console()
 
 PYPI_URL = "https://pypi.org/pypi/runpod-flash/json"
 INSTALL_TIMEOUT_SECONDS = 120
+UV_TOOL_DIR_TIMEOUT_SECONDS = 10
 
 
 def _get_current_version() -> str:
@@ -90,16 +92,63 @@ def _fetch_pypi_metadata() -> tuple[str, set[str]]:
     return latest, releases
 
 
+def _is_uv_tool_install() -> bool:
+    """Return True when flash runs from a uv-managed tool environment.
+
+    ``uv tool install runpod-flash`` places flash in an isolated environment
+    under ``uv tool dir`` (default ~/.local/share/uv/tools, overridable via
+    $UV_TOOL_DIR). Such installs must be upgraded with ``uv tool install
+    --force`` -- ``uv pip install`` fails because there is no ambient venv to
+    discover from the working directory.
+
+    Detection compares flash's own interpreter prefix (``sys.prefix``) against
+    the authoritative tool directory reported by ``uv tool dir``. Returns False
+    on any failure (uv missing, non-zero exit, empty output), so callers fall
+    back to the pip-style install path.
+    """
+    try:
+        result = subprocess.run(
+            ["uv", "tool", "dir"],
+            capture_output=True,
+            text=True,
+            timeout=UV_TOOL_DIR_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    if result.returncode != 0:
+        return False
+    tool_dir = result.stdout.strip()
+    if not tool_dir:
+        return False
+    return Path(sys.prefix).resolve().is_relative_to(Path(tool_dir).resolve())
+
+
 def _build_install_command(version: str) -> list[str]:
-    """Build the install command, preferring uv over pip.
+    """Build the install command for flash's own environment.
 
     Returns the command as a list of strings suitable for subprocess.run.
-    Uses ``uv pip install`` when uv is on PATH, otherwise falls back to
-    ``python -m pip install``.
+    Selects the mechanism that matches how flash was installed:
+
+    - uv tool install -> ``uv tool install <spec> --force`` (upgrades the
+      isolated tool environment; works from any directory).
+    - uv venv install -> ``uv pip install <spec> --python <sys.executable>``
+      (targets flash's interpreter directly, so the current working directory
+      does not need to contain a discoverable virtual environment).
+    - no uv on PATH -> ``python -m pip install <spec>`` fallback.
     """
     package_spec = f"runpod-flash=={version}"
     if shutil.which("uv"):
-        return ["uv", "pip", "install", package_spec, "--quiet"]
+        if _is_uv_tool_install():
+            return ["uv", "tool", "install", package_spec, "--force", "--quiet"]
+        return [
+            "uv",
+            "pip",
+            "install",
+            package_spec,
+            "--python",
+            sys.executable,
+            "--quiet",
+        ]
     return [sys.executable, "-m", "pip", "install", package_spec, "--quiet"]
 
 
