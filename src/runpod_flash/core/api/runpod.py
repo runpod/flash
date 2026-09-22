@@ -986,3 +986,41 @@ class RunpodRestClient:
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         await self.close()
+
+
+async def _delete_endpoint_idempotent(
+    client: "RunpodGraphQLClient", endpoint_id: str
+) -> bool:
+    """Delete a serverless endpoint; treat already-deleted endpoints as removed.
+
+    If the delete call fails with an exception, the endpoint is re-checked and
+    a missing endpoint counts as removed, so retries of a partially-completed
+    teardown can proceed. A delete that returns success=False (without raising)
+    is a hard failure and is NOT re-checked.
+
+    Returns:
+        True if the endpoint was deleted (or already gone), False otherwise.
+    """
+    try:
+        result = await client.delete_endpoint(endpoint_id)
+        success = result.get("success", False)
+        if success:
+            log.debug(f"endpoint {endpoint_id} successfully deleted")
+            return True
+        log.debug(f"endpoint {endpoint_id} failed to delete")
+        return False
+
+    except Exception as e:
+        log.debug(f"endpoint {endpoint_id} failed to delete: {e}")
+
+        # Deletion failed. Check if endpoint still exists.
+        # If it doesn't exist, treat as successfully removed (already deleted).
+        try:
+            if not await client.endpoint_exists(endpoint_id):
+                log.debug(f"endpoint {endpoint_id} no longer exists on RunPod")
+                return True
+        except Exception as check_error:
+            log.warning(
+                f"Could not verify endpoint {endpoint_id} existence: {check_error}"
+            )
+        return False

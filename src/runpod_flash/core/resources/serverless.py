@@ -19,7 +19,7 @@ from pydantic import (
 )
 from runpod.endpoint.runner import Job
 
-from ..api.runpod import RunpodGraphQLClient
+from ..api.runpod import RunpodGraphQLClient, _delete_endpoint_idempotent
 from ..exceptions import RunpodAPIKeyError
 from ..utils.backoff import get_backoff_delay
 from .base import DeployableResource
@@ -1340,34 +1340,8 @@ class ServerlessResource(DeployableResource):
             log.warning(f"{self} has no endpoint ID, cannot undeploy")
             return False
 
-        try:
-            async with RunpodGraphQLClient() as client:
-                result = await client.delete_endpoint(self.id)
-                success = result.get("success", False)
-
-                if success:
-                    log.debug(f"{self} successfully undeployed")
-                    return True
-                else:
-                    log.debug(f"{self} failed to undeploy")
-                    return False
-
-        except Exception as e:
-            log.debug(f"{self} failed to undeploy: {e}")
-
-            # Deletion failed. Check if endpoint still exists.
-            # If it doesn't exist, treat as successful cleanup (orphaned endpoint).
-            try:
-                async with RunpodGraphQLClient() as client:
-                    if not await client.endpoint_exists(self.id):
-                        log.debug(
-                            f"{self} no longer exists on RunPod, removing from cache"
-                        )
-                        return True
-            except Exception as check_error:
-                log.warning(f"Could not verify endpoint existence: {check_error}")
-
-            return False
+        async with RunpodGraphQLClient() as client:
+            return await _delete_endpoint_idempotent(client, self.id)
 
     async def undeploy(self) -> Dict[str, Any]:
         resource_manager = ResourceManager()

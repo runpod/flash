@@ -55,7 +55,9 @@ class DeploymentOrchestrator:
         self.manager = ResourceManager()
         self.results: List[DeploymentResult] = []
 
-    def deploy_all_background(self, resources: List[DeployableResource]) -> None:
+    def deploy_all_background(
+        self, resources: List[DeployableResource]
+    ) -> threading.Thread | None:
         """Deploy all resources in background thread.
 
         This method spawns a background thread to deploy resources without
@@ -63,10 +65,15 @@ class DeploymentOrchestrator:
 
         Args:
             resources: List of resources to deploy
+
+        Returns:
+            The background thread running the deployment, or None when the
+            resource list is empty (no thread is started). Callers that need
+            deterministic completion (e.g. tests) may join() the thread.
         """
         if not resources:
             console.print("[dim]No resources to deploy[/dim]")
-            return
+            return None
 
         def run_async_deployment():
             """Run async deployment in background thread."""
@@ -90,6 +97,8 @@ class DeploymentOrchestrator:
         console.print(
             f"[dim]Auto-provisioning {len(resources)} resource(s) in background...[/dim]"
         )
+
+        return thread
 
     async def deploy_all(
         self, resources: List[DeployableResource], show_progress: bool = True
