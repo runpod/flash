@@ -168,7 +168,6 @@ PIP_MODULE = "pip"
 SIZE_PROHIBITIVE_PACKAGES: frozenset[str] = frozenset(
     {
         "torch",  # ~500 MB
-        "torchvision",  # ~50 MB, requires torch
         "torchaudio",  # ~30 MB, requires torch
         "triton",  # ~150 MB, CUDA compiler
     }
