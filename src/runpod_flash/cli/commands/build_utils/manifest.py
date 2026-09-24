@@ -11,6 +11,7 @@ from runpod_flash.core.resources.constants import (
     DEFAULT_PYTHON_VERSION,
     validate_python_version,
 )
+from runpod_flash.runtime.resource_provisioner import PROVISIONABLE_RESOURCE_TYPES
 
 from .scanner import (
     RemoteFunctionMetadata,
@@ -281,6 +282,145 @@ class ManifestBuilder:
 
         return config
 
+    @staticmethod
+    def _derive_path_fields(
+        file_path: Optional[Path], project_root: Path, module_path: str
+    ) -> tuple[str, str, str]:
+        """Derive (file_path_str, local_path_prefix, resource_module_path).
+
+        ``file_path`` is the source file a resource was declared in. When it
+        lives under ``project_root`` the fields describe the project-relative
+        location; otherwise (outside the root, or the path does not exist,
+        e.g. relative test paths) the raw path string is kept and the URL
+        prefix is derived from the module path instead.
+        """
+        file_path_str = ""
+        local_path_prefix = ""
+        resource_module_path = module_path
+        if file_path and file_path.exists():
+            try:
+                file_path_str = str(file_path.relative_to(project_root))
+                local_path_prefix = file_to_url_prefix(file_path, project_root)
+                resource_module_path = file_to_module_path(file_path, project_root)
+            except ValueError:
+                # File is outside project root — fall back to module_path
+                file_path_str = str(file_path)
+                local_path_prefix = "/" + module_path.replace(".", "/")
+        elif file_path:
+            # File path may be relative (in test scenarios)
+            file_path_str = str(file_path)
+            local_path_prefix = "/" + module_path.replace(".", "/")
+        return file_path_str, local_path_prefix, resource_module_path
+
+    def _add_client_endpoints(
+        self, resources_dict: Dict[str, Dict[str, Any]], project_root: Path
+    ) -> None:
+        """Register client-mode Endpoints (image=..., no decorated functions).
+
+        The scanner collects top-level ``Endpoint(image=...)`` objects. They
+        have no decorated functions, but ``flash deploy`` should still
+        provision them, so each gets a function-less manifest entry that the
+        deploy provisioning path (create_resource_from_manifest) consumes.
+        The entry is marked ``client_mode: True`` so consumers that generate
+        worker code (handler generators, local preview) skip it.
+        """
+        client_endpoints = (
+            getattr(self.scanner, "client_endpoints", None) if self.scanner else None
+        )
+        if not client_endpoints:
+            return
+
+        for name in sorted(client_endpoints):
+            if name in resources_dict:
+                raise ValueError(
+                    f"endpoint '{name}' is defined as both a client-mode "
+                    f"Endpoint(image=...) and a decorated resource. "
+                    f"each endpoint name must be unique across the project."
+                )
+
+            info = client_endpoints[name]
+
+            file_path_str, local_path_prefix, resource_module_path = (
+                self._derive_path_fields(
+                    info.get("file_path"), project_root, info.get("module_path", "")
+                )
+            )
+
+            deployment_config, resource_type = self._extract_client_deployment_config(
+                name, info
+            )
+
+            resources_dict[name] = {
+                "resource_type": resource_type,
+                "file_path": file_path_str,
+                "local_path_prefix": local_path_prefix,
+                "module_path": resource_module_path,
+                "functions": [],
+                "is_load_balanced": False,
+                "is_live_resource": True,
+                "config_variable": info.get("var_name"),
+                "makes_remote_calls": False,
+                "client_mode": True,
+                **deployment_config,
+            }
+
+    def _extract_client_deployment_config(
+        self, resource_name: str, info: Dict[str, Any]
+    ) -> tuple[Dict[str, Any], str]:
+        """Extract deployment config from a client-mode Endpoint instance.
+
+        Returns (config, resource_type). resource_type is the concrete
+        resource class name (e.g. "LiveServerless") when
+        create_resource_from_manifest can rebuild it; otherwise it falls back
+        to "Endpoint", which the provisioner resolves via gpuIds.
+        """
+        config: Dict[str, Any] = {}
+        resource_type = "Endpoint"
+
+        file_path = info.get("file_path")
+        var_name = info.get("var_name")
+
+        try:
+            module, cleanup = (
+                self._import_module(file_path)
+                if file_path and file_path.exists()
+                else (None, None)
+            )
+            if module is not None:
+                try:
+                    ep = getattr(module, var_name, None) if var_name else None
+                    if ep is not None:
+                        mc = getattr(ep, "_max_concurrency", 1)
+                        if mc > 1:
+                            config["max_concurrency"] = mc
+
+                        resource_config = ep._build_resource_config()
+                        self._extract_config_properties(config, resource_config)
+                        type_name = type(resource_config).__name__
+                        # Record the concrete class only when the deploy-time
+                        # provisioner can rebuild it (e.g. "LiveServerless").
+                        # Otherwise keep "Endpoint" and let the provisioner
+                        # resolve GPU vs CPU from gpuIds instead of failing on
+                        # an unsupported class name.
+                        if type_name in PROVISIONABLE_RESOURCE_TYPES:
+                            resource_type = type_name
+                finally:
+                    cleanup()
+        except Exception as e:
+            logger.debug(
+                f"Failed to extract deployment config for client endpoint "
+                f"{resource_name}: {e}"
+            )
+
+        if "imageName" not in config and "templateId" not in config:
+            logger.warning(
+                "Failed to extract image/template for client endpoint "
+                f"'{resource_name}'; the deployed endpoint may not use the "
+                "expected image."
+            )
+
+        return config, resource_type
+
     def _reconcile_python_version(
         self, resources_dict: Dict[str, Dict[str, Any]]
     ) -> str:
@@ -387,24 +527,13 @@ class ManifestBuilder:
 
             # Derive path fields from the first function's source file.
             # All functions in a resource share the same source file per convention.
-            first_file = functions[0].file_path if functions else None
-            file_path_str = ""
-            local_path_prefix = ""
-            resource_module_path = functions[0].module_path if functions else ""
-
-            if first_file and first_file.exists():
-                try:
-                    file_path_str = str(first_file.relative_to(project_root))
-                    local_path_prefix = file_to_url_prefix(first_file, project_root)
-                    resource_module_path = file_to_module_path(first_file, project_root)
-                except ValueError:
-                    # File is outside project root — fall back to module_path
-                    file_path_str = str(first_file)
-                    local_path_prefix = "/" + functions[0].module_path.replace(".", "/")
-            elif first_file:
-                # File path may be relative (in test scenarios)
-                file_path_str = str(first_file)
-                local_path_prefix = "/" + functions[0].module_path.replace(".", "/")
+            file_path_str, local_path_prefix, resource_module_path = (
+                self._derive_path_fields(
+                    functions[0].file_path if functions else None,
+                    project_root,
+                    functions[0].module_path if functions else "",
+                )
+            )
 
             # Validate and collect routing for LB endpoints
             resource_routes = {}
@@ -508,6 +637,8 @@ class ManifestBuilder:
                         f"resources '{function_registry[f.function_name]}' and '{resource_name}'"
                     )
                 function_registry[f.function_name] = resource_name
+
+        self._add_client_endpoints(resources_dict, project_root)
 
         # Reconcile app-level python_version across resources. One tarball serves
         # every resource in an app, so all resources must agree on one version.
