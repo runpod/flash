@@ -286,6 +286,7 @@ class ServerlessResource(DeployableResource):
     type: Optional[ServerlessType] = ServerlessType.QB
     workersMax: Optional[int] = DEFAULT_WORKERS_MAX
     workersMin: Optional[int] = DEFAULT_WORKERS_MIN
+    workersStandby: Optional[int] = None
     workersPFBTarget: Optional[int] = 0
 
     # === Private Attributes ===
