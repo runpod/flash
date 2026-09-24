@@ -112,8 +112,9 @@ class TestRemoteWithLoadBalancerIntegration:
             return {"echo": message}
 
         # Verify resource is correctly configured
-        assert lb.name == "test-live-api"
-        assert "flash-lb" in lb.imageName
+        # Note: name may have "-fb" appended by flash boot validator
+        assert "test-live-api" in lb.name
+        assert "runpod/flash-lb:" in lb.imageName  # GPU LB base image
         assert echo.__remote_config__["method"] == "POST"
 
     def test_live_load_balancer_image_default_and_override(self):
@@ -131,6 +132,16 @@ class TestRemoteWithLoadBalancerIntegration:
         # Guard against a future regression where both paths collapse to the
         # same default (e.g. the override branch reverting to a no-op).
         assert default_lb.imageName != custom_lb.imageName
+
+    def test_live_load_balancer_default_image(self):
+        """Test that LiveLoadBalancer uses GPU LB base image by default."""
+        lb = LiveLoadBalancer(name="test-api")
+        assert "runpod/flash-lb:" in lb.imageName
+
+    def test_live_load_balancer_allows_custom_image(self):
+        """Test that LiveLoadBalancer allows user to set custom image (BYOI)."""
+        lb = LiveLoadBalancer(name="test-api", imageName="custom-image:latest")
+        assert lb.imageName == "custom-image:latest"
 
     def test_load_balancer_vs_queue_based_endpoints(self):
         """Test that LB and QB endpoints have different characteristics."""
@@ -160,48 +171,50 @@ class TestRemoteWithLoadBalancerIntegration:
         assert qb_func.__remote_config__["path"] is None
 
     def test_scanner_discovers_load_balancer_resources(self):
-        """Test that scanner can discover LiveLoadBalancer and LoadBalancerSlsResource."""
+        """Test that scanner discovers @Endpoint load-balanced route handlers."""
         from runpod_flash.cli.commands.build_utils.scanner import RuntimeScanner
         from pathlib import Path
         import tempfile
 
-        # Create temporary Python file with LoadBalancer resource
+        # Uses the current @Endpoint API (remote is deprecated). The worker file
+        # must NOT be named test_*.py — the scanner skips test files, so a
+        # test-prefixed fixture would yield zero discovered functions.
         code = """
-from runpod_flash import LiveLoadBalancer, LoadBalancerSlsResource, remote
+from runpod_flash.endpoint import Endpoint
+from runpod_flash.core.resources.gpu import GpuGroup
 
-# Test LiveLoadBalancer discovery
-api = LiveLoadBalancer(name="test-api")
+api = Endpoint(name="test-api", gpu=GpuGroup.AMPERE_16)
 
-@remote(api, method="POST", path="/api/process")
+@api.post("/api/process")
 async def process_data(x: int):
     return {"result": x}
 
-# Test LoadBalancerSlsResource discovery
-deployed = LoadBalancerSlsResource(name="deployed-api", imageName="test:latest")
+status_api = Endpoint(name="deployed-api", gpu=GpuGroup.AMPERE_16)
 
-@remote(deployed, method="GET", path="/api/status")
+@status_api.get("/api/status")
 def get_status():
     return {"status": "ok"}
 """
 
         with tempfile.TemporaryDirectory() as tmpdir:
             project_dir = Path(tmpdir)
-            py_file = project_dir / "api_worker.py"
+            py_file = project_dir / "worker_api.py"
             py_file.write_text(code)
 
             scanner = RuntimeScanner(project_dir)
             functions = scanner.discover_remote_functions()
 
-            # Verify both resources were discovered
+            # Both LB route handlers are discovered.
             assert len(functions) == 2
 
-            # Verify resource types are correctly identified
-            resource_types = {f.resource_type for f in functions}
-            assert "LiveLoadBalancer" in resource_types
-            assert "LoadBalancerSlsResource" in resource_types
+            # Endpoint(gpu=...) with route handlers resolves to LiveLoadBalancer.
+            assert {f.resource_type for f in functions} == {"LiveLoadBalancer"}
+            assert all(f.is_load_balanced for f in functions)
 
-            # Verify resource configs were extracted
-            assert "test-api" in scanner.resource_types
+            # HTTP method and path are captured per route.
+            routes = {(f.http_method, f.http_path) for f in functions}
+            assert routes == {("POST", "/api/process"), ("GET", "/api/status")}
+
+            # Resource configs are tracked by name.
             assert scanner.resource_types["test-api"] == "LiveLoadBalancer"
-            assert "deployed-api" in scanner.resource_types
-            assert scanner.resource_types["deployed-api"] == "LoadBalancerSlsResource"
+            assert scanner.resource_types["deployed-api"] == "LiveLoadBalancer"
