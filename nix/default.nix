@@ -28,10 +28,6 @@ let
   # runpod (and its transitive tqdm-loggable) are not in nixpkgs; built from PyPI.
   runpod = import ./packages/runpod.nix { inherit pkgs lib python; };
 
-  # One interpreter env — flash's runtime deps + the test/typecheck toolchain —
-  # shared by the dev shell and the hermetic pytest check.
-  pythonEnv = import ./python/env.nix { inherit python runpod; };
-
   # The packaged flash CLI (packages.default / apps.default).
   flash = import ./packages/flash.nix {
     inherit
@@ -43,7 +39,18 @@ let
       ;
   };
 
-  devShell = import ./dev/shell.nix { inherit pkgs lib pythonEnv; };
+  # Shared interpreter env for development and the hermetic pytest check.
+  pythonEnv = import ./python/env.nix { inherit python runpod; };
+
+  devShell = import ./dev/shell.nix {
+    inherit
+      pkgs
+      lib
+      python
+      pythonEnv
+      flash
+      ;
+  };
 
   checks = import ./checks {
     inherit

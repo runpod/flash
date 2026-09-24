@@ -7,8 +7,8 @@
 # targets.
 #
 # Everything comes from Nix. There is no `uv sync` and no virtualenv to
-# materialize — the interpreter on PATH already imports `runpod_flash` (from
-# ./src) and every dependency, so `pytest`/`mypy` run directly.
+# materialize — the interpreter on PATH already imports `runpod_flash` and
+# every dependency, so `pytest`/`mypy` run directly.
 #
 # The `check-*` helpers and the help table are BOTH generated from the single
 # command list in ./commands.nix, so that list is written exactly once.
@@ -16,7 +16,9 @@
 {
   pkgs,
   lib,
+  python,
   pythonEnv,
+  flash,
 }:
 let
   commands = import ./commands.nix;
@@ -26,6 +28,7 @@ let
   # straight from the flake.lock-pinned nixpkgs.
   devPackages = [
     pythonEnv
+    flash
     pkgs.ruff
     pkgs.bandit
     pkgs.shellcheck
@@ -55,7 +58,7 @@ let
       "    flash dev shell — Python 3.14, all-Nix (no uv, no venv)"
       ""
       "    The interpreter on PATH already has flash + every dependency and the"
-      "    test toolchain. runpod_flash imports from ./src directly; run the tools:"
+      "    test toolchain. In a checkout, ./src takes precedence; run the tools:"
       ""
       "    Checks (run against the project config):"
     ]
@@ -74,8 +77,13 @@ pkgs.mkShell {
   packages = devPackages;
 
   shellHook = ''
-    # Make the in-tree package importable without an install step (src layout).
-    export PYTHONPATH="$PWD/src''${PYTHONPATH:+:$PYTHONPATH}"
+    # In a checkout, use the current source. Outside one, use the installed
+    # Flash package (e.g. `nix develop github:runpod/flash`).
+    if [ -d "$PWD/src/runpod_flash" ]; then
+      export PYTHONPATH="$PWD/src:${flash}/${python.sitePackages}''${PYTHONPATH:+:$PYTHONPATH}"
+    else
+      export PYTHONPATH="${flash}/${python.sitePackages}''${PYTHONPATH:+:$PYTHONPATH}"
+    fi
 
     ${funcDefs}
     check-all() { ${checkAllChain}; }

@@ -76,7 +76,7 @@ nix run github:runpod/flash -- --help
 # Install flash onto your PATH
 nix profile install github:runpod/flash
 
-# Drop into the full dev shell
+# Drop into the full dev shell (Flash is installed; clone for source checks)
 nix develop github:runpod/flash
 
 # Run the hermetic checks
@@ -107,7 +107,7 @@ nix run   .#default -- --help
 
 ### Dev shell helpers
 
-Entering `nix develop` prints a banner (`flash-help` re-prints it). The shell provides Python 3.14 with flash's full dependency + test graph already importable — **no `uv sync`, no virtualenv to materialize.** `runpod_flash` imports directly from `./src`, so the helpers just run the tools:
+Entering `nix develop` prints a banner (`flash-help` re-prints it). The shell provides Python 3.14 with Flash and its full dependency + test graph already importable — **no `uv sync`, no virtualenv to materialize.** In a checkout, `runpod_flash` imports directly from `./src`; otherwise it imports the packaged Flash. The `check-*` helpers run against the current directory, so clone the repo before using them:
 
 | Helper | Runs |
 |--------|------|

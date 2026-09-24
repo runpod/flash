@@ -4,7 +4,7 @@
 # The project's Python environment, built entirely from Nix — no uv, no
 # virtualenv, no PyPI fetch at dev/test time. This single interpreter env
 # carries flash's runtime dependencies (from ./deps.nix) plus the test/typecheck
-# toolchain, so it backs both the dev shell and the hermetic `pytest` check.
+# toolchain, so it backs the dev shell and the hermetic `pytest` check.
 #
 # `runpod` and its transitive `tqdm-loggable` come from ../packages/ (not yet in
 # nixpkgs); everything else is stock nixpkgs for the pinned interpreter.
