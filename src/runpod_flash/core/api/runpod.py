@@ -860,19 +860,26 @@ class RunpodGraphQLClient:
         result = await self._execute_graphql(mutation)
         return result.get("createFlashAuthRequest", {})
 
-    async def get_flash_auth_request_status(self, request_id: str) -> Dict[str, Any]:
+    async def verify_api_key(self) -> bool:
         query = """
-        query flashAuthRequestStatus($flashAuthRequestId: String!) {
-            flashAuthRequestStatus(flashAuthRequestId: $flashAuthRequestId) {
-                id
-                status
-                expiresAt
-                apiKey
+        query verifyApiKey {
+            myself {
+                __typename
             }
         }
         """
-        result = await self._execute_graphql(query, {"flashAuthRequestId": request_id})
-        return result.get("flashAuthRequestStatus", {})
+        try:
+            result = await self._execute_graphql(query)
+        except (
+            _GraphQLHTTPStatusError,
+            _GraphQLNetworkError,
+            _GraphQLErrorResponse,
+            asyncio.TimeoutError,
+        ) as exc:
+            log.debug("Failed to verify Runpod API key: %s", exc)
+            return False
+
+        return isinstance(result.get("myself"), dict)
 
     async def close(self):
         """Close the HTTP session."""

@@ -1,6 +1,4 @@
 import asyncio
-import datetime as dt
-from typing import Optional
 
 import typer
 from rich.console import Console
@@ -15,20 +13,8 @@ from runpod_flash.core.urls import RUNPOD_CONSOLE_URL
 
 console = Console()
 
-POLL_INTERVAL_SECONDS = 2.0
-DEFAULT_TIMEOUT_SECONDS = 600.0
 
-
-def _parse_expires_at(value: Optional[str]) -> Optional[dt.datetime]:
-    if not value:
-        return None
-    try:
-        return dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-
-
-async def _login(open_browser: bool, timeout_seconds: float) -> None:
+async def _login(open_browser: bool) -> None:
     async with RunpodGraphQLClient(require_api_key=False) as client:
         request = await client.create_flash_auth_request()
         request_id = request.get("id")
@@ -45,46 +31,40 @@ async def _login(open_browser: bool, timeout_seconds: float) -> None:
         if open_browser:
             typer.launch(auth_url)
 
-        expires_at = _parse_expires_at(request.get("expiresAt"))
-        deadline = dt.datetime.now(dt.timezone.utc) + dt.timedelta(
-            seconds=timeout_seconds
+    api_key = console.input(
+        "Paste the API key shown after authorization: ", password=True
+    ).strip()
+
+    if not api_key:
+        raise RuntimeError(
+            "no api key provided. copy the key shown in the browser after approval "
+            "and paste it here."
         )
-        if expires_at and expires_at < deadline:
-            deadline = expires_at
+    if not api_key.startswith("rpa_"):
+        raise RuntimeError("invalid api key format. Runpod API keys start with rpa_.")
 
-        with console.status("[dim]Waiting for authorization...[/dim]"):
-            while True:
-                status_payload = await client.get_flash_auth_request_status(request_id)
-                status = status_payload.get("status")
-                api_key = status_payload.get("apiKey")
+    async with RunpodGraphQLClient(api_key=api_key) as client:
+        if not await client.verify_api_key():
+            raise RuntimeError(
+                "api key could not be verified. Check the pasted key and try again."
+            )
 
-                if api_key and status in {"APPROVED", "CONSUMED"}:
-                    check_and_migrate_legacy_credentials()
-                    path = save_api_key(api_key)
-                    console.print(
-                        f"[green]Logged in.[/green] Credentials saved to [dim]{path}[/dim]"
-                    )
-                    console.print()
-                    return
-
-                if status in {"DENIED", "EXPIRED", "CONSUMED"}:
-                    raise RuntimeError(f"login failed: {status.lower()}")
-
-                if dt.datetime.now(dt.timezone.utc) >= deadline:
-                    raise RuntimeError("login timed out")
-
-                await asyncio.sleep(POLL_INTERVAL_SECONDS)
+    check_and_migrate_legacy_credentials()
+    path = save_api_key(api_key)
+    console.print(f"[green]Logged in.[/green] Credentials saved to [dim]{path}[/dim]")
+    console.print()
 
 
 def login_command(
     no_open: bool = typer.Option(False, "--no-open", help="do not open the browser"),
-    timeout: float = typer.Option(
-        DEFAULT_TIMEOUT_SECONDS, "--timeout", help="max wait time in seconds"
-    ),
 ):
     """Authenticate and save a Runpod API key for flash."""
     try:
-        asyncio.run(_login(open_browser=not no_open, timeout_seconds=timeout))
+        asyncio.run(_login(open_browser=not no_open))
     except RuntimeError as exc:
         print_error(console, str(exc))
         raise typer.Exit(code=1)
+    except KeyboardInterrupt:
+        console.print()
+        print_error(console, "login cancelled")
+        raise typer.Exit(code=130)
