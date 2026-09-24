@@ -51,10 +51,35 @@ def get_api_key() -> Optional[str]:
         creds = get_credentials()
     except Exception:
         log.debug("Failed to read credentials file", exc_info=True)
-        return None
-    if creds and isinstance(creds.get("api_key"), str) and creds["api_key"].strip():
-        return creds["api_key"]
+    else:
+        if creds and isinstance(creds.get("api_key"), str) and creds["api_key"].strip():
+            return creds["api_key"]
 
+    return _get_runpodctl_api_key()
+
+
+def _get_runpodctl_api_key() -> Optional[str]:
+    """Read runpodctl's top-level `apikey` from the config file.
+
+    runpodctl writes a top-level `apikey` (and `apiurl`) key with no profile
+    table, which runpod-python's profile-based lookup cannot see. Fall back to
+    parsing the file directly so a config written by runpodctl authenticates
+    flash. Returns None when the file or key is missing, malformed, or blank.
+    """
+    try:
+        import tomllib
+    except ImportError:
+        import tomli as tomllib
+
+    try:
+        with get_credentials_path().open("rb") as f:
+            data = tomllib.load(f)
+    except (OSError, ValueError):
+        log.debug("Failed to read credentials file for runpodctl apikey", exc_info=True)
+        return None
+    api_key = data.get("apikey")
+    if isinstance(api_key, str) and api_key.strip():
+        return api_key
     return None
 
 

@@ -11,6 +11,8 @@ if sys.version_info >= (3, 11):
 else:
     import tomli as tomllib
 
+import pytest
+
 from runpod_flash.core.credentials import (
     get_api_key,
     get_credentials_path,
@@ -56,6 +58,37 @@ class TestGetApiKey:
         isolate_credentials_file.parent.mkdir(parents=True, exist_ok=True)
         isolate_credentials_file.write_text("not valid toml {{{{")
         assert get_api_key() is None
+
+    def test_falls_back_to_runpodctl_top_level_apikey(self, isolate_credentials_file):
+        """A config.toml written by runpodctl (top-level `apikey`, no [default]
+        profile) must authenticate flash."""
+        isolate_credentials_file.parent.mkdir(parents=True, exist_ok=True)
+        isolate_credentials_file.write_text(
+            "apikey = 'rpa_runpodctl_key'\napiurl = 'https://api.runpod.io/graphql'\n"
+        )
+        assert get_api_key() == "rpa_runpodctl_key"
+
+    def test_default_profile_takes_precedence_over_runpodctl_apikey(
+        self, isolate_credentials_file
+    ):
+        isolate_credentials_file.parent.mkdir(parents=True, exist_ok=True)
+        isolate_credentials_file.write_text(
+            "apikey = 'rpa_runpodctl_key'\n[default]\napi_key = 'flash-key'\n"
+        )
+        assert get_api_key() == "flash-key"
+
+    def test_ignores_blank_runpodctl_apikey(self, isolate_credentials_file):
+        isolate_credentials_file.parent.mkdir(parents=True, exist_ok=True)
+        isolate_credentials_file.write_text("apikey = '  '\n")
+        assert get_api_key() is None
+
+    def test_no_file_still_raises_runpod_api_key_error(self, isolate_credentials_file):
+        """With no credentials file at all, validation must raise."""
+        from runpod_flash.core.exceptions import RunpodAPIKeyError
+        from runpod_flash.core.validation import validate_api_key
+
+        with pytest.raises(RunpodAPIKeyError):
+            validate_api_key()
 
 
 class TestSaveApiKey:
