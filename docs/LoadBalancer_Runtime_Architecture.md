@@ -38,6 +38,7 @@ from runpod_flash import Endpoint
 
 api = Endpoint(name="my-api", cpu="cpu3c-4-8", workers=(1, 5))
 
+
 @api.post("/api/process")
 async def process_data(x: int, y: int):
     return {"result": x + y}
@@ -78,9 +79,11 @@ sequenceDiagram
 # user code
 api = Endpoint(name="my-api", cpu="cpu3c-4-8", workers=(1, 5))
 
+
 @api.post("/api/process")
 async def process_data(x: int, y: int):
     return {"result": x + y}
+
 
 # client request
 # POST https://{endpoint-id}.api.runpod.ai/api/process
@@ -143,8 +146,10 @@ Runpod scales workers based on the `REQUEST_COUNT` scaler:
 @api.post("/api/process")
 async def process_data(x: int):
     import asyncio
+
     await asyncio.sleep(10)  # simulate work
     return {"result": x}
+
 
 # 5 concurrent requests:
 # requests 1-3: concurrent on worker 1 (async)
@@ -173,6 +178,7 @@ async def create_user(name: str):
     if not name:
         raise ValueError("Name required")
     return {"id": 1, "name": name}
+
 
 # POST with {"name": ""}
 # Response: 500 Internal Server Error

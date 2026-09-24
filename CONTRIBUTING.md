@@ -19,6 +19,14 @@ cd runpod-flash
 make dev
 ```
 
+Alternatively, use Nix (flakes) for a one-command, reproducible toolchain:
+
+```bash
+nix develop      # dev shell: Python 3.14, uv, ruff, mypy, bandit, shellcheck
+                 # run `flash-help` inside for the available check-* helpers
+nix flake check  # hermetic gate: ruff lint + format, nixfmt, shellcheck
+```
+
 ### Environment Configuration
 
 Create a `.env` file in the project root:
@@ -57,6 +65,7 @@ All functions must have type hints:
 def process_data(items: list[dict[str, Any]]) -> pd.DataFrame:
     """Process items and return DataFrame."""
     pass
+
 
 # Not acceptable
 def process_data(items):

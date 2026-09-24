@@ -24,9 +24,15 @@ Each resource computes a hash excluding runtime-assigned fields:
 ```python
 # fields excluded from hash (assigned by API, not user config)
 RUNTIME_FIELDS = {
-    "template", "templateId", "aiKey", "userId",
-    "createdAt", "activeBuildid", "computeType",
-    "hubRelease", "repo",
+    "template",
+    "templateId",
+    "aiKey",
+    "userId",
+    "createdAt",
+    "activeBuildid",
+    "computeType",
+    "hubRelease",
+    "repo",
 }
 
 EXCLUDED_HASH_FIELDS = {"id"}
@@ -98,9 +104,18 @@ CPU LoadBalancers hash only CPU-relevant fields:
 ```python
 # CPU LB only hashes these fields:
 cpu_fields = {
-    "datacenter", "flashboot", "imageName", "networkVolume",
-    "instanceIds", "workersMin", "workersMax", "scalerType",
-    "scalerValue", "type", "idleTimeout", "executionTimeoutMs",
+    "datacenter",
+    "flashboot",
+    "imageName",
+    "networkVolume",
+    "instanceIds",
+    "workersMin",
+    "workersMax",
+    "scalerType",
+    "scalerValue",
+    "type",
+    "idleTimeout",
+    "executionTimeoutMs",
     "locations",
 }
 ```
@@ -112,19 +127,24 @@ GPU-specific fields (`gpuIds`, `gpuCount`, `allowedCudaVersions`, `minCudaVersio
 ```python
 from runpod_flash import Endpoint, GpuGroup
 
+
 # first deploy: hash stored
 @Endpoint(name="inference", gpu=GpuGroup.AMPERE_80, workers=(0, 5))
 async def infer(data: dict) -> dict:
     return {"result": data}
 
+
 # flash deploy -> creates endpoint, stores hash abc123
+
 
 # later: change workers
 @Endpoint(name="inference", gpu=GpuGroup.AMPERE_80, workers=(1, 10))
 async def infer(data: dict) -> dict:
     return {"result": data}
 
+
 # flash deploy -> detects drift (abc123 != def456), updates endpoint
+
 
 # later: change only env (no drift)
 @Endpoint(
@@ -135,6 +155,7 @@ async def infer(data: dict) -> dict:
 )
 async def infer(data: dict) -> dict:
     return {"result": data}
+
 
 # flash deploy -> no drift detected, endpoint not redeployed
 ```
@@ -149,10 +170,12 @@ def test_same_config_same_hash():
     lb2 = LoadBalancerSlsResource(name="test", imageName="img:latest")
     assert lb1.config_hash == lb2.config_hash
 
+
 def test_image_change_triggers_drift():
     lb1 = LoadBalancerSlsResource(name="test", imageName="img:v1")
     lb2 = LoadBalancerSlsResource(name="test", imageName="img:v2")
     assert lb1.config_hash != lb2.config_hash
+
 
 def test_template_excluded():
     lb = LoadBalancerSlsResource(name="test", imageName="img:latest")

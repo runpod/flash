@@ -21,20 +21,24 @@ All GPU provisioning is configured through the `Endpoint` class:
 ```python
 from runpod_flash import Endpoint, GpuGroup, GpuType
 
+
 # architecture-level GPU selection (GpuGroup)
 @Endpoint(name="inference", gpu=GpuGroup.AMPERE_80, workers=(0, 5))
 async def infer(data: dict) -> dict:
     return {"result": data}
+
 
 # specific GPU model (GpuType)
 @Endpoint(name="rtx-worker", gpu=GpuType.NVIDIA_GEFORCE_RTX_4090)
 async def render(data: dict) -> dict:
     return {"result": data}
 
+
 # multiple GPU groups for fallback
 @Endpoint(name="flexible", gpu=[GpuGroup.AMPERE_80, GpuGroup.ADA_80_PRO])
 async def flexible(data: dict) -> dict:
     return {"result": data}
+
 
 # multi-GPU per worker
 @Endpoint(name="large-model", gpu=GpuGroup.HOPPER_141, gpu_count=2)
@@ -87,9 +91,9 @@ GPU provisioning is managed through a worker scaling model:
 @Endpoint(
     name="ml-server",
     gpu=GpuGroup.AMPERE_80,
-    workers=(1, 10),          # 1-10 workers, each with 1x A100
-    gpu_count=1,              # GPUs per worker (default 1)
-    scaler_value=4,           # scale up when queue delay > 4s
+    workers=(1, 10),  # 1-10 workers, each with 1x A100
+    gpu_count=1,  # GPUs per worker (default 1)
+    scaler_value=4,  # scale up when queue delay > 4s
 )
 async def serve(data: dict) -> dict:
     return {"result": data}
@@ -106,6 +110,7 @@ The scaler type is auto-selected based on usage pattern. QB endpoints default to
 
 ```python
 from runpod_flash import Endpoint, GpuGroup, ServerlessScalerType
+
 
 @Endpoint(
     name="custom-scaling",
@@ -183,9 +188,10 @@ The system supports querying GPU metadata for pricing and availability:
 
 ```python
 class GpuType(BaseModel):
-    id: str                 # unique GPU identifier
-    displayName: str        # human-readable name
-    memoryInGb: int         # GPU memory capacity
+    id: str  # unique GPU identifier
+    displayName: str  # human-readable name
+    memoryInGb: int  # GPU memory capacity
+
 
 class GpuTypeDetail(GpuType):
     communityCloud: Optional[bool]
@@ -204,6 +210,7 @@ class GpuTypeDetail(GpuType):
 ```python
 from runpod_flash import Endpoint, GpuGroup
 
+
 @Endpoint(name="gpu-inference", gpu=GpuGroup.AMPERE_24, workers=(0, 5))
 async def inference(data: dict) -> dict:
     return {"result": data}
@@ -213,6 +220,7 @@ async def inference(data: dict) -> dict:
 
 ```python
 from runpod_flash import Endpoint, GpuGroup, ServerlessScalerType
+
 
 @Endpoint(
     name="high-throughput",
@@ -229,6 +237,7 @@ async def high_throughput(data: dict) -> dict:
 
 ```python
 from runpod_flash import Endpoint, GpuGroup
+
 
 @Endpoint(
     name="large-model",

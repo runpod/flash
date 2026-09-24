@@ -53,6 +53,7 @@ flash deploy --env production
 # gpu_worker.py
 from runpod_flash import Endpoint, GpuGroup
 
+
 @Endpoint(
     name="gpu-worker",
     gpu=GpuGroup.AMPERE_80,
@@ -62,6 +63,7 @@ from runpod_flash import Endpoint, GpuGroup
 async def predict(data: dict) -> dict:
     import torch
     from transformers import pipeline
+
     pipe = pipeline("text-generation", device="cuda")
     return pipe(data["prompt"])[0]
 ```
@@ -72,6 +74,7 @@ async def predict(data: dict) -> dict:
 # model_server.py
 from runpod_flash import Endpoint, GpuGroup
 
+
 @Endpoint(
     name="model-server",
     gpu=GpuGroup.AMPERE_80,
@@ -81,6 +84,7 @@ class ModelServer:
     def __init__(self):
         import torch
         from transformers import pipeline
+
         self.pipe = pipeline("text-generation", device="cuda")
 
     def predict(self, prompt: str) -> dict:
@@ -106,9 +110,11 @@ from runpod_flash import Endpoint, GpuGroup
 
 api = Endpoint(name="api-gateway", cpu="cpu3c-4-8", workers=(1, 5))
 
+
 @api.post("/predict")
 async def predict(data: dict) -> dict:
     return {"result": data}
+
 
 @api.get("/health")
 async def health():
@@ -121,9 +127,11 @@ async def health():
 # data_worker.py
 from runpod_flash import Endpoint
 
+
 @Endpoint(name="data-worker", cpu="cpu3c-4-8", dependencies=["pandas"])
 async def process(data: dict) -> dict:
     import pandas as pd
+
     df = pd.DataFrame(data["records"])
     return {"summary": df.describe().to_dict()}
 ```
@@ -269,12 +277,15 @@ flash deploy --env production
 # cpu_preprocess.py
 from runpod_flash import Endpoint
 
+
 @Endpoint(name="preprocess", cpu="cpu3c-4-8")
 def preprocess(data: dict) -> dict:
     return {"cleaned": data}
 
+
 # gpu_inference.py
 from runpod_flash import Endpoint, GpuGroup
+
 
 @Endpoint(name="inference", gpu=GpuGroup.AMPERE_80, dependencies=["torch"])
 async def infer(data: dict) -> dict:
@@ -309,6 +320,7 @@ from runpod_flash import Endpoint, GpuGroup, DataCenter, NetworkVolume, PodTempl
 
 vol = NetworkVolume(name="model-cache", size=100, datacenter=DataCenter.US_GA_1)
 
+
 @Endpoint(
     name="model-server",
     gpu=GpuGroup.AMPERE_80,
@@ -329,14 +341,14 @@ volumes = [
     NetworkVolume(name="models-eu", size=100, datacenter=DataCenter.EU_RO_1),
 ]
 
+
 @Endpoint(
     name="global-server",
     gpu=GpuGroup.AMPERE_80,
     datacenter=[DataCenter.US_GA_1, DataCenter.EU_RO_1],
     volume=volumes,
 )
-async def serve(data: dict) -> dict:
-    ...
+async def serve(data: dict) -> dict: ...
 ```
 
 Network volume lifecycle:
