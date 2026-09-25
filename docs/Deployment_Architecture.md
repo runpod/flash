@@ -98,6 +98,7 @@ The handler generator (`cli/commands/build_utils/handler_generator.py`) produces
 # generated handler for QB function endpoints
 from module_path import function_name
 
+
 def handler(job):
     job_input = job["input"]
     result = function_name(job_input)
@@ -111,6 +112,7 @@ from module_path import ClassName
 
 _instance = ClassName()
 _METHODS = {"predict": _instance.predict, "embed": _instance.embed}
+
 
 def handler(job):
     job_input = job["input"]
