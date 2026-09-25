@@ -164,103 +164,166 @@ class TestFetchPypiMetadata:
                 _fetch_pypi_metadata()
 
 
+TOOL_DIR = "/home/u/.local/share/uv/tools"
+
+
 class TestIsUvToolInstall:
-    def test_true_when_prefix_under_tool_dir(self):
-        with (
-            patch(
-                "runpod_flash.cli.commands.update.subprocess.run",
-                return_value=MagicMock(
-                    returncode=0, stdout="/home/u/.local/share/uv/tools\n"
-                ),
+    @pytest.mark.parametrize(
+        "description, run_result, prefix, expected",
+        [
+            (
+                "positive: prefix under tool dir -> tool install",
+                MagicMock(returncode=0, stdout=f"{TOOL_DIR}\n"),
+                f"{TOOL_DIR}/runpod-flash",
+                True,
             ),
-            patch(
-                "runpod_flash.cli.commands.update.sys.prefix",
-                "/home/u/.local/share/uv/tools/runpod-flash",
-            ),
-        ):
-            assert _is_uv_tool_install() is True
-
-    def test_false_when_prefix_outside_tool_dir(self):
-        with (
-            patch(
-                "runpod_flash.cli.commands.update.subprocess.run",
-                return_value=MagicMock(
-                    returncode=0, stdout="/home/u/.local/share/uv/tools\n"
-                ),
-            ),
-            patch(
-                "runpod_flash.cli.commands.update.sys.prefix",
+            (
+                "negative: venv prefix outside tool dir -> not a tool install",
+                MagicMock(returncode=0, stdout=f"{TOOL_DIR}\n"),
                 "/home/u/project/.venv",
+                False,
             ),
+            (
+                "boundary: prefix equals tool dir exactly (is_relative_to self)",
+                MagicMock(returncode=0, stdout=f"{TOOL_DIR}\n"),
+                TOOL_DIR,
+                True,
+            ),
+            (
+                "corner: `uv tool dir` exits non-zero -> fail closed",
+                MagicMock(returncode=1, stdout=""),
+                "/irrelevant",
+                False,
+            ),
+            (
+                "corner: `uv tool dir` empty output -> fail closed",
+                MagicMock(returncode=0, stdout="\n"),
+                "/irrelevant",
+                False,
+            ),
+        ],
+    )
+    def test_detection(self, description, run_result, prefix, expected):
+        with (
+            patch(
+                "runpod_flash.cli.commands.update.subprocess.run",
+                return_value=run_result,
+            ),
+            patch("runpod_flash.cli.commands.update.sys.prefix", prefix),
         ):
-            assert _is_uv_tool_install() is False
+            assert _is_uv_tool_install() is expected, description
 
-    def test_false_when_uv_tool_dir_fails(self):
-        with patch(
-            "runpod_flash.cli.commands.update.subprocess.run",
-            side_effect=OSError("uv not found"),
-        ):
-            assert _is_uv_tool_install() is False
-
-    def test_false_when_uv_tool_dir_empty(self):
-        with patch(
-            "runpod_flash.cli.commands.update.subprocess.run",
-            return_value=MagicMock(returncode=0, stdout="\n"),
-        ):
-            assert _is_uv_tool_install() is False
+    @pytest.mark.parametrize(
+        "description, exc",
+        [
+            (
+                "corner: uv missing raises OSError -> fail closed",
+                OSError("uv not found"),
+            ),
+            (
+                "corner: `uv tool dir` times out -> fail closed",
+                subprocess.TimeoutExpired(cmd="uv", timeout=10),
+            ),
+        ],
+    )
+    def test_detection_subprocess_errors(self, description, exc):
+        with patch("runpod_flash.cli.commands.update.subprocess.run", side_effect=exc):
+            assert _is_uv_tool_install() is False, description
 
 
 class TestBuildInstallCommand:
-    def test_uv_tool_install_when_tool_managed(self):
-        """uv tool installs must be upgraded via `uv tool install --force`."""
+    @pytest.mark.parametrize(
+        "description, which_uv, is_tool, pinned, expected",
+        [
+            (
+                "uv tool + pinned -> `uv tool install ==X --force`",
+                "/usr/bin/uv",
+                True,
+                True,
+                ["uv", "tool", "install", "runpod-flash==1.5.0", "--force", "--quiet"],
+            ),
+            (
+                "uv tool + latest -> `uv tool install @latest --force` (unpinned "
+                "receipt so `uv tool upgrade` keeps working)",
+                "/usr/bin/uv",
+                True,
+                False,
+                ["uv", "tool", "install", "runpod-flash@latest", "--force", "--quiet"],
+            ),
+            (
+                "uv + venv + pinned -> `uv pip install ==X --python`",
+                "/usr/bin/uv",
+                False,
+                True,
+                [
+                    "uv",
+                    "pip",
+                    "install",
+                    "runpod-flash==1.5.0",
+                    "--python",
+                    sys.executable,
+                    "--quiet",
+                ],
+            ),
+            (
+                "uv + venv + latest -> `uv pip install ==X --python` (no receipt "
+                "to pin, so resolved version is fine)",
+                "/usr/bin/uv",
+                False,
+                False,
+                [
+                    "uv",
+                    "pip",
+                    "install",
+                    "runpod-flash==1.5.0",
+                    "--python",
+                    sys.executable,
+                    "--quiet",
+                ],
+            ),
+            (
+                "no uv + pinned -> plain pip fallback",
+                None,
+                False,
+                True,
+                [
+                    sys.executable,
+                    "-m",
+                    "pip",
+                    "install",
+                    "runpod-flash==1.5.0",
+                    "--quiet",
+                ],
+            ),
+            (
+                "no uv + latest -> plain pip fallback",
+                None,
+                False,
+                False,
+                [
+                    sys.executable,
+                    "-m",
+                    "pip",
+                    "install",
+                    "runpod-flash==1.5.0",
+                    "--quiet",
+                ],
+            ),
+        ],
+    )
+    def test_command_selection(self, description, which_uv, is_tool, pinned, expected):
         with (
             patch(
-                "runpod_flash.cli.commands.update.shutil.which",
-                return_value="/usr/bin/uv",
+                "runpod_flash.cli.commands.update.shutil.which", return_value=which_uv
             ),
             patch(
                 "runpod_flash.cli.commands.update._is_uv_tool_install",
-                return_value=True,
+                return_value=is_tool,
             ),
         ):
-            cmd = _build_install_command("1.5.0")
-        assert cmd == [
-            "uv",
-            "tool",
-            "install",
-            "runpod-flash==1.5.0",
-            "--force",
-            "--quiet",
-        ]
-
-    def test_uv_pip_targets_current_interpreter_in_venv(self):
-        """Non-tool uv installs target sys.executable so cwd doesn't matter."""
-        with (
-            patch(
-                "runpod_flash.cli.commands.update.shutil.which",
-                return_value="/usr/bin/uv",
-            ),
-            patch(
-                "runpod_flash.cli.commands.update._is_uv_tool_install",
-                return_value=False,
-            ),
-        ):
-            cmd = _build_install_command("1.5.0")
-        assert cmd == [
-            "uv",
-            "pip",
-            "install",
-            "runpod-flash==1.5.0",
-            "--python",
-            sys.executable,
-            "--quiet",
-        ]
-
-    def test_falls_back_to_pip(self):
-        with patch("runpod_flash.cli.commands.update.shutil.which", return_value=None):
-            cmd = _build_install_command("1.5.0")
-        assert cmd[0:3] == [sys.executable, "-m", "pip"]
-        assert "runpod-flash==1.5.0" in cmd
+            assert _build_install_command("1.5.0", pinned=pinned) == expected, (
+                description
+            )
 
 
 class TestRunInstall:
@@ -275,7 +338,7 @@ class TestRunInstall:
                 return_value=["uv", "pip", "install", "runpod-flash==1.5.0", "--quiet"],
             ),
         ):
-            assert _run_install("1.5.0") is result
+            assert _run_install("1.5.0", pinned=True) is result
 
     def test_failure_raises_runtime_error_uv(self):
         result = MagicMock(returncode=1, stderr="No matching distribution")
@@ -295,7 +358,40 @@ class TestRunInstall:
             ),
         ):
             with pytest.raises(RuntimeError, match="uv install failed"):
-                _run_install("99.99.99")
+                _run_install("99.99.99", pinned=True)
+
+    def test_externally_managed_gives_actionable_error(self):
+        """PEP 668 failures point the user at a venv / uv tool install."""
+        result = MagicMock(
+            returncode=1,
+            stderr=(
+                "error: externally-managed-environment\n"
+                "This environment is externally managed"
+            ),
+        )
+        with (
+            patch(
+                "runpod_flash.cli.commands.update.subprocess.run", return_value=result
+            ),
+            patch(
+                "runpod_flash.cli.commands.update._build_install_command",
+                return_value=[
+                    "uv",
+                    "pip",
+                    "install",
+                    "runpod-flash==1.5.0",
+                    "--python",
+                    sys.executable,
+                    "--quiet",
+                ],
+            ),
+        ):
+            with pytest.raises(RuntimeError) as exc_info:
+                _run_install("1.5.0", pinned=False)
+        message = str(exc_info.value)
+        assert "externally managed" in message
+        assert "uv tool install runpod-flash" in message
+        assert "virtual environment" in message
 
     def test_failure_raises_runtime_error_pip(self):
         result = MagicMock(returncode=1, stderr="No matching distribution")
@@ -315,7 +411,7 @@ class TestRunInstall:
             ),
         ):
             with pytest.raises(RuntimeError, match="pip install failed"):
-                _run_install("99.99.99")
+                _run_install("99.99.99", pinned=True)
 
     def test_timeout_propagates(self):
         with (
@@ -329,7 +425,7 @@ class TestRunInstall:
             ),
         ):
             with pytest.raises(subprocess.TimeoutExpired):
-                _run_install("1.5.0")
+                _run_install("1.5.0", pinned=True)
 
 
 # ---------------------------------------------------------------------------
@@ -376,7 +472,7 @@ class TestUpdateCommandHappyPath:
     def test_update_to_latest(self, mock_update_env):
         update_command(version=None)
 
-        mock_update_env["run_install"].assert_called_once_with("1.5.0")
+        mock_update_env["run_install"].assert_called_once_with("1.5.0", pinned=False)
         # Verify success message printed
         calls = [str(c) for c in mock_update_env["console"].print.call_args_list]
         assert any("1.3.0 -> 1.5.0" in c for c in calls)
@@ -384,7 +480,7 @@ class TestUpdateCommandHappyPath:
     def test_update_to_specific_version(self, mock_update_env):
         update_command(version="1.4.0")
 
-        mock_update_env["run_install"].assert_called_once_with("1.4.0")
+        mock_update_env["run_install"].assert_called_once_with("1.4.0", pinned=True)
 
     def test_downgrade_prints_warning(self, mock_update_env):
         mock_update_env["get_version"].return_value = "1.5.0"
@@ -395,7 +491,7 @@ class TestUpdateCommandHappyPath:
 
         update_command(version="1.3.0")
 
-        mock_update_env["run_install"].assert_called_once_with("1.3.0")
+        mock_update_env["run_install"].assert_called_once_with("1.3.0", pinned=True)
         calls = [str(c) for c in mock_update_env["console"].print.call_args_list]
         assert any("downgrade" in c for c in calls)
 
