@@ -8,7 +8,6 @@ import urllib.error
 import urllib.request
 from importlib import metadata
 from pathlib import Path
-from typing import Optional
 
 import typer
 from rich.console import Console
@@ -20,6 +19,13 @@ console = Console()
 PYPI_URL = "https://pypi.org/pypi/runpod-flash/json"
 INSTALL_TIMEOUT_SECONDS = 120
 UV_TOOL_DIR_TIMEOUT_SECONDS = 10
+
+# Substrings pip/uv emit when refusing to modify a PEP 668 externally managed
+# interpreter (Homebrew, Debian/Ubuntu system Python, etc.).
+_EXTERNALLY_MANAGED_MARKERS = (
+    "externally-managed-environment",
+    "externally managed",
+)
 
 
 def _get_current_version() -> str:
@@ -112,6 +118,7 @@ def _is_uv_tool_install() -> bool:
             capture_output=True,
             text=True,
             timeout=UV_TOOL_DIR_TIMEOUT_SECONDS,
+            check=False,  # returncode handled explicitly below
         )
     except (OSError, subprocess.SubprocessError):
         return False
@@ -123,14 +130,24 @@ def _is_uv_tool_install() -> bool:
     return Path(sys.prefix).resolve().is_relative_to(Path(tool_dir).resolve())
 
 
-def _build_install_command(version: str) -> list[str]:
+def _build_install_command(version: str, *, pinned: bool) -> list[str]:
     """Build the install command for flash's own environment.
+
+    Args:
+        version: Resolved target version (e.g. "1.5.0").
+        pinned: True when the user requested an explicit ``--version``. For uv
+            tool installs this controls whether the tool receipt records an
+            exact version pin (see below).
 
     Returns the command as a list of strings suitable for subprocess.run.
     Selects the mechanism that matches how flash was installed:
 
     - uv tool install -> ``uv tool install <spec> --force`` (upgrades the
-      isolated tool environment; works from any directory).
+      isolated tool environment; works from any directory). ``uv tool install``
+      writes the given specifier into the tool's uv receipt, so an unpinned
+      update uses ``runpod-flash@latest`` to keep the receipt unpinned --
+      otherwise a later ``uv tool upgrade`` would report the tool as pinned and
+      refuse to move it. An explicit ``--version`` intentionally pins.
     - uv venv install -> ``uv pip install <spec> --python <sys.executable>``
       (targets flash's interpreter directly, so the current working directory
       does not need to contain a discoverable virtual environment).
@@ -139,7 +156,8 @@ def _build_install_command(version: str) -> list[str]:
     package_spec = f"runpod-flash=={version}"
     if shutil.which("uv"):
         if _is_uv_tool_install():
-            return ["uv", "tool", "install", package_spec, "--force", "--quiet"]
+            tool_spec = package_spec if pinned else "runpod-flash@latest"
+            return ["uv", "tool", "install", tool_spec, "--force", "--quiet"]
         return [
             "uv",
             "pip",
@@ -152,23 +170,42 @@ def _build_install_command(version: str) -> list[str]:
     return [sys.executable, "-m", "pip", "install", package_spec, "--quiet"]
 
 
-def _run_install(version: str) -> subprocess.CompletedProcess[str]:
+def _is_externally_managed_error(stderr: str) -> bool:
+    """Return True when installer stderr signals a PEP 668 externally managed env."""
+    lowered = stderr.lower()
+    return any(marker in lowered for marker in _EXTERNALLY_MANAGED_MARKERS)
+
+
+def _run_install(version: str, *, pinned: bool) -> subprocess.CompletedProcess[str]:
     """Install the given version of runpod-flash.
+
+    Args:
+        version: Resolved target version to install.
+        pinned: Forwarded to :func:`_build_install_command`; True when the user
+            requested an explicit ``--version``.
 
     Raises:
         subprocess.TimeoutExpired: Install took longer than INSTALL_TIMEOUT_SECONDS.
         RuntimeError: Installer exited with non-zero code.
     """
-    cmd = _build_install_command(version)
+    cmd = _build_install_command(version, pinned=pinned)
     result = subprocess.run(
         cmd,
         capture_output=True,
         text=True,
         timeout=INSTALL_TIMEOUT_SECONDS,
+        check=False,  # returncode handled explicitly below
     )
     if result.returncode != 0:
         installer = "uv" if cmd[0] == "uv" else "pip"
         stderr = result.stderr.strip()
+        if _is_externally_managed_error(stderr):
+            raise RuntimeError(
+                f"{installer} install failed (exit {result.returncode}): the target "
+                "Python is an externally managed environment (PEP 668), so it cannot "
+                "be updated in place. Reinstall flash inside a virtual environment or "
+                "with `uv tool install runpod-flash`, then run flash update again."
+            )
         raise RuntimeError(
             f"{installer} install failed (exit {result.returncode}): {stderr}"
         )
@@ -176,7 +213,7 @@ def _run_install(version: str) -> subprocess.CompletedProcess[str]:
 
 
 def update_command(
-    version: Optional[str] = typer.Option(
+    version: str | None = typer.Option(
         None, "--version", "-V", help="Target version to install (default: latest)"
     ),
 ) -> None:
@@ -215,11 +252,11 @@ def update_command(
         except ValueError:
             pass  # non-standard version string, skip comparison
 
-    # Install
+    # Install. An explicit --version pins; a bare `flash update` tracks latest.
     console.print(f"Installing runpod-flash [bold]{target}[/bold]...")
     with console.status("Installing..."):
         try:
-            _run_install(target)
+            _run_install(target, pinned=version is not None)
         except subprocess.TimeoutExpired:
             print_error(
                 console,
