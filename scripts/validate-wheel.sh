@@ -11,7 +11,13 @@ cd "$PROJECT_DIR"
 echo "Building wheel..."
 uv build
 
+# The wheel name is a controlled pattern (runpod_flash-<version>-py3-none-any.whl),
+# so ordering `ls -t` by mtime is safe here — and portable, unlike `find -printf`,
+# which is a GNU extension that macOS BSD find rejects. A lexical sort would also
+# mis-order versions such as 1.9 vs 1.10.
+# shellcheck disable=SC2012
 WHEEL_FILE=$(ls -t dist/runpod_flash-*.whl | head -1)
+[ -n "$WHEEL_FILE" ] || { echo "ERROR: no wheel found in dist/"; exit 1; }
 echo "Testing wheel: $WHEEL_FILE"
 echo ""
 
@@ -63,7 +69,11 @@ fi
 
 echo "Using Python: $($PYTHON_CMD --version)"
 $PYTHON_CMD -m venv test_env
-source test_env/bin/activate
+# Activate the venv without sourcing its activate script: prepend its bin to
+# PATH and export VIRTUAL_ENV so pip/flash resolve to the venv.
+VIRTUAL_ENV="$TEMP_DIR/test_env"
+export VIRTUAL_ENV
+export PATH="$VIRTUAL_ENV/bin:$PATH"
 
 echo "Installing wheel..."
 pip install -q "$PROJECT_DIR/$WHEEL_FILE"
@@ -91,8 +101,7 @@ for file in "${REQUIRED_FILES[@]}"; do
     fi
 done
 
-# Cleanup
-deactivate
+# Cleanup (PATH/VIRTUAL_ENV changes are local to this script's process)
 cd - > /dev/null
 rm -rf "$TEMP_DIR"
 

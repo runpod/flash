@@ -76,9 +76,11 @@ Endpoint(
 ```python
 from runpod_flash import Endpoint, GpuGroup
 
+
 @Endpoint(name="my-worker", gpu=GpuGroup.ADA_24, workers=(0, 3))
 async def process(data: dict) -> dict:
     return {"result": data}
+
 
 # call it
 result = await process({"key": "value"})
@@ -91,6 +93,7 @@ result = await process({"key": "value"})
 class MyModel:
     def __init__(self):
         import torch
+
         self.model = torch.load("/models/model.pt")
 
     def predict(self, text: str) -> dict:
@@ -131,21 +134,26 @@ from runpod_flash import Endpoint
 
 api = Endpoint(name="my-api", cpu="cpu3c-4-8", workers=(1, 5))
 
+
 @api.post("/compute")
 async def compute(data: dict) -> dict:
     return {"result": data}
+
 
 @api.get("/health")
 async def health():
     return {"status": "ok"}
 
+
 @api.put("/items/{item_id}")
 async def update_item(item_id: int, data: dict):
     return {"updated": item_id}
 
+
 @api.delete("/items/{item_id}")
 async def delete_item(item_id: int):
     return {"deleted": item_id}
+
 
 @api.patch("/items/{item_id}")
 async def patch_item(item_id: int, data: dict):

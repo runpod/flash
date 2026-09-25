@@ -38,10 +38,13 @@ from runpod_flash import Endpoint, GpuGroup
 # GPU load-balanced endpoint
 api = Endpoint(name="inference-api", gpu=GpuGroup.ADA_24, workers=(1, 5))
 
+
 @api.post("/predict")
 async def predict(data: dict) -> dict:
     import torch
+
     return {"prediction": data}
+
 
 @api.get("/health")
 async def health():
@@ -51,9 +54,11 @@ async def health():
 # CPU load-balanced endpoint
 data_api = Endpoint(name="data-api", cpu="cpu3c-4-8", workers=(1, 3))
 
+
 @data_api.post("/process")
 async def process(data: dict) -> dict:
     return {"echo": data}
+
 
 @data_api.get("/health")
 async def data_health():

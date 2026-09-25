@@ -50,8 +50,7 @@ trap cleanup EXIT
 run_test() {
     local test_name=$1
     local expected_cpu_image=$2
-    local expected_gpu_image=$3
-    local env_vars=$4
+    local env_vars=$3
 
     echo -e "${BLUE}Test: $test_name${NC}"
 
@@ -109,7 +108,7 @@ EOF
 
     # Set environment variables
     if [ -n "$env_vars" ]; then
-        eval export $env_vars
+        eval "export $env_vars"
     fi
 
     # Run flash build
@@ -123,7 +122,7 @@ EOF
     fi
 
     # Extract image names from manifest using Python
-    python3 << PYSCRIPT
+    if python3 << PYSCRIPT
 import json
 import sys
 
@@ -151,8 +150,7 @@ if actual_cpu_image != "$expected_cpu_image":
 
 print("OK")
 PYSCRIPT
-
-    if [ $? -eq 0 ]; then
+    then
         echo -e "${GREEN}✓ PASSED${NC}"
         return 0
     else
@@ -169,7 +167,6 @@ unset FLASH_CPU_LB_IMAGE
 unset FLASH_LB_IMAGE
 run_test "Default (should use :latest)" \
     "runpod/flash-lb-cpu:latest" \
-    "runpod/flash:latest" \
     "" || exit 1
 
 # Test 2: FLASH_IMAGE_TAG=local
@@ -179,7 +176,6 @@ unset FLASH_CPU_LB_IMAGE
 unset FLASH_LB_IMAGE
 run_test "FLASH_IMAGE_TAG=local" \
     "runpod/flash-lb-cpu:local" \
-    "runpod/flash:local" \
     "FLASH_IMAGE_TAG=local" || exit 1
 
 # Test 3: FLASH_IMAGE_TAG=dev
@@ -187,7 +183,6 @@ unset FLASH_CPU_LB_IMAGE
 unset FLASH_LB_IMAGE
 run_test "FLASH_IMAGE_TAG=dev" \
     "runpod/flash-lb-cpu:dev" \
-    "runpod/flash:dev" \
     "FLASH_IMAGE_TAG=dev" || exit 1
 
 # Test 4: Individual image override
@@ -196,7 +191,6 @@ echo -e "${YELLOW}Test Suite 3: Individual Image Overrides${NC}"
 unset FLASH_IMAGE_TAG
 run_test "Custom FLASH_CPU_LB_IMAGE" \
     "custom/lb-cpu:v1" \
-    "runpod/flash:latest" \
     "FLASH_CPU_LB_IMAGE=custom/lb-cpu:v1" || exit 1
 
 # Test 5: Unit tests for constants
@@ -208,7 +202,7 @@ python3 -m pytest tests/unit/cli/commands/build_utils/test_manifest_mothership.p
 
 echo ""
 echo -e "${YELLOW}Test Suite 5: Constant Import Verification${NC}"
-python3 << 'PYSCRIPT'
+if ! python3 << 'PYSCRIPT'
 import os
 import sys
 
@@ -249,8 +243,7 @@ assert DEFAULT_WORKERS_MAX == 1
 
 print("\n✓ All constants have correct default values")
 PYSCRIPT
-
-if [ $? -ne 0 ]; then
+then
     exit 1
 fi
 

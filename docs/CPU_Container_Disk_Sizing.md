@@ -11,13 +11,16 @@ When you create a CPU endpoint with `Endpoint(cpu=...)`, Flash internally select
 ```python
 from runpod_flash import Endpoint
 
+
 # cpu endpoint with default 20GB disk
 @Endpoint(name="data-worker", cpu="cpu3c-4-8")
 async def process(data: dict) -> dict:
     return {"result": data}
 
+
 # cpu endpoint with custom disk size via template
 from runpod_flash import PodTemplate
+
 
 @Endpoint(
     name="large-data-worker",
@@ -39,13 +42,16 @@ When Flash provisions a CPU endpoint, the container disk size is resolved in thi
 ```python
 from runpod_flash import Endpoint, PodTemplate, GpuGroup
 
+
 # 20GB default (CPU)
 @Endpoint(name="cpu-default", cpu="cpu3c-1-2")
 async def cpu_worker(data): ...
 
+
 # 10GB default (GPU)
 @Endpoint(name="gpu-default", gpu=GpuGroup.ANY)
 async def gpu_worker(data): ...
+
 
 # 100GB explicit override
 @Endpoint(
@@ -83,6 +89,7 @@ Common scenarios requiring larger container disks:
 ```python
 from runpod_flash import Endpoint, PodTemplate
 
+
 # large model serving
 @Endpoint(
     name="llm-server",
@@ -90,8 +97,7 @@ from runpod_flash import Endpoint, PodTemplate
     template=PodTemplate(containerDiskInGb=100),
     dependencies=["transformers", "torch"],
 )
-async def serve_llm(data: dict) -> dict:
-    ...
+async def serve_llm(data: dict) -> dict: ...
 ```
 
 ## Related Documentation
