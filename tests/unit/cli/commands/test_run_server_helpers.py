@@ -336,12 +336,34 @@ class TestCallWithBodyEmptyInputValidation:
         assert result == {"echo": "hello"}
         func.assert_called_once_with(msg="hello")
 
+    # These two wrap the mock in a real async def instead of passing the mock
+    # straight to call_with_body.
+    #
+    # call_with_body -> _map_body_to_params calls inspect.signature(func), and
+    # signature() of a Mock is version-dependent: on 3.10 it raises
+    # `TypeError: 'Mock' object is not subscriptable` (Mock auto-creates a
+    # __signature__ child, which inspect then tries to use), while on 3.11+ it
+    # reports (*args, **kwargs). Passing spec= does not help -- the failure is
+    # in signature(), not in spec resolution.
+    #
+    # call_with_body catches Exception and converts it into a 500 JSONResponse,
+    # so on 3.10 these failed as `assert <JSONResponse object> == {'ok': True}`,
+    # with the real TypeError visible only inside the response body.
+    #
+    # The wrapper declares (*args, **kwargs), the same signature 3.11+ inferred
+    # from the Mock, so both branches of _map_body_to_params behave exactly as
+    # before -- and delegating to the mock keeps the call assertions.
+
     @pytest.mark.asyncio
     async def test_allows_plain_dict_body(self):
         """Non-empty plain dict passes through unchanged (no model_fields_set)."""
         body = {"key": "value"}
 
-        func = AsyncMock(return_value={"ok": True})
+        mock = AsyncMock(return_value={"ok": True})
+
+        async def func(*args, **kwargs):
+            return await mock(*args, **kwargs)
+
         result = await call_with_body(func, body)
 
         assert result == {"ok": True}
@@ -354,8 +376,12 @@ class TestCallWithBodyEmptyInputValidation:
         """
         body = {}
 
-        func = AsyncMock(return_value={"ok": True})
+        mock = AsyncMock(return_value={"ok": True})
+
+        async def func(*args, **kwargs):
+            return await mock(*args, **kwargs)
+
         result = await call_with_body(func, body)
 
         assert result == {"ok": True}
-        func.assert_called_once_with()
+        mock.assert_called_once_with()
