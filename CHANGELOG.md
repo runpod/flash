@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.20.1](https://github.com/runpod/flash/compare/v1.20.0...v1.20.1) (2026-09-26)
+
+
+### Bug Fixes
+
+* **ci:** run each matrix leg on its own Python version ([#374](https://github.com/runpod/flash/issues/374)) ([4fdbb67](https://github.com/runpod/flash/commit/4fdbb67edca10d6fad473ecb8ed89349102c6bb5))
+
 ## [1.20.0](https://github.com/runpod/flash/compare/v1.19.0...v1.20.0) (2026-09-24)
 
 
