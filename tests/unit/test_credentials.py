@@ -40,6 +40,27 @@ class TestGetApiKey:
         _write_config_toml(isolate_credentials_file, "stored-key")
         assert get_api_key() == "stored-key"
 
+    def test_falls_back_to_runpodctl_top_level_key(self, isolate_credentials_file):
+        isolate_credentials_file.parent.mkdir(parents=True, exist_ok=True)
+        isolate_credentials_file.write_text("apikey = 'runpodctl-key'\n")
+        assert get_api_key() == "runpodctl-key"
+
+    def test_default_profile_takes_precedence_over_runpodctl_key(
+        self, isolate_credentials_file
+    ):
+        isolate_credentials_file.parent.mkdir(parents=True, exist_ok=True)
+        isolate_credentials_file.write_text(
+            "apikey = 'runpodctl-key'\n\n[default]\napi_key = 'flash-key'\n"
+        )
+        assert get_api_key() == "flash-key"
+
+    def test_does_not_fall_back_when_default_profile_exists_without_key(
+        self, isolate_credentials_file
+    ):
+        isolate_credentials_file.parent.mkdir(parents=True, exist_ok=True)
+        isolate_credentials_file.write_text("apikey = 'runpodctl-key'\n\n[default]\n")
+        assert get_api_key() is None
+
     def test_returns_none_when_nothing_set(self):
         assert get_api_key() is None
 
