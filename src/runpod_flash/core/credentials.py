@@ -55,6 +55,18 @@ def get_api_key() -> Optional[str]:
     if creds and isinstance(creds.get("api_key"), str) and creds["api_key"].strip():
         return creds["api_key"]
 
+    path = get_credentials_path()
+    if path.is_file():
+        try:
+            document = tomlkit.parse(path.read_text())
+        except (OSError, UnicodeError, tomlkit.exceptions.TOMLKitError):
+            log.debug("Failed to read runpodctl credentials", exc_info=True)
+            return None
+        if _DEFAULT_SECTION not in document:
+            runpodctl_key = document.get("apikey")
+            if isinstance(runpodctl_key, str) and runpodctl_key.strip():
+                return runpodctl_key
+
     return None
 
 
