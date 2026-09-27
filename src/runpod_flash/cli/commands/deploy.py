@@ -10,7 +10,7 @@ from typing import Any
 import typer
 from rich.console import Console
 
-from runpod_flash.cli.utils.formatting import print_error
+from runpod_flash.cli.utils.formatting import print_error, print_warning
 from runpod_flash.core.exceptions import RunpodAPIKeyError
 from runpod_flash.core.resources.app import FlashApp
 
@@ -220,6 +220,15 @@ async def _resolve_and_deploy(
     app, resolved_env_name = await _resolve_environment(app_name, env_name)
 
     local_manifest = validate_local_manifest()
+
+    if not local_manifest.get("resources"):
+        print_warning(
+            console,
+            "No deployable resources found in the manifest. "
+            "Client-mode endpoints (image=...) provision on first call, "
+            "not at deploy time. Nothing to upload.",
+        )
+        return
 
     from rich.progress import (
         BarColumn,
