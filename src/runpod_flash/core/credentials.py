@@ -38,7 +38,10 @@ def get_credentials_path() -> Path:
 
 
 def get_api_key() -> Optional[str]:
-    """Get API key with priority: env var > credentials file.
+    """Get API key with priority: env var > [default].api_key > top-level apikey.
+
+    The last fallback covers credentials written by runpodctl, which stores
+    a top-level ``apikey`` key instead of a ``[default]`` profile section.
 
     Returns:
         API key string, or None if not found.
@@ -51,9 +54,26 @@ def get_api_key() -> Optional[str]:
         creds = get_credentials()
     except Exception:
         log.debug("Failed to read credentials file", exc_info=True)
-        return None
+        creds = None
     if creds and isinstance(creds.get("api_key"), str) and creds["api_key"].strip():
         return creds["api_key"]
+
+    # Fall back to runpodctl-style top-level "apikey"
+    try:
+        path = get_credentials_path()
+        if path.exists():
+            with path.open("rb") as f:
+                try:
+                    import tomllib
+                except ImportError:
+                    import tomli as tomllib
+                data = tomllib.load(f)
+            top_key = data.get("apikey")
+            if isinstance(top_key, str) and top_key.strip():
+                log.debug("Using runpodctl-style top-level 'apikey' from %s", path)
+                return top_key
+    except Exception:
+        log.debug("Failed to check for runpodctl-style apikey", exc_info=True)
 
     return None
 

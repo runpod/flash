@@ -558,6 +558,7 @@ class Endpoint:
             "name": self.name,
             "workersMin": self._workers_min,
             "workersMax": self._workers_max,
+            "workersStandby": self._workers_min,
             "idleTimeout": self.idle_timeout,
             "executionTimeoutMs": self.execution_timeout_ms,
             "flashboot": self.flashboot,
