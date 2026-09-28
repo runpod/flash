@@ -12,10 +12,10 @@ This guide walks through deploying a Flash application from local development to
 
 ### Python version selection
 
-Flash apps ship as a single tarball, so every resource in an app shares one Python version. The worker runtime defaults to 3.12 (the version torch is pre-installed for in the GPU base image). Select a different version in two ways:
+Flash apps ship as a single tarball, so every resource in an app shares one Python version. By default, `flash build` and `flash deploy` target the Python version you're running flash from — if you're on 3.11 locally, your deploy runs on 3.11; on 3.13, it runs on 3.13. The build prints the resolved version and its source. If your local interpreter is outside the supported set (`3.10`–`3.13`), the build fails with an actionable error. Override the default in two ways:
 
-- **Per-resource declaration**: set `python_version="3.11"` on any resource config — all resources in the same app must agree or leave it unset.
-- **App-level override**: pass `--python-version 3.11` to `flash build` or `flash deploy`. The override wins over per-resource values that are unset and must match any that are set.
+- **Per-resource declaration**: set `python_version="3.11"` on any resource config — all resources in the same app must agree or leave it unset. For projects shared across a team or CI, declaring it explicitly makes the deploy result identical regardless of who runs `flash build` and which interpreter they have.
+- **App-level override**: pass `--python-version 3.11` to `flash build` or `flash deploy`. The override sets the target when no resource declares one and must match any that are set (a conflict raises).
 
 | Version | Status | GPU cold-start | Notes |
 |---------|--------|----------------|-------|
