@@ -105,6 +105,7 @@ When your application has functions on multiple endpoints (GPU and CPU, for exam
 def preprocess(data):
     return clean_data
 
+
 # GPU endpoint function
 @Endpoint(name="inference", gpu=GpuGroup.AMPERE_80)
 async def inference(data):
@@ -154,6 +155,7 @@ Ensure your project has `Endpoint` definitions:
 
 ```python
 from runpod_flash import Endpoint, GpuGroup
+
 
 @Endpoint(name="my-worker", gpu=GpuGroup.ANY)
 def my_function(data):

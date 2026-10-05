@@ -80,9 +80,11 @@ for the result. Use QB for compute-heavy tasks that may take seconds to minutes.
 ```python
 from runpod_flash import Endpoint, GpuType
 
+
 @Endpoint(name="gpu_worker", gpu=GpuType.ANY, dependencies=["torch"])
 async def gpu_hello(input_data: dict) -> dict:
     import torch
+
     gpu_name = torch.cuda.get_device_name(0)
     return {"message": gpu_name}
 ```
@@ -91,6 +93,7 @@ async def gpu_hello(input_data: dict) -> dict:
 
 ```python
 from runpod_flash import Endpoint
+
 
 @Endpoint(name="cpu_worker", cpu="cpu3c-1-2")
 async def cpu_hello(input_data: dict) -> dict:
@@ -109,9 +112,11 @@ from runpod_flash import Endpoint
 
 api = Endpoint(name="lb_worker", cpu="cpu3c-1-2", workers=(1, 3))
 
+
 @api.post("/process")
 async def process(input_data: dict) -> dict:
     return {"status": "success", "echo": input_data}
+
 
 @api.get("/health")
 async def health() -> dict:
@@ -145,9 +150,13 @@ Create a new `.py` file with an `Endpoint`. `flash dev` auto-discovers all
 # my_worker.py
 from runpod_flash import Endpoint, GpuType
 
-@Endpoint(name="my_worker", gpu=GpuType.NVIDIA_GEFORCE_RTX_4090, dependencies=["transformers"])
+
+@Endpoint(
+    name="my_worker", gpu=GpuType.NVIDIA_GEFORCE_RTX_4090, dependencies=["transformers"]
+)
 async def predict(input_data: dict) -> dict:
     from transformers import pipeline
+
     pipe = pipeline("sentiment-analysis")
     return pipe(input_data["text"])[0]
 ```

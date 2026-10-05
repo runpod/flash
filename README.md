@@ -6,12 +6,15 @@ Flash is a Python SDK for developing cloud-native AI apps where you define every
 import asyncio
 from runpod_flash import Endpoint, GpuType
 
+
 @Endpoint(name="hello-gpu", gpu=GpuType.NVIDIA_GEFORCE_RTX_4090, dependencies=["torch"])
 async def hello():
     import torch
+
     gpu_name = torch.cuda.get_device_name(0)
     print(f"Hello from your GPU! ({gpu_name})")
     return {"gpu": gpu_name}
+
 
 asyncio.run(hello())
 print("Done!")
@@ -27,9 +30,15 @@ Write `@Endpoint` decorated Python functions on your local machine. Deploy them 
 pip install runpod-flash
 # or
 uv tool install runpod-flash
+# or, with Nix (flakes) — no Python setup required
+nix profile install github:runpod/flash
+# ...or run it without installing:
+nix run github:runpod/flash -- --help
 ```
 
 Flash requires [Python 3.10+](https://www.python.org/downloads/) on macOS or Linux. Windows support is in development.
+
+> **Fastest start:** with [Nix](https://nixos.org) (flakes) you can run flash straight from GitHub — `nix run github:runpod/flash -- --help` — with no Python setup, no virtualenv, and every dependency pinned for you. See the **[Nix guide](nix/README.md)** for install steps and details.
 
 ### Authentication
 
@@ -79,11 +88,12 @@ Create `gpu_demo.py`:
 import asyncio
 from runpod_flash import Endpoint, GpuType
 
+
 @Endpoint(
     name="flash-quickstart",
     gpu=GpuType.NVIDIA_GEFORCE_RTX_4090,
     workers=3,
-    dependencies=["numpy", "torch"]
+    dependencies=["numpy", "torch"],
 )
 def gpu_matrix_multiply(size):
     import numpy as np
@@ -94,11 +104,8 @@ def gpu_matrix_multiply(size):
     B = np.random.rand(size, size)
     C = np.dot(A, B)
 
-    return {
-        "matrix_size": size,
-        "result_mean": float(np.mean(C)),
-        "gpu": device_name
-    }
+    return {"matrix_size": size, "result_mean": float(np.mean(C)), "gpu": device_name}
+
 
 async def main():
     print("Running matrix multiplication on Runpod GPU...")
@@ -106,6 +113,7 @@ async def main():
     print(f"Matrix size: {result['matrix_size']}x{result['matrix_size']}")
     print(f"Result mean: {result['result_mean']:.4f}")
     print(f"GPU used: {result['gpu']}")
+
 
 if __name__ == "__main__":
     asyncio.run(main())
@@ -186,7 +194,7 @@ Browse working examples: **[github.com/runpod/flash-examples](https://github.com
 
 ## Requirements
 
-- Python 3.10-3.13
+- Python 3.10-3.14
 - macOS or Linux (Windows support in development)
 - A [Runpod account](https://runpod.io/console) (email must be verified) with an API key
 
@@ -203,6 +211,16 @@ pip install -e ".[dev]"
 git commit -m "feat: add new feature"
 git commit -m "fix: resolve issue"
 ```
+
+Prefer a one-command, reproducible environment? With Nix (flakes):
+
+```bash
+nix develop      # dev shell: Python 3.14, uv, ruff, mypy, bandit, shellcheck
+                 # run `flash-help` inside for the available check-* helpers
+nix flake check  # hermetic gate: ruff lint + format, nixfmt, shellcheck
+```
+
+See the **[Nix guide](nix/README.md)** for installation and the full workflow.
 
 ## Support
 

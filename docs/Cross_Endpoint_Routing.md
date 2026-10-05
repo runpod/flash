@@ -36,6 +36,7 @@ Flash handles all of this automatically:
 # preprocess.py
 from runpod_flash import Endpoint
 
+
 @Endpoint(name="preprocessor", cpu="cpu3c-4-8")
 def preprocess(raw_data: dict) -> dict:
     """clean and normalize data on CPU."""
@@ -45,6 +46,7 @@ def preprocess(raw_data: dict) -> dict:
 
 # inference.py
 from runpod_flash import Endpoint, GpuGroup
+
 
 @Endpoint(
     name="inference",
@@ -56,6 +58,7 @@ async def infer(data: dict) -> dict:
     # this call routes to the preprocessor endpoint at runtime
     clean = preprocess(data)
     import torch
+
     tensor = torch.tensor(list(clean["cleaned"].values()))
     return {"prediction": tensor.sum().item()}
 ```
@@ -190,6 +193,7 @@ from runpod_flash import Endpoint, GpuGroup
 
 api = Endpoint(name="api-gateway", cpu="cpu3c-2-4", workers=(1, 3))
 
+
 @api.post("/predict")
 async def predict(data: dict):
     # calls a QB endpoint
@@ -200,9 +204,11 @@ async def predict(data: dict):
 # inference.py
 from runpod_flash import Endpoint, GpuGroup
 
+
 @Endpoint(name="inference", gpu=GpuGroup.AMPERE_80)
 async def infer(data: dict) -> dict:
     import torch
+
     return {"result": 42}
 ```
 

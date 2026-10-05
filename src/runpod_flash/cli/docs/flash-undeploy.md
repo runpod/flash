@@ -206,6 +206,7 @@ When you use the `Endpoint` class:
 ```python
 from runpod_flash import Endpoint, GpuGroup
 
+
 @Endpoint(name="my-worker", gpu=GpuGroup.ANY)
 def my_function(data):
     return {"result": data}

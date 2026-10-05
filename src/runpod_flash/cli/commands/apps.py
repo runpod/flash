@@ -109,6 +109,38 @@ async def get_flash_app(app_name: str):
 
 
 async def delete_flash_app(app_name: str):
+    app = await FlashApp.from_name(app_name)
+
+    with console.status("[dim]deleting endpoints...[/dim]"):
+        removed, failed = await app.delete_endpoints()
+
+    for endpoint in removed:
+        label = endpoint["name"] or endpoint["id"]
+        console.print(
+            f"[green]\u2713[/green] deleted endpoint [bold]{label}[/bold]"
+            f"  [dim]{endpoint['id']}[/dim]"
+        )
+
+    if failed:
+        print_error(
+            console,
+            f"could not remove all endpoints for app '{app_name}'; app was not deleted",
+        )
+        for endpoint in failed:
+            endpoint_id = endpoint["id"]
+            if endpoint_id:
+                console.print(
+                    f"  endpoint {endpoint_id} not removed; "
+                    f"delete it with runpodctl serverless delete {endpoint_id}"
+                )
+            else:
+                name = endpoint["name"] or "(unnamed)"
+                console.print(
+                    f"  endpoint [bold]{name}[/bold] has no id in environment "
+                    f"'{endpoint['env']}'; remove it from the RunPod console"
+                )
+        raise typer.Exit(1)
+
     with console.status("[dim]deleting...[/dim]"):
         success = await FlashApp.delete(app_name=app_name)
     if success:

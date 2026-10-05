@@ -27,6 +27,7 @@ Flash is a Python SDK for deploying AI workloads to Runpod GPUs. You write decor
 ```python
 from runpod_flash import Endpoint, GpuType
 
+
 @Endpoint(
     name="my-gpu-worker",
     gpu=GpuType.NVIDIA_GEFORCE_RTX_4090,
@@ -35,6 +36,7 @@ from runpod_flash import Endpoint, GpuType
 )
 async def process(input_data: dict) -> dict:
     import torch
+
     return {"gpu": torch.cuda.get_device_name(0)}
 ```
 
@@ -45,9 +47,11 @@ from runpod_flash import Endpoint
 
 api = Endpoint(name="my-api", cpu="cpu3c-1-2", workers=(1, 3))
 
+
 @api.get("/health")
 async def health():
     return {"status": "ok"}
+
 
 @api.post("/compute")
 async def compute(numbers: list[float]) -> dict:
@@ -59,6 +63,7 @@ async def compute(numbers: list[float]) -> dict:
 ```python
 from runpod_flash import Endpoint, GpuType
 
+
 @Endpoint(
     name="my-model",
     gpu=GpuType.NVIDIA_GEFORCE_RTX_4090,
@@ -69,6 +74,7 @@ class MyModel:
     def __init__(self):
         import torch
         from transformers import pipeline
+
         self.pipe = pipeline("text-generation", device="cuda")
 
     async def generate(self, prompt: str) -> dict:

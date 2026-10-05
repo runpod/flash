@@ -49,7 +49,7 @@ test_scenario() {
 
     # Create fresh test directory
     TEST_DIR=$(mktemp -d)
-    trap "rm -rf $TEST_DIR" RETURN
+    trap 'rm -rf "$TEST_DIR"' RETURN
 
     cd "$TEST_DIR"
 
@@ -64,20 +64,28 @@ test_scenario() {
 
     if [ -n "$env_vars" ]; then
         echo "  Environment: $env_vars"
-        eval export $env_vars
+        eval "export $env_vars"
     fi
 
-    # Run flash build (with minimal verbosity)
+    # Run flash build (with minimal verbosity). Hide stdout noise, but capture
+    # stderr so a build failure surfaces its reason instead of a bare message.
     echo "  Running: flash build --no-docker..."
     cd "$REPO_ROOT"
-    python3 -m runpod_flash.cli.commands.build build --no-docker --generate-file-structure 2>&1 > /dev/null || true
+    build_log=$(mktemp)
+    python3 -m runpod_flash.cli.commands.build build --no-docker --generate-file-structure > /dev/null 2>"$build_log" || true
 
     # Check manifest in test directory
     if [ ! -f "$TEST_DIR/.flash/flash_manifest.json" ]; then
         echo -e "${RED}  ✗ FAILED: Manifest not generated${NC}"
+        if [ -s "$build_log" ]; then
+            echo -e "${RED}  flash build stderr:${NC}"
+            cat "$build_log"
+        fi
+        rm -f "$build_log"
         TEST_RESULTS+=("FAIL")
         return 1
     fi
+    rm -f "$build_log"
 
     # Verify the image name in manifest
     actual_image=$(python3 << PYTHON
@@ -136,7 +144,7 @@ TEST_RESULTS+=("PASS")
 # Test 6: Verify constants can be imported and used
 echo ""
 echo -e "${YELLOW}Test Suite 6: Constants Import Verification${NC}"
-python3 << 'PYTHON'
+if python3 << 'PYTHON'
 import sys
 sys.path.insert(0, 'src')
 
@@ -170,8 +178,7 @@ print(f"    ✓ Mothership uses FLASH_CPU_LB_IMAGE: {mothership['imageName']}")
 print(f"    ✓ Mothership uses DEFAULT_WORKERS_MIN: {mothership['workersMin']}")
 print(f"    ✓ Mothership uses DEFAULT_WORKERS_MAX: {mothership['workersMax']}")
 PYTHON
-
-if [ $? -eq 0 ]; then
+then
     TEST_RESULTS+=("PASS")
     echo "  ✓ All imports and usage verified"
 else

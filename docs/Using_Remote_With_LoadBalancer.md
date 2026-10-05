@@ -39,9 +39,11 @@ from runpod_flash import Endpoint, GpuGroup
 # create a load-balanced endpoint
 api = Endpoint(name="example-api", gpu=GpuGroup.ADA_24, workers=(1, 3))
 
+
 @api.post("/greet")
 async def greet_user(name: str):
     return {"message": f"Hello, {name}!"}
+
 
 @api.get("/health")
 async def health():
@@ -63,17 +65,21 @@ from runpod_flash import Endpoint
 
 api = Endpoint(name="user-service", cpu="cpu3c-1-2", workers=(1, 5))
 
+
 @api.get("/users")
 def list_users():
     return {"users": []}
+
 
 @api.post("/users")
 async def create_user(name: str, email: str):
     return {"id": 1, "name": name, "email": email}
 
+
 @api.get("/users/{user_id}")
 def get_user(user_id: int):
     return {"id": user_id, "name": "Alice"}
+
 
 @api.delete("/users/{user_id}")
 async def delete_user(user_id: int):
@@ -95,11 +101,14 @@ from runpod_flash import Endpoint, GpuGroup
 
 api = Endpoint(name="inference-api", gpu=GpuGroup.ADA_24, workers=(1, 5))
 
+
 @api.post("/predict")
 async def predict(data: dict) -> dict:
     import torch
+
     model = torch.load("/models/model.pt")
     return {"prediction": model.predict(data)}
+
 
 @api.get("/health")
 async def health():
@@ -113,9 +122,11 @@ from runpod_flash import Endpoint
 
 api = Endpoint(name="data-api", cpu="cpu3c-1-2", workers=(1, 3))
 
+
 @api.post("/process")
 async def process(data: dict) -> dict:
     return {"echo": data}
+
 
 @api.get("/health")
 async def health():
@@ -142,6 +153,7 @@ from runpod_flash import Endpoint
 
 api = Endpoint(name="test-api", cpu="cpu3c-1-2")
 
+
 @api.post("/calculate")
 async def calculate(operation: str, a: int, b: int):
     if operation == "add":
@@ -149,6 +161,7 @@ async def calculate(operation: str, a: int, b: int):
     elif operation == "multiply":
         return a * b
     raise ValueError(f"Unknown operation: {operation}")
+
 
 @pytest.mark.asyncio
 async def test_calculate_add():
