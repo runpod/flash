@@ -19,7 +19,11 @@ from pydantic import (
 )
 from runpod.endpoint.runner import Job
 
-from ..api.runpod import RunpodGraphQLClient, _delete_endpoint_idempotent
+from ..api.runpod import (
+    RunpodGraphQLClient,
+    _delete_endpoint_idempotent,
+    _delete_template_best_effort,
+)
 from ..exceptions import RunpodAPIKeyError
 from ..utils.backoff import get_backoff_delay
 from .base import DeployableResource
@@ -1365,27 +1369,8 @@ class ServerlessResource(DeployableResource):
         return self
 
     async def _delete_template_best_effort(self, client) -> None:
-        """Delete this endpoint's backing template; never raises.
-
-        Templates are created implicitly by saveEndpoint and are not removed when
-        the endpoint is deleted, so they orphan and block the next deploy of the
-        same endpoint (SLS-343). The endpoint must already be deleted — the server
-        refuses to delete a template still associated with an aiApi.
-
-        The Ctrl+C cleanup path (cli/commands/run.py _cleanup_live_endpoints) relies
-        on templateId being present in the pickled resource: _do_deploy sets
-        self.templateId at serverless.py:1142 before the post-deploy object is
-        persisted to .flash/resources.pkl via ResourceManager._add_resource.
-        """
-        if not self.templateId:
-            return
-        try:
-            await client.delete_template_by_id(self.templateId)
-            log.debug(f"{self} deleted backing template {self.templateId}")
-        except Exception as e:
-            log.warning(
-                f"{self} failed to delete backing template {self.templateId}: {e}"
-            )
+        """Delete this endpoint's backing template; never raises (SLS-343)."""
+        await _delete_template_best_effort(client, self.templateId)
 
     async def _do_undeploy(self) -> bool:
         """

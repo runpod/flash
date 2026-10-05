@@ -213,6 +213,18 @@ class TestGraphQLQueries:
             assert assert_fn(result), f"{method_name} assertion failed on {result}"
 
     @pytest.mark.asyncio
+    async def test_get_flash_environment_selects_endpoint_template_id(self):
+        """app delete needs each endpoint's templateId to clean it up (SLS-343)."""
+        client = RunpodGraphQLClient(api_key="test")
+        with patch.object(client, "_execute_graphql", new_callable=AsyncMock) as mock:
+            mock.return_value = {"flashEnvironment": {"id": "env-1"}}
+            await client.get_flash_environment({"flashEnvironmentId": "env-1"})
+
+        query = mock.await_args.args[0]
+        endpoints_selection = query.split("endpoints {", 1)[1].split("}", 1)[0]
+        assert "templateId" in endpoints_selection
+
+    @pytest.mark.asyncio
     async def test_get_flash_build_type_error(self):
         client = RunpodGraphQLClient(api_key="test")
         with pytest.raises(TypeError, match="expects build_id as str"):
