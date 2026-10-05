@@ -602,6 +602,7 @@ class RunpodGraphQLClient:
                     endpoints {
                         id
                         name
+                        templateId
                     }
                     networkVolumes {
                         id
@@ -1063,3 +1064,22 @@ async def _delete_endpoint_idempotent(
                 f"Could not verify endpoint {endpoint_id} existence: {check_error}"
             )
         return False
+
+
+async def _delete_template_best_effort(
+    client: "RunpodGraphQLClient", template_id: str | None
+) -> None:
+    """Delete an endpoint's backing template; never raises.
+
+    Templates are created implicitly by saveEndpoint and are not removed when
+    the endpoint is deleted, so they orphan and block the next deploy of the
+    same endpoint (SLS-343). The endpoint must already be deleted: the server
+    refuses to delete a template still associated with an aiApi.
+    """
+    if not template_id:
+        return
+    try:
+        await client.delete_template_by_id(template_id)
+        log.debug(f"deleted backing template {template_id}")
+    except Exception as e:
+        log.warning(f"failed to delete backing template {template_id}: {e}")

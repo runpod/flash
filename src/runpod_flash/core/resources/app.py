@@ -4,7 +4,11 @@ import json
 from typing import Dict, Optional, Union, Tuple, TYPE_CHECKING, Any, List
 import logging
 
-from ..api.runpod import RunpodGraphQLClient, _delete_endpoint_idempotent
+from ..api.runpod import (
+    RunpodGraphQLClient,
+    _delete_endpoint_idempotent,
+    _delete_template_best_effort,
+)
 
 from .constants import (
     TARBALL_CONTENT_TYPE,
@@ -606,6 +610,10 @@ class FlashApp:
                         failed.append(descriptor)
                         continue
                     deleted = await _delete_endpoint_idempotent(client, endpoint_id)
+                    if deleted:
+                        await _delete_template_best_effort(
+                            client, endpoint.get("templateId")
+                        )
                     (removed if deleted else failed).append(descriptor)
 
         return removed, failed

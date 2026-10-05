@@ -642,6 +642,70 @@ class TestFlashAppDeleteEndpoints:
         assert failed == [{"id": "ep-1", "name": "api", "env": "dev"}]
         mock_client.endpoint_exists.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_deleted_endpoint_also_deletes_backing_template(self):
+        """Templates orphan on endpoint delete and block redeploys (SLS-343)."""
+        app = FlashApp("my-app", id="app-1")
+        app._hydrated = True
+
+        with patch("runpod_flash.core.resources.app.RunpodGraphQLClient") as MockClient:
+            mock_client = self._mock_client(
+                MockClient,
+                list_flash_environments_by_app_id=[{"id": "env-1", "name": "dev"}],
+                get_flash_environment={
+                    "endpoints": [{"id": "ep-1", "name": "api", "templateId": "tpl-1"}]
+                },
+                delete_endpoint={"success": True},
+            )
+
+            removed, failed = await app.delete_endpoints()
+
+        assert failed == []
+        assert removed == [{"id": "ep-1", "name": "api", "env": "dev"}]
+        mock_client.delete_template_by_id.assert_awaited_once_with("tpl-1")
+
+    @pytest.mark.asyncio
+    async def test_failed_endpoint_delete_keeps_template(self):
+        """The server refuses to delete a template still bound to an endpoint."""
+        app = FlashApp("my-app", id="app-1")
+        app._hydrated = True
+
+        with patch("runpod_flash.core.resources.app.RunpodGraphQLClient") as MockClient:
+            mock_client = self._mock_client(
+                MockClient,
+                list_flash_environments_by_app_id=[{"id": "env-1", "name": "dev"}],
+                get_flash_environment={
+                    "endpoints": [{"id": "ep-1", "name": "api", "templateId": "tpl-1"}]
+                },
+                delete_endpoint={"success": False},
+            )
+
+            await app.delete_endpoints()
+
+        mock_client.delete_template_by_id.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_template_delete_failure_does_not_fail_endpoint(self):
+        """Template cleanup is best-effort; the endpoint is still removed."""
+        app = FlashApp("my-app", id="app-1")
+        app._hydrated = True
+
+        with patch("runpod_flash.core.resources.app.RunpodGraphQLClient") as MockClient:
+            mock_client = self._mock_client(
+                MockClient,
+                list_flash_environments_by_app_id=[{"id": "env-1", "name": "dev"}],
+                get_flash_environment={
+                    "endpoints": [{"id": "ep-1", "name": "api", "templateId": "tpl-1"}]
+                },
+                delete_endpoint={"success": True},
+            )
+            mock_client.delete_template_by_id.side_effect = Exception("in use")
+
+            removed, failed = await app.delete_endpoints()
+
+        assert failed == []
+        assert removed == [{"id": "ep-1", "name": "api", "env": "dev"}]
+
 
 class TestIsCertVerificationError:
     """Test _is_cert_verification_error classifier."""
