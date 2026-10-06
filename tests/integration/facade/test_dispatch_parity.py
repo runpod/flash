@@ -9,7 +9,10 @@ an ``echo`` kwarg and an LB endpoint with a ``POST`` echo route, then run:
     FLASH_PARITY_QB_NAME=<qb-resource> FLASH_PARITY_QB_ID=<qb-endpoint-id> \\
     FLASH_PARITY_LB_NAME=<lb-resource> FLASH_PARITY_LB_ID=<lb-endpoint-id> \\
     FLASH_PARITY_LB_PATH=/echo \\
-    make test-integration-serial
+    uv run pytest tests/integration/facade -v -m integration --no-cov --timeout=600
+
+the --timeout override matters: the project default (30s) is shorter than a
+cold start from workersMin=0, so make test-integration-serial times out.
 
 the flag is read at call time, so toggling it with monkeypatch between two
 calls in the same process exercises both paths.
