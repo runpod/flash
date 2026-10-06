@@ -914,7 +914,8 @@ class Endpoint:
             from .facade.client import AppsEndpointJob, apps_qb_client
 
             client = apps_qb_client(self.id)
-            data = await client.runsync({"input": input_data}, timeout=timeout)
+            # apps has no runsync; invoke posts /runsync and polls to terminal.
+            data = await client.invoke({"input": input_data}, timeout=timeout)
             return AppsEndpointJob(data, client)
 
         url = await self._ensure_endpoint_ready()
