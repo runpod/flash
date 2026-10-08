@@ -222,6 +222,8 @@ def _find_runpod_flash(project_dir: Optional[Path] = None) -> Optional[Path]:
 def _bundle_runpod_flash(build_dir: Path, flash_pkg: Path) -> None:
     """Copy runpod_flash source into build directory.
 
+    The copy is made owner-writable even when the source is read-only.
+
     Args:
         build_dir: Target build directory
         flash_pkg: Path to the runpod_flash package directory to bundle
