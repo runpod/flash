@@ -8,6 +8,7 @@ exercise them directly.
 from runpod_flash.cli.commands.build import (
     _bundle_runpod_flash,
     _find_runpod_flash,
+    _python_version_source,
     _remove_runpod_flash_from_requirements,
 )
 
@@ -191,3 +192,24 @@ class TestFindRunpodFlashEdgeCases:
 
         # No flash repo in tmp_path, so returns None
         assert result is None
+
+
+class TestPythonVersionSource:
+    """Tests for _python_version_source (build-time provenance string)."""
+
+    def test_override_takes_precedence(self):
+        assert (
+            _python_version_source("3.12", {"gpu": {"python_version": "3.11"}})
+            == "--python-version override"
+        )
+
+    def test_declared_resource_reported_by_first_name(self):
+        resources = {
+            "zeta": {"python_version": "3.11"},
+            "alpha": {"python_version": "3.11"},
+        }
+        assert _python_version_source(None, resources) == "declared on resource alpha"
+
+    def test_no_override_or_declaration_reports_local_match(self):
+        resources = {"gpu": {}, "cpu": {"python_version": None}}
+        assert _python_version_source(None, resources) == "matched local interpreter"
