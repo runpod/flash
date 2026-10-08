@@ -43,7 +43,9 @@ class TestGetApiKey:
     def test_falls_back_to_runpodctl_top_level_key(self, isolate_credentials_file):
         isolate_credentials_file.parent.mkdir(parents=True, exist_ok=True)
         isolate_credentials_file.write_text("apikey = 'runpodctl-key'\n")
-        assert get_api_key() == "runpodctl-key"
+        key = get_api_key()
+        assert key == "runpodctl-key"
+        assert type(key) is str
 
     def test_default_profile_takes_precedence_over_runpodctl_key(
         self, isolate_credentials_file

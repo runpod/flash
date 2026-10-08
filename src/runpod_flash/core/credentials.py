@@ -2,6 +2,7 @@
 
 Thin wrappers around runpod-python's credential functions.
 Resolution priority: RUNPOD_API_KEY env var > .env > ~/.runpod/config.toml
+([default].api_key, or runpodctl's top-level apikey when [default] is absent)
 """
 
 from __future__ import annotations
@@ -65,7 +66,8 @@ def get_api_key() -> Optional[str]:
         if _DEFAULT_SECTION not in document:
             runpodctl_key = document.get("apikey")
             if isinstance(runpodctl_key, str) and runpodctl_key.strip():
-                return runpodctl_key
+                # tomlkit returns its own String type; hand callers a plain str.
+                return runpodctl_key.unwrap()
 
     return None
 
