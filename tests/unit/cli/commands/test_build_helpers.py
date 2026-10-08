@@ -5,11 +5,22 @@ These functions are always mocked in existing build tests; these tests
 exercise them directly.
 """
 
+import os
+import stat
+
 from runpod_flash.cli.commands.build import (
     _bundle_runpod_flash,
     _find_runpod_flash,
     _remove_runpod_flash_from_requirements,
+    create_build_directory,
 )
+
+
+def _make_read_only(root):
+    """Strip write bits like the Nix store does (files 0444, dirs 0555)."""
+    for path in sorted(root.rglob("*"), reverse=True):
+        path.chmod(0o555 if path.is_dir() else 0o444)
+    root.chmod(0o555)
 
 
 class TestBundleRunpodFlash:
@@ -91,6 +102,47 @@ class TestBundleRunpodFlash:
         _bundle_runpod_flash(build_dir, flash_pkg)
 
         assert (build_dir / "runpod_flash" / "core" / "api" / "runpod.py").exists()
+
+    def test_read_only_source_produces_writable_copy(self, tmp_path):
+        """A read-only install (the Nix store) bundles into writable files."""
+        flash_pkg = tmp_path / "source" / "runpod_flash"
+        runtime = flash_pkg / "runtime"
+        runtime.mkdir(parents=True)
+        (flash_pkg / "__init__.py").write_text("")
+        (runtime / "_flash_resource_config.py").write_text("# placeholder")
+        _make_read_only(flash_pkg)
+
+        build_dir = tmp_path / "build"
+        build_dir.mkdir()
+
+        try:
+            _bundle_runpod_flash(build_dir, flash_pkg)
+
+            config = (
+                build_dir / "runpod_flash" / "runtime" / "_flash_resource_config.py"
+            )
+            config.write_text("# generated")
+            assert config.read_text() == "# generated"
+            assert os.stat(config.parent).st_mode & stat.S_IWUSR
+        finally:
+            for path in (flash_pkg, *flash_pkg.rglob("*")):
+                path.chmod(0o755)
+
+
+class TestCreateBuildDirectory:
+    """Direct tests for create_build_directory."""
+
+    def test_removes_read_only_build_tree(self, tmp_path):
+        """A read-only tree left by an older build is removed."""
+        stale = tmp_path / ".flash" / ".build" / "runpod_flash" / "runtime"
+        stale.mkdir(parents=True)
+        (stale / "_flash_resource_config.py").write_text("# stale")
+        _make_read_only(tmp_path / ".flash" / ".build")
+
+        build_dir = create_build_directory(tmp_path, "app")
+
+        assert build_dir.is_dir()
+        assert not (build_dir / "runpod_flash").exists()
 
 
 class TestRemoveRunpodFlashFromRequirements:

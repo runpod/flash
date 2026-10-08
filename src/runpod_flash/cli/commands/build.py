@@ -7,6 +7,7 @@ import json
 import logging
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tarfile
@@ -234,8 +235,21 @@ def _bundle_runpod_flash(build_dir: Path, flash_pkg: Path) -> None:
         dest,
         ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".pytest_cache"),
     )
+    # copytree keeps source permissions. A read-only install (the Nix store)
+    # would leave read-only copies that the build cannot overwrite.
+    _make_owner_writable(dest)
 
     logger.debug("bundled runpod_flash from %s", flash_pkg)
+
+
+def _make_owner_writable(root: Path) -> None:
+    """Add the owner-write bit to root and everything under it."""
+    for path in (root, *root.rglob("*")):
+        if path.is_symlink():
+            continue
+        mode = path.stat().st_mode
+        if not mode & stat.S_IWUSR:
+            path.chmod(mode | stat.S_IWUSR)
 
 
 def _normalize_package_name(name: str) -> str:
@@ -645,8 +659,10 @@ def create_build_directory(project_dir: Path, app_name: str) -> Path:
 
     build_dir = flash_dir / ".build"
 
-    # Remove existing build directory
+    # Remove existing build directory. Builds from older versions could leave
+    # read-only files behind, so restore write access before deleting.
     if build_dir.exists():
+        _make_owner_writable(build_dir)
         shutil.rmtree(build_dir)
 
     build_dir.mkdir(parents=True, exist_ok=True)
