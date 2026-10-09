@@ -5,11 +5,26 @@ These functions are always mocked in existing build tests; these tests
 exercise them directly.
 """
 
+import os
+import stat
+from pathlib import Path
+
+import pytest
+
 from runpod_flash.cli.commands.build import (
     _bundle_runpod_flash,
     _find_runpod_flash,
+    _make_owner_writable,
     _remove_runpod_flash_from_requirements,
+    create_build_directory,
 )
+
+
+def _make_read_only(root: Path) -> None:
+    """Strip write bits like the Nix store does (files 0444, dirs 0555)."""
+    for path in sorted(root.rglob("*"), reverse=True):
+        path.chmod(0o555 if path.is_dir() else 0o444)
+    root.chmod(0o555)
 
 
 class TestBundleRunpodFlash:
@@ -91,6 +106,97 @@ class TestBundleRunpodFlash:
         _bundle_runpod_flash(build_dir, flash_pkg)
 
         assert (build_dir / "runpod_flash" / "core" / "api" / "runpod.py").exists()
+
+    def test_read_only_source_produces_writable_copy(self, tmp_path):
+        """A read-only install (the Nix store) bundles into writable files."""
+        flash_pkg = tmp_path / "source" / "runpod_flash"
+        runtime = flash_pkg / "runtime"
+        runtime.mkdir(parents=True)
+        (flash_pkg / "__init__.py").write_text("")
+        (runtime / "_flash_resource_config.py").write_text("# placeholder")
+        _make_read_only(flash_pkg)
+
+        build_dir = tmp_path / "build"
+        build_dir.mkdir()
+
+        try:
+            _bundle_runpod_flash(build_dir, flash_pkg)
+
+            config = (
+                build_dir / "runpod_flash" / "runtime" / "_flash_resource_config.py"
+            )
+            config.write_text("# generated")
+            assert config.read_text() == "# generated"
+            assert os.stat(config.parent).st_mode & stat.S_IWUSR
+        finally:
+            for path in (flash_pkg, *flash_pkg.rglob("*")):
+                path.chmod(0o755)
+
+
+class TestCreateBuildDirectory:
+    """Direct tests for create_build_directory."""
+
+    def test_removes_read_only_build_tree(self, tmp_path):
+        """A read-only tree left by an older build is removed."""
+        stale = tmp_path / ".flash" / ".build" / "runpod_flash" / "runtime"
+        stale.mkdir(parents=True)
+        (stale / "_flash_resource_config.py").write_text("# stale")
+        _make_read_only(tmp_path / ".flash" / ".build")
+
+        build_dir = create_build_directory(tmp_path, "app")
+
+        assert build_dir.is_dir()
+        assert not (build_dir / "runpod_flash").exists()
+
+
+def _tree_read_only_nested(root: Path) -> Path:
+    target = root / "a" / "b" / "file.py"
+    target.parent.mkdir(parents=True)
+    target.write_text("")
+    _make_read_only(root)
+    return target
+
+
+def _tree_already_writable(root: Path) -> Path:
+    target = root / "file.py"
+    target.write_text("")
+    return target
+
+
+def _tree_empty(root: Path) -> Path:
+    root.chmod(0o555)
+    return root
+
+
+class TestMakeOwnerWritable:
+    """Direct tests for _make_owner_writable."""
+
+    @pytest.mark.parametrize(
+        "build_tree",
+        [
+            pytest.param(_tree_read_only_nested, id="read-only nested tree"),
+            pytest.param(_tree_already_writable, id="already writable is a no-op"),
+            pytest.param(_tree_empty, id="read-only empty root"),
+        ],
+    )
+    def test_makes_tree_owner_writable(self, tmp_path, build_tree):
+        root = tmp_path / "root"
+        root.mkdir()
+        target = build_tree(root)
+
+        _make_owner_writable(root)
+
+        for path in (root, *root.rglob("*")):
+            assert os.stat(path).st_mode & stat.S_IWUSR, path
+        assert target.exists()
+
+    def test_skips_broken_symlink(self, tmp_path):
+        """A dangling symlink is skipped instead of stat()'d."""
+        (tmp_path / "dangling").symlink_to(tmp_path / "missing")
+
+        _make_owner_writable(tmp_path)
+
+        assert (tmp_path / "dangling").is_symlink()
 
 
 class TestRemoveRunpodFlashFromRequirements:
