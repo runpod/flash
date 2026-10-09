@@ -122,9 +122,14 @@ async def reconcile_and_provision_resources(
     # changes (no resource config diff) still trigger a rolling release.
     # The fingerprint is computed during flash build from user source files.
     # Mutation intentional: persisted to state manifest via update_build_manifest below.
+    # Client-mode endpoints run a user-supplied image; local source changes do
+    # not affect them, so skip the fingerprint to avoid redeploying them on
+    # every code-only deploy.
     source_fingerprint = local_manifest.get("source_fingerprint")
     if source_fingerprint:
         for resource_config in local_manifest.get("resources", {}).values():
+            if resource_config.get("client_mode"):
+                continue
             env = resource_config.setdefault("env", {})
             env["_FLASH_SOURCE_FINGERPRINT"] = source_fingerprint
 

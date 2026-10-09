@@ -315,6 +315,16 @@ class HandlerGenerator:
         )
 
         for resource_name, resource_data in resources.items():
+            # Skip client-mode resources (image-based, external service):
+            # they have no functions, so there is no handler to generate.
+            client_mode = (
+                resource_data.client_mode
+                if hasattr(resource_data, "client_mode")
+                else resource_data.get("client_mode", False)
+            )
+            if client_mode:
+                continue
+
             # Skip load-balanced resources (handled by LBHandlerGenerator)
             # Use flag determined by isinstance() at scan time
             is_load_balanced = (
