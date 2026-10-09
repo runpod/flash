@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.20.1](https://github.com/runpod/flash/compare/v1.20.0...v1.20.1) (2026-10-09)
+
+
+### Bug Fixes
+
+* **auth:** read runpodctl-style API key from config.toml ([#382](https://github.com/runpod/flash/issues/382)) ([2a44f4f](https://github.com/runpod/flash/commit/2a44f4f7b0b8284ad1b48afae5db9d6d61f12553))
+* **build:** make the bundled runpod_flash writable for read-only installs ([#383](https://github.com/runpod/flash/issues/383)) ([a8d8f81](https://github.com/runpod/flash/commit/a8d8f816fc94e14473ff22b5a367937943b9de0a))
+* **ci:** run each matrix leg on its own Python version ([#374](https://github.com/runpod/flash/issues/374)) ([4fdbb67](https://github.com/runpod/flash/commit/4fdbb67edca10d6fad473ecb8ed89349102c6bb5))
+* **cli:** flash update works from any dir and for uv tool installs ([#379](https://github.com/runpod/flash/issues/379)) ([06a7556](https://github.com/runpod/flash/commit/06a7556aa9990eda174d9be1d11c6ac60badf974))
+
 ## [1.20.0](https://github.com/runpod/flash/compare/v1.19.0...v1.20.0) (2026-09-24)
 
 
