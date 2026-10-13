@@ -17,6 +17,7 @@ from .commands import (
     update,
 )
 from .update_checker import start_background_check
+from ..sunset import print_cli_notice
 
 
 def get_version() -> str:
@@ -78,6 +79,8 @@ def main(
     version: bool = typer.Option(False, "--version", "-v", help="Show version"),
 ):
     """Runpod Flash CLI - Distributed inference and serving framework."""
+    print_cli_notice()
+
     if version:
         console.print(f"Runpod Flash CLI v{get_version()}")
         raise typer.Exit()
