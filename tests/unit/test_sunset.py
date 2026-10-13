@@ -84,6 +84,21 @@ class TestCliNotice:
         assert "October 29, 2026" in result.stderr
         assert sunset.MIGRATION_GUIDE_URL in result.stderr
 
+    @pytest.mark.parametrize(
+        "args",
+        [[], ["--help"], ["deploy", "--help"], ["no-such-command"]],
+        ids=["no-args", "root-help", "subcommand-help", "invalid-command"],
+    )
+    def test_cli_prints_notice_on_parse_time_exits(self, args):
+        result = CliRunner().invoke(app, args)
+
+        assert "October 29, 2026" in result.stderr
+
+    def test_cli_notice_printed_once_per_invocation(self):
+        result = CliRunner().invoke(app, ["--version"])
+
+        assert result.stderr.count("October 29, 2026") == 1
+
     def test_cli_notice_keeps_stdout_clean(self):
         result = CliRunner().invoke(app, ["--version"])
 
