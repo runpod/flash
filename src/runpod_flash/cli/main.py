@@ -2,8 +2,10 @@
 
 import typer
 from importlib import metadata
+from typing import Any
 from rich.console import Console
 from rich.panel import Panel
+from typer.core import TyperGroup
 
 from .commands import (
     init,
@@ -17,6 +19,7 @@ from .commands import (
     update,
 )
 from .update_checker import start_background_check
+from ..sunset import print_cli_notice
 
 
 def get_version() -> str:
@@ -29,8 +32,22 @@ def get_version() -> str:
 
 console = Console()
 
+
+class _SunsetNoticeGroup(TyperGroup):
+    """Root group that prints the deprecation notice before argument parsing.
+
+    The app callback runs only after Click parses the root command, so
+    ``flash``, ``flash --help``, and invalid commands would exit without it.
+    """
+
+    def main(self, *args: Any, **kwargs: Any) -> Any:
+        print_cli_notice()
+        return super().main(*args, **kwargs)
+
+
 # command: flash
 app = typer.Typer(
+    cls=_SunsetNoticeGroup,
     name="flash",
     help="Runpod Flash CLI - Distributed inference and serving framework",
     no_args_is_help=True,

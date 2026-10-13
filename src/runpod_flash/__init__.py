@@ -89,6 +89,11 @@ def __getattr__(name):
     """Lazily import core modules only when accessed."""
     import warnings
 
+    if name in __all__:
+        from .sunset import warn_on_import
+
+        warn_on_import()
+
     if name == "Endpoint":
         from .endpoint import Endpoint
 
