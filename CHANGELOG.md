@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.21.0](https://github.com/runpod/flash/compare/v1.20.1...v1.21.0) (2026-10-14)
+
+
+### Features
+
+* **cli:** add runpod-flash deprecation notice ([#387](https://github.com/runpod/flash/issues/387)) ([25bd210](https://github.com/runpod/flash/commit/25bd210e6763de854cd68daaca4af84f1bb2c55f))
+* **deploy:** provision client-mode Endpoint(image=...) resources during flash deploy ([#370](https://github.com/runpod/flash/issues/370)) ([56ccf2d](https://github.com/runpod/flash/commit/56ccf2d55626f682eb5a60af26f2859f17974708))
+
+
+### Documentation
+
+* add runpod-flash deprecation warning to README ([#388](https://github.com/runpod/flash/issues/388)) ([36e268b](https://github.com/runpod/flash/commit/36e268b526566b48cad45a7060fb23392f148cd8))
+* point agents to the Runpod agent setup page ([#385](https://github.com/runpod/flash/issues/385)) ([01980d3](https://github.com/runpod/flash/commit/01980d34c2b3636ece1a7ffc22207b3892deea70))
+
 ## [1.20.1](https://github.com/runpod/flash/compare/v1.20.0...v1.20.1) (2026-10-09)
 
 
