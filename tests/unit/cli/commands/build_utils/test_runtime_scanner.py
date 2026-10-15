@@ -21,6 +21,7 @@ from runpod_flash.cli.commands.build_utils.scanner import (
     file_to_resource_name,
     file_to_url_prefix,
 )
+from runpod_flash.endpoint import Endpoint
 
 
 # ---------------------------------------------------------------------------
@@ -324,8 +325,49 @@ class TestAnalyzeCrossCallsAst:
                 return await vllm.runsync(x)
             """,
         )
-        result = _analyze_cross_calls_ast(p, {"caller"}, set(), {"vllm"})
+        vllm = Endpoint(name="vllm", image="vllm/vllm-openai:latest")
+        result = _analyze_cross_calls_ast(p, {"caller"}, set(), {"vllm": vllm})
         assert result == {"caller": ["vllm"]}
+
+    def test_detects_aliased_inline_client_endpoint(self, tmp_path):
+        p = _write_worker(
+            tmp_path,
+            "alias.py",
+            """\
+            async def caller(x):
+                return await EP(id="abc123").runsync(x)
+            """,
+        )
+        result = _analyze_cross_calls_ast(p, {"caller"}, set(), {"EP": Endpoint})
+        assert result == {"caller": ["Endpoint"]}
+
+    def test_detects_runpod_sdk_use(self, tmp_path):
+        import runpod
+
+        p = _write_worker(
+            tmp_path,
+            "sdk.py",
+            """\
+            def caller(x):
+                return runpod.Endpoint("abc123").run_sync(x)
+            """,
+        )
+        result = _analyze_cross_calls_ast(p, {"caller"}, set(), {"runpod": runpod})
+        assert result == {"caller": ["runpod"]}
+
+    def test_detects_api_key_read(self, tmp_path):
+        p = _write_worker(
+            tmp_path,
+            "env_read.py",
+            """\
+            import os
+
+            def caller(x):
+                return os.environ["RUNPOD_API_KEY"]
+            """,
+        )
+        result = _analyze_cross_calls_ast(p, {"caller"}, set())
+        assert result == {"caller": ["RUNPOD_API_KEY"]}
 
     @pytest.mark.parametrize("kwarg", ['id="abc123"', 'image="org/img:1"'])
     def test_detects_inline_client_endpoint(self, tmp_path, kwarg):
@@ -450,6 +492,46 @@ class TestRuntimeScannerDiscovery:
         assert caller.calls_remote_functions is True
         assert caller.called_remote_functions == ["vllm"]
         assert isolated.calls_remote_functions is False
+
+    def test_helper_in_other_file_detection(self, tmp_path):
+        """a helper in another project file that calls an endpoint counts."""
+        _write_worker(
+            tmp_path,
+            "clients.py",
+            """\
+            from runpod_flash import Endpoint
+            vllm = Endpoint(name="vllm-backend", image="vllm/vllm-openai:latest")
+
+            async def generate(x):
+                return await vllm.runsync(x)
+
+            def double(x):
+                return x * 2
+            """,
+        )
+        _write_worker(
+            tmp_path,
+            "wrapper.py",
+            """\
+            from runpod_flash import Endpoint
+            import clients
+            from clients import double
+
+            @Endpoint(name="via-helper", cpu="cpu3c-1-2")
+            async def via_helper(x):
+                return await clients.generate(x)
+
+            @Endpoint(name="pure-helper", cpu="cpu3c-1-2")
+            async def pure_helper(x):
+                return double(x)
+            """,
+        )
+        scanner = RuntimeScanner(tmp_path)
+        functions = scanner.discover_remote_functions()
+        via_helper = next(f for f in functions if f.function_name == "via_helper")
+        pure_helper = next(f for f in functions if f.function_name == "pure_helper")
+        assert via_helper.called_remote_functions == ["generate"]
+        assert pure_helper.calls_remote_functions is False
 
     def test_sys_path_cleanup(self, tmp_path):
         """project root is removed from sys.path after scanning."""

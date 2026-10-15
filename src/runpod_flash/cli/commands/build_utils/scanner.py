@@ -11,6 +11,7 @@ import inspect
 import logging
 import os
 import sys
+import textwrap
 import threading
 import types
 from dataclasses import dataclass, field
@@ -407,48 +408,147 @@ def _find_remote_decorated(module: Any) -> Dict[str, Any]:
     return results
 
 
-def _find_client_endpoint_names(module: Any) -> Set[str]:
-    """find module-level names bound to client-mode Endpoints (id= or image=)."""
-    names: Set[str] = set()
-    for name in dir(module):
-        try:
-            obj = getattr(module, name)
-        except Exception:
-            continue
-        if isinstance(obj, Endpoint) and obj.is_client:
-            names.add(name)
-    return names
+_API_KEY_ENV = "RUNPOD_API_KEY"
+_MISSING = object()
 
 
-def _is_client_endpoint_construction(call: ast.Call) -> bool:
-    """match Endpoint(id=...) or Endpoint(image=...) built inline."""
-    func = call.func
-    if isinstance(func, ast.Name):
-        callee = func.id
-    elif isinstance(func, ast.Attribute):
-        callee = func.attr
-    else:
+def _resolve(expr: ast.expr, namespace: Dict[str, Any]) -> Any:
+    """resolve a Name, or an attribute of a module (utils.helper), to its object."""
+    if isinstance(expr, ast.Name):
+        return namespace.get(expr.id, _MISSING)
+    if isinstance(expr, ast.Attribute):
+        base = _resolve(expr.value, namespace)
+        if isinstance(base, types.ModuleType):
+            return getattr(base, expr.attr, _MISSING)
+    return _MISSING
+
+
+def _is_client_endpoint(obj: Any) -> bool:
+    return isinstance(obj, Endpoint) and obj.is_client
+
+
+def _is_runpod_sdk(obj: Any) -> bool:
+    """true for the runpod SDK module or anything defined in it."""
+    try:
+        if isinstance(obj, types.ModuleType):
+            name = obj.__name__
+        else:
+            name = getattr(obj, "__module__", None) or ""
+    except Exception:
         return False
-    if callee != "Endpoint":
+    return isinstance(name, str) and (name == "runpod" or name.startswith("runpod."))
+
+
+def _project_function(obj: Any, project_dir: Optional[Path]) -> Any:
+    """return obj if it is a plain function defined inside the project."""
+    if project_dir is None or not isinstance(obj, types.FunctionType):
+        return None
+    if hasattr(obj, "__remote_config__"):
+        return None
+    try:
+        source_file = inspect.getsourcefile(obj)
+    except TypeError:
+        return None
+    if source_file is None:
+        return None
+    try:
+        Path(source_file).resolve().relative_to(project_dir.resolve())
+    except ValueError:
+        return None
+    return obj
+
+
+def _is_client_endpoint_construction(call: ast.Call, namespace: Dict[str, Any]) -> bool:
+    """match Endpoint(id=...) or Endpoint(image=...) built inline, incl. aliases."""
+    func = call.func
+    literal = (isinstance(func, ast.Name) and func.id == "Endpoint") or (
+        isinstance(func, ast.Attribute) and func.attr == "Endpoint"
+    )
+    if not literal and _resolve(func, namespace) is not Endpoint:
         return False
     return any(kw.arg in ("id", "image") for kw in call.keywords)
+
+
+def _remote_call_targets(
+    node: ast.AST,
+    namespace: Dict[str, Any],
+    remote_function_names: Set[str],
+    project_dir: Optional[Path],
+    helper_cache: Dict[int, List[str]],
+) -> List[str]:
+    """names of the things in node that need RUNPOD_API_KEY on the worker."""
+    called: List[str] = []
+
+    def add(target: str) -> None:
+        if target not in called:
+            called.append(target)
+
+    for child in ast.walk(node):
+        if isinstance(child, ast.Constant) and child.value == _API_KEY_ENV:
+            add(_API_KEY_ENV)
+        elif isinstance(child, ast.Call):
+            if (
+                isinstance(child.func, ast.Name)
+                and child.func.id in remote_function_names
+            ):
+                add(child.func.id)
+            if _is_client_endpoint_construction(child, namespace):
+                add("Endpoint")
+            helper = _project_function(_resolve(child.func, namespace), project_dir)
+            if helper is not None and _helper_targets(
+                helper, remote_function_names, project_dir, helper_cache
+            ):
+                add(helper.__name__)
+        elif isinstance(child, ast.Name):
+            obj = _resolve(child, namespace)
+            if _is_client_endpoint(obj) or _is_runpod_sdk(obj):
+                add(child.id)
+        elif isinstance(child, ast.Attribute) and isinstance(child.value, ast.Name):
+            if _is_client_endpoint(_resolve(child, namespace)):
+                add(f"{child.value.id}.{child.attr}")
+    return called
+
+
+def _helper_targets(
+    func: Any,
+    remote_function_names: Set[str],
+    project_dir: Optional[Path],
+    helper_cache: Dict[int, List[str]],
+) -> List[str]:
+    """analyze a project helper function, resolving names in its own module."""
+    key = id(func)
+    if key in helper_cache:
+        return helper_cache[key]
+    helper_cache[key] = []  # break recursion cycles
+    try:
+        tree = ast.parse(textwrap.dedent(inspect.getsource(func)))
+    except Exception:
+        return []
+    helper_cache[key] = _remote_call_targets(
+        tree, func.__globals__, remote_function_names, project_dir, helper_cache
+    )
+    return helper_cache[key]
 
 
 def _analyze_cross_calls_ast(
     file_path: Path,
     function_names: Set[str],
     remote_function_names: Set[str],
-    client_endpoint_names: Optional[Set[str]] = None,
+    namespace: Optional[Dict[str, Any]] = None,
+    project_dir: Optional[Path] = None,
 ) -> Dict[str, List[str]]:
-    """find which functions call other endpoints via AST.
+    """find which functions need RUNPOD_API_KEY on the worker, via AST.
 
-    returns a dict of function_name -> list of called remote function names.
-    matches direct calls to @remote functions (foo(), not obj.foo()), any
-    reference to a module-level client-mode Endpoint (vllm.runsync(...)), and
-    inline client construction (Endpoint(id="abc").runsync(...)). client-mode
-    Endpoints sign requests with RUNPOD_API_KEY, so the worker needs the key.
+    returns a dict of function_name -> list of what triggered it. a function
+    needs the key when it calls another @remote function by name (foo(), not
+    obj.foo()), uses a client-mode Endpoint (id= or image=), uses the runpod
+    SDK, reads RUNPOD_API_KEY, or calls a project helper that does any of
+    these. namespace is the module's globals, used to resolve names;
+    project_dir limits helper analysis to project code. detection errs toward
+    giving the key, since a missing key fails at runtime with a 401.
     """
-    client_names = client_endpoint_names or set()
+    ns = namespace or {}
+    helper_cache: Dict[int, List[str]] = {}
     result: Dict[str, List[str]] = {}
     try:
         tree = ast.parse(file_path.read_text(encoding="utf-8"))
@@ -461,18 +561,9 @@ def _analyze_cross_calls_ast(
         if node.name not in function_names:
             continue
 
-        called: List[str] = []
-        for child in ast.walk(node):
-            target: Optional[str] = None
-            if isinstance(child, ast.Call) and isinstance(child.func, ast.Name):
-                if child.func.id in remote_function_names:
-                    target = child.func.id
-            if isinstance(child, ast.Call) and _is_client_endpoint_construction(child):
-                target = "Endpoint"
-            elif isinstance(child, ast.Name) and child.id in client_names:
-                target = child.id
-            if target is not None and target not in called:
-                called.append(target)
+        called = _remote_call_targets(
+            node, ns, remote_function_names, project_dir, helper_cache
+        )
         if called:
             result[node.name] = called
 
@@ -517,7 +608,7 @@ class RuntimeScanner:
         functions: List[RemoteFunctionMetadata] = []
         seen_functions: Set[str] = set()
         failed_files: List[Path] = []
-        client_names_by_file: Dict[Path, Set[str]] = {}
+        namespaces: Dict[Path, Dict[str, Any]] = {}
 
         try:
             for py_file in py_files:
@@ -537,7 +628,7 @@ class RuntimeScanner:
                     module, module_path, py_file, seen_functions
                 )
                 functions.extend(file_functions)
-                client_names_by_file[py_file] = _find_client_endpoint_names(module)
+                namespaces[py_file] = vars(module)
 
             # cross-call analysis
             remote_names = {f.function_name for f in functions}
@@ -550,7 +641,8 @@ class RuntimeScanner:
                     file_path,
                     func_names,
                     remote_names,
-                    client_names_by_file.get(file_path),
+                    namespaces.get(file_path),
+                    self.project_dir,
                 )
                 for f in functions:
                     if f.file_path == file_path and f.function_name in calls:
