@@ -290,6 +290,9 @@ class ServerlessResource(DeployableResource):
 
     # === Private Attributes ===
     _deployed_volume_ids: list[str] = PrivateAttr(default_factory=list)
+    # makes_remote_calls from the build manifest, set by flash deploy.
+    # None means unknown (e.g. flash run), so the manifest file lookup applies.
+    _makes_remote_calls: Optional[bool] = PrivateAttr(default=None)
 
     # === Runtime Fields ===
     activeBuildid: Optional[str] = None
@@ -889,6 +892,9 @@ class ServerlessResource(DeployableResource):
             True if makes remote calls, False if local-only,
             True (safe default) if manifest not found.
         """
+        if self._makes_remote_calls is not None:
+            return self._makes_remote_calls
+
         try:
             manifest_path = Path.cwd() / "flash_manifest.json"
             if not manifest_path.exists():
@@ -1053,9 +1059,15 @@ class ServerlessResource(DeployableResource):
 
         new_keys = {kv.key for kv in (self.template.env or [])}
         old_keys = set(old_env or {})
+        drop_api_key = not self._check_makes_remote_calls()
         for entry in live_env:
             key = entry.get("key", "")
             if not key or key in new_keys:
+                continue
+            # Flash injects RUNPOD_API_KEY itself; a key left by an earlier
+            # deploy must not outlive the endpoint's need for it.
+            if key == "RUNPOD_API_KEY" and drop_api_key:
+                log.debug(f"{self.name}: Dropping stale RUNPOD_API_KEY")
                 continue
             # Key was in old user config — user intentionally removed it
             if key in old_keys:
@@ -1214,11 +1226,19 @@ class ServerlessResource(DeployableResource):
                             try:
                                 live = await client.get_template(resolved_template_id)
                                 live_env = live.get("env") or []
+                                drop_api_key = (
+                                    not new_config._check_makes_remote_calls()
+                                    and "RUNPOD_API_KEY" not in (new_config.env or {})
+                                )
                                 new_config.template.env = [
                                     KeyValuePair(
                                         key=entry["key"], value=entry.get("value", "")
                                     )
                                     for entry in live_env
+                                    if not (
+                                        drop_api_key
+                                        and entry["key"] == "RUNPOD_API_KEY"
+                                    )
                                 ]
                             except Exception:
                                 log.warning(

@@ -170,6 +170,20 @@ def _display_post_deployment_guidance(
         for method, path in route_list:
             console.print(f"  {' ' * max_name}  [dim]{method:6s}{path}[/dim]")
 
+    # a RUNPOD_API_KEY the user set in env is theirs; Flash does not add it
+    keyed = sorted(
+        name
+        for name, _url, _routes in rows
+        if resources.get(name, {}).get("makes_remote_calls")
+        and "RUNPOD_API_KEY" not in (resources[name].get("env") or {})
+    )
+    if keyed:
+        console.print()
+        console.print(
+            "[dim]RUNPOD_API_KEY added to endpoints that call other endpoints: "
+            f"{', '.join(keyed)}[/dim]"
+        )
+
     # one curl example
     curl_url = None
     curl_method = "POST"

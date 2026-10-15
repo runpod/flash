@@ -188,7 +188,7 @@ When deploying to an environment that already has endpoints, Flash compares the 
 
 When `flash deploy` provisions endpoints:
 
-1. Endpoints with `makes_remote_calls=True` get `RUNPOD_API_KEY` injected automatically
+1. Endpoints with `makes_remote_calls=True` get `RUNPOD_API_KEY` injected automatically. Other endpoints do not get the key, and a key left on them by an earlier deploy is removed on the next `flash deploy`, even when nothing changed. See [API Key Injection](Cross_Endpoint_Routing.md#api-key-injection) for what counts as a remote call
 2. Each endpoint gets the `flash_manifest.json` included in its artifact
 3. The State Manager stores `{environment_id, resource_name} -> endpoint_id`
 4. At runtime, the `ServiceRegistry` uses the manifest + State Manager to route calls

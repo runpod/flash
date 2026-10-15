@@ -183,6 +183,16 @@ Cross-endpoint calls require authentication. Flash handles this automatically:
 
 This means your function code never needs to handle API keys directly.
 
+`flash build` sets `makes_remote_calls=True` when an endpoint function or class, directly or through a helper function in your project:
+
+- references another `@Endpoint` function or class, including through a module (`tasks.square(x)`) or an aliased import
+- uses a client `Endpoint(id=...)` or `Endpoint(image=...)`, at module level or built inline
+- uses the `runpod` SDK, or reads `RUNPOD_API_KEY`
+
+Endpoints that do none of these do not receive the key. The deploy summary lists the endpoints that did.
+
+If a deployed endpoint fails with `401 Unauthorized` and the error says `RUNPOD_API_KEY is not set on this worker`, the call was not detected (for example, a client `Endpoint` passed in as an argument). Make it visible in one of the ways above and redeploy.
+
 ## Load-Balanced Cross-Endpoint Calls
 
 LB endpoints can also participate in cross-endpoint routing:

@@ -21,6 +21,7 @@ from runpod_flash.cli.commands.build_utils.scanner import (
     file_to_resource_name,
     file_to_url_prefix,
 )
+from runpod_flash.endpoint import Endpoint
 
 
 # ---------------------------------------------------------------------------
@@ -315,6 +316,93 @@ class TestAnalyzeCrossCallsAst:
         result = _analyze_cross_calls_ast(p, {"caller", "remote_fn"}, {"remote_fn"})
         assert result["caller"] == ["remote_fn"]
 
+    def test_detects_client_endpoint_reference(self, tmp_path):
+        p = _write_worker(
+            tmp_path,
+            "client_ref.py",
+            """\
+            async def caller(x):
+                return await vllm.runsync(x)
+            """,
+        )
+        vllm = Endpoint(name="vllm", image="vllm/vllm-openai:latest")
+        result = _analyze_cross_calls_ast(p, {"caller"}, set(), {"vllm": vllm})
+        assert result == {"caller": ["vllm"]}
+
+    def test_detects_aliased_inline_client_endpoint(self, tmp_path):
+        p = _write_worker(
+            tmp_path,
+            "alias.py",
+            """\
+            async def caller(x):
+                return await EP(id="abc123").runsync(x)
+            """,
+        )
+        result = _analyze_cross_calls_ast(p, {"caller"}, set(), {"EP": Endpoint})
+        assert result == {"caller": ["Endpoint"]}
+
+    def test_detects_runpod_sdk_use(self, tmp_path):
+        import runpod
+
+        p = _write_worker(
+            tmp_path,
+            "sdk.py",
+            """\
+            def caller(x):
+                return runpod.Endpoint("abc123").run_sync(x)
+            """,
+        )
+        result = _analyze_cross_calls_ast(p, {"caller"}, set(), {"runpod": runpod})
+        assert result == {"caller": ["runpod"]}
+
+    def test_detects_api_key_read(self, tmp_path):
+        p = _write_worker(
+            tmp_path,
+            "env_read.py",
+            """\
+            import os
+
+            def caller(x):
+                return os.environ["RUNPOD_API_KEY"]
+            """,
+        )
+        result = _analyze_cross_calls_ast(p, {"caller"}, set())
+        assert result == {"caller": ["RUNPOD_API_KEY"]}
+
+    @pytest.mark.parametrize("kwarg", ['id="abc123"', 'image="org/img:1"'])
+    def test_detects_inline_client_endpoint(self, tmp_path, kwarg):
+        p = _write_worker(
+            tmp_path,
+            "inline_client.py",
+            f"""\
+            async def caller(x):
+                return await Endpoint({kwarg}).runsync(x)
+            """,
+        )
+        result = _analyze_cross_calls_ast(p, {"caller"}, set())
+        assert result == {"caller": ["Endpoint"]}
+
+    def test_analysis_error_assumes_key_needed(self, tmp_path):
+        p = _write_worker(tmp_path, "boom.py", "def caller():\n    pass\n")
+        with patch(
+            "runpod_flash.cli.commands.build_utils.scanner._remote_call_targets",
+            side_effect=RuntimeError("boom"),
+        ):
+            result = _analyze_cross_calls_ast(p, {"caller"}, set())
+        assert result == {"caller": ["<unanalyzed>"]}
+
+    def test_ignores_non_client_endpoint_construction(self, tmp_path):
+        p = _write_worker(
+            tmp_path,
+            "inline_decorator.py",
+            """\
+            def caller(x):
+                return Endpoint(name="ep", gpu=None)
+            """,
+        )
+        result = _analyze_cross_calls_ast(p, {"caller"}, set())
+        assert result == {}
+
 
 # ---------------------------------------------------------------------------
 # RuntimeScanner.discover_remote_functions
@@ -387,6 +475,210 @@ class TestRuntimeScannerDiscovery:
         caller = next(f for f in functions if f.function_name == "caller")
         assert caller.calls_remote_functions is True
         assert "helper" in caller.called_remote_functions
+
+    def test_client_endpoint_call_detection(self, tmp_path):
+        """calling a client-mode Endpoint counts as a remote call."""
+        _write_worker(
+            tmp_path,
+            "wrapper.py",
+            """\
+            from runpod_flash import Endpoint
+            vllm = Endpoint(name="vllm-backend", image="vllm/vllm-openai:latest")
+
+            @Endpoint(name="wrapper", cpu="cpu3c-1-2")
+            async def caller(x):
+                return await vllm.runsync(x)
+
+            @Endpoint(name="isolated", cpu="cpu3c-1-2")
+            async def isolated(x):
+                return x
+            """,
+        )
+        scanner = RuntimeScanner(tmp_path)
+        functions = scanner.discover_remote_functions()
+        caller = next(f for f in functions if f.function_name == "caller")
+        isolated = next(f for f in functions if f.function_name == "isolated")
+        assert caller.calls_remote_functions is True
+        assert caller.called_remote_functions == ["vllm"]
+        assert isolated.calls_remote_functions is False
+
+    def test_helper_in_other_file_detection(self, tmp_path):
+        """a helper in another project file that calls an endpoint counts."""
+        _write_worker(
+            tmp_path,
+            "clients.py",
+            """\
+            from runpod_flash import Endpoint
+            vllm = Endpoint(name="vllm-backend", image="vllm/vllm-openai:latest")
+
+            async def generate(x):
+                return await vllm.runsync(x)
+
+            def double(x):
+                return x * 2
+            """,
+        )
+        _write_worker(
+            tmp_path,
+            "wrapper.py",
+            """\
+            from runpod_flash import Endpoint
+            import clients
+            from clients import double
+
+            @Endpoint(name="via-helper", cpu="cpu3c-1-2")
+            async def via_helper(x):
+                return await clients.generate(x)
+
+            @Endpoint(name="pure-helper", cpu="cpu3c-1-2")
+            async def pure_helper(x):
+                return double(x)
+            """,
+        )
+        scanner = RuntimeScanner(tmp_path)
+        functions = scanner.discover_remote_functions()
+        via_helper = next(f for f in functions if f.function_name == "via_helper")
+        pure_helper = next(f for f in functions if f.function_name == "pure_helper")
+        assert via_helper.called_remote_functions == ["generate"]
+        assert pure_helper.calls_remote_functions is False
+
+    def test_remote_function_via_module_alias_or_value(self, tmp_path):
+        """another @Endpoint reached through a module, an alias, or as a value."""
+        _write_worker(
+            tmp_path,
+            "tasks.py",
+            """\
+            from runpod_flash import Endpoint
+
+            @Endpoint(name="square", cpu="cpu3c-1-2")
+            async def square(x):
+                return x * x
+            """,
+        )
+        _write_worker(
+            tmp_path,
+            "app.py",
+            """\
+            from runpod_flash import Endpoint
+            import tasks
+            from tasks import square as sq
+
+            @Endpoint(name="via-module", cpu="cpu3c-1-2")
+            async def via_module(x):
+                return await tasks.square(x)
+
+            @Endpoint(name="aliased", cpu="cpu3c-1-2")
+            async def aliased(x):
+                return await sq(x)
+
+            @Endpoint(name="passed", cpu="cpu3c-1-2")
+            async def passed(xs):
+                return list(map(tasks.square, xs))
+            """,
+        )
+        scanner = RuntimeScanner(tmp_path)
+        by_name = {
+            f.function_name: f
+            for f in scanner.discover_remote_functions()
+            if f.function_name != "square"
+        }
+        assert by_name["via_module"].called_remote_functions == ["tasks.square"]
+        assert by_name["aliased"].called_remote_functions == ["sq"]
+        assert by_name["passed"].called_remote_functions == ["tasks.square"]
+
+    def test_function_local_imports(self, tmp_path):
+        """imports inside the endpoint function are resolved too."""
+        _write_worker(
+            tmp_path,
+            "local_imports.py",
+            """\
+            from runpod_flash import Endpoint
+
+            @Endpoint(name="local-alias", cpu="cpu3c-1-2")
+            async def local_alias(x):
+                from runpod_flash import Endpoint as EP
+                return await EP(id="abc123").runsync(x)
+
+            @Endpoint(name="local-sdk", cpu="cpu3c-1-2")
+            async def local_sdk(x):
+                import runpod
+                return runpod.Endpoint("abc123").run_sync(x)
+
+            @Endpoint(name="local-stdlib", cpu="cpu3c-1-2")
+            async def local_stdlib(x):
+                import json
+                return json.dumps(x)
+            """,
+        )
+        scanner = RuntimeScanner(tmp_path)
+        by_name = {f.function_name: f for f in scanner.discover_remote_functions()}
+        assert by_name["local_alias"].called_remote_functions == ["Endpoint"]
+        assert "runpod" in by_name["local_sdk"].called_remote_functions
+        assert by_name["local_stdlib"].calls_remote_functions is False
+
+    def test_cyclic_helpers_shared_by_two_endpoints(self, tmp_path):
+        """a helper first reached mid-cycle is still detected for later callers."""
+        _write_worker(
+            tmp_path,
+            "cyclic.py",
+            """\
+            from runpod_flash import Endpoint
+            vllm = Endpoint(name="vllm-backend", image="vllm/vllm-openai:latest")
+
+            async def helper_a(x, depth=0):
+                if depth:
+                    await helper_b(x, depth - 1)
+                return await vllm.runsync(x)
+
+            async def helper_b(x, depth=0):
+                return await helper_a(x, depth)
+
+            @Endpoint(name="first", cpu="cpu3c-1-2")
+            async def first(x):
+                return await helper_a(x, 1)
+
+            @Endpoint(name="second", cpu="cpu3c-1-2")
+            async def second(x):
+                return await helper_b(x, 1)
+            """,
+        )
+        scanner = RuntimeScanner(tmp_path)
+        by_name = {f.function_name: f for f in scanner.discover_remote_functions()}
+        assert by_name["first"].calls_remote_functions is True
+        assert by_name["second"].calls_remote_functions is True
+
+    def test_helpers_outside_scanned_files_are_not_analyzed(self, tmp_path):
+        """library code in an in-project .venv is not treated as a helper."""
+        venv = tmp_path / ".venv"
+        venv.mkdir()
+        (venv / "fakelib.py").write_text(
+            "import os\n\ndef read_key():\n    return os.environ.get('RUNPOD_API_KEY')\n",
+            encoding="utf-8",
+        )
+        _write_worker(
+            tmp_path,
+            "app.py",
+            """\
+            import sys
+            from pathlib import Path
+            sys.path.insert(0, str(Path(__file__).parent / ".venv"))
+            from fakelib import read_key
+            from runpod_flash import Endpoint
+
+            @Endpoint(name="lib-call", cpu="cpu3c-1-2")
+            async def lib_call(x):
+                read_key()
+                return x
+            """,
+        )
+        scanner = RuntimeScanner(tmp_path)
+        try:
+            lib_call = scanner.discover_remote_functions()[0]
+        finally:
+            sys.path[:] = [x for x in sys.path if x != str(venv)]
+            sys.modules.pop("fakelib", None)
+        assert scanner.import_errors == {}
+        assert lib_call.calls_remote_functions is False
 
     def test_sys_path_cleanup(self, tmp_path):
         """project root is removed from sys.path after scanning."""
