@@ -1137,7 +1137,7 @@ def _wheel_distribution_name(requirement: str) -> str:
     Wheel filenames start with the distribution name (PEP 427), e.g.
     https://download.pytorch.org/whl/cu128/torch-2.9.1%2Bcu128-cp312-...whl.
     """
-    location = requirement.split(";", 1)[0].strip()
+    location = re.split(r"[#?]", requirement.split(";", 1)[0].strip(), maxsplit=1)[0]
     if not location.lower().endswith(".whl"):
         return ""
     filename = location.replace("\\", "/").rsplit("/", 1)[-1]
