@@ -842,3 +842,132 @@ async def test_source_fingerprint_skipped_for_client_mode_resources(tmp_path):
 
     client_env = local_manifest["resources"]["vllm-server"].get("env", {})
     assert "_FLASH_SOURCE_FINGERPRINT" not in client_env
+
+
+def _unchanged_manifest(**worker_fields):
+    worker = {
+        "resource_type": "LiveServerless",
+        "config": "same",
+        "endpoint_id": "endpoint-123",
+        **worker_fields,
+    }
+    return (
+        {"resources": {"worker": dict(worker)}, "resources_endpoints": {}},
+        {
+            "resources": {"worker": dict(worker)},
+            "resources_endpoints": {"worker": "https://worker.api.runpod.ai"},
+        },
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "worker_fields,expect_check",
+    [
+        ({"makes_remote_calls": False}, True),
+        ({"makes_remote_calls": True}, False),
+        ({}, False),
+        ({"makes_remote_calls": False, "env": {"RUNPOD_API_KEY": ""}}, False),
+    ],
+    ids=["local-only", "remote-caller", "unknown", "user-managed-key"],
+)
+async def test_unchanged_local_only_endpoint_gets_stale_key_check(
+    tmp_path, monkeypatch, worker_fields, expect_check
+):
+    """Unchanged resources skip provisioning, so stale keys are cleaned here."""
+    monkeypatch.setenv("RUNPOD_API_KEY", "deployer-key")
+    (tmp_path / ".flash").mkdir()
+    local_manifest, state_manifest = _unchanged_manifest(**worker_fields)
+
+    app = AsyncMock()
+    app.get_build_manifest = AsyncMock(return_value=state_manifest)
+    app.update_build_manifest = AsyncMock()
+
+    with (
+        patch("pathlib.Path.cwd", return_value=tmp_path),
+        patch("runpod_flash.cli.utils.deployment.ResourceManager"),
+        patch(
+            "runpod_flash.cli.utils.deployment._remove_stale_api_keys",
+            new=AsyncMock(),
+        ) as mock_cleanup,
+    ):
+        await reconcile_and_provision_resources(app, "build-123", "dev", local_manifest)
+
+    if expect_check:
+        mock_cleanup.assert_awaited_once_with([("worker", "endpoint-123")])
+    else:
+        mock_cleanup.assert_not_awaited()
+
+
+class TestRemoveStaleApiKey:
+    """_remove_stale_api_key drops only RUNPOD_API_KEY from the live template."""
+
+    @staticmethod
+    def _client(env, template_id="tpl-1"):
+        client = AsyncMock()
+        client.get_endpoint_template_id = AsyncMock(return_value=template_id)
+        client.get_template = AsyncMock(
+            return_value={
+                "id": template_id,
+                "name": "worker-tpl",
+                "imageName": "runpod/flash:latest",
+                "containerDiskInGb": 64,
+                "dockerArgs": "",
+                "readme": None,
+                "env": env,
+            }
+        )
+        client.update_template = AsyncMock(return_value={})
+        return client
+
+    @pytest.mark.asyncio
+    async def test_removes_key_and_keeps_everything_else(self):
+        from runpod_flash.cli.utils.deployment import _remove_stale_api_key
+
+        client = self._client(
+            [
+                {"key": "PORT", "value": "8080"},
+                {"key": "RUNPOD_API_KEY", "value": "old-key"},
+            ]
+        )
+
+        assert await _remove_stale_api_key(client, "endpoint-123") is True
+
+        payload = client.update_template.call_args.args[0]
+        assert payload == {
+            "id": "tpl-1",
+            "name": "worker-tpl",
+            "imageName": "runpod/flash:latest",
+            "containerDiskInGb": 64,
+            "dockerArgs": "",
+            "env": [{"key": "PORT", "value": "8080"}],
+            "volumeInGb": 0,
+        }
+
+    @pytest.mark.asyncio
+    async def test_no_update_when_key_absent(self):
+        from runpod_flash.cli.utils.deployment import _remove_stale_api_key
+
+        client = self._client([{"key": "PORT", "value": "8080"}])
+
+        assert await _remove_stale_api_key(client, "endpoint-123") is False
+        client.update_template.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_no_update_without_template(self):
+        from runpod_flash.cli.utils.deployment import _remove_stale_api_key
+
+        client = self._client([], template_id=None)
+
+        assert await _remove_stale_api_key(client, "endpoint-123") is False
+        client.get_template.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_errors_never_fail_the_deploy(self):
+        from runpod_flash.cli.utils.deployment import _remove_stale_api_keys
+
+        with patch(
+            "runpod_flash.core.api.runpod.RunpodGraphQLClient",
+            side_effect=RuntimeError("no network"),
+        ):
+            await _remove_stale_api_keys([("worker", "endpoint-123")])

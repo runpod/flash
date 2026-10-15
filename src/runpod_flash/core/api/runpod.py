@@ -847,6 +847,23 @@ class RunpodGraphQLClient:
             log.debug(f"Error checking endpoint existence: {e}")
             return False
 
+    async def get_endpoint_template_id(self, endpoint_id: str) -> Optional[str]:
+        """Return the template ID an endpoint runs, or None if not found."""
+        query = """
+        query getEndpointTemplate($id: String!) {
+            myself {
+                endpoint(id: $id) {
+                    id
+                    templateId
+                }
+            }
+        }
+        """
+
+        result = await self._execute_graphql(query, {"id": endpoint_id})
+        endpoint = (result.get("myself") or {}).get("endpoint") or {}
+        return endpoint.get("templateId")
+
     async def create_flash_auth_request(self) -> Dict[str, Any]:
         mutation = """
         mutation createFlashAuthRequest {

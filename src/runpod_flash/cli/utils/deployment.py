@@ -41,6 +41,60 @@ def _manifest_without_ai_keys(manifest: Dict[str, Any]) -> Dict[str, Any]:
     return sanitized_manifest
 
 
+async def _remove_stale_api_key(client: Any, endpoint_id: str) -> bool:
+    """Drop RUNPOD_API_KEY from an endpoint's live template. True if removed."""
+    template_id = await client.get_endpoint_template_id(endpoint_id)
+    if not template_id:
+        return False
+    live = await client.get_template(template_id)
+    env = live.get("env") or []
+    kept = [entry for entry in env if entry.get("key") != "RUNPOD_API_KEY"]
+    if len(kept) == len(env):
+        return False
+    payload = {
+        key: live[key]
+        for key in ("name", "imageName", "containerDiskInGb", "dockerArgs", "readme")
+        if live.get(key) is not None
+    }
+    payload["env"] = [
+        {"key": entry["key"], "value": entry.get("value", "")} for entry in kept
+    ]
+    # saveTemplate requires volumeInGb, but for sls this is always 0
+    payload["volumeInGb"] = 0
+    payload["id"] = template_id
+    await client.update_template(payload)
+    return True
+
+
+async def _remove_stale_api_keys(endpoints: list[tuple[str, str]]) -> None:
+    """Remove RUNPOD_API_KEY left on unchanged local-only endpoints.
+
+    Older Flash versions gave every endpoint the key. Unchanged resources skip
+    provisioning, so the update path that drops it never runs for them.
+    Failures are logged and never fail the deploy.
+    """
+    from runpod_flash.core.api.runpod import RunpodGraphQLClient
+
+    try:
+        async with RunpodGraphQLClient() as client:
+            for resource_name, endpoint_id in endpoints:
+                try:
+                    removed = await _remove_stale_api_key(client, endpoint_id)
+                except Exception as e:
+                    log.warning(
+                        f"{resource_name}: could not check for a stale "
+                        f"RUNPOD_API_KEY: {e}"
+                    )
+                    continue
+                if removed:
+                    log.info(
+                        f"{resource_name}: removed RUNPOD_API_KEY "
+                        f"(endpoint does not call other endpoints)"
+                    )
+    except Exception as e:
+        log.warning(f"Could not check endpoints for a stale RUNPOD_API_KEY: {e}")
+
+
 def _resource_config_for_compare(config: Dict[str, Any]) -> Dict[str, Any]:
     compare_config = copy.deepcopy(config)
     for field in RUNTIME_RESOURCE_FIELDS:
@@ -116,6 +170,7 @@ async def reconcile_and_provision_resources(
     # Create resource manager
     manager = ResourceManager()
     actions = []
+    stale_key_checks: list[tuple[str, str]] = []
     manifest_python_version = local_manifest.get("python_version")
 
     # Inject source fingerprint into each resource's env so that code-only
@@ -185,6 +240,12 @@ async def reconcile_and_provision_resources(
                 local_manifest["resources"][resource_name]["endpoint_id"] = (
                     state_config["endpoint_id"]
                 )
+                if local_config.get(
+                    "makes_remote_calls"
+                ) is False and "RUNPOD_API_KEY" not in (local_config.get("env") or {}):
+                    stale_key_checks.append(
+                        (resource_name, state_config["endpoint_id"])
+                    )
             if "aiKey" in state_config:
                 local_manifest["resources"][resource_name]["aiKey"] = state_config[
                     "aiKey"
@@ -197,6 +258,9 @@ async def reconcile_and_provision_resources(
     # Delete removed resources
     for resource_name in sorted(to_delete):
         log.debug(f"Resource {resource_name} marked for deletion (not implemented yet)")
+
+    if stale_key_checks:
+        await _remove_stale_api_keys(stale_key_checks)
 
     # Execute all actions in parallel with timeout
     if actions:
