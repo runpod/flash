@@ -1,9 +1,11 @@
 """Flash build command - Package Flash applications for deployment."""
 
 import ast
+import csv
 import hashlib
 import importlib.util
 import json
+import posixpath
 import logging
 import re
 import shutil
@@ -11,6 +13,7 @@ import stat
 import subprocess
 import sys
 import tarfile
+from email.parser import HeaderParser
 from pathlib import Path
 from typing import Optional
 
@@ -160,18 +163,19 @@ UV_COMMAND = "uv"
 PIP_MODULE = "pip"
 
 
-# These are CUDA/GPU-oriented packages whose large CUDA builds are already
-# provided by the GPU base images (runpod/pytorch:*) and therefore should
-# not be bundled into the tarball.
+# The torch family is never bundled. The GPU worker images ship torch,
+# torchaudio, and triton from the base image, and install a torchvision pinned
+# to that torch build. Each torchvision release requires one exact torch
+# version, and the tarball is extracted ahead of site-packages on sys.path, so
+# a bundled PyPI copy would shadow the paired one and fail to load against the
+# image's torch. torch and triton are also too large to bundle.
 # Do NOT add packages here just because the GPU image ships them (e.g. numpy).
-# The blacklist is defined strictly by size constraints, not by whether a
-# package happens to be present in a particular base image.
 SIZE_PROHIBITIVE_PACKAGES: frozenset[str] = frozenset(
     {
-        "torch",  # ~500 MB
-        "torchvision",  # ~50 MB, requires torch
-        "torchaudio",  # ~30 MB, requires torch
-        "triton",  # ~150 MB, CUDA compiler
+        "torch",  # ~550 MB
+        "torchvision",  # small, but must match the image's torch build
+        "torchaudio",  # must match the image's torch build
+        "triton",  # ~250 MB, CUDA compiler
     }
 )
 
@@ -440,14 +444,27 @@ def run_build(
     # filter out excluded packages (auto + user-specified)
     if excluded_packages:
         auto_matched = set()
+        auto_pinned = []
         user_matched = set()
         filtered_requirements = []
 
+        torch_family = {_canonical_name(p) for p in SIZE_PROHIBITIVE_PACKAGES}
+
         for req in requirements:
-            if should_exclude_package(req, excluded_packages):
+            # _requirement_name also reads "name @ url" forms, and wheel
+            # paths or URLs are named by their filename.
+            family_name = _requirement_name(req) or _wheel_distribution_name(req)
+            if family_name in torch_family or should_exclude_package(
+                req, excluded_packages
+            ):
                 pkg_name = extract_package_name(req)
-                if pkg_name in SIZE_PROHIBITIVE_PACKAGES:
-                    auto_matched.add(pkg_name)
+                if family_name in torch_family:
+                    auto_matched.add(family_name)
+                    if not _requirement_name(req) or re.search(
+                        r"[<>=!~@]", req.split(";", 1)[0]
+                    ):
+                        # A wheel path or URL pins a version too.
+                        auto_pinned.append(req.strip())
                 if pkg_name in user_excluded:
                     user_matched.add(pkg_name)
             else:
@@ -456,9 +473,15 @@ def run_build(
         requirements = filtered_requirements
 
         if auto_matched:
-            logger.debug(
-                "auto-excluded size-prohibitive packages: %s",
-                ", ".join(sorted(auto_matched)),
+            console.print(
+                f"[dim]not bundling {', '.join(sorted(auto_matched))}: "
+                "provided by the Runpod GPU worker image[/dim]"
+            )
+        if auto_pinned:
+            print_warning(
+                console,
+                f"Version pins ignored: {', '.join(auto_pinned)}. Workers use the "
+                "torch-family versions in the Runpod GPU worker image.",
             )
 
         # Only warn about unmatched user-specified packages (not auto-excludes)
@@ -516,7 +539,11 @@ def run_build(
 
     with console.status("[dim]creating archive...[/dim]"):
         create_tarball(
-            build_dir, archive_path, app_name, excluded_packages=excluded_packages
+            build_dir,
+            archive_path,
+            app_name,
+            excluded_packages=excluded_packages,
+            root_requirements=requirements,
         )
 
     size_mb = archive_path.stat().st_size / (1024 * 1024)
@@ -779,9 +806,10 @@ def extract_package_name(requirement: str) -> str:
         >>> extract_package_name("my-package==1.0.0")
         "my-package"
     """
-    # Split on version specifiers, extras, and environment markers
-    # This regex matches: < > = ! [ ; (common pip requirement delimiters)
-    package_name = re.split(r"[<>=!\[;]", requirement)[0].strip().lower()
+    # Split on version specifiers, extras, environment markers, direct
+    # references, and the whitespace/parenthesis before a specifier:
+    # < > = ! ~ [ ; @ ( and whitespace
+    package_name = re.split(r"[<>=!~\[;@(\s]", requirement.strip())[0].lower()
     return package_name
 
 
@@ -1071,11 +1099,114 @@ def install_dependencies(
         return False
 
 
+def _canonical_name(name: str) -> str:
+    """Canonical distribution name (PEP 503 runs of -_. collapse, lowercase)."""
+    return re.sub(r"[-_.]+", "_", name).lower()
+
+
+def _dist_info_name(dist_info_dir: str) -> str:
+    """Distribution name from a "name-version.dist-info" directory name."""
+    stem = dist_info_dir.removesuffix(".dist-info")
+    match = re.search(r"-\d", stem)
+    return stem[: match.start()] if match else stem
+
+
+def _requirement_name(requirement: str) -> str:
+    """Canonical distribution name of a requirement or Requires-Dist string.
+
+    Returns "" for lines that don't start with a name, such as bare URLs,
+    local paths or archive filenames, or pip options like "-r other.txt".
+    """
+    match = re.match(
+        r"\s*([A-Za-z0-9][A-Za-z0-9._-]*)\s*(?:\[[^\]]*\])?\s*(?:$|[<>=!~;@(])",
+        requirement,
+    )
+    if not match:
+        return ""
+    if requirement.strip() == match.group(1) and re.search(
+        r"\.(whl|zip|tar\.gz|tgz)$", match.group(1), re.I
+    ):
+        # A bare archive filename is a path, not a distribution name.
+        return ""
+    return _canonical_name(match.group(1))
+
+
+def _wheel_distribution_name(requirement: str) -> str:
+    """Canonical distribution name of a wheel path or URL, else "".
+
+    Wheel filenames start with the distribution name (PEP 427), e.g.
+    https://download.pytorch.org/whl/cu128/torch-2.9.1%2Bcu128-cp312-...whl.
+    """
+    location = re.split(r"[#?]", requirement.split(";", 1)[0].strip(), maxsplit=1)[0]
+    if not location.lower().endswith(".whl"):
+        return ""
+    filename = location.replace("\\", "/").rsplit("/", 1)[-1]
+    return _canonical_name(filename.split("-", 1)[0])
+
+
+def _excluded_only_dists(
+    build_dir: Path, excluded: set[str], roots: set[str]
+) -> set[str]:
+    """Installed distributions that only excluded packages depend on.
+
+    pip installs the whole dependency tree of an excluded package (torch pulls
+    in ~2 GB of nvidia/cuda wheels on Linux x86_64). The GPU worker image
+    installs those alongside its own torch, so they are dead weight in the
+    tarball. A distribution is kept if a root requirement, or any wheel that
+    the excluded packages did not pull in, depends on it. Markers and extras
+    are ignored, which can only keep more, never drop a needed wheel.
+
+    Args:
+        build_dir: Directory pip installed into
+        excluded: Canonical names of excluded packages
+        roots: Canonical names of the user's requirements
+
+    Returns:
+        Canonical names to drop, not including the excluded packages.
+    """
+    requires: dict[str, set[str]] = {}
+    for dist_info in build_dir.glob("*.dist-info"):
+        name = _canonical_name(_dist_info_name(dist_info.name))
+        metadata = dist_info / "METADATA"
+        if not metadata.is_file():
+            # Unknown dependencies: we cannot prove anything is unused.
+            return set()
+        headers = HeaderParser().parsestr(
+            metadata.read_text(encoding="utf-8", errors="replace")
+        )
+        deps = set()
+        for req in headers.get_all("Requires-Dist") or []:
+            dep = _requirement_name(req)
+            if not dep:
+                # An edge we can't read could protect any wheel.
+                return set()
+            deps.add(dep)
+        requires[name] = deps
+
+    def closure(start: set[str], stop: set[str]) -> set[str]:
+        seen: set[str] = set()
+        stack = [n for n in start if n in requires]
+        while stack:
+            node = stack.pop()
+            if node in seen:
+                continue
+            seen.add(node)
+            stack.extend(d for d in requires[node] if d in requires and d not in stop)
+        return seen
+
+    installed = set(requires)
+    pulled_by_excluded = closure(installed & excluded, stop=set())
+    seed = ((installed - pulled_by_excluded) | (installed & roots)) - excluded
+    kept = closure(seed, stop=excluded)
+    return installed - kept - excluded
+
+
 def create_tarball(
     build_dir: Path,
     output_path: Path,
     app_name: str,
     excluded_packages: list[str] | None = None,
+    root_requirements: list[str] | None = None,
 ) -> None:
     """
     Create gzipped tarball of build directory, excluding size-prohibitive packages.
@@ -1089,11 +1220,86 @@ def create_tarball(
         output_path: Output archive path
         app_name: Application name (unused, for compatibility)
         excluded_packages: Package names to exclude from the archive
+        root_requirements: The user's requirements. Wheels that only excluded
+            packages depend on are dropped unless listed here.
     """
     # Build set of normalized names for fast lookup
     excluded_normalized: set[str] = set()
     if excluded_packages:
         excluded_normalized = {_normalize_package_name(p) for p in excluded_packages}
+
+    # RECORD lists every file a wheel installed, relative to build_dir.
+    records: dict[str, set[str]] = {}
+    records_complete = True
+    for dist_info in build_dir.glob("*.dist-info"):
+        record = dist_info / "RECORD"
+        if not record.is_file():
+            records_complete = False
+            break
+        paths = set()
+        with record.open(newline="", encoding="utf-8", errors="replace") as f:
+            for row in csv.reader(f):
+                if not row:
+                    continue
+                record_path = posixpath.normpath(row[0].replace("\\", "/"))
+                if not record_path.startswith("../") and record_path not in (".", ".."):
+                    paths.add(record_path)
+        records[_canonical_name(_dist_info_name(dist_info.name))] = paths
+
+    # Drop the excluded packages plus wheels only they depend on. Without a
+    # RECORD for every wheel we cannot tell which files belong to whom, so
+    # fall back to dropping the excluded packages by name only.
+    dropped: set[str] = set()
+    if excluded_normalized:
+        excluded_canonical = {_canonical_name(p) for p in excluded_packages or []}
+        dropped = set(excluded_canonical)
+        requirement_lines = [
+            r.strip()
+            for r in root_requirements or []
+            if r.strip() and not r.strip().startswith("#")
+        ]
+        roots = {_requirement_name(r) for r in requirement_lines}
+        # --exclude removes only the named package, so its dependencies are
+        # protected like the user's own requirements.
+        roots |= excluded_canonical - {
+            _canonical_name(p) for p in SIZE_PROHIBITIVE_PACKAGES
+        }
+        # A requirement we can't name (bare URL, local path, -r file) may
+        # install any wheel, so we can't prove a wheel is unrequested.
+        if records_complete and "" not in roots:
+            # Only the torch family is provided by the image, so only its
+            # dependency tree is safe to prune. A user --exclude drops just
+            # the named package.
+            image_provided = excluded_canonical & {
+                _canonical_name(p) for p in SIZE_PROHIBITIVE_PACKAGES
+            }
+            dependency_only = (
+                _excluded_only_dists(build_dir, image_provided, roots)
+                - excluded_canonical
+            )
+            if dependency_only:
+                console.print(
+                    f"[dim]not bundling {len(dependency_only)} packages that only "
+                    "torch-family packages depend on[/dim]"
+                )
+                logger.debug("dropped: %s", ", ".join(sorted(dependency_only)))
+            dropped |= dependency_only
+
+    # Wheels can install top-level entries that don't share the package name
+    # (torch ships functorch/ and torchgen/, torchvision ships
+    # torchvision.libs/, the nvidia wheels share nvidia/). Drop every file
+    # that only dropped wheels installed. Top-level entries holding such files
+    # are walked file by file, so files a kept wheel installed and files no
+    # RECORD lists stay. Entries named after an excluded package (torch/) are
+    # still dropped whole, as before.
+    dropped_files: set[str] = set()
+    filtered_tops: set[str] = set()
+    if dropped and records_complete:
+        kept_files: set[str] = set()
+        for name, paths in records.items():
+            (dropped_files if name in dropped else kept_files).update(paths)
+        dropped_files -= kept_files
+        filtered_tops = {p.split("/", 1)[0] for p in dropped_files}
 
     def _is_excluded_top_dir(top_dir: str) -> bool:
         """Check if a top-level directory should be excluded from the tarball."""
@@ -1103,16 +1309,9 @@ def create_tarball(
 
         # Check dist-info directories (e.g. "numpy-1.24.0.dist-info")
         if top_dir.endswith(".dist-info"):
-            # dist-info format: "package_name-version.dist-info"
-            # Strip suffix, then split package name from version at first digit segment
-            stem = top_dir.removesuffix(".dist-info")
-            # Find the last hyphen followed by a digit (version separator)
-            match = re.search(r"-\d", stem)
-            dist_name = stem[: match.start()] if match else stem
-            if _normalize_package_name(dist_name) in excluded_normalized:
-                return True
+            return _canonical_name(_dist_info_name(top_dir)) in dropped
 
-        return False
+        return top_dir in dropped_files
 
     # Remove existing archive
     if output_path.exists():
@@ -1128,6 +1327,16 @@ def create_tarball(
             rel = item.relative_to(build_dir)
             top_dir = rel.parts[0]
             if excluded_normalized and _is_excluded_top_dir(top_dir):
+                continue
+            if top_dir in filtered_tops and item.is_dir() and not item.is_symlink():
+                # Add only surviving files; tar creates their parent dirs on
+                # extract, so a dir emptied by filtering leaves no entry.
+                for path in sorted(item.rglob("*")):
+                    if path.is_dir() and not path.is_symlink():
+                        continue
+                    rel_path = path.relative_to(build_dir).as_posix()
+                    if rel_path not in dropped_files:
+                        tar.add(str(path), arcname=f"./{rel_path}", recursive=False)
                 continue
             arcname = f"./{rel}"
             tar.add(str(item), arcname=arcname)
