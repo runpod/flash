@@ -448,11 +448,18 @@ def run_build(
         user_matched = set()
         filtered_requirements = []
 
+        torch_family = {_canonical_name(p) for p in SIZE_PROHIBITIVE_PACKAGES}
+
         for req in requirements:
-            if should_exclude_package(req, excluded_packages):
+            # _requirement_name also reads "~=" pins and "name @ url" forms,
+            # which extract_package_name leaves unsplit.
+            family_name = _requirement_name(req)
+            if family_name in torch_family or should_exclude_package(
+                req, excluded_packages
+            ):
                 pkg_name = extract_package_name(req)
-                if pkg_name in SIZE_PROHIBITIVE_PACKAGES:
-                    auto_matched.add(pkg_name)
+                if family_name in torch_family:
+                    auto_matched.add(family_name)
                     if re.search(r"[<>=!~@]", req.split(";", 1)[0]):
                         auto_pinned.append(req.strip())
                 if pkg_name in user_excluded:
@@ -1104,13 +1111,16 @@ def _requirement_name(requirement: str) -> str:
     """Canonical distribution name of a requirement or Requires-Dist string.
 
     Returns "" for lines that don't start with a name, such as bare URLs,
-    local paths, or pip options like "-r other.txt".
+    local paths or archive filenames, or pip options like "-r other.txt".
     """
     match = re.match(
         r"\s*([A-Za-z0-9][A-Za-z0-9._-]*)\s*(?:\[[^\]]*\])?\s*(?:$|[<>=!~;@(])",
         requirement,
     )
-    return _canonical_name(match.group(1)) if match else ""
+    if not match or re.search(r"\.(whl|zip|tar\.gz|tgz)$", match.group(1), re.I):
+        # A bare archive filename is a path, not a distribution name.
+        return ""
+    return _canonical_name(match.group(1))
 
 
 def _excluded_only_dists(
@@ -1228,6 +1238,11 @@ def create_tarball(
             if r.strip() and not r.strip().startswith("#")
         ]
         roots = {_requirement_name(r) for r in requirement_lines}
+        # --exclude removes only the named package, so its dependencies are
+        # protected like the user's own requirements.
+        roots |= excluded_canonical - {
+            _canonical_name(p) for p in SIZE_PROHIBITIVE_PACKAGES
+        }
         # A requirement we can't name (bare URL, local path, -r file) may
         # install any wheel, so we can't prove a wheel is unrequested.
         if records_complete and "" not in roots:

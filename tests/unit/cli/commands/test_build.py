@@ -729,6 +729,21 @@ class TestBaseImageAutoExclusion:
 
         return [extract_package_name(r) for r in installed]
 
+    @pytest.mark.parametrize(
+        "pinned",
+        ["torchvision~=0.24.1", "torchvision @ https://example.com/torchvision.whl"],
+    )
+    def test_auto_exclude_catches_compatible_and_url_pins(
+        self, tmp_path, capsys, pinned
+    ):
+        """'~=' and 'name @ url' torch-family requirements are excluded and warned."""
+        pkg_names = self._build_with_deps(tmp_path, [pinned, "requests"])
+
+        out = capsys.readouterr().out
+        assert not any(name.startswith("torchvision") for name in pkg_names)
+        assert "requests" in pkg_names
+        assert "Version pins ignored" in out
+
     def test_auto_exclude_tells_user_image_provides_package(self, tmp_path, capsys):
         """An unpinned torchvision is dropped with a visible notice, not a warning."""
         pkg_names = self._build_with_deps(tmp_path, ["torchvision", "requests"])
@@ -1026,6 +1041,48 @@ class TestBaseImageAutoExclusion:
         assert {"numpy", "nvidia"} <= top_level
         assert "torch" not in top_level
 
+    def test_tarball_skips_pruning_for_bare_wheel_filename(self, tmp_path):
+        """A wheel filename root names no distribution, so pruning is skipped."""
+        build_dir = tmp_path / "build"
+        build_dir.mkdir()
+        self._torch_tree(build_dir)
+
+        top_level = self._tarball_top_level(
+            tmp_path,
+            build_dir,
+            ["timm", "numpy-2.4.6-cp312-cp312-manylinux_2_28_x86_64.whl"],
+        )
+
+        assert "numpy" in top_level
+
+    def test_tarball_keeps_dependencies_of_user_excluded_torch_dependency(
+        self, tmp_path
+    ):
+        """--exclude sympy drops sympy only, even though torch also needs it."""
+        import tarfile
+
+        build_dir = tmp_path / "build"
+        build_dir.mkdir()
+        wheel = self._fake_wheel
+        wheel(build_dir, "torch-2.14.1.dist-info", ["torch/__init__.py"], ["sympy"])
+        wheel(build_dir, "sympy-1.14.0.dist-info", ["sympy/__init__.py"], ["mpmath"])
+        wheel(build_dir, "mpmath-1.3.0.dist-info", ["mpmath/__init__.py"])
+        wheel(build_dir, "timm-1.0.30.dist-info", ["timm/__init__.py"], ["torch"])
+
+        output = tmp_path / "test.tar.gz"
+        create_tarball(
+            build_dir,
+            output,
+            "test_app",
+            excluded_packages=sorted(SIZE_PROHIBITIVE_PACKAGES | {"sympy"}),
+            root_requirements=["timm"],
+        )
+        with tarfile.open(output, "r:gz") as tar:
+            top_level = {n.split("/")[1] for n in tar.getnames() if n != "."}
+
+        assert "sympy" not in top_level
+        assert "mpmath" in top_level
+
     def test_tarball_keeps_unrecorded_files_next_to_dropped_ones(self, tmp_path):
         """Files no RECORD lists stay, even beside files of a dropped wheel."""
         build_dir = tmp_path / "build"
@@ -1244,6 +1301,8 @@ class TestComputeSourceFingerprint:
         ("https://example.com/numpy.whl", ""),
         ("./wheels/numpy.whl", ""),
         ("-r other.txt", ""),
+        ("numpy-2.4.6-cp312-cp312-manylinux_2_28_x86_64.whl", ""),
+        ("mypkg-1.0.tar.gz", ""),
     ],
 )
 def test_requirement_name(requirement, expected):
