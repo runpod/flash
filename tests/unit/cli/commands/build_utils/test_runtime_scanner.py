@@ -586,6 +586,67 @@ class TestRuntimeScannerDiscovery:
         assert by_name["aliased"].called_remote_functions == ["sq"]
         assert by_name["passed"].called_remote_functions == ["tasks.square"]
 
+    def test_function_local_imports(self, tmp_path):
+        """imports inside the endpoint function are resolved too."""
+        _write_worker(
+            tmp_path,
+            "local_imports.py",
+            """\
+            from runpod_flash import Endpoint
+
+            @Endpoint(name="local-alias", cpu="cpu3c-1-2")
+            async def local_alias(x):
+                from runpod_flash import Endpoint as EP
+                return await EP(id="abc123").runsync(x)
+
+            @Endpoint(name="local-sdk", cpu="cpu3c-1-2")
+            async def local_sdk(x):
+                import runpod
+                return runpod.Endpoint("abc123").run_sync(x)
+
+            @Endpoint(name="local-stdlib", cpu="cpu3c-1-2")
+            async def local_stdlib(x):
+                import json
+                return json.dumps(x)
+            """,
+        )
+        scanner = RuntimeScanner(tmp_path)
+        by_name = {f.function_name: f for f in scanner.discover_remote_functions()}
+        assert by_name["local_alias"].called_remote_functions == ["Endpoint"]
+        assert "runpod" in by_name["local_sdk"].called_remote_functions
+        assert by_name["local_stdlib"].calls_remote_functions is False
+
+    def test_cyclic_helpers_shared_by_two_endpoints(self, tmp_path):
+        """a helper first reached mid-cycle is still detected for later callers."""
+        _write_worker(
+            tmp_path,
+            "cyclic.py",
+            """\
+            from runpod_flash import Endpoint
+            vllm = Endpoint(name="vllm-backend", image="vllm/vllm-openai:latest")
+
+            async def helper_a(x, depth=0):
+                if depth:
+                    await helper_b(x, depth - 1)
+                return await vllm.runsync(x)
+
+            async def helper_b(x, depth=0):
+                return await helper_a(x, depth)
+
+            @Endpoint(name="first", cpu="cpu3c-1-2")
+            async def first(x):
+                return await helper_a(x, 1)
+
+            @Endpoint(name="second", cpu="cpu3c-1-2")
+            async def second(x):
+                return await helper_b(x, 1)
+            """,
+        )
+        scanner = RuntimeScanner(tmp_path)
+        by_name = {f.function_name: f for f in scanner.discover_remote_functions()}
+        assert by_name["first"].calls_remote_functions is True
+        assert by_name["second"].calls_remote_functions is True
+
     def test_helpers_outside_scanned_files_are_not_analyzed(self, tmp_path):
         """library code in an in-project .venv is not treated as a helper."""
         venv = tmp_path / ".venv"

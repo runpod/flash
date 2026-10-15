@@ -16,7 +16,7 @@ import threading
 import types
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from runpod_flash.cli.utils.ignore import get_file_tree, load_ignore_patterns
 from runpod_flash.core.resources.load_balancer_sls_resource import (
@@ -436,7 +436,7 @@ def _is_runpod_sdk(obj: Any) -> bool:
             name = getattr(obj, "__module__", None) or ""
     except Exception:
         return False
-    return isinstance(name, str) and (name == "runpod" or name.startswith("runpod."))
+    return isinstance(name, str) and _is_runpod_module_name(name)
 
 
 def _is_remote(obj: Any) -> bool:
@@ -477,6 +477,46 @@ def _is_client_endpoint_construction(call: ast.Call, namespace: Dict[str, Any]) 
     return any(kw.arg in ("id", "image") for kw in call.keywords)
 
 
+def _local_imports(node: ast.AST) -> Tuple[Dict[str, Any], bool]:
+    """resolve imports made inside node against already-loaded modules.
+
+    returns (name -> object overlay, whether the runpod SDK is imported).
+    only sys.modules is consulted, so analysis never imports new code.
+    """
+    overlay: Dict[str, Any] = {}
+    uses_runpod = False
+    for child in ast.walk(node):
+        if isinstance(child, ast.Import):
+            for alias in child.names:
+                if _is_runpod_module_name(alias.name):
+                    uses_runpod = True
+                if alias.asname:
+                    module = sys.modules.get(alias.name)
+                    bound = alias.asname
+                else:
+                    bound = alias.name.split(".")[0]
+                    module = sys.modules.get(bound)
+                if module is not None:
+                    overlay[bound] = module
+        elif isinstance(child, ast.ImportFrom) and child.module and not child.level:
+            if _is_runpod_module_name(child.module):
+                uses_runpod = True
+            module = sys.modules.get(child.module)
+            if module is None:
+                continue
+            for alias in child.names:
+                obj = getattr(module, alias.name, _MISSING)
+                if obj is _MISSING:
+                    obj = sys.modules.get(f"{child.module}.{alias.name}", _MISSING)
+                if obj is not _MISSING:
+                    overlay[alias.asname or alias.name] = obj
+    return overlay, uses_runpod
+
+
+def _is_runpod_module_name(name: str) -> bool:
+    return name == "runpod" or name.startswith("runpod.")
+
+
 def _remote_call_targets(
     node: ast.AST,
     namespace: Dict[str, Any],
@@ -490,6 +530,12 @@ def _remote_call_targets(
     def add(target: str) -> None:
         if target not in called:
             called.append(target)
+
+    overlay, uses_runpod = _local_imports(node)
+    if uses_runpod:
+        add("runpod")
+    if overlay:
+        namespace = {**namespace, **overlay}
 
     for child in ast.walk(node):
         if isinstance(child, ast.Constant) and child.value == _API_KEY_ENV:
@@ -560,7 +606,6 @@ def _analyze_cross_calls_ast(
     be analyzed is reported as needing it.
     """
     ns = namespace or {}
-    helper_cache: Dict[int, List[str]] = {}
     result: Dict[str, List[str]] = {}
     try:
         tree = ast.parse(file_path.read_text(encoding="utf-8"))
@@ -573,6 +618,9 @@ def _analyze_cross_calls_ast(
         if node.name not in function_names:
             continue
 
+        # fresh per function: a helper cached mid-cycle can hold a partial
+        # result that is only correct within the traversal that produced it.
+        helper_cache: Dict[int, List[str]] = {}
         try:
             called = _remote_call_targets(
                 node, ns, remote_function_names, project_files, helper_cache

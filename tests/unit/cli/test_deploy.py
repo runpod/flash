@@ -665,6 +665,22 @@ class TestDisplayPostDeploymentGuidance:
         )
         assert "caller, isolated" not in output
 
+    def test_api_key_line_skips_user_managed_key(self, patched_console):
+        from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
+
+        _display_post_deployment_guidance(
+            env_name="production",
+            resources_endpoints={"caller": "https://a.api.runpod.ai"},
+            resources={
+                "caller": {
+                    "makes_remote_calls": True,
+                    "env": {"RUNPOD_API_KEY": ""},
+                }
+            },
+            routes={},
+        )
+        assert "RUNPOD_API_KEY added" not in self._collect_output(patched_console)
+
     def test_no_api_key_line_when_no_endpoint_receives_it(self, patched_console):
         from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
 
