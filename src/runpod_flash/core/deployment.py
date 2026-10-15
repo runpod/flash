@@ -67,9 +67,11 @@ class DeploymentOrchestrator:
             resources: List of resources to deploy
 
         Returns:
-            The background thread running the deployment, or None when the
-            resource list is empty (no thread is started). Callers that need
-            deterministic completion (e.g. tests) may join() the thread.
+            The worker thread, or None when there was nothing to deploy.
+            Callers that need the deployment to finish within a bounded scope
+            (notably tests, which patch the deploy path) must join it —
+            otherwise the daemon thread outlives that scope and mutates
+            ResourceManager's class-level state afterwards.
         """
         if not resources:
             console.print("[dim]No resources to deploy[/dim]")
@@ -97,6 +99,7 @@ class DeploymentOrchestrator:
         console.print(
             f"[dim]Auto-provisioning {len(resources)} resource(s) in background...[/dim]"
         )
+        return thread
 
         return thread
 
