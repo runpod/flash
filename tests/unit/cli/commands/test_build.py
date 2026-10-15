@@ -742,6 +742,8 @@ class TestBaseImageAutoExclusion:
             "torchvision @ https://example.com/torchvision.whl",
             "https://download.pytorch.org/whl/cu128/"
             "torchvision-0.24.1%2Bcu128-cp312-cp312-manylinux_2_28_x86_64.whl",
+            "https://example.com/torchvision-0.24.1-cp312-cp312-linux_x86_64.whl"
+            "#sha256=abc123",
         ],
     )
     def test_auto_exclude_catches_compatible_and_url_pins(
