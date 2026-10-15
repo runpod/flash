@@ -407,16 +407,48 @@ def _find_remote_decorated(module: Any) -> Dict[str, Any]:
     return results
 
 
+def _find_client_endpoint_names(module: Any) -> Set[str]:
+    """find module-level names bound to client-mode Endpoints (id= or image=)."""
+    names: Set[str] = set()
+    for name in dir(module):
+        try:
+            obj = getattr(module, name)
+        except Exception:
+            continue
+        if isinstance(obj, Endpoint) and obj.is_client:
+            names.add(name)
+    return names
+
+
+def _is_client_endpoint_construction(call: ast.Call) -> bool:
+    """match Endpoint(id=...) or Endpoint(image=...) built inline."""
+    func = call.func
+    if isinstance(func, ast.Name):
+        callee = func.id
+    elif isinstance(func, ast.Attribute):
+        callee = func.attr
+    else:
+        return False
+    if callee != "Endpoint":
+        return False
+    return any(kw.arg in ("id", "image") for kw in call.keywords)
+
+
 def _analyze_cross_calls_ast(
     file_path: Path,
     function_names: Set[str],
     remote_function_names: Set[str],
+    client_endpoint_names: Optional[Set[str]] = None,
 ) -> Dict[str, List[str]]:
-    """find which functions call other @remote functions via AST.
+    """find which functions call other endpoints via AST.
 
     returns a dict of function_name -> list of called remote function names.
-    only matches direct calls (foo()), not attribute calls (obj.foo()).
+    matches direct calls to @remote functions (foo(), not obj.foo()), any
+    reference to a module-level client-mode Endpoint (vllm.runsync(...)), and
+    inline client construction (Endpoint(id="abc").runsync(...)). client-mode
+    Endpoints sign requests with RUNPOD_API_KEY, so the worker needs the key.
     """
+    client_names = client_endpoint_names or set()
     result: Dict[str, List[str]] = {}
     try:
         tree = ast.parse(file_path.read_text(encoding="utf-8"))
@@ -431,10 +463,16 @@ def _analyze_cross_calls_ast(
 
         called: List[str] = []
         for child in ast.walk(node):
+            target: Optional[str] = None
             if isinstance(child, ast.Call) and isinstance(child.func, ast.Name):
                 if child.func.id in remote_function_names:
-                    if child.func.id not in called:
-                        called.append(child.func.id)
+                    target = child.func.id
+            if isinstance(child, ast.Call) and _is_client_endpoint_construction(child):
+                target = "Endpoint"
+            elif isinstance(child, ast.Name) and child.id in client_names:
+                target = child.id
+            if target is not None and target not in called:
+                called.append(target)
         if called:
             result[node.name] = called
 
@@ -479,6 +517,7 @@ class RuntimeScanner:
         functions: List[RemoteFunctionMetadata] = []
         seen_functions: Set[str] = set()
         failed_files: List[Path] = []
+        client_names_by_file: Dict[Path, Set[str]] = {}
 
         try:
             for py_file in py_files:
@@ -498,6 +537,7 @@ class RuntimeScanner:
                     module, module_path, py_file, seen_functions
                 )
                 functions.extend(file_functions)
+                client_names_by_file[py_file] = _find_client_endpoint_names(module)
 
             # cross-call analysis
             remote_names = {f.function_name for f in functions}
@@ -506,7 +546,12 @@ class RuntimeScanner:
                 files_with_functions.setdefault(f.file_path, set()).add(f.function_name)
 
             for file_path, func_names in files_with_functions.items():
-                calls = _analyze_cross_calls_ast(file_path, func_names, remote_names)
+                calls = _analyze_cross_calls_ast(
+                    file_path,
+                    func_names,
+                    remote_names,
+                    client_names_by_file.get(file_path),
+                )
                 for f in functions:
                     if f.file_path == file_path and f.function_name in calls:
                         f.calls_remote_functions = True

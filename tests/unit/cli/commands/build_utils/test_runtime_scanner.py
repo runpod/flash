@@ -315,6 +315,43 @@ class TestAnalyzeCrossCallsAst:
         result = _analyze_cross_calls_ast(p, {"caller", "remote_fn"}, {"remote_fn"})
         assert result["caller"] == ["remote_fn"]
 
+    def test_detects_client_endpoint_reference(self, tmp_path):
+        p = _write_worker(
+            tmp_path,
+            "client_ref.py",
+            """\
+            async def caller(x):
+                return await vllm.runsync(x)
+            """,
+        )
+        result = _analyze_cross_calls_ast(p, {"caller"}, set(), {"vllm"})
+        assert result == {"caller": ["vllm"]}
+
+    @pytest.mark.parametrize("kwarg", ['id="abc123"', 'image="org/img:1"'])
+    def test_detects_inline_client_endpoint(self, tmp_path, kwarg):
+        p = _write_worker(
+            tmp_path,
+            "inline_client.py",
+            f"""\
+            async def caller(x):
+                return await Endpoint({kwarg}).runsync(x)
+            """,
+        )
+        result = _analyze_cross_calls_ast(p, {"caller"}, set())
+        assert result == {"caller": ["Endpoint"]}
+
+    def test_ignores_non_client_endpoint_construction(self, tmp_path):
+        p = _write_worker(
+            tmp_path,
+            "inline_decorator.py",
+            """\
+            def caller(x):
+                return Endpoint(name="ep", gpu=None)
+            """,
+        )
+        result = _analyze_cross_calls_ast(p, {"caller"}, set())
+        assert result == {}
+
 
 # ---------------------------------------------------------------------------
 # RuntimeScanner.discover_remote_functions
@@ -387,6 +424,32 @@ class TestRuntimeScannerDiscovery:
         caller = next(f for f in functions if f.function_name == "caller")
         assert caller.calls_remote_functions is True
         assert "helper" in caller.called_remote_functions
+
+    def test_client_endpoint_call_detection(self, tmp_path):
+        """calling a client-mode Endpoint counts as a remote call."""
+        _write_worker(
+            tmp_path,
+            "wrapper.py",
+            """\
+            from runpod_flash import Endpoint
+            vllm = Endpoint(name="vllm-backend", image="vllm/vllm-openai:latest")
+
+            @Endpoint(name="wrapper", cpu="cpu3c-1-2")
+            async def caller(x):
+                return await vllm.runsync(x)
+
+            @Endpoint(name="isolated", cpu="cpu3c-1-2")
+            async def isolated(x):
+                return x
+            """,
+        )
+        scanner = RuntimeScanner(tmp_path)
+        functions = scanner.discover_remote_functions()
+        caller = next(f for f in functions if f.function_name == "caller")
+        isolated = next(f for f in functions if f.function_name == "isolated")
+        assert caller.calls_remote_functions is True
+        assert caller.called_remote_functions == ["vllm"]
+        assert isolated.calls_remote_functions is False
 
     def test_sys_path_cleanup(self, tmp_path):
         """project root is removed from sys.path after scanning."""
