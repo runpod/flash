@@ -860,7 +860,13 @@ class RunpodGraphQLClient:
         }
         """
 
-        result = await self._execute_graphql(query, {"id": endpoint_id})
+        try:
+            result = await self._execute_graphql(query, {"id": endpoint_id})
+        except _GraphQLErrorResponse as e:
+            # deleted endpoints come back as an "Endpoint not found" error
+            if "not found" in str(e).lower():
+                return None
+            raise
         endpoint = (result.get("myself") or {}).get("endpoint") or {}
         return endpoint.get("templateId")
 

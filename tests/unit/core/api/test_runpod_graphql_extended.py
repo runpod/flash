@@ -352,3 +352,37 @@ class TestRestClientExecuteRest:
 
             with pytest.raises(Exception, match="HTTP request failed"):
                 await client._execute_rest("GET", "https://example.com/api")
+
+
+class TestGetEndpointTemplateId:
+    """get_endpoint_template_id returns the template or None for gone endpoints."""
+
+    @pytest.mark.asyncio
+    async def test_returns_template_id(self):
+        client = RunpodGraphQLClient(api_key="test")
+        with patch.object(client, "_execute_graphql", new_callable=AsyncMock) as mock:
+            mock.return_value = {
+                "myself": {"endpoint": {"id": "ep-1", "templateId": "tpl-1"}}
+            }
+            assert await client.get_endpoint_template_id("ep-1") == "tpl-1"
+
+    @pytest.mark.asyncio
+    async def test_deleted_endpoint_returns_none(self):
+        from runpod_flash.core.api.runpod import _GraphQLErrorResponse
+
+        client = RunpodGraphQLClient(api_key="test")
+        with patch.object(client, "_execute_graphql", new_callable=AsyncMock) as mock:
+            mock.side_effect = _GraphQLErrorResponse(
+                "GraphQL errors: Endpoint not found", []
+            )
+            assert await client.get_endpoint_template_id("gone") is None
+
+    @pytest.mark.asyncio
+    async def test_other_errors_propagate(self):
+        from runpod_flash.core.api.runpod import _GraphQLErrorResponse
+
+        client = RunpodGraphQLClient(api_key="test")
+        with patch.object(client, "_execute_graphql", new_callable=AsyncMock) as mock:
+            mock.side_effect = _GraphQLErrorResponse("GraphQL errors: forbidden", [])
+            with pytest.raises(_GraphQLErrorResponse):
+                await client.get_endpoint_template_id("ep-1")
