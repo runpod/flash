@@ -44,6 +44,12 @@ class TestExtractPackageName:
         """Test extraction from package with environment marker."""
         assert extract_package_name('torch>=2.0; python_version>"3.8"') == "torch"
 
+    def test_package_with_compatible_release_and_direct_reference(self):
+        """'~=' pins, 'name @ url' references, and old-style parens split off."""
+        assert extract_package_name("sympy~=1.14") == "sympy"
+        assert extract_package_name("sympy @ https://example.com/s.whl") == "sympy"
+        assert extract_package_name("foo (>=1.0)") == "foo"
+
     def test_package_with_multiple_specifiers(self):
         """Test extraction from package with multiple specifiers."""
         assert extract_package_name("torch>=2.0.0,<3.0.0") == "torch"
@@ -701,7 +707,7 @@ class TestBaseImageAutoExclusion:
         captured = capsys.readouterr()
         assert "not bundling" not in captured.out
 
-    def _build_with_deps(self, tmp_path, deps):
+    def _build_with_deps(self, tmp_path, deps, exclude=None):
         project_dir = tmp_path / "project"
         project_dir.mkdir()
         (project_dir / "worker.py").write_text(
@@ -725,13 +731,18 @@ class TestBaseImageAutoExclusion:
             ),
             self._bundle_patches(),
         ):
-            run_build(project_dir, "test_app", no_deps=True)
+            run_build(project_dir, "test_app", no_deps=True, exclude=exclude)
 
         return [extract_package_name(r) for r in installed]
 
     @pytest.mark.parametrize(
         "pinned",
-        ["torchvision~=0.24.1", "torchvision @ https://example.com/torchvision.whl"],
+        [
+            "torchvision~=0.24.1",
+            "torchvision @ https://example.com/torchvision.whl",
+            "https://download.pytorch.org/whl/cu128/"
+            "torchvision-0.24.1%2Bcu128-cp312-cp312-manylinux_2_28_x86_64.whl",
+        ],
     )
     def test_auto_exclude_catches_compatible_and_url_pins(
         self, tmp_path, capsys, pinned
@@ -740,9 +751,25 @@ class TestBaseImageAutoExclusion:
         pkg_names = self._build_with_deps(tmp_path, [pinned, "requests"])
 
         out = capsys.readouterr().out
-        assert not any(name.startswith("torchvision") for name in pkg_names)
+        assert not any("torchvision" in name for name in pkg_names)
         assert "requests" in pkg_names
         assert "Version pins ignored" in out
+
+    @pytest.mark.parametrize(
+        "requirement", ["sympy~=1.14", "sympy @ https://example.com/sympy.whl"]
+    )
+    def test_user_exclude_matches_compatible_and_url_pins(
+        self, tmp_path, capsys, requirement
+    ):
+        """--exclude sympy also catches 'sympy~=1.14' and 'sympy @ url'."""
+        pkg_names = self._build_with_deps(
+            tmp_path, [requirement, "requests"], exclude="sympy"
+        )
+
+        out = capsys.readouterr().out
+        assert "sympy" not in pkg_names
+        assert "requests" in pkg_names
+        assert "No packages matched exclusions" not in out
 
     def test_auto_exclude_tells_user_image_provides_package(self, tmp_path, capsys):
         """An unpinned torchvision is dropped with a visible notice, not a warning."""
@@ -1303,6 +1330,7 @@ class TestComputeSourceFingerprint:
         ("-r other.txt", ""),
         ("numpy-2.4.6-cp312-cp312-manylinux_2_28_x86_64.whl", ""),
         ("mypkg-1.0.tar.gz", ""),
+        ("my.whl==1.0", "my_whl"),
     ],
 )
 def test_requirement_name(requirement, expected):
