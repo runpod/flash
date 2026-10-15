@@ -33,6 +33,34 @@ _POLL_BACKOFF_FACTOR = 1.5
 _POLL_MAX_CONSECUTIVE_ERRORS = 5
 
 
+_MISSING_WORKER_KEY_HINT = (
+    "RUNPOD_API_KEY is not set on this worker. flash deploy only adds it to "
+    "endpoints that flash build detects calling other endpoints: referencing "
+    "another @Endpoint, a client Endpoint(id=...) or Endpoint(image=...), the "
+    "runpod SDK, or RUNPOD_API_KEY, directly or through a helper function in "
+    "the project. Make the call visible in one of those ways and redeploy."
+)
+
+
+def _raise_for_status(response: Any) -> None:
+    """raise_for_status, explaining a 401 caused by a missing worker API key."""
+    import httpx
+
+    from .core.credentials import get_api_key
+
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        on_worker = bool(os.getenv("RUNPOD_ENDPOINT_ID"))
+        if response.status_code == 401 and on_worker and not get_api_key():
+            raise httpx.HTTPStatusError(
+                f"{e}\n{_MISSING_WORKER_KEY_HINT}",
+                request=e.request,
+                response=e.response,
+            ) from e
+        raise
+
+
 class _ClientCoroutine:
     """wraps a coroutine from a client-mode HTTP call.
 
@@ -946,7 +974,7 @@ class Endpoint:
 
         async with get_authenticated_httpx_client(timeout=timeout) as client:
             response = await client.request(method, full_url, json=data)
-            response.raise_for_status()
+            _raise_for_status(response)
             return response.json()
 
     async def _api_post(self, url: str, payload: Any, timeout: float = 60.0) -> dict:
@@ -955,7 +983,7 @@ class Endpoint:
 
         async with get_authenticated_httpx_client(timeout=timeout) as client:
             response = await client.post(url, json=payload)
-            response.raise_for_status()
+            _raise_for_status(response)
             return response.json()
 
     async def _api_get(self, url: str, timeout: float = 30.0) -> dict:
@@ -964,5 +992,5 @@ class Endpoint:
 
         async with get_authenticated_httpx_client(timeout=timeout) as client:
             response = await client.get(url)
-            response.raise_for_status()
+            _raise_for_status(response)
             return response.json()

@@ -439,21 +439,29 @@ def _is_runpod_sdk(obj: Any) -> bool:
     return isinstance(name, str) and (name == "runpod" or name.startswith("runpod."))
 
 
-def _project_function(obj: Any, project_dir: Optional[Path]) -> Any:
-    """return obj if it is a plain function defined inside the project."""
-    if project_dir is None or not isinstance(obj, types.FunctionType):
+def _is_remote(obj: Any) -> bool:
+    """true for an @remote / @Endpoint decorated function or class."""
+    try:
+        return obj is not _MISSING and hasattr(obj, "__remote_config__")
+    except Exception:
+        return False
+
+
+def _project_function(obj: Any, project_files: Optional[Set[Path]]) -> Any:
+    """return obj if it is a plain function defined in one of the scanned files.
+
+    limiting this to scanned files keeps helper analysis out of library code,
+    including virtualenvs or bundled packages that live inside the project.
+    """
+    if not project_files or not isinstance(obj, types.FunctionType):
         return None
-    if hasattr(obj, "__remote_config__"):
+    if _is_remote(obj):
         return None
     try:
         source_file = inspect.getsourcefile(obj)
-    except TypeError:
+    except Exception:
         return None
-    if source_file is None:
-        return None
-    try:
-        Path(source_file).resolve().relative_to(project_dir.resolve())
-    except ValueError:
+    if source_file is None or Path(source_file).resolve() not in project_files:
         return None
     return obj
 
@@ -473,7 +481,7 @@ def _remote_call_targets(
     node: ast.AST,
     namespace: Dict[str, Any],
     remote_function_names: Set[str],
-    project_dir: Optional[Path],
+    project_files: Optional[Set[Path]],
     helper_cache: Dict[int, List[str]],
 ) -> List[str]:
     """names of the things in node that need RUNPOD_API_KEY on the worker."""
@@ -494,17 +502,19 @@ def _remote_call_targets(
                 add(child.func.id)
             if _is_client_endpoint_construction(child, namespace):
                 add("Endpoint")
-            helper = _project_function(_resolve(child.func, namespace), project_dir)
+            helper = _project_function(_resolve(child.func, namespace), project_files)
             if helper is not None and _helper_targets(
-                helper, remote_function_names, project_dir, helper_cache
+                helper, remote_function_names, project_files, helper_cache
             ):
                 add(helper.__name__)
         elif isinstance(child, ast.Name):
             obj = _resolve(child, namespace)
-            if _is_client_endpoint(obj) or _is_runpod_sdk(obj):
+            if _is_remote(obj) or _is_client_endpoint(obj) or _is_runpod_sdk(obj):
                 add(child.id)
         elif isinstance(child, ast.Attribute) and isinstance(child.value, ast.Name):
-            if _is_client_endpoint(_resolve(child, namespace)):
+            # tasks.square(x) or utils.vllm.runsync(x) through a module
+            obj = _resolve(child, namespace)
+            if _is_remote(obj) or _is_client_endpoint(obj):
                 add(f"{child.value.id}.{child.attr}")
     return called
 
@@ -512,7 +522,7 @@ def _remote_call_targets(
 def _helper_targets(
     func: Any,
     remote_function_names: Set[str],
-    project_dir: Optional[Path],
+    project_files: Optional[Set[Path]],
     helper_cache: Dict[int, List[str]],
 ) -> List[str]:
     """analyze a project helper function, resolving names in its own module."""
@@ -525,7 +535,7 @@ def _helper_targets(
     except Exception:
         return []
     helper_cache[key] = _remote_call_targets(
-        tree, func.__globals__, remote_function_names, project_dir, helper_cache
+        tree, func.__globals__, remote_function_names, project_files, helper_cache
     )
     return helper_cache[key]
 
@@ -535,17 +545,19 @@ def _analyze_cross_calls_ast(
     function_names: Set[str],
     remote_function_names: Set[str],
     namespace: Optional[Dict[str, Any]] = None,
-    project_dir: Optional[Path] = None,
+    project_files: Optional[Set[Path]] = None,
 ) -> Dict[str, List[str]]:
     """find which functions need RUNPOD_API_KEY on the worker, via AST.
 
     returns a dict of function_name -> list of what triggered it. a function
-    needs the key when it calls another @remote function by name (foo(), not
-    obj.foo()), uses a client-mode Endpoint (id= or image=), uses the runpod
-    SDK, reads RUNPOD_API_KEY, or calls a project helper that does any of
-    these. namespace is the module's globals, used to resolve names;
-    project_dir limits helper analysis to project code. detection errs toward
-    giving the key, since a missing key fails at runtime with a 401.
+    needs the key when it references another @remote function or class
+    (directly, aliased, or through a module), uses a client-mode Endpoint
+    (id= or image=), uses the runpod SDK, reads RUNPOD_API_KEY, or calls a
+    project helper that does any of these. namespace is the module's globals,
+    used to resolve names; project_files (resolved paths) limits helper
+    analysis to scanned project code. detection errs toward giving the key,
+    since a missing key fails at runtime with a 401: a function that cannot
+    be analyzed is reported as needing it.
     """
     ns = namespace or {}
     helper_cache: Dict[int, List[str]] = {}
@@ -561,9 +573,13 @@ def _analyze_cross_calls_ast(
         if node.name not in function_names:
             continue
 
-        called = _remote_call_targets(
-            node, ns, remote_function_names, project_dir, helper_cache
-        )
+        try:
+            called = _remote_call_targets(
+                node, ns, remote_function_names, project_files, helper_cache
+            )
+        except Exception as e:
+            logger.debug(f"cross-call analysis failed for {node.name}: {e}")
+            called = ["<unanalyzed>"]
         if called:
             result[node.name] = called
 
@@ -632,6 +648,7 @@ class RuntimeScanner:
 
             # cross-call analysis
             remote_names = {f.function_name for f in functions}
+            project_files = {f.resolve() for f in py_files}
             files_with_functions: Dict[Path, Set[str]] = {}
             for f in functions:
                 files_with_functions.setdefault(f.file_path, set()).add(f.function_name)
@@ -642,7 +659,7 @@ class RuntimeScanner:
                     func_names,
                     remote_names,
                     namespaces.get(file_path),
-                    self.project_dir,
+                    project_files,
                 )
                 for f in functions:
                     if f.file_path == file_path and f.function_name in calls:
