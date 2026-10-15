@@ -741,3 +741,55 @@ class TestEndpointJobImport:
         import runpod_flash
 
         assert "EndpointJob" in runpod_flash.__all__
+
+
+class TestMissingWorkerKeyHint:
+    """a 401 on a worker without RUNPOD_API_KEY explains why the key is missing."""
+
+    @staticmethod
+    def _response(status: int):
+        import httpx
+
+        request = httpx.Request("POST", "https://api.runpod.ai/v2/abc/runsync")
+        return httpx.Response(status, request=request)
+
+    @pytest.mark.parametrize(
+        "env,has_key,expect_hint",
+        [
+            ({"RUNPOD_ENDPOINT_ID": "ep-1"}, False, True),
+            ({"RUNPOD_ENDPOINT_ID": "ep-1"}, True, False),
+            ({}, False, False),
+        ],
+        ids=["worker-no-key", "worker-with-key", "local"],
+    )
+    def test_401_hint(self, monkeypatch, env, has_key, expect_hint):
+        import httpx
+
+        from runpod_flash.endpoint import _MISSING_WORKER_KEY_HINT, _raise_for_status
+
+        monkeypatch.delenv("RUNPOD_ENDPOINT_ID", raising=False)
+        for key, value in env.items():
+            monkeypatch.setenv(key, value)
+        monkeypatch.setattr(
+            "runpod_flash.core.credentials.get_api_key",
+            lambda: "key" if has_key else None,
+        )
+
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            _raise_for_status(self._response(401))
+
+        assert (_MISSING_WORKER_KEY_HINT in str(exc_info.value)) is expect_hint
+        assert exc_info.value.response.status_code == 401
+
+    def test_other_errors_unchanged(self, monkeypatch):
+        import httpx
+
+        from runpod_flash.endpoint import _MISSING_WORKER_KEY_HINT, _raise_for_status
+
+        monkeypatch.setenv("RUNPOD_ENDPOINT_ID", "ep-1")
+        monkeypatch.setattr("runpod_flash.core.credentials.get_api_key", lambda: None)
+
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            _raise_for_status(self._response(500))
+
+        assert _MISSING_WORKER_KEY_HINT not in str(exc_info.value)

@@ -382,6 +382,15 @@ class TestAnalyzeCrossCallsAst:
         result = _analyze_cross_calls_ast(p, {"caller"}, set())
         assert result == {"caller": ["Endpoint"]}
 
+    def test_analysis_error_assumes_key_needed(self, tmp_path):
+        p = _write_worker(tmp_path, "boom.py", "def caller():\n    pass\n")
+        with patch(
+            "runpod_flash.cli.commands.build_utils.scanner._remote_call_targets",
+            side_effect=RuntimeError("boom"),
+        ):
+            result = _analyze_cross_calls_ast(p, {"caller"}, set())
+        assert result == {"caller": ["<unanalyzed>"]}
+
     def test_ignores_non_client_endpoint_construction(self, tmp_path):
         p = _write_worker(
             tmp_path,
@@ -532,6 +541,83 @@ class TestRuntimeScannerDiscovery:
         pure_helper = next(f for f in functions if f.function_name == "pure_helper")
         assert via_helper.called_remote_functions == ["generate"]
         assert pure_helper.calls_remote_functions is False
+
+    def test_remote_function_via_module_alias_or_value(self, tmp_path):
+        """another @Endpoint reached through a module, an alias, or as a value."""
+        _write_worker(
+            tmp_path,
+            "tasks.py",
+            """\
+            from runpod_flash import Endpoint
+
+            @Endpoint(name="square", cpu="cpu3c-1-2")
+            async def square(x):
+                return x * x
+            """,
+        )
+        _write_worker(
+            tmp_path,
+            "app.py",
+            """\
+            from runpod_flash import Endpoint
+            import tasks
+            from tasks import square as sq
+
+            @Endpoint(name="via-module", cpu="cpu3c-1-2")
+            async def via_module(x):
+                return await tasks.square(x)
+
+            @Endpoint(name="aliased", cpu="cpu3c-1-2")
+            async def aliased(x):
+                return await sq(x)
+
+            @Endpoint(name="passed", cpu="cpu3c-1-2")
+            async def passed(xs):
+                return list(map(tasks.square, xs))
+            """,
+        )
+        scanner = RuntimeScanner(tmp_path)
+        by_name = {
+            f.function_name: f
+            for f in scanner.discover_remote_functions()
+            if f.function_name != "square"
+        }
+        assert by_name["via_module"].called_remote_functions == ["tasks.square"]
+        assert by_name["aliased"].called_remote_functions == ["sq"]
+        assert by_name["passed"].called_remote_functions == ["tasks.square"]
+
+    def test_helpers_outside_scanned_files_are_not_analyzed(self, tmp_path):
+        """library code in an in-project .venv is not treated as a helper."""
+        venv = tmp_path / ".venv"
+        venv.mkdir()
+        (venv / "fakelib.py").write_text(
+            "import os\n\ndef read_key():\n    return os.environ.get('RUNPOD_API_KEY')\n",
+            encoding="utf-8",
+        )
+        _write_worker(
+            tmp_path,
+            "app.py",
+            """\
+            import sys
+            from pathlib import Path
+            sys.path.insert(0, str(Path(__file__).parent / ".venv"))
+            from fakelib import read_key
+            from runpod_flash import Endpoint
+
+            @Endpoint(name="lib-call", cpu="cpu3c-1-2")
+            async def lib_call(x):
+                read_key()
+                return x
+            """,
+        )
+        scanner = RuntimeScanner(tmp_path)
+        try:
+            lib_call = scanner.discover_remote_functions()[0]
+        finally:
+            sys.path[:] = [x for x in sys.path if x != str(venv)]
+            sys.modules.pop("fakelib", None)
+        assert scanner.import_errors == {}
+        assert lib_call.calls_remote_functions is False
 
     def test_sys_path_cleanup(self, tmp_path):
         """project root is removed from sys.path after scanning."""
