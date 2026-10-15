@@ -451,16 +451,19 @@ def run_build(
         torch_family = {_canonical_name(p) for p in SIZE_PROHIBITIVE_PACKAGES}
 
         for req in requirements:
-            # _requirement_name also reads "~=" pins and "name @ url" forms,
-            # which extract_package_name leaves unsplit.
-            family_name = _requirement_name(req)
+            # _requirement_name also reads "name @ url" forms, and wheel
+            # paths or URLs are named by their filename.
+            family_name = _requirement_name(req) or _wheel_distribution_name(req)
             if family_name in torch_family or should_exclude_package(
                 req, excluded_packages
             ):
                 pkg_name = extract_package_name(req)
                 if family_name in torch_family:
                     auto_matched.add(family_name)
-                    if re.search(r"[<>=!~@]", req.split(";", 1)[0]):
+                    if not _requirement_name(req) or re.search(
+                        r"[<>=!~@]", req.split(";", 1)[0]
+                    ):
+                        # A wheel path or URL pins a version too.
                         auto_pinned.append(req.strip())
                 if pkg_name in user_excluded:
                     user_matched.add(pkg_name)
@@ -803,9 +806,10 @@ def extract_package_name(requirement: str) -> str:
         >>> extract_package_name("my-package==1.0.0")
         "my-package"
     """
-    # Split on version specifiers, extras, and environment markers
-    # This regex matches: < > = ! [ ; (common pip requirement delimiters)
-    package_name = re.split(r"[<>=!\[;]", requirement)[0].strip().lower()
+    # Split on version specifiers, extras, environment markers, direct
+    # references, and the whitespace/parenthesis before a specifier:
+    # < > = ! ~ [ ; @ ( and whitespace
+    package_name = re.split(r"[<>=!~\[;@(\s]", requirement.strip())[0].lower()
     return package_name
 
 
@@ -1117,10 +1121,27 @@ def _requirement_name(requirement: str) -> str:
         r"\s*([A-Za-z0-9][A-Za-z0-9._-]*)\s*(?:\[[^\]]*\])?\s*(?:$|[<>=!~;@(])",
         requirement,
     )
-    if not match or re.search(r"\.(whl|zip|tar\.gz|tgz)$", match.group(1), re.I):
+    if not match:
+        return ""
+    if requirement.strip() == match.group(1) and re.search(
+        r"\.(whl|zip|tar\.gz|tgz)$", match.group(1), re.I
+    ):
         # A bare archive filename is a path, not a distribution name.
         return ""
     return _canonical_name(match.group(1))
+
+
+def _wheel_distribution_name(requirement: str) -> str:
+    """Canonical distribution name of a wheel path or URL, else "".
+
+    Wheel filenames start with the distribution name (PEP 427), e.g.
+    https://download.pytorch.org/whl/cu128/torch-2.9.1%2Bcu128-cp312-...whl.
+    """
+    location = requirement.split(";", 1)[0].strip()
+    if not location.lower().endswith(".whl"):
+        return ""
+    filename = location.replace("\\", "/").rsplit("/", 1)[-1]
+    return _canonical_name(filename.split("-", 1)[0])
 
 
 def _excluded_only_dists(
