@@ -457,6 +457,9 @@ class RuntimeScanner:
         self.resource_variables: Dict[str, str] = {}
         # populated after discover_remote_functions() runs
         self.import_errors: Dict[str, str] = {}
+        # client-mode Endpoints (image=..., id=None) keyed by endpoint name;
+        # each value carries var_name/file_path/module_path for the manifest.
+        self.client_endpoints: Dict[str, Dict[str, Any]] = {}
 
     def discover_remote_functions(self) -> List[RemoteFunctionMetadata]:
         """discover all @remote decorated functions and classes by importing modules."""
@@ -556,6 +559,8 @@ class RuntimeScanner:
         """extract RemoteFunctionMetadata from a single imported module."""
         results: List[RemoteFunctionMetadata] = []
 
+        self._collect_client_endpoints(module, module_path, file_path)
+
         remote_objects = _find_remote_decorated(module)
         endpoint_instances = _find_endpoint_instances(module)
 
@@ -607,6 +612,61 @@ class RuntimeScanner:
                 results.append(meta)
 
         return results
+
+    def _collect_client_endpoints(
+        self, module: Any, module_path: str, file_path: Path
+    ) -> None:
+        """record client-mode Endpoints (image=..., no id) for the manifest.
+
+        client-mode endpoints declare an external service image; they have no
+        decorated functions, but `flash deploy` should still provision them.
+        id= endpoints are excluded: they attach to an already-existing
+        endpoint, so there is nothing to provision.
+
+        Re-exports (``from defs import ep`` in a second file) surface as a
+        distinct object with the same name and image because each scanned file
+        is imported fresh; those keep the first record. The same name with a
+        *different* image is a genuine collision and fails the build.
+        """
+        for member_name in dir(module):
+            try:
+                member = getattr(module, member_name)
+            except Exception:
+                continue
+            if (
+                not isinstance(member, Endpoint)
+                or member.image is None
+                or member.id is not None
+            ):
+                continue
+            # image-based endpoints always carry a name: Endpoint.__init__
+            # raises when name is None and image is set.
+            name = member.name
+            existing = self.client_endpoints.get(name)
+            record = {
+                "var_name": member_name,
+                "file_path": file_path,
+                "module_path": module_path,
+                "object_id": id(member),
+                "image": member.image,
+            }
+            if existing is None:
+                self.client_endpoints[name] = record
+                continue
+            if existing["object_id"] == id(member):
+                continue  # aliased under a second variable name
+            if existing["file_path"] == file_path:
+                # two distinct objects with the same name in one file: last wins
+                self.client_endpoints[name] = record
+                continue
+            if existing["image"] == member.image:
+                # re-exported from another file; keep the first record
+                continue
+            raise ValueError(
+                f"endpoint '{name}' is defined in multiple files: "
+                f"{existing['file_path']}, {file_path}. "
+                f"each endpoint name must be unique across the project."
+            )
 
     def _populate_resource_dicts(self, functions: List[RemoteFunctionMetadata]) -> None:
         """populate resource tracking dicts for ManifestBuilder compatibility."""

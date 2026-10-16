@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.21.0](https://github.com/runpod/flash/compare/v1.20.1...v1.21.0) (2026-10-14)
+
+
+### Features
+
+* **cli:** add runpod-flash deprecation notice ([#387](https://github.com/runpod/flash/issues/387)) ([25bd210](https://github.com/runpod/flash/commit/25bd210e6763de854cd68daaca4af84f1bb2c55f))
+* **deploy:** provision client-mode Endpoint(image=...) resources during flash deploy ([#370](https://github.com/runpod/flash/issues/370)) ([56ccf2d](https://github.com/runpod/flash/commit/56ccf2d55626f682eb5a60af26f2859f17974708))
+
+
+### Documentation
+
+* add runpod-flash deprecation warning to README ([#388](https://github.com/runpod/flash/issues/388)) ([36e268b](https://github.com/runpod/flash/commit/36e268b526566b48cad45a7060fb23392f148cd8))
+* point agents to the Runpod agent setup page ([#385](https://github.com/runpod/flash/issues/385)) ([01980d3](https://github.com/runpod/flash/commit/01980d34c2b3636ece1a7ffc22207b3892deea70))
+
+## [1.20.1](https://github.com/runpod/flash/compare/v1.20.0...v1.20.1) (2026-10-09)
+
+
+### Bug Fixes
+
+* **auth:** read runpodctl-style API key from config.toml ([#382](https://github.com/runpod/flash/issues/382)) ([2a44f4f](https://github.com/runpod/flash/commit/2a44f4f7b0b8284ad1b48afae5db9d6d61f12553))
+* **build:** make the bundled runpod_flash writable for read-only installs ([#383](https://github.com/runpod/flash/issues/383)) ([a8d8f81](https://github.com/runpod/flash/commit/a8d8f816fc94e14473ff22b5a367937943b9de0a))
+* **ci:** run each matrix leg on its own Python version ([#374](https://github.com/runpod/flash/issues/374)) ([4fdbb67](https://github.com/runpod/flash/commit/4fdbb67edca10d6fad473ecb8ed89349102c6bb5))
+* **cli:** flash update works from any dir and for uv tool installs ([#379](https://github.com/runpod/flash/issues/379)) ([06a7556](https://github.com/runpod/flash/commit/06a7556aa9990eda174d9be1d11c6ac60badf974))
+
 ## [1.20.0](https://github.com/runpod/flash/compare/v1.19.0...v1.20.0) (2026-09-24)
 
 

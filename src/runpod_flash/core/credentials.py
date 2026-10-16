@@ -2,6 +2,7 @@
 
 Thin wrappers around runpod-python's credential functions.
 Resolution priority: RUNPOD_API_KEY env var > .env > ~/.runpod/config.toml
+([default].api_key, or runpodctl's top-level apikey when [default] is absent)
 """
 
 from __future__ import annotations
@@ -54,6 +55,19 @@ def get_api_key() -> Optional[str]:
         return None
     if creds and isinstance(creds.get("api_key"), str) and creds["api_key"].strip():
         return creds["api_key"]
+
+    path = get_credentials_path()
+    if path.is_file():
+        try:
+            document = tomlkit.parse(path.read_text())
+        except (OSError, UnicodeError, tomlkit.exceptions.TOMLKitError):
+            log.debug("Failed to read runpodctl credentials", exc_info=True)
+            return None
+        if _DEFAULT_SECTION not in document:
+            runpodctl_key = document.get("apikey")
+            if isinstance(runpodctl_key, str) and runpodctl_key.strip():
+                # tomlkit returns its own String type; hand callers a plain str.
+                return runpodctl_key.unwrap()
 
     return None
 

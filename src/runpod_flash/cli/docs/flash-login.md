@@ -55,6 +55,8 @@ Flash checks for an API key in this order, using the first one found:
 | 2 | `RUNPOD_API_KEY` in `.env` file | `echo "RUNPOD_API_KEY=your_key" >> .env` |
 | 3 | `~/.runpod/config.toml` credentials file | `flash login` |
 
+Within `~/.runpod/config.toml`, Flash reads `api_key` from the `[default]` section. If the file has no `[default]` section, Flash falls back to the top-level `apikey` that `runpodctl` writes, so a key saved by `runpodctl config` works without running `flash login`. Once `[default]` exists, the `runpodctl` key is not used, even if `[default]` has no `api_key`.
+
 The `.env` file is loaded into the environment automatically via `python-dotenv` at startup, so priorities 1 and 2 both resolve through `os.getenv("RUNPOD_API_KEY")`. An explicitly exported shell variable takes precedence over a `.env` value.
 
 ### Scope of `flash login`

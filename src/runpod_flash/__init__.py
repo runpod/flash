@@ -1,4 +1,4 @@
-__version__ = "1.20.0"  # x-release-please-version
+__version__ = "1.21.0"  # x-release-please-version
 
 # Load .env vars from file before everything else
 # usecwd=True walks up from CWD (user's project) instead of from the
@@ -88,6 +88,11 @@ _RESOURCE_NAMES = frozenset(
 def __getattr__(name):
     """Lazily import core modules only when accessed."""
     import warnings
+
+    if name in __all__:
+        from .sunset import warn_on_import
+
+        warn_on_import()
 
     if name == "Endpoint":
         from .endpoint import Endpoint
