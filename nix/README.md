@@ -11,7 +11,7 @@ This document explains how to use **[Nix](https://nixos.org)** with **runpod-fla
 ## Why Nix?
 
 - **Fastest way to try flash** — one command runs the CLI with the right Python and every dependency pinned, without touching your system Python or creating a virtualenv.
-- **Reproducible dev environment** — every contributor gets the identical toolchain (Python 3.14, ruff, mypy, bandit, shellcheck), so "works on my machine" stops being a thing.
+- **Reproducible dev environment** — every contributor gets the identical toolchain (Python 3.13, ruff, mypy, bandit, shellcheck), so "works on my machine" stops being a thing.
 - **Hermetic checks** — `nix flake check` runs the lint/format/test gate in an isolated sandbox that doesn't depend on what's installed locally.
 
 > **The Nix path is optional and self-contained.** It's built entirely from Nix — no `uv`, no virtualenv. If you'd rather not use Nix, ignore this directory: the `uv` + `pip`/PyPI workflow (`make dev`, `uv sync`, `make test`, `make build`) is unchanged and remains the primary path. Nix is here only to help those who want it.
@@ -107,7 +107,7 @@ nix run   .#default -- --help
 
 ### Dev shell helpers
 
-Entering `nix develop` prints a banner (`flash-help` re-prints it). The shell provides Python 3.14 with Flash and its full dependency + test graph already importable — **no `uv sync`, no virtualenv to materialize.** In a checkout, `runpod_flash` imports directly from `./src`; otherwise it imports the packaged Flash. The `check-*` helpers run against the current directory, so clone the repo before using them:
+Entering `nix develop` prints a banner (`flash-help` re-prints it). The shell provides Python 3.13 with Flash and its full dependency + test graph already importable — **no `uv sync`, no virtualenv to materialize.** In a checkout, `runpod_flash` imports directly from `./src`; otherwise it imports the packaged Flash. The `check-*` helpers run against the current directory, so clone the repo before using them:
 
 | Helper | Runs |
 |--------|------|
@@ -127,7 +127,7 @@ The flake is intentionally modular and hierarchical — a thin `flake.nix` orche
 | Path | Purpose |
 |------|---------|
 | `../flake.nix` | Entry point: inputs + `import ./nix`; exposes `packages`, `devShells`, `checks`, `apps` |
-| `default.nix` | Per-system aggregator; pins Python 3.14 and wires the modules together |
+| `default.nix` | Per-system aggregator; pins Python 3.13 and wires the modules together |
 | `python/deps.nix` | **Single source of truth** for flash's runtime deps (mirrors `[project.dependencies]`); consumed by both the env and the CLI |
 | `python/env.nix` | The Python environment — the runtime deps + the pytest/mypy toolchain, all from Nix. Shared by the dev shell and the pytest check |
 | `packages/flash.nix` | `packages.default` / `apps.default` — the flash CLI (version read from `pyproject.toml`) |
@@ -138,7 +138,7 @@ The flake is intentionally modular and hierarchical — a thin `flake.nix` orche
 | `checks/mk-check.nix` | Helper: each check is a shellchecked `writeShellApplication` + a one-line runner, so the check logic is itself `set -euo pipefail` + shellcheck-verified |
 | `checks/pytest.nix` | The one bespoke check — the two-pass `tests/unit` suite |
 
-Standalone tools (`ruff`, `bandit`, `shellcheck`, `nixfmt`, `git`) come straight from the `flake.lock`-pinned nixpkgs; only the Python 3.14 interpreter is pinned explicitly, in `default.nix`.
+Standalone tools (`ruff`, `bandit`, `shellcheck`, `nixfmt`, `git`) come straight from the `flake.lock`-pinned nixpkgs; only the Python 3.13 interpreter is pinned explicitly, in `default.nix`.
 
 > **Two lockfiles, pinned independently.** `flake.lock` pins the Nix toolchain (ruff, mypy, …) via nixpkgs, while `uv.lock` pins the same tools for the `uv`/CI path. They're kept in sync by hand — when you bump one (`nix flake update` or `uv lock --upgrade`), check the other so, e.g., the Nix ruff and the CI ruff don't drift into disagreeing lint verdicts.
 
