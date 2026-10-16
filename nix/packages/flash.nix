@@ -35,7 +35,7 @@ py.buildPythonApplication {
   ];
 
   # The nine runtime deps come from the shared list; `tomli` is only a build-time
-  # backport for pre-3.11 interpreters (a no-op on the pinned 3.14).
+  # backport for pre-3.11 interpreters (a no-op on the pinned 3.13).
   dependencies = runtimeDeps py ++ lib.optionals (py.pythonOlder "3.11") [ py.tomli ];
 
   # Tests need the dev/test dependency groups and network mocks; the dev shell

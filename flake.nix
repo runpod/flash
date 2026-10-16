@@ -5,7 +5,7 @@
 # See ./nix/default.nix for the per-system aggregator.
 #
 # Quick references:
-#   nix develop                 # dev shell (Python 3.14: ruff, mypy, bandit, ...)
+#   nix develop                 # dev shell (Python 3.13: ruff, mypy, bandit, ...)
 #   nix flake check             # hermetic checks: ruff lint + format, nixfmt, shellcheck, pytest
 #   nix build   .#default       # build the flash CLI
 #   nix run     .#default -- --help

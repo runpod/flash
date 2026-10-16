@@ -1,7 +1,7 @@
 #
 # nix/dev/shell.nix — runpod-flash
 #
-# The `nix develop` environment. Provides Python 3.14 with flash's full
+# The `nix develop` environment. Provides Python 3.13 with flash's full
 # dependency + test graph (via ../python/env.nix) and the quality toolchain,
 # plus a `flash-help` banner and `check-*` helpers that mirror the Makefile
 # targets.
@@ -55,7 +55,7 @@ let
   banner = lib.concatStringsSep "\n" (
     [
       ""
-      "    flash dev shell — Python 3.14, all-Nix (no uv, no venv)"
+      "    flash dev shell — Python 3.13, all-Nix (no uv, no venv)"
       ""
       "    The interpreter on PATH already has flash + every dependency and the"
       "    test toolchain. In a checkout, ./src takes precedence; run the tools:"

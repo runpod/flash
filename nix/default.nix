@@ -21,9 +21,10 @@
   src,
 }:
 let
-  # The one deliberate version pin — Python 3.14 (project direction). Every other
-  # tool comes straight from the flake.lock-pinned nixpkgs (pkgs.ruff, etc.).
-  python = pkgs.python314;
+  # The one deliberate version pin: Python 3.13, the highest version Flash
+  # workers support (SUPPORTED_PYTHON_VERSIONS). Every other tool comes straight
+  # from the flake.lock-pinned nixpkgs (pkgs.ruff, etc.).
+  python = pkgs.python313;
 
   # runpod (and its transitive tqdm-loggable) are not in nixpkgs; built from PyPI.
   runpod = import ./packages/runpod.nix { inherit pkgs lib python; };
