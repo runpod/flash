@@ -99,6 +99,23 @@ class TestEndpointInit:
         assert ep.workers_min == DEFAULT_WORKERS_MIN
         assert ep.workers_max == DEFAULT_WORKERS_MAX
 
+    def test_workers_standby_defaults_to_none(self):
+        """workers_standby defers to the resource default (workers min)."""
+        ep = Endpoint(name="test", workers=(0, 1))
+        assert ep.workers_standby is None
+
+    def test_workers_standby_out_of_range_raises(self):
+        with pytest.raises(
+            ValueError,
+            match=r"workers_standby \(4\) must be between workers min \(0\) "
+            r"and max \(3\)",
+        ):
+            Endpoint(name="test", workers=(0, 3), workers_standby=4)
+
+    def test_workers_standby_in_range_ok(self):
+        ep = Endpoint(name="test", workers=(0, 3), workers_standby=1)
+        assert ep.workers_standby == 1
+
     def test_all_params(self):
         vol = NetworkVolume(name="test-vol", size=50)
         ep = Endpoint(
@@ -377,6 +394,30 @@ class TestBuildResourceConfig:
         assert config.idleTimeout == 10
         assert config.workersMin == 1
         assert config.workersMax == 5
+
+    @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "true"})
+    def test_config_workers_standby_defaults_to_workers_min(self):
+        """workers=(0, N) must deploy workersStandby=0 so the endpoint scales to zero."""
+        ep = Endpoint(name="test", gpu=GpuGroup.ADA_24, workers=(0, 1))
+        config = ep._build_resource_config()
+        assert config.workersMin == 0
+        assert config.workersStandby == 0
+
+    @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "true"})
+    def test_config_workers_standby_follows_nonzero_min(self):
+        ep = Endpoint(name="test", gpu=GpuGroup.ADA_24, workers=(2, 5))
+        config = ep._build_resource_config()
+        assert config.workersMin == 2
+        assert config.workersStandby == 2
+
+    @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "true"})
+    def test_config_workers_standby_explicit(self):
+        ep = Endpoint(
+            name="test", gpu=GpuGroup.ADA_24, workers=(0, 3), workers_standby=1
+        )
+        config = ep._build_resource_config()
+        assert config.workersMin == 0
+        assert config.workersStandby == 1
 
     @patch.dict(os.environ, {"FLASH_IS_LIVE_PROVISIONING": "true"})
     def test_config_passes_volume(self):

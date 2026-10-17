@@ -32,6 +32,7 @@ Endpoint(
     template: Optional[PodTemplate] = None,
     min_cuda_version: Optional[CudaVersion | str] = None,
     max_concurrency: int = 1,
+    workers_standby: Optional[int] = None,
 )
 ```
 
@@ -43,7 +44,8 @@ Endpoint(
 | `id`                   | `str`                                | `None`   | Existing endpoint ID. Mutually exclusive with `image`.                                                                                                           |
 | `gpu`                  | `GpuGroup`, `GpuType`, or list       | `None`   | GPU type(s). Mutually exclusive with `cpu`. Defaults to `GpuGroup.ANY` if neither is set.                                                                        |
 | `cpu`                  | `str`, `CpuInstanceType`, or list    | `None`   | CPU instance type(s). Mutually exclusive with `gpu`.                                                                                                             |
-| `workers`              | `int` or `(int, int)`                | `(0, 3)` | Worker scaling. `N` = `(0, N)`. `(min, max)` = explicit range.                                                                                                   |
+| `workers`              | `int` or `(int, int)`                | `(0, 3)` | Worker scaling. `N` = `(0, N)`. `(min, max)` = explicit range. Standby (active) workers default to `min`, so `(0, N)` scales to zero.                              |
+| `workers_standby`      | `int`                                | `None`   | Override the number of active (standby) workers kept warm. Defaults to the `workers` minimum. Must be within the `workers` range. Set to `0` to force scale-to-zero. |
 | `idle_timeout`         | `int`                                | `60`     | Seconds before idle workers scale down.                                                                                                                          |
 | `dependencies`         | `list[str]`                          | `None`   | Python packages to install (e.g., `["torch", "numpy==1.24"]`).                                                                                                   |
 | `system_dependencies`  | `list[str]`                          | `None`   | System packages to install.                                                                                                                                      |
@@ -67,6 +69,7 @@ Endpoint(
 - `id` and `image` are mutually exclusive
 - `name` or `id` is required
 - `workers` rejects negative values and `min > max`
+- `workers_standby` must be within the `workers` range when set
 - `max_concurrency` must be >= 1
 
 ### Usage Patterns

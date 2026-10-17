@@ -417,6 +417,7 @@ class Endpoint:
         template: Optional[PodTemplate] = None,
         min_cuda_version: Optional[CudaVersion | str] = CudaVersion.V12_8,
         max_concurrency: int = 1,
+        workers_standby: Optional[int] = None,
     ):
         if gpu is not None and cpu is not None:
             raise ValueError(
@@ -442,6 +443,16 @@ class Endpoint:
         self._cpu = _normalize_cpu(cpu)
         self._is_cpu = _is_cpu_config(cpu)
         self._workers_min, self._workers_max = _normalize_workers(workers)
+        if workers_standby is not None and not (
+            self._workers_min <= workers_standby <= self._workers_max
+        ):
+            raise ValueError(
+                f"workers_standby ({workers_standby}) must be between "
+                f"workers min ({self._workers_min}) and max ({self._workers_max})"
+            )
+        # workers_standby defaults to workers min on the resource config, so
+        # workers=(0, N) scales to zero as documented.
+        self.workers_standby = workers_standby
         self.idle_timeout = idle_timeout
         self.dependencies = dependencies
         self.system_dependencies = system_dependencies
@@ -569,6 +580,9 @@ class Endpoint:
             ),
             "scalerValue": self.scaler_value,
         }
+
+        if self.workers_standby is not None:
+            kwargs["workersStandby"] = self.workers_standby
 
         if self.template is not None:
             # serialize to dict to avoid pydantic model identity issues
