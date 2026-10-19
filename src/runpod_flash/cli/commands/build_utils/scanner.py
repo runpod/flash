@@ -527,14 +527,15 @@ def _project_class(obj: Any, scan: _CallScan) -> Tuple[Any, Any]:
 def _is_client_endpoint_construction(
     call: ast.Call, namespace: Dict[str, Any], scan: _CallScan
 ) -> bool:
-    """match Endpoint(id=...) or Endpoint(image=...) built inline, incl. aliases."""
+    """match Endpoint(id=...), Endpoint(image=...), or Endpoint(**kw) built inline."""
     func = call.func
     literal = (isinstance(func, ast.Name) and func.id == "Endpoint") or (
         isinstance(func, ast.Attribute) and func.attr == "Endpoint"
     )
     if not literal and _resolve(func, namespace, scan) is not Endpoint:
         return False
-    return any(kw.arg in ("id", "image") for kw in call.keywords)
+    # id and image are keyword-only; **kwargs could carry either
+    return any(kw.arg in ("id", "image", None) for kw in call.keywords)
 
 
 def _local_imports(

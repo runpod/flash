@@ -369,7 +369,9 @@ class TestAnalyzeCrossCallsAst:
         result = _analyze_cross_calls_ast(p, {"caller"}, set())
         assert result == {"caller": ["RUNPOD_API_KEY"]}
 
-    @pytest.mark.parametrize("kwarg", ['id="abc123"', 'image="org/img:1"'])
+    @pytest.mark.parametrize(
+        "kwarg", ['id="abc123"', 'image="org/img:1"', '**{"id": "abc123"}']
+    )
     def test_detects_inline_client_endpoint(self, tmp_path, kwarg):
         p = _write_worker(
             tmp_path,
