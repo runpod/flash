@@ -607,19 +607,26 @@ def _object_needs_key(obj: Any, scan: _CallScan) -> bool:
     or instance attributes would. the whole class is analyzed because calls
     through self cannot be resolved statically.
     """
+    return _needs_key(obj, scan, set())
+
+
+def _needs_key(obj: Any, scan: _CallScan, seen: Set[int]) -> bool:
     if _is_remote(obj) or _is_client_endpoint(obj):
         return True
     cls, module = _project_class(obj, scan)
-    if cls is None:
+    if cls is None or id(obj) in seen:
         return False
-    if not inspect.isclass(obj):
-        try:
-            attrs = list(vars(obj).values())
-        except TypeError:
-            attrs = []
-        if any(_is_remote(v) or _is_client_endpoint(v) for v in attrs):
-            return True
-    return bool(_class_targets(cls, module, scan))
+    seen.add(id(obj))
+    if _class_targets(cls, module, scan):
+        return True
+    if inspect.isclass(obj):
+        return False
+    try:
+        attrs = list(vars(obj).values())
+    except TypeError:
+        return False
+    # holder.inner.ep: follow instance attributes into nested project objects
+    return any(_needs_key(value, scan, seen) for value in attrs)
 
 
 def _remote_call_targets(

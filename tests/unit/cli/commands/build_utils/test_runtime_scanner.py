@@ -843,7 +843,9 @@ class TestRuntimeScannerDiscovery:
 
             client = ModelClient()
             holder = Holder(Endpoint(id="abc123"))
+            nested = Holder(Holder(Endpoint(id="abc123")))
             pure = Pure()
+            pure.self_ref = pure
             """,
         )
         _write_worker(
@@ -851,7 +853,7 @@ class TestRuntimeScannerDiscovery:
             "cls_app.py",
             """\
             from runpod_flash import Endpoint
-            from cls_clients import Helpers, client, holder, pure
+            from cls_clients import Helpers, client, holder, nested, pure
 
             @Endpoint(name="method", cpu="cpu3c-1-2")
             async def method(x):
@@ -865,6 +867,10 @@ class TestRuntimeScannerDiscovery:
             async def attribute(x):
                 return holder.ep.runsync(x)
 
+            @Endpoint(name="nested-attribute", cpu="cpu3c-1-2")
+            async def nested_attribute(x):
+                return nested.ep.ep.runsync(x)
+
             @Endpoint(name="pure-method", cpu="cpu3c-1-2")
             async def pure_method(x):
                 return pure.double(x)
@@ -875,6 +881,7 @@ class TestRuntimeScannerDiscovery:
         assert by_name["method"].called_remote_functions == ["client"]
         assert by_name["static"].called_remote_functions == ["Helpers"]
         assert by_name["attribute"].called_remote_functions == ["holder"]
+        assert by_name["nested_attribute"].called_remote_functions == ["nested"]
         assert by_name["pure_method"].calls_remote_functions is False
 
     def test_unparseable_helper_assumes_key_needed(self, tmp_path):
