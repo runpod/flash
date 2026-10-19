@@ -903,12 +903,16 @@ class TestRemoveStaleApiKey:
     """_remove_stale_api_key drops only RUNPOD_API_KEY from the live template."""
 
     @staticmethod
-    def _client(env, template_id="tpl-1"):
+    def _client(env, template_ids=None):
         client = AsyncMock()
-        client.get_endpoint_template_id = AsyncMock(return_value=template_id)
+        client.get_endpoint_template_ids = AsyncMock(
+            return_value={"endpoint-123": "tpl-1"}
+            if template_ids is None
+            else template_ids
+        )
         client.get_template = AsyncMock(
             return_value={
-                "id": template_id,
+                "id": "tpl-1",
                 "name": "worker-tpl",
                 "imageName": "runpod/flash:latest",
                 "containerDiskInGb": 64,
@@ -920,10 +924,17 @@ class TestRemoveStaleApiKey:
         client.update_template = AsyncMock(return_value={})
         return client
 
+    @staticmethod
+    async def _cleanup(client, endpoints=(("worker", "endpoint-123"),)):
+        from runpod_flash.cli.utils.deployment import _remove_stale_api_keys
+
+        with patch("runpod_flash.core.api.runpod.RunpodGraphQLClient") as cls:
+            cls.return_value.__aenter__.return_value = client
+            cls.return_value.__aexit__.return_value = None
+            await _remove_stale_api_keys(list(endpoints))
+
     @pytest.mark.asyncio
     async def test_removes_key_and_keeps_everything_else(self):
-        from runpod_flash.cli.utils.deployment import _remove_stale_api_key
-
         client = self._client(
             [
                 {"key": "PORT", "value": "8080"},
@@ -931,8 +942,9 @@ class TestRemoveStaleApiKey:
             ]
         )
 
-        assert await _remove_stale_api_key(client, "endpoint-123") is True
+        await self._cleanup(client)
 
+        client.get_template.assert_awaited_once_with("tpl-1")
         payload = client.update_template.call_args.args[0]
         assert payload == {
             "id": "tpl-1",
@@ -946,20 +958,76 @@ class TestRemoveStaleApiKey:
 
     @pytest.mark.asyncio
     async def test_no_update_when_key_absent(self):
-        from runpod_flash.cli.utils.deployment import _remove_stale_api_key
-
         client = self._client([{"key": "PORT", "value": "8080"}])
 
-        assert await _remove_stale_api_key(client, "endpoint-123") is False
+        await self._cleanup(client)
+
         client.update_template.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_no_update_without_template(self):
-        from runpod_flash.cli.utils.deployment import _remove_stale_api_key
+    @pytest.mark.parametrize(
+        "template_ids",
+        [{}, {"endpoint-123": None}],
+        ids=["endpoint-deleted", "no-template"],
+    )
+    async def test_no_update_without_template(self, template_ids):
+        client = self._client([], template_ids=template_ids)
 
-        client = self._client([], template_id=None)
+        await self._cleanup(client)
 
-        assert await _remove_stale_api_key(client, "endpoint-123") is False
+        client.get_template.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_shared_template_keeps_key(self):
+        client = self._client(
+            [{"key": "RUNPOD_API_KEY", "value": "old-key"}],
+            template_ids={"endpoint-123": "tpl-1", "caller": "tpl-1"},
+        )
+
+        await self._cleanup(client)
+
+        client.get_template.assert_not_awaited()
+        client.update_template.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_one_lookup_for_all_endpoints(self):
+        client = self._client(
+            [{"key": "RUNPOD_API_KEY", "value": "old-key"}],
+            template_ids={"endpoint-1": "tpl-1", "endpoint-2": "tpl-2"},
+        )
+
+        await self._cleanup(client, [("a", "endpoint-1"), ("b", "endpoint-2")])
+
+        client.get_endpoint_template_ids.assert_awaited_once()
+        assert client.update_template.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_one_failure_does_not_stop_the_others(self):
+        client = self._client(
+            [{"key": "RUNPOD_API_KEY", "value": "old-key"}],
+            template_ids={"endpoint-1": "tpl-1", "endpoint-2": "tpl-2"},
+        )
+        client.update_template = AsyncMock(side_effect=[RuntimeError("boom"), {}])
+
+        await self._cleanup(client, [("a", "endpoint-1"), ("b", "endpoint-2")])
+
+        assert client.update_template.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_slow_api_is_bounded(self):
+        import asyncio
+
+        client = self._client([])
+
+        async def hang():
+            await asyncio.sleep(10)
+
+        client.get_endpoint_template_ids = AsyncMock(side_effect=hang)
+        with patch(
+            "runpod_flash.cli.utils.deployment.STALE_KEY_CLEANUP_TIMEOUT_SECONDS", 0.05
+        ):
+            await self._cleanup(client)
+
         client.get_template.assert_not_awaited()
 
     @pytest.mark.asyncio

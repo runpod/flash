@@ -3520,7 +3520,7 @@ class TestStaleApiKeyCleanup:
     once the build manifest says the endpoint makes no remote calls."""
 
     @staticmethod
-    async def _update(new_env, makes_remote_calls):
+    async def _update(new_env, makes_remote_calls, template_ids=None):
         old_resource = ServerlessEndpoint(
             name="stale-key",
             imageName="test:latest",
@@ -3559,6 +3559,12 @@ class TestStaleApiKeyCleanup:
                 ]
             }
         )
+        if isinstance(template_ids, Exception):
+            mock_client.get_endpoint_template_ids = AsyncMock(side_effect=template_ids)
+        else:
+            mock_client.get_endpoint_template_ids = AsyncMock(
+                return_value=template_ids or {"ep-stale": "tpl-stale"}
+            )
 
         with patch(
             "runpod_flash.core.resources.serverless.RunpodGraphQLClient"
@@ -3598,3 +3604,24 @@ class TestStaleApiKeyCleanup:
         env = await self._update(new_env, makes_remote_calls=True)
 
         assert "RUNPOD_API_KEY" in env
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "new_env",
+        [{"LOG_LEVEL": "INFO"}, {"LOG_LEVEL": "DEBUG"}],
+        ids=["env-unchanged", "env-changed"],
+    )
+    @pytest.mark.parametrize(
+        "template_ids",
+        [
+            {"ep-stale": "tpl-stale", "ep-caller": "tpl-stale"},
+            RuntimeError("api down"),
+        ],
+        ids=["shared-template", "lookup-failed"],
+    )
+    async def test_keeps_key_when_template_may_be_shared(self, new_env, template_ids):
+        env = await self._update(
+            new_env, makes_remote_calls=False, template_ids=template_ids
+        )
+
+        assert env["RUNPOD_API_KEY"] == "old-key"

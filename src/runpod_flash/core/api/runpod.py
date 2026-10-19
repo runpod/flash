@@ -847,12 +847,12 @@ class RunpodGraphQLClient:
             log.debug(f"Error checking endpoint existence: {e}")
             return False
 
-    async def get_endpoint_template_id(self, endpoint_id: str) -> Optional[str]:
-        """Return the template ID an endpoint runs, or None if not found."""
+    async def get_endpoint_template_ids(self) -> Dict[str, Optional[str]]:
+        """Return endpoint ID -> template ID for every endpoint on the account."""
         query = """
-        query getEndpointTemplate($id: String!) {
+        query getEndpointTemplates {
             myself {
-                endpoint(id: $id) {
+                endpoints {
                     id
                     templateId
                 }
@@ -860,15 +860,9 @@ class RunpodGraphQLClient:
         }
         """
 
-        try:
-            result = await self._execute_graphql(query, {"id": endpoint_id})
-        except _GraphQLErrorResponse as e:
-            # deleted endpoints come back as an "Endpoint not found" error
-            if "not found" in str(e).lower():
-                return None
-            raise
-        endpoint = (result.get("myself") or {}).get("endpoint") or {}
-        return endpoint.get("templateId")
+        result = await self._execute_graphql(query)
+        endpoints = (result.get("myself") or {}).get("endpoints") or []
+        return {ep["id"]: ep.get("templateId") for ep in endpoints if ep.get("id")}
 
     async def create_flash_auth_request(self) -> Dict[str, Any]:
         mutation = """

@@ -7,7 +7,7 @@ import logging
 from typing import Dict, Any
 from pathlib import Path
 
-from runpod_flash.core.resources.serverless import ServerlessResource
+from runpod_flash.core.resources.serverless import ServerlessResource, template_shared
 from runpod_flash.core.resources.app import FlashApp
 from runpod_flash.core.resources.resource_manager import ResourceManager
 from runpod_flash.runtime.resource_provisioner import create_resource_from_manifest
@@ -41,27 +41,23 @@ def _manifest_without_ai_keys(manifest: Dict[str, Any]) -> Dict[str, Any]:
     return sanitized_manifest
 
 
-async def _remove_stale_api_key(client: Any, endpoint_id: str) -> bool:
-    """Drop RUNPOD_API_KEY from an endpoint's live template. True if removed."""
-    template_id = await client.get_endpoint_template_id(endpoint_id)
-    if not template_id:
-        return False
+# bound on the stale-key cleanup, which runs before provisioning starts
+STALE_KEY_CLEANUP_TIMEOUT_SECONDS = 120
+
+
+async def _remove_stale_api_key(client: Any, template_id: str) -> bool:
+    """Drop RUNPOD_API_KEY from a live template. True if removed."""
     live = await client.get_template(template_id)
     env = live.get("env") or []
     kept = [entry for entry in env if entry.get("key") != "RUNPOD_API_KEY"]
     if len(kept) == len(env):
         return False
-    payload = {
-        key: live[key]
-        for key in ("name", "imageName", "containerDiskInGb", "dockerArgs", "readme")
-        if live.get(key) is not None
-    }
-    payload["env"] = [
+    env_payload = [
         {"key": entry["key"], "value": entry.get("value", "")} for entry in kept
     ]
-    # saveTemplate requires volumeInGb, but for sls this is always 0
-    payload["volumeInGb"] = 0
-    payload["id"] = template_id
+    payload = ServerlessResource._template_update_payload(
+        {**live, "env": env_payload}, template_id
+    )
     await client.update_template(payload)
     return True
 
@@ -71,28 +67,45 @@ async def _remove_stale_api_keys(endpoints: list[tuple[str, str]]) -> None:
 
     Older Flash versions gave every endpoint the key. Unchanged resources skip
     provisioning, so the update path that drops it never runs for them.
-    Failures are logged and never fail the deploy.
+    A template shared with another endpoint keeps the key, since that endpoint
+    may call others. Failures are logged and never fail the deploy.
     """
     from runpod_flash.core.api.runpod import RunpodGraphQLClient
 
-    try:
+    async def clean(client: Any, template_ids: dict, name: str, endpoint_id: str):
+        template_id = template_ids.get(endpoint_id)
+        if not template_id:
+            return  # endpoint deleted, or no template
+        if template_shared(template_ids, template_id):
+            log.warning(
+                f"{name}: kept RUNPOD_API_KEY, template '{template_id}' "
+                f"is shared with other endpoints"
+            )
+            return
+        try:
+            removed = await _remove_stale_api_key(client, template_id)
+        except Exception as e:
+            log.warning(f"{name}: could not check for a stale RUNPOD_API_KEY: {e}")
+            return
+        if removed:
+            log.info(
+                f"{name}: removed RUNPOD_API_KEY (endpoint does not call other endpoints)"
+            )
+
+    async def run() -> None:
         async with RunpodGraphQLClient() as client:
-            for resource_name, endpoint_id in endpoints:
-                try:
-                    removed = await _remove_stale_api_key(client, endpoint_id)
-                except Exception as e:
-                    log.warning(
-                        f"{resource_name}: could not check for a stale "
-                        f"RUNPOD_API_KEY: {e}"
-                    )
-                    continue
-                if removed:
-                    log.info(
-                        f"{resource_name}: removed RUNPOD_API_KEY "
-                        f"(endpoint does not call other endpoints)"
-                    )
+            template_ids = await client.get_endpoint_template_ids()
+            await asyncio.gather(
+                *(
+                    clean(client, template_ids, name, endpoint_id)
+                    for name, endpoint_id in endpoints
+                )
+            )
+
+    try:
+        await asyncio.wait_for(run(), timeout=STALE_KEY_CLEANUP_TIMEOUT_SECONDS)
     except Exception as e:
-        log.warning(f"Could not check endpoints for a stale RUNPOD_API_KEY: {e}")
+        log.warning(f"Could not check endpoints for a stale RUNPOD_API_KEY: {e!r}")
 
 
 def _resource_config_for_compare(config: Dict[str, Any]) -> Dict[str, Any]:
