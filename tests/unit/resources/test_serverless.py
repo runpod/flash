@@ -3520,11 +3520,11 @@ class TestStaleApiKeyCleanup:
     once the build manifest says the endpoint makes no remote calls."""
 
     @staticmethod
-    async def _update(new_env, makes_remote_calls, template_ids=None):
+    async def _update(new_env, makes_remote_calls, template_ids=None, old_env=None):
         old_resource = ServerlessEndpoint(
             name="stale-key",
             imageName="test:latest",
-            env={"LOG_LEVEL": "INFO"},
+            env=old_env or {"LOG_LEVEL": "INFO"},
             flashboot=False,
         )
         old_resource.id = "ep-stale"
@@ -3615,7 +3615,8 @@ class TestStaleApiKeyCleanup:
         ids=["env-unchanged", "env-changed"],
     )
     async def test_keeps_user_set_key_without_remote_calls(self, new_env):
-        env = await self._update(new_env, makes_remote_calls=False)
+        old_env = {"LOG_LEVEL": "INFO", "RUNPOD_API_KEY": "user-key"}
+        env = await self._update(new_env, makes_remote_calls=False, old_env=old_env)
 
         assert "RUNPOD_API_KEY" in env
 
