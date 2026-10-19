@@ -680,6 +680,227 @@ class TestRuntimeScannerDiscovery:
         assert scanner.import_errors == {}
         assert lib_call.calls_remote_functions is False
 
+    def test_function_local_project_imports(self, tmp_path):
+        """sibling modules imported inside the endpoint resolve after scanning."""
+        _write_worker(
+            tmp_path,
+            "local_tasks.py",
+            """\
+            from runpod_flash import Endpoint
+
+            @Endpoint(name="square", cpu="cpu3c-1-2")
+            async def square(x):
+                return x * x
+            """,
+        )
+        _write_worker(
+            tmp_path,
+            "local_app.py",
+            """\
+            from runpod_flash import Endpoint
+
+            @Endpoint(name="from-import", cpu="cpu3c-1-2")
+            async def from_import(x):
+                from local_tasks import square as sq
+                return await sq(x)
+
+            @Endpoint(name="module-import", cpu="cpu3c-1-2")
+            async def module_import(x):
+                import local_tasks
+                return await local_tasks.square(x)
+            """,
+        )
+        scanner = RuntimeScanner(tmp_path)
+        by_name = {f.function_name: f for f in scanner.discover_remote_functions()}
+        assert by_name["from_import"].called_remote_functions == ["sq"]
+        assert by_name["module_import"].called_remote_functions == [
+            "local_tasks.square"
+        ]
+
+    def test_relative_and_package_qualified_imports(self, tmp_path):
+        """subpackage endpoints reached relatively or through the package path."""
+        (tmp_path / "rel_pkg").mkdir()
+        _write_worker(
+            tmp_path,
+            "rel_pkg/tasks.py",
+            """\
+            from runpod_flash import Endpoint
+
+            @Endpoint(name="square", cpu="cpu3c-1-2")
+            async def square(x):
+                return x * x
+            """,
+        )
+        _write_worker(
+            tmp_path,
+            "rel_pkg/app.py",
+            """\
+            from runpod_flash import Endpoint
+
+            @Endpoint(name="relative", cpu="cpu3c-1-2")
+            async def relative(x):
+                from .tasks import square as sq
+                return await sq(x)
+
+            @Endpoint(name="qualified", cpu="cpu3c-1-2")
+            async def qualified(x):
+                import rel_pkg.tasks
+                return await rel_pkg.tasks.square(x)
+
+            @Endpoint(name="missing", cpu="cpu3c-1-2")
+            async def missing(x):
+                from .nowhere import thing
+                return thing(x)
+            """,
+        )
+        scanner = RuntimeScanner(tmp_path)
+        by_name = {f.function_name: f for f in scanner.discover_remote_functions()}
+        assert by_name["relative"].called_remote_functions == ["sq"]
+        assert by_name["qualified"].called_remote_functions == ["rel_pkg.tasks.square"]
+        # a project import that cannot be resolved errs toward the key
+        assert by_name["missing"].called_remote_functions == ["<unanalyzed>"]
+
+    def test_unresolved_import_of_failed_project_module(self, tmp_path):
+        """a local import of a project file that failed to import errs toward the key."""
+        _write_worker(tmp_path, "broken_dep.py", "raise RuntimeError('boom')\n")
+        _write_worker(
+            tmp_path,
+            "uses_broken.py",
+            """\
+            from runpod_flash import Endpoint
+
+            @Endpoint(name="uses-broken", cpu="cpu3c-1-2")
+            async def uses_broken(x):
+                from broken_dep import helper
+                return helper(x)
+            """,
+        )
+        scanner = RuntimeScanner(tmp_path)
+        uses_broken = next(
+            f
+            for f in scanner.discover_remote_functions()
+            if f.function_name == "uses_broken"
+        )
+        assert uses_broken.called_remote_functions == ["<unanalyzed>"]
+
+    def test_helper_in_package_init(self, tmp_path):
+        """helpers defined in a package __init__.py are analyzed."""
+        (tmp_path / "init_utils").mkdir()
+        _write_worker(
+            tmp_path,
+            "init_utils/__init__.py",
+            """\
+            from runpod_flash import Endpoint
+            vllm = Endpoint(id="abc123")
+
+            def call_model(x):
+                return vllm.runsync(x)
+            """,
+        )
+        _write_worker(
+            tmp_path,
+            "init_app.py",
+            """\
+            from runpod_flash import Endpoint
+            import init_utils
+
+            @Endpoint(name="via-init", cpu="cpu3c-1-2")
+            async def via_init(x):
+                return init_utils.call_model(x)
+            """,
+        )
+        scanner = RuntimeScanner(tmp_path)
+        try:
+            via_init = scanner.discover_remote_functions()[0]
+        finally:
+            sys.modules.pop("init_utils", None)
+        assert via_init.called_remote_functions == ["call_model"]
+
+    def test_project_classes_and_instances(self, tmp_path):
+        """methods, static/class methods, and instance attributes are followed."""
+        _write_worker(
+            tmp_path,
+            "cls_clients.py",
+            """\
+            from runpod_flash import Endpoint
+
+            class ModelClient:
+                def generate(self, x):
+                    return Endpoint(id="abc123").runsync(x)
+
+            class Holder:
+                def __init__(self, ep):
+                    self.ep = ep
+
+            class Helpers:
+                @staticmethod
+                def call(x):
+                    return Endpoint(id="abc123").runsync(x)
+
+            class Pure:
+                def double(self, x):
+                    return x * 2
+
+            client = ModelClient()
+            holder = Holder(Endpoint(id="abc123"))
+            pure = Pure()
+            """,
+        )
+        _write_worker(
+            tmp_path,
+            "cls_app.py",
+            """\
+            from runpod_flash import Endpoint
+            from cls_clients import Helpers, client, holder, pure
+
+            @Endpoint(name="method", cpu="cpu3c-1-2")
+            async def method(x):
+                return client.generate(x)
+
+            @Endpoint(name="static", cpu="cpu3c-1-2")
+            async def static(x):
+                return Helpers.call(x)
+
+            @Endpoint(name="attribute", cpu="cpu3c-1-2")
+            async def attribute(x):
+                return holder.ep.runsync(x)
+
+            @Endpoint(name="pure-method", cpu="cpu3c-1-2")
+            async def pure_method(x):
+                return pure.double(x)
+            """,
+        )
+        scanner = RuntimeScanner(tmp_path)
+        by_name = {f.function_name: f for f in scanner.discover_remote_functions()}
+        assert by_name["method"].called_remote_functions == ["client"]
+        assert by_name["static"].called_remote_functions == ["Helpers"]
+        assert by_name["attribute"].called_remote_functions == ["holder"]
+        assert by_name["pure_method"].calls_remote_functions is False
+
+    def test_unparseable_helper_assumes_key_needed(self, tmp_path):
+        """a helper whose source cannot be read or parsed errs toward the key."""
+        _write_worker(
+            tmp_path,
+            "opaque_helper.py",
+            """\
+            from runpod_flash import Endpoint
+
+            def helper(x):
+                return x
+
+            @Endpoint(name="via-helper", cpu="cpu3c-1-2")
+            async def via_helper(x):
+                return helper(x)
+            """,
+        )
+        scanner = RuntimeScanner(tmp_path)
+        with patch(
+            "runpod_flash.cli.commands.build_utils.scanner.inspect.getsource",
+            side_effect=OSError("could not get source code"),
+        ):
+            via_helper = scanner.discover_remote_functions()[0]
+        assert via_helper.called_remote_functions == ["helper"]
+
     def test_sys_path_cleanup(self, tmp_path):
         """project root is removed from sys.path after scanning."""
         root_str = str(tmp_path)
