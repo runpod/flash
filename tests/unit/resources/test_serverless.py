@@ -3608,6 +3608,20 @@ class TestStaleApiKeyCleanup:
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "new_env",
+        [
+            {"LOG_LEVEL": "INFO", "RUNPOD_API_KEY": "user-key"},
+            {"LOG_LEVEL": "DEBUG", "RUNPOD_API_KEY": "user-key"},
+        ],
+        ids=["env-unchanged", "env-changed"],
+    )
+    async def test_keeps_user_set_key_without_remote_calls(self, new_env):
+        env = await self._update(new_env, makes_remote_calls=False)
+
+        assert "RUNPOD_API_KEY" in env
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "new_env",
         [{"LOG_LEVEL": "INFO"}, {"LOG_LEVEL": "DEBUG"}],
         ids=["env-unchanged", "env-changed"],
     )

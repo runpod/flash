@@ -180,7 +180,7 @@ def _display_post_deployment_guidance(
     if keyed:
         console.print()
         console.print(
-            "[dim]RUNPOD_API_KEY added to endpoints that call other endpoints: "
+            "[dim]RUNPOD_API_KEY set by Flash on endpoints that call other endpoints: "
             f"{', '.join(keyed)}[/dim]"
         )
 

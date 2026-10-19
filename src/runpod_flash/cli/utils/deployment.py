@@ -55,7 +55,7 @@ async def _remove_stale_api_key(client: Any, template_id: str) -> bool:
     env_payload = [
         {"key": entry["key"], "value": entry.get("value", "")} for entry in kept
     ]
-    payload = ServerlessResource._template_update_payload(
+    payload = ServerlessResource.template_update_payload(
         {**live, "env": env_payload}, template_id
     )
     await client.update_template(payload)
@@ -104,8 +104,13 @@ async def _remove_stale_api_keys(endpoints: list[tuple[str, str]]) -> None:
 
     try:
         await asyncio.wait_for(run(), timeout=STALE_KEY_CLEANUP_TIMEOUT_SECONDS)
+    except asyncio.TimeoutError:
+        log.warning(
+            f"Stopped checking endpoints for a stale RUNPOD_API_KEY after "
+            f"{STALE_KEY_CLEANUP_TIMEOUT_SECONDS}s"
+        )
     except Exception as e:
-        log.warning(f"Could not check endpoints for a stale RUNPOD_API_KEY: {e!r}")
+        log.warning(f"Could not check endpoints for a stale RUNPOD_API_KEY: {e}")
 
 
 def _resource_config_for_compare(config: Dict[str, Any]) -> Dict[str, Any]:

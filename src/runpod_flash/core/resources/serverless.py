@@ -869,12 +869,12 @@ class ServerlessResource(DeployableResource):
             template: Template model with desired configuration.
             template_id: ID of the template to update.
         """
-        return ServerlessResource._template_update_payload(
+        return ServerlessResource.template_update_payload(
             template.model_dump(exclude_none=True, mode="json"), template_id
         )
 
     @staticmethod
-    def _template_update_payload(
+    def template_update_payload(
         template_data: Dict[str, Any],
         template_id: str,
     ) -> Dict[str, Any]:

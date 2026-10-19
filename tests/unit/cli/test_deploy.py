@@ -660,7 +660,7 @@ class TestDisplayPostDeploymentGuidance:
         )
         output = self._collect_output(patched_console)
         assert (
-            "RUNPOD_API_KEY added to endpoints that call other endpoints: caller"
+            "RUNPOD_API_KEY set by Flash on endpoints that call other endpoints: caller"
             in (output)
         )
         assert "caller, isolated" not in output

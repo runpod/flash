@@ -1014,20 +1014,29 @@ class TestRemoveStaleApiKey:
         assert client.update_template.await_count == 2
 
     @pytest.mark.asyncio
-    async def test_slow_api_is_bounded(self):
+    async def test_slow_api_is_bounded(self, caplog):
         import asyncio
+        import time
 
         client = self._client([])
 
         async def hang():
             await asyncio.sleep(10)
+            return {"endpoint-123": "tpl-1"}
 
         client.get_endpoint_template_ids = AsyncMock(side_effect=hang)
-        with patch(
-            "runpod_flash.cli.utils.deployment.STALE_KEY_CLEANUP_TIMEOUT_SECONDS", 0.05
+        start = time.monotonic()
+        with (
+            patch(
+                "runpod_flash.cli.utils.deployment.STALE_KEY_CLEANUP_TIMEOUT_SECONDS",
+                0.05,
+            ),
+            caplog.at_level("WARNING"),
         ):
             await self._cleanup(client)
 
+        assert time.monotonic() - start < 2
+        assert "Stopped checking endpoints" in caplog.text
         client.get_template.assert_not_awaited()
 
     @pytest.mark.asyncio
