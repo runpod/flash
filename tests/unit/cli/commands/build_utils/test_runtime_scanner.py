@@ -539,7 +539,7 @@ class TestRuntimeScannerDiscovery:
         functions = scanner.discover_remote_functions()
         via_helper = next(f for f in functions if f.function_name == "via_helper")
         pure_helper = next(f for f in functions if f.function_name == "pure_helper")
-        assert via_helper.called_remote_functions == ["generate"]
+        assert via_helper.called_remote_functions == ["generate", "clients.generate"]
         assert pure_helper.calls_remote_functions is False
 
     def test_remote_function_via_module_alias_or_value(self, tmp_path):
@@ -814,7 +814,10 @@ class TestRuntimeScannerDiscovery:
             via_init = scanner.discover_remote_functions()[0]
         finally:
             sys.modules.pop("init_utils", None)
-        assert via_init.called_remote_functions == ["call_model"]
+        assert via_init.called_remote_functions == [
+            "call_model",
+            "init_utils.call_model",
+        ]
 
     def test_project_classes_and_instances(self, tmp_path):
         """methods, static/class methods, and instance attributes are followed."""
@@ -930,6 +933,51 @@ class TestRuntimeScannerDiscovery:
         assert by_name["partial"].called_remote_functions == ["call"]
         assert by_name["cached"].called_remote_functions == ["client"]
         assert by_name["plain_dict"].calls_remote_functions is False
+
+    def test_wrapped_and_contained_project_helpers(self, tmp_path):
+        """partials and containers around a project helper are followed."""
+        _write_worker(
+            tmp_path,
+            "wrapped_helpers.py",
+            """\
+            import functools
+            from runpod_flash import Endpoint
+
+            vllm = Endpoint(id="abc123")
+
+            def call_model(x, timeout=None):
+                return vllm.runsync(x)
+
+            def double(x):
+                return x * 2
+
+            call = functools.partial(call_model, timeout=5)
+            HANDLERS = {"gen": call_model}
+            PURE = {"double": double}
+
+            @Endpoint(name="helper-partial", cpu="cpu3c-1-2")
+            async def helper_partial(x):
+                return call(x)
+
+            @Endpoint(name="helper-dict", cpu="cpu3c-1-2")
+            async def helper_dict(x):
+                return HANDLERS["gen"](x)
+
+            @Endpoint(name="helper-map", cpu="cpu3c-1-2")
+            async def helper_map(xs):
+                return list(map(call_model, xs))
+
+            @Endpoint(name="pure-dict", cpu="cpu3c-1-2")
+            async def pure_dict(x):
+                return PURE["double"](x)
+            """,
+        )
+        scanner = RuntimeScanner(tmp_path)
+        by_name = {f.function_name: f for f in scanner.discover_remote_functions()}
+        assert by_name["helper_partial"].called_remote_functions == ["call"]
+        assert by_name["helper_dict"].called_remote_functions == ["HANDLERS"]
+        assert by_name["helper_map"].called_remote_functions == ["call_model"]
+        assert by_name["pure_dict"].calls_remote_functions is False
 
     def test_unparseable_helper_assumes_key_needed(self, tmp_path):
         """a helper whose source cannot be read or parsed errs toward the key."""

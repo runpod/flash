@@ -641,6 +641,10 @@ def _needs_key(obj: Any, scan: _CallScan, seen: Set[int]) -> bool:
     unwrapped = _unwrap(obj)
     if unwrapped is not obj:
         return _needs_key(unwrapped, scan, seen)
+    # a project helper used as a value: partial(call_model), {"gen": call_model}
+    helper = _project_function(obj, scan)
+    if helper is not None:
+        return bool(_helper_targets(helper, scan))
     cls, module = _project_class(obj, scan)
     if cls is None:
         return False
