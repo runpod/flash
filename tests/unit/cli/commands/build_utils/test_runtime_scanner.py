@@ -884,6 +884,53 @@ class TestRuntimeScannerDiscovery:
         assert by_name["nested_attribute"].called_remote_functions == ["nested"]
         assert by_name["pure_method"].calls_remote_functions is False
 
+    def test_wrapped_and_contained_client_endpoints(self, tmp_path):
+        """bound methods, partials, containers, and cached factories are followed."""
+        _write_worker(
+            tmp_path,
+            "wrapped.py",
+            """\
+            import functools
+            from runpod_flash import Endpoint
+
+            vllm = Endpoint(id="abc123")
+            run_vllm = vllm.runsync
+            CLIENTS = {"vllm": vllm}
+            call = functools.partial(vllm.runsync, timeout=5)
+
+            @functools.lru_cache
+            def client():
+                return Endpoint(id="abc123")
+
+            @Endpoint(name="bound", cpu="cpu3c-1-2")
+            async def bound(x):
+                return await run_vllm(x)
+
+            @Endpoint(name="container", cpu="cpu3c-1-2")
+            async def container(x):
+                return await CLIENTS["vllm"].runsync(x)
+
+            @Endpoint(name="partial", cpu="cpu3c-1-2")
+            async def partial(x):
+                return await call(x)
+
+            @Endpoint(name="cached", cpu="cpu3c-1-2")
+            async def cached(x):
+                return await client().runsync(x)
+
+            @Endpoint(name="plain-dict", cpu="cpu3c-1-2")
+            async def plain_dict(x):
+                return {"a": 1}.get(x)
+            """,
+        )
+        scanner = RuntimeScanner(tmp_path)
+        by_name = {f.function_name: f for f in scanner.discover_remote_functions()}
+        assert by_name["bound"].called_remote_functions == ["run_vllm"]
+        assert by_name["container"].called_remote_functions == ["CLIENTS"]
+        assert by_name["partial"].called_remote_functions == ["call"]
+        assert by_name["cached"].called_remote_functions == ["client"]
+        assert by_name["plain_dict"].calls_remote_functions is False
+
     def test_unparseable_helper_assumes_key_needed(self, tmp_path):
         """a helper whose source cannot be read or parsed errs toward the key."""
         _write_worker(

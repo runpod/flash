@@ -6,8 +6,10 @@ language constructs without needing to rebuild an interpreter via AST.
 """
 
 import ast
+import functools
 import importlib.util
 import inspect
+import itertools
 import logging
 import os
 import sys
@@ -495,6 +497,9 @@ def _project_function(obj: Any, scan: _CallScan) -> Any:
     limiting this to scanned files keeps helper analysis out of library code,
     including virtualenvs or bundled packages that live inside the project.
     """
+    if _is_remote(obj):
+        return None
+    obj = _unwrap(obj)
     if not isinstance(obj, types.FunctionType) or _is_remote(obj):
         return None
     try:
@@ -610,13 +615,35 @@ def _object_needs_key(obj: Any, scan: _CallScan) -> bool:
     return _needs_key(obj, scan, set())
 
 
+# cap on container items followed, so a large config dict stays cheap
+_MAX_CONTAINER_ITEMS = 1000
+
+
 def _needs_key(obj: Any, scan: _CallScan, seen: Set[int]) -> bool:
     if _is_remote(obj) or _is_client_endpoint(obj):
         return True
-    cls, module = _project_class(obj, scan)
-    if cls is None or id(obj) in seen:
+    if id(obj) in seen:
         return False
     seen.add(id(obj))
+    # vllm.runsync, functools.partial(vllm.runsync), {"vllm": vllm}, and
+    # wrappers that set __wrapped__ (functools.lru_cache, functools.wraps)
+    if isinstance(obj, types.MethodType):
+        return _needs_key(obj.__self__, scan, seen)
+    if isinstance(obj, functools.partial):
+        parts = [obj.func, *obj.args, *obj.keywords.values()]
+        return any(_needs_key(part, scan, seen) for part in parts)
+    if isinstance(obj, (dict, list, tuple, set, frozenset)):
+        items = obj.values() if isinstance(obj, dict) else obj
+        return any(
+            _needs_key(item, scan, seen)
+            for item in itertools.islice(items, _MAX_CONTAINER_ITEMS)
+        )
+    unwrapped = _unwrap(obj)
+    if unwrapped is not obj:
+        return _needs_key(unwrapped, scan, seen)
+    cls, module = _project_class(obj, scan)
+    if cls is None:
+        return False
     if _class_targets(cls, module, scan):
         return True
     if inspect.isclass(obj):
@@ -627,6 +654,16 @@ def _needs_key(obj: Any, scan: _CallScan, seen: Set[int]) -> bool:
         return False
     # holder.inner.ep: follow instance attributes into nested project objects
     return any(_needs_key(value, scan, seen) for value in attrs)
+
+
+def _unwrap(obj: Any) -> Any:
+    """the function under functools.wraps / lru_cache style wrappers, else obj."""
+    if inspect.isclass(obj):
+        return obj
+    try:
+        return inspect.unwrap(obj)
+    except Exception:
+        return obj
 
 
 def _remote_call_targets(
