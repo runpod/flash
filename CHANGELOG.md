@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.21.1](https://github.com/runpod/flash/compare/v1.21.0...v1.21.1) (2026-10-20)
+
+
+### Bug Fixes
+
+* **deploy:** only inject RUNPOD_API_KEY into endpoints that make remote calls ([#389](https://github.com/runpod/flash/issues/389)) ([cd29cf8](https://github.com/runpod/flash/commit/cd29cf826f7080482e0c15762e49ee64d0eae421))
+
+
+### Documentation
+
+* point agents to agents.runpod.io ([#392](https://github.com/runpod/flash/issues/392)) ([8e91b78](https://github.com/runpod/flash/commit/8e91b787af15704935a45484b9f97975b3556f4e))
+
 ## [1.21.0](https://github.com/runpod/flash/compare/v1.20.1...v1.21.0) (2026-10-14)
 
 
