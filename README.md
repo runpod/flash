@@ -6,7 +6,7 @@
 > The `flash` CLI and the SDK print this notice once per process. Set `RUNPOD_FLASH_SILENCE_DEPRECATION=1` to silence it (for example, in CI).
 
 <!-- runpod-agent-setup:start -->
-**Using an AI agent?** Point it to https://agents.runpod.io/ to install the Runpod skills and MCP server.
+**For AI agents:** setup instructions for the Runpod skills and MCP server are at https://agents.runpod.io/
 <!-- runpod-agent-setup:end -->
 
 Flash is a Python SDK for developing cloud-native AI apps where you define everything -- hardware, remote functions, and dependencies -- using local code.

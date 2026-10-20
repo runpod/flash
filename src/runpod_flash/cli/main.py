@@ -50,7 +50,7 @@ app = typer.Typer(
     cls=_SunsetNoticeGroup,
     name="flash",
     help="Runpod Flash CLI - Distributed inference and serving framework",
-    epilog="Using an AI agent? Point it to https://agents.runpod.io/",
+    epilog="For AI agents: setup instructions for the Runpod skills and MCP server are at https://agents.runpod.io/",
     no_args_is_help=True,
     rich_markup_mode="rich",
 )
