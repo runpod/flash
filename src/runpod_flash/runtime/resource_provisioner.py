@@ -201,4 +201,9 @@ def create_resource_from_manifest(
         # ServerlessResource (default)
         resource = ServerlessResource(**deployment_kwargs)
 
+    # Pin the build-time decision so template injection does not re-search
+    # for flash_manifest.json, which deploy keeps under .flash/.
+    if "makes_remote_calls" in resource_data:
+        resource._makes_remote_calls = bool(resource_data["makes_remote_calls"])
+
     return resource

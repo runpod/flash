@@ -352,3 +352,31 @@ class TestRestClientExecuteRest:
 
             with pytest.raises(Exception, match="HTTP request failed"):
                 await client._execute_rest("GET", "https://example.com/api")
+
+
+class TestGetEndpointTemplateIds:
+    """get_endpoint_template_ids maps every endpoint to its template."""
+
+    @pytest.mark.asyncio
+    async def test_maps_endpoints_to_templates(self):
+        client = RunpodGraphQLClient(api_key="test")
+        with patch.object(client, "_execute_graphql", new_callable=AsyncMock) as mock:
+            mock.return_value = {
+                "myself": {
+                    "endpoints": [
+                        {"id": "ep-1", "templateId": "tpl-1"},
+                        {"id": "ep-2", "templateId": None},
+                    ]
+                }
+            }
+            assert await client.get_endpoint_template_ids() == {
+                "ep-1": "tpl-1",
+                "ep-2": None,
+            }
+
+    @pytest.mark.asyncio
+    async def test_no_endpoints(self):
+        client = RunpodGraphQLClient(api_key="test")
+        with patch.object(client, "_execute_graphql", new_callable=AsyncMock) as mock:
+            mock.return_value = {"myself": {"endpoints": None}}
+            assert await client.get_endpoint_template_ids() == {}

@@ -3513,3 +3513,130 @@ class TestCreateNewTemplateEnvFieldSet:
         template = resource._create_new_template()
 
         assert "env" not in template.model_fields_set
+
+
+class TestStaleApiKeyCleanup:
+    """A RUNPOD_API_KEY left on a live template by an earlier deploy is dropped
+    once the build manifest says the endpoint makes no remote calls."""
+
+    @staticmethod
+    async def _update(new_env, makes_remote_calls, template_ids=None, old_env=None):
+        old_resource = ServerlessEndpoint(
+            name="stale-key",
+            imageName="test:latest",
+            env=old_env or {"LOG_LEVEL": "INFO"},
+            flashboot=False,
+        )
+        old_resource.id = "ep-stale"
+        old_resource.templateId = "tpl-stale"
+
+        new_resource = ServerlessEndpoint(
+            name="stale-key",
+            imageName="test:latest",
+            env=new_env,
+            flashboot=False,
+            workersMax=5,
+        )
+        new_resource._makes_remote_calls = makes_remote_calls
+
+        mock_client = AsyncMock()
+        mock_client.save_endpoint = AsyncMock(
+            return_value={
+                "id": "ep-stale",
+                "name": "stale-key",
+                "templateId": "tpl-stale",
+                "gpuIds": "AMPERE_48",
+                "allowedCudaVersions": "",
+            }
+        )
+        mock_client.update_template = AsyncMock(return_value={})
+        mock_client.get_template = AsyncMock(
+            return_value={
+                "env": [
+                    {"key": "LOG_LEVEL", "value": "INFO"},
+                    {"key": "PORT", "value": "8080"},
+                    {"key": "RUNPOD_API_KEY", "value": "old-key"},
+                ]
+            }
+        )
+        if isinstance(template_ids, Exception):
+            mock_client.get_endpoint_template_ids = AsyncMock(side_effect=template_ids)
+        else:
+            mock_client.get_endpoint_template_ids = AsyncMock(
+                return_value=template_ids or {"ep-stale": "tpl-stale"}
+            )
+
+        with patch(
+            "runpod_flash.core.resources.serverless.RunpodGraphQLClient"
+        ) as mock_client_class:
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+            mock_client_class.return_value.__aexit__.return_value = None
+            with patch.object(
+                ServerlessResource,
+                "_ensure_network_volume_deployed",
+                new=AsyncMock(),
+            ):
+                with patch.dict(os.environ, {"RUNPOD_API_KEY": "deployer-key"}):
+                    await old_resource.update(new_resource)
+
+        payload = mock_client.update_template.call_args.args[0]
+        return {e["key"]: e["value"] for e in payload["env"]}
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "new_env",
+        [{"LOG_LEVEL": "INFO"}, {"LOG_LEVEL": "DEBUG"}],
+        ids=["env-unchanged", "env-changed"],
+    )
+    async def test_drops_stale_key_without_remote_calls(self, new_env):
+        env = await self._update(new_env, makes_remote_calls=False)
+
+        assert "RUNPOD_API_KEY" not in env
+        assert env["PORT"] == "8080"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "new_env",
+        [{"LOG_LEVEL": "INFO"}, {"LOG_LEVEL": "DEBUG"}],
+        ids=["env-unchanged", "env-changed"],
+    )
+    async def test_keeps_key_with_remote_calls(self, new_env):
+        env = await self._update(new_env, makes_remote_calls=True)
+
+        assert "RUNPOD_API_KEY" in env
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "new_env",
+        [
+            {"LOG_LEVEL": "INFO", "RUNPOD_API_KEY": "user-key"},
+            {"LOG_LEVEL": "DEBUG", "RUNPOD_API_KEY": "user-key"},
+        ],
+        ids=["env-unchanged", "env-changed"],
+    )
+    async def test_keeps_user_set_key_without_remote_calls(self, new_env):
+        old_env = {"LOG_LEVEL": "INFO", "RUNPOD_API_KEY": "user-key"}
+        env = await self._update(new_env, makes_remote_calls=False, old_env=old_env)
+
+        assert "RUNPOD_API_KEY" in env
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "new_env",
+        [{"LOG_LEVEL": "INFO"}, {"LOG_LEVEL": "DEBUG"}],
+        ids=["env-unchanged", "env-changed"],
+    )
+    @pytest.mark.parametrize(
+        "template_ids",
+        [
+            {"ep-stale": "tpl-stale", "ep-caller": "tpl-stale"},
+            RuntimeError("api down"),
+        ],
+        ids=["shared-template", "lookup-failed"],
+    )
+    async def test_keeps_key_when_template_may_be_shared(self, new_env, template_ids):
+        env = await self._update(
+            new_env, makes_remote_calls=False, template_ids=template_ids
+        )
+
+        assert env["RUNPOD_API_KEY"] == "old-key"
