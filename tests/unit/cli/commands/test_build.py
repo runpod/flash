@@ -7,8 +7,11 @@ import pytest
 import typer
 
 from runpod_flash.cli.commands.build import (
+    SIZE_PROHIBITIVE_CANONICAL,
     SIZE_PROHIBITIVE_PACKAGES,
+    _canonical_name,
     _requirement_name,
+    _wheel_distribution_name,
     _find_runpod_flash,
     _resolve_pip_python_version,
     collect_requirements,
@@ -744,6 +747,10 @@ class TestBaseImageAutoExclusion:
             "torchvision-0.24.1%2Bcu128-cp312-cp312-manylinux_2_28_x86_64.whl",
             "https://example.com/torchvision-0.24.1-cp312-cp312-linux_x86_64.whl"
             "#sha256=abc123",
+            "torchvision-0.24.1-cp312-cp312-manylinux_2_28_x86_64.whl; "
+            "platform_system=='Linux'",
+            "https://example.com/torchvision-0.24.1-cp312-cp312-linux_x86_64.whl"
+            " ; platform_system == 'Linux'",
         ],
     )
     def test_auto_exclude_catches_compatible_and_url_pins(
@@ -1333,7 +1340,44 @@ class TestComputeSourceFingerprint:
         ("numpy-2.4.6-cp312-cp312-manylinux_2_28_x86_64.whl", ""),
         ("mypkg-1.0.tar.gz", ""),
         ("my.whl==1.0", "my_whl"),
+        (
+            "torch-2.9.1-cp312-cp312-manylinux_2_28_x86_64.whl; "
+            "platform_system=='Linux'",
+            "",
+        ),
+        ("mypkg-1.0.tar.gz ; python_version >= '3.10'", ""),
     ],
 )
 def test_requirement_name(requirement, expected):
     assert _requirement_name(requirement) == expected
+
+
+@pytest.mark.parametrize(
+    ("requirement", "expected"),
+    [
+        ("torch-2.9.1-cp312-cp312-manylinux_2_28_x86_64.whl", "torch"),
+        (
+            "torch-2.9.1-cp312-cp312-manylinux_2_28_x86_64.whl; "
+            "platform_system=='Linux'",
+            "torch",
+        ),
+        (
+            "https://download.pytorch.org/whl/cu128/"
+            "torch-2.9.1%2Bcu128-cp312-cp312-manylinux_2_28_x86_64.whl"
+            "#sha256=abc ; sys_platform == 'linux'",
+            "torch",
+        ),
+        ("torch==2.9.1", ""),
+        ("mypkg-1.0.tar.gz", ""),
+    ],
+)
+def test_wheel_distribution_name(requirement, expected):
+    assert _wheel_distribution_name(requirement) == expected
+
+
+def test_canonical_name_follows_pep_503():
+    assert _canonical_name("Zope.Interface") == "zope_interface"
+    assert _canonical_name("nvidia--cuda_runtime") == "nvidia_cuda_runtime"
+    assert SIZE_PROHIBITIVE_CANONICAL == frozenset(
+        {"torch", "torchvision", "torchaudio", "triton"}
+    )

@@ -180,6 +180,17 @@ SIZE_PROHIBITIVE_PACKAGES: frozenset[str] = frozenset(
 )
 
 
+def _canonical_name(name: str) -> str:
+    """Canonical distribution name (PEP 503 runs of -_. collapse, lowercase)."""
+    return re.sub(r"[-_.]+", "_", name).lower()
+
+
+# SIZE_PROHIBITIVE_PACKAGES in canonical form, for matching parsed names.
+SIZE_PROHIBITIVE_CANONICAL: frozenset[str] = frozenset(
+    _canonical_name(p) for p in SIZE_PROHIBITIVE_PACKAGES
+)
+
+
 def _find_runpod_flash(project_dir: Optional[Path] = None) -> Optional[Path]:
     """Find installed runpod_flash package directory.
 
@@ -256,11 +267,6 @@ def _make_owner_writable(root: Path) -> None:
         mode = path.stat().st_mode
         if not mode & stat.S_IWUSR:
             path.chmod(mode | stat.S_IWUSR)
-
-
-def _normalize_package_name(name: str) -> str:
-    """Normalize a package name for comparison (PEP 503: lowercase, hyphens to underscores)."""
-    return name.lower().replace("-", "_")
 
 
 def _remove_runpod_flash_from_requirements(build_dir: Path) -> None:
@@ -448,11 +454,12 @@ def run_build(
         user_matched = set()
         filtered_requirements = []
 
-        torch_family = {_canonical_name(p) for p in SIZE_PROHIBITIVE_PACKAGES}
+        torch_family = SIZE_PROHIBITIVE_CANONICAL
 
         for req in requirements:
-            # _requirement_name also reads "name @ url" forms, and wheel
-            # paths or URLs are named by their filename.
+            # _requirement_name also reads "name @ url" forms, and returns ""
+            # for wheel paths or URLs (with or without an environment marker),
+            # which are named by their filename.
             family_name = _requirement_name(req) or _wheel_distribution_name(req)
             if family_name in torch_family or should_exclude_package(
                 req, excluded_packages
@@ -1099,11 +1106,6 @@ def install_dependencies(
         return False
 
 
-def _canonical_name(name: str) -> str:
-    """Canonical distribution name (PEP 503 runs of -_. collapse, lowercase)."""
-    return re.sub(r"[-_.]+", "_", name).lower()
-
-
 def _dist_info_name(dist_info_dir: str) -> str:
     """Distribution name from a "name-version.dist-info" directory name."""
     stem = dist_info_dir.removesuffix(".dist-info")
@@ -1123,10 +1125,12 @@ def _requirement_name(requirement: str) -> str:
     )
     if not match:
         return ""
-    if requirement.strip() == match.group(1) and re.search(
+    rest = requirement[match.end(1) :].strip()
+    if (not rest or rest.startswith(";")) and re.search(
         r"\.(whl|zip|tar\.gz|tgz)$", match.group(1), re.I
     ):
-        # A bare archive filename is a path, not a distribution name.
+        # An archive filename is a path, not a distribution name, including
+        # when an environment marker follows it.
         return ""
     return _canonical_name(match.group(1))
 
@@ -1226,7 +1230,7 @@ def create_tarball(
     # Build set of normalized names for fast lookup
     excluded_normalized: set[str] = set()
     if excluded_packages:
-        excluded_normalized = {_normalize_package_name(p) for p in excluded_packages}
+        excluded_normalized = {_canonical_name(p) for p in excluded_packages}
 
     # RECORD lists every file a wheel installed, relative to build_dir.
     records: dict[str, set[str]] = {}
@@ -1261,18 +1265,14 @@ def create_tarball(
         roots = {_requirement_name(r) for r in requirement_lines}
         # --exclude removes only the named package, so its dependencies are
         # protected like the user's own requirements.
-        roots |= excluded_canonical - {
-            _canonical_name(p) for p in SIZE_PROHIBITIVE_PACKAGES
-        }
+        roots |= excluded_canonical - SIZE_PROHIBITIVE_CANONICAL
         # A requirement we can't name (bare URL, local path, -r file) may
         # install any wheel, so we can't prove a wheel is unrequested.
         if records_complete and "" not in roots:
             # Only the torch family is provided by the image, so only its
             # dependency tree is safe to prune. A user --exclude drops just
             # the named package.
-            image_provided = excluded_canonical & {
-                _canonical_name(p) for p in SIZE_PROHIBITIVE_PACKAGES
-            }
+            image_provided = excluded_canonical & SIZE_PROHIBITIVE_CANONICAL
             dependency_only = (
                 _excluded_only_dists(build_dir, image_provided, roots)
                 - excluded_canonical
@@ -1304,7 +1304,7 @@ def create_tarball(
     def _is_excluded_top_dir(top_dir: str) -> bool:
         """Check if a top-level directory should be excluded from the tarball."""
         # Check package directories (e.g. "numpy", "torch")
-        if _normalize_package_name(top_dir) in excluded_normalized:
+        if _canonical_name(top_dir) in excluded_normalized:
             return True
 
         # Check dist-info directories (e.g. "numpy-1.24.0.dist-info")
