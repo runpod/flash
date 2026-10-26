@@ -802,6 +802,19 @@ class TestBaseImageAutoExclusion:
         assert "Version pins ignored" in out
         assert "torchvision==0.29.1" in out
 
+    @pytest.mark.parametrize("requirement", ["torch>=2.0", "torchvision>=0.15,<1"])
+    def test_auto_exclude_does_not_warn_on_version_ranges(
+        self, tmp_path, capsys, requirement
+    ):
+        """A range is usually satisfied by the image's version, so it is not
+        reported as an ignored pin."""
+        pkg_names = self._build_with_deps(tmp_path, [requirement, "requests"])
+
+        out = capsys.readouterr().out
+        assert extract_package_name(requirement) not in pkg_names
+        assert "not bundling" in out
+        assert "Version pins ignored" not in out
+
     def test_user_unmatched_warning_excludes_base_image_packages(
         self, tmp_path, capsys
     ):
@@ -967,6 +980,25 @@ class TestBaseImageAutoExclusion:
 
         packages = {t for t in top_level if not t.endswith(".dist-info")}
         assert packages == {"timm", "huggingface_hub", "filelock", "PIL"}
+
+    def test_tarball_skips_pruning_without_root_requirements(self, tmp_path):
+        """Without the user's requirements nothing is protected, so only the
+        excluded packages themselves are dropped."""
+        build_dir = tmp_path / "build"
+        build_dir.mkdir()
+        self._torch_tree(build_dir)
+
+        top_level = self._tarball_top_level(tmp_path, build_dir, None)
+
+        packages = {t for t in top_level if not t.endswith(".dist-info")}
+        assert packages == {
+            "timm",
+            "huggingface_hub",
+            "filelock",
+            "PIL",
+            "numpy",
+            "nvidia",
+        }
 
     def test_tarball_keeps_dependencies_when_metadata_missing(self, tmp_path):
         """Without full metadata the dependency graph is unknown, so only the

@@ -454,23 +454,22 @@ def run_build(
         user_matched = set()
         filtered_requirements = []
 
-        torch_family = SIZE_PROHIBITIVE_CANONICAL
-
         for req in requirements:
             # _requirement_name also reads "name @ url" forms, and returns ""
             # for wheel paths or URLs (with or without an environment marker),
             # which are named by their filename.
-            family_name = _requirement_name(req) or _wheel_distribution_name(req)
-            if family_name in torch_family or should_exclude_package(
+            req_name = _requirement_name(req)
+            family_name = req_name or _wheel_distribution_name(req)
+            if family_name in SIZE_PROHIBITIVE_CANONICAL or should_exclude_package(
                 req, excluded_packages
             ):
                 pkg_name = extract_package_name(req)
-                if family_name in torch_family:
+                if family_name in SIZE_PROHIBITIVE_CANONICAL:
                     auto_matched.add(family_name)
-                    if not _requirement_name(req) or re.search(
-                        r"[<>=!~@]", req.split(";", 1)[0]
-                    ):
-                        # A wheel path or URL pins a version too.
+                    # Only exact pins can conflict with the image's version.
+                    # A range like torch>=2.0 is usually satisfied by it. A
+                    # wheel path or URL pins a version too.
+                    if not req_name or re.search(r"==|~=|@", req.split(";", 1)[0]):
                         auto_pinned.append(req.strip())
                 if pkg_name in user_excluded:
                     user_matched.add(pkg_name)
@@ -1225,7 +1224,8 @@ def create_tarball(
         app_name: Application name (unused, for compatibility)
         excluded_packages: Package names to exclude from the archive
         root_requirements: The user's requirements. Wheels that only excluded
-            packages depend on are dropped unless listed here.
+            packages depend on are dropped unless listed here. When None,
+            only the excluded packages themselves are dropped.
     """
     # Build set of normalized names for fast lookup
     excluded_normalized: set[str] = set()
@@ -1255,8 +1255,7 @@ def create_tarball(
     # fall back to dropping the excluded packages by name only.
     dropped: set[str] = set()
     if excluded_normalized:
-        excluded_canonical = {_canonical_name(p) for p in excluded_packages or []}
-        dropped = set(excluded_canonical)
+        dropped = set(excluded_normalized)
         requirement_lines = [
             r.strip()
             for r in root_requirements or []
@@ -1265,17 +1264,18 @@ def create_tarball(
         roots = {_requirement_name(r) for r in requirement_lines}
         # --exclude removes only the named package, so its dependencies are
         # protected like the user's own requirements.
-        roots |= excluded_canonical - SIZE_PROHIBITIVE_CANONICAL
+        roots |= excluded_normalized - SIZE_PROHIBITIVE_CANONICAL
         # A requirement we can't name (bare URL, local path, -r file) may
         # install any wheel, so we can't prove a wheel is unrequested.
-        if records_complete and "" not in roots:
+        # Without the user's requirements nothing is protected, so skip.
+        if root_requirements is not None and records_complete and "" not in roots:
             # Only the torch family is provided by the image, so only its
             # dependency tree is safe to prune. A user --exclude drops just
             # the named package.
-            image_provided = excluded_canonical & SIZE_PROHIBITIVE_CANONICAL
+            image_provided = excluded_normalized & SIZE_PROHIBITIVE_CANONICAL
             dependency_only = (
                 _excluded_only_dists(build_dir, image_provided, roots)
-                - excluded_canonical
+                - excluded_normalized
             )
             if dependency_only:
                 console.print(
