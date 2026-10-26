@@ -643,6 +643,55 @@ class TestDisplayPostDeploymentGuidance:
         assert "my_qb" in output
         assert "/runsync" in output
 
+    def test_lists_endpoints_that_receive_api_key(self, patched_console):
+        from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
+
+        _display_post_deployment_guidance(
+            env_name="production",
+            resources_endpoints={
+                "caller": "https://a.api.runpod.ai",
+                "isolated": "https://b.api.runpod.ai",
+            },
+            resources={
+                "caller": {"makes_remote_calls": True},
+                "isolated": {"makes_remote_calls": False},
+            },
+            routes={},
+        )
+        output = self._collect_output(patched_console)
+        assert (
+            "RUNPOD_API_KEY set by Flash on endpoints that call other endpoints: caller"
+            in (output)
+        )
+        assert "caller, isolated" not in output
+
+    def test_api_key_line_skips_user_managed_key(self, patched_console):
+        from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
+
+        _display_post_deployment_guidance(
+            env_name="production",
+            resources_endpoints={"caller": "https://a.api.runpod.ai"},
+            resources={
+                "caller": {
+                    "makes_remote_calls": True,
+                    "env": {"RUNPOD_API_KEY": ""},
+                }
+            },
+            routes={},
+        )
+        assert "RUNPOD_API_KEY added" not in self._collect_output(patched_console)
+
+    def test_no_api_key_line_when_no_endpoint_receives_it(self, patched_console):
+        from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
+
+        _display_post_deployment_guidance(
+            env_name="production",
+            resources_endpoints={"isolated": "https://b.api.runpod.ai"},
+            resources={"isolated": {"makes_remote_calls": False}},
+            routes={},
+        )
+        assert "RUNPOD_API_KEY added" not in self._collect_output(patched_console)
+
     def test_routes_grouped_under_lb_endpoint(self, patched_console):
         from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
 

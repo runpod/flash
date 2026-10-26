@@ -54,6 +54,15 @@ POD_LOG_PREFIX_RE = re.compile(
 )
 
 
+def template_shared(template_ids: Dict[str, Optional[str]], template_id: str) -> bool:
+    """True if more than one endpoint runs template_id.
+
+    template_ids maps endpoint ID -> template ID, as returned by
+    RunpodGraphQLClient.get_endpoint_template_ids.
+    """
+    return sum(1 for tid in template_ids.values() if tid == template_id) > 1
+
+
 def _normalize_stream_log_line(line: str) -> str:
     normalized = line.strip()
     if not normalized:
@@ -290,6 +299,9 @@ class ServerlessResource(DeployableResource):
 
     # === Private Attributes ===
     _deployed_volume_ids: list[str] = PrivateAttr(default_factory=list)
+    # makes_remote_calls from the build manifest, set by flash deploy.
+    # None means unknown (e.g. flash run), so the manifest file lookup applies.
+    _makes_remote_calls: Optional[bool] = PrivateAttr(default=None)
 
     # === Runtime Fields ===
     activeBuildid: Optional[str] = None
@@ -853,14 +865,24 @@ class ServerlessResource(DeployableResource):
     ) -> Dict[str, Any]:
         """Build saveTemplate payload from template model.
 
-        Keep this to fields supported by saveTemplate to avoid passing endpoint-only
-        fields to the template mutation.
-
         Args:
             template: Template model with desired configuration.
             template_id: ID of the template to update.
         """
-        template_data = template.model_dump(exclude_none=True, mode="json")
+        return ServerlessResource.template_update_payload(
+            template.model_dump(exclude_none=True, mode="json"), template_id
+        )
+
+    @staticmethod
+    def template_update_payload(
+        template_data: Dict[str, Any],
+        template_id: str,
+    ) -> Dict[str, Any]:
+        """Build saveTemplate payload from template fields, e.g. a live template.
+
+        Keep this to fields supported by saveTemplate to avoid passing endpoint-only
+        fields to the template mutation.
+        """
         allowed_fields = {
             "name",
             "imageName",
@@ -870,7 +892,9 @@ class ServerlessResource(DeployableResource):
             "readme",
         }
         payload = {
-            key: value for key, value in template_data.items() if key in allowed_fields
+            key: value
+            for key, value in template_data.items()
+            if key in allowed_fields and value is not None
         }
         # saveTemplate requires env (non-nullable) — default to empty list
         payload.setdefault("env", [])
@@ -878,6 +902,33 @@ class ServerlessResource(DeployableResource):
         payload["volumeInGb"] = 0
         payload["id"] = template_id
         return payload
+
+    async def _should_drop_api_key(
+        self, client: Any, template_id: str, live_env: List[Dict[str, Any]]
+    ) -> bool:
+        """True if a RUNPOD_API_KEY on the live template should be removed.
+
+        Only for local-only endpoints, and only when no other endpoint runs
+        the same template: a caller sharing it would lose the key too.
+        """
+        if self._check_makes_remote_calls():
+            return False
+        if not any(entry.get("key") == "RUNPOD_API_KEY" for entry in live_env):
+            return False
+        try:
+            template_ids = await client.get_endpoint_template_ids()
+        except Exception as e:
+            log.warning(
+                f"{self.name}: Keeping RUNPOD_API_KEY, could not check template use: {e}"
+            )
+            return False
+        if template_shared(template_ids, template_id):
+            log.warning(
+                f"{self.name}: Keeping RUNPOD_API_KEY, template '{template_id}' "
+                f"is shared with other endpoints"
+            )
+            return False
+        return True
 
     def _check_makes_remote_calls(self) -> bool:
         """Check if resource makes remote calls from build manifest.
@@ -889,6 +940,9 @@ class ServerlessResource(DeployableResource):
             True if makes remote calls, False if local-only,
             True (safe default) if manifest not found.
         """
+        if self._makes_remote_calls is not None:
+            return self._makes_remote_calls
+
         try:
             manifest_path = Path.cwd() / "flash_manifest.json"
             if not manifest_path.exists():
@@ -1053,9 +1107,15 @@ class ServerlessResource(DeployableResource):
 
         new_keys = {kv.key for kv in (self.template.env or [])}
         old_keys = set(old_env or {})
+        drop_api_key = await self._should_drop_api_key(client, template_id, live_env)
         for entry in live_env:
             key = entry.get("key", "")
             if not key or key in new_keys:
+                continue
+            # Flash injects RUNPOD_API_KEY itself; a key left by an earlier
+            # deploy must not outlive the endpoint's need for it.
+            if key == "RUNPOD_API_KEY" and drop_api_key:
+                log.debug(f"{self.name}: Dropping stale RUNPOD_API_KEY")
                 continue
             # Key was in old user config — user intentionally removed it
             if key in old_keys:
@@ -1214,11 +1274,20 @@ class ServerlessResource(DeployableResource):
                             try:
                                 live = await client.get_template(resolved_template_id)
                                 live_env = live.get("env") or []
+                                drop_api_key = "RUNPOD_API_KEY" not in (
+                                    new_config.env or {}
+                                ) and await new_config._should_drop_api_key(
+                                    client, resolved_template_id, live_env
+                                )
                                 new_config.template.env = [
                                     KeyValuePair(
                                         key=entry["key"], value=entry.get("value", "")
                                     )
                                     for entry in live_env
+                                    if not (
+                                        drop_api_key
+                                        and entry["key"] == "RUNPOD_API_KEY"
+                                    )
                                 ]
                             except Exception:
                                 log.warning(

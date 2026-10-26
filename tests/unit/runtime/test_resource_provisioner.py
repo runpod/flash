@@ -231,6 +231,43 @@ class TestCreateResourceFromManifest:
 
             assert "RUNPOD_API_KEY" not in resource.env
 
+    @pytest.mark.parametrize("makes_remote_calls", [True, False])
+    def test_template_injection_follows_manifest(
+        self, makes_remote_calls, tmp_path, monkeypatch
+    ):
+        """Template injection uses the manifest value, not a file lookup.
+
+        flash deploy runs from the project root where the manifest lives at
+        .flash/flash_manifest.json, so a cwd lookup would miss it and fall
+        back to injecting the key everywhere.
+        """
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("RUNPOD_API_KEY", "test-api-key-secret")
+        resource = create_resource_from_manifest(
+            "worker",
+            {
+                "resource_type": "Endpoint",
+                "gpuIds": "AMPERE_48",
+                "makes_remote_calls": makes_remote_calls,
+            },
+        )
+
+        assert resource._check_makes_remote_calls() is makes_remote_calls
+        resource._inject_runtime_template_vars()
+        template_keys = {kv.key for kv in resource.template.env or []}
+        assert ("RUNPOD_API_KEY" in template_keys) is makes_remote_calls
+
+    def test_missing_manifest_flag_keeps_file_lookup(self, tmp_path, monkeypatch):
+        """Without the field, the resource keeps the manifest file fallback."""
+        monkeypatch.chdir(tmp_path)
+        resource = create_resource_from_manifest(
+            "worker",
+            {"resource_type": "ServerlessResource", "imageName": "img:latest"},
+        )
+
+        assert resource._makes_remote_calls is None
+        assert resource._check_makes_remote_calls() is True
+
     def test_create_resource_injects_flash_environment_id_when_makes_remote_calls(self):
         """Test FLASH_ENVIRONMENT_ID injected when makes_remote_calls and flash_environment_id passed."""
         resource_name = "caller_worker"
