@@ -636,3 +636,415 @@ async def test_missing_source_fingerprint_backward_compatible(tmp_path):
         local_manifest["resources_endpoints"]["worker"]
         == "https://worker.api.runpod.ai"
     )
+
+
+@pytest.mark.asyncio
+async def test_client_mode_resource_provisioned_on_first_deploy(tmp_path):
+    """A client_mode manifest entry (Endpoint(image=...), no functions) is
+    provisioned through the same create_resource_from_manifest +
+    get_or_deploy_resource path as decorated resources."""
+    import json
+
+    flash_dir = tmp_path / ".flash"
+    flash_dir.mkdir()
+
+    client_config = {
+        "resource_type": "LiveServerless",
+        "client_mode": True,
+        "imageName": "runpod/vllm-openai:stable",
+        "gpuIds": "ADA_24",
+        "functions": [],
+        "is_load_balanced": False,
+        "makes_remote_calls": False,
+        "env": {"MODEL_NAME": "m"},
+    }
+    local_manifest = {
+        "source_fingerprint": "fingerprint_abc",
+        "resources": {"vllm-server": dict(client_config)},
+        "resources_endpoints": {},
+    }
+    (flash_dir / "flash_manifest.json").write_text(json.dumps(local_manifest))
+
+    app = AsyncMock()
+    app.name = "my-app"
+    app.get_build_manifest = AsyncMock(return_value={})  # first deploy
+    app.update_build_manifest = AsyncMock()
+
+    deployed = MagicMock()
+    deployed.endpoint_url = "https://vllm.api.runpod.ai"
+    deployed.endpoint_id = "endpoint-xyz"
+
+    with (
+        patch("pathlib.Path.cwd", return_value=tmp_path),
+        patch("runpod_flash.cli.utils.deployment.ResourceManager") as mock_manager_cls,
+        patch(
+            "runpod_flash.cli.utils.deployment.create_resource_from_manifest"
+        ) as mock_create_resource,
+    ):
+        mock_manager = MagicMock()
+        mock_manager.get_or_deploy_resource = AsyncMock(return_value=deployed)
+        mock_manager_cls.return_value = mock_manager
+        mock_create_resource.return_value = MagicMock()
+
+        endpoints = await reconcile_and_provision_resources(
+            app,
+            "build-123",
+            "production",
+            local_manifest,
+            environment_id="env-1",
+            show_progress=False,
+        )
+
+    # the client entry is provisioned like any other resource
+    mock_create_resource.assert_called_once()
+    create_args, create_kwargs = mock_create_resource.call_args
+    assert create_args[0] == "vllm-server"
+    assert create_args[1]["imageName"] == "runpod/vllm-openai:stable"
+    assert create_args[1]["client_mode"] is True
+    mock_manager.get_or_deploy_resource.assert_awaited_once()
+
+    # endpoint info lands in the manifest + returned endpoints map
+    assert endpoints == {"vllm-server": "https://vllm.api.runpod.ai"}
+    assert local_manifest["resources"]["vllm-server"]["endpoint_id"] == "endpoint-xyz"
+
+    # state manifest persisted so a later deploy sees the resource
+    app.update_build_manifest.assert_awaited_once()
+    persisted = app.update_build_manifest.call_args[0][1]
+    assert (
+        persisted["resources_endpoints"]["vllm-server"] == "https://vllm.api.runpod.ai"
+    )
+
+    # source fingerprint is NOT injected: code-only changes must not churn
+    # external-service endpoints
+    assert "_FLASH_SOURCE_FINGERPRINT" not in persisted["resources"]["vllm-server"].get(
+        "env", {}
+    )
+
+
+@pytest.mark.asyncio
+async def test_client_mode_resource_reused_on_redeploy(tmp_path):
+    """Re-running deploy with unchanged config must not re-provision the
+    client-mode endpoint (no duplicate endpoints)."""
+    import json
+
+    flash_dir = tmp_path / ".flash"
+    flash_dir.mkdir()
+
+    client_config = {
+        "resource_type": "LiveServerless",
+        "client_mode": True,
+        "imageName": "runpod/vllm-openai:stable",
+        "gpuIds": "ADA_24",
+        "functions": [],
+        "env": {"MODEL_NAME": "m"},
+    }
+    local_manifest = {
+        "resources": {"vllm-server": dict(client_config)},
+        "resources_endpoints": {},
+    }
+    (flash_dir / "flash_manifest.json").write_text(json.dumps(local_manifest))
+
+    state_manifest = {
+        "resources": {
+            "vllm-server": {
+                **client_config,
+                "endpoint_id": "endpoint-xyz",
+            }
+        },
+        "resources_endpoints": {
+            "vllm-server": "https://vllm.api.runpod.ai",
+        },
+    }
+
+    app = AsyncMock()
+    app.get_build_manifest = AsyncMock(return_value=state_manifest)
+    app.update_build_manifest = AsyncMock()
+
+    with (
+        patch("pathlib.Path.cwd", return_value=tmp_path),
+        patch("runpod_flash.cli.utils.deployment.ResourceManager") as mock_manager_cls,
+        patch(
+            "runpod_flash.cli.utils.deployment.create_resource_from_manifest"
+        ) as mock_create_resource,
+    ):
+        mock_manager = MagicMock()
+        mock_manager.get_or_deploy_resource = AsyncMock()
+        mock_manager_cls.return_value = mock_manager
+
+        endpoints = await reconcile_and_provision_resources(
+            app, "build-456", "production", local_manifest, show_progress=False
+        )
+
+    # unchanged config + existing endpoint -> no provisioning, no duplicates
+    mock_create_resource.assert_not_called()
+    mock_manager.get_or_deploy_resource.assert_not_called()
+
+    # endpoint info carried over from state
+    assert endpoints == {"vllm-server": "https://vllm.api.runpod.ai"}
+    assert local_manifest["resources"]["vllm-server"]["endpoint_id"] == "endpoint-xyz"
+
+
+@pytest.mark.asyncio
+async def test_source_fingerprint_skipped_for_client_mode_resources(tmp_path):
+    """Fingerprint injection drives rolling releases for code-running
+    resources; client-mode endpoints run a user image and are exempt."""
+    import json
+
+    flash_dir = tmp_path / ".flash"
+    flash_dir.mkdir()
+
+    local_manifest = {
+        "source_fingerprint": "fingerprint_abc",
+        "resources": {
+            "worker": {
+                "resource_type": "LiveServerless",
+                "config": "same",
+                "env": {},
+            },
+            "vllm-server": {
+                "resource_type": "LiveServerless",
+                "client_mode": True,
+                "imageName": "runpod/vllm-openai:stable",
+                "config": "same",
+            },
+        },
+        "resources_endpoints": {},
+    }
+    (flash_dir / "flash_manifest.json").write_text(json.dumps(local_manifest))
+
+    app = AsyncMock()
+    app.name = "my-app"
+    app.get_build_manifest = AsyncMock(return_value={})
+    app.update_build_manifest = AsyncMock()
+
+    deployed = MagicMock()
+    deployed.endpoint_url = "https://x.api.runpod.ai"
+    deployed.endpoint_id = "endpoint-id"
+
+    with (
+        patch("pathlib.Path.cwd", return_value=tmp_path),
+        patch("runpod_flash.cli.utils.deployment.ResourceManager") as mock_manager_cls,
+        patch(
+            "runpod_flash.cli.utils.deployment.create_resource_from_manifest"
+        ) as mock_create_resource,
+    ):
+        mock_manager = MagicMock()
+        mock_manager.get_or_deploy_resource = AsyncMock(return_value=deployed)
+        mock_manager_cls.return_value = mock_manager
+        mock_create_resource.return_value = MagicMock()
+
+        await reconcile_and_provision_resources(
+            app, "build-123", "production", local_manifest, show_progress=False
+        )
+
+    worker_env = local_manifest["resources"]["worker"]["env"]
+    assert worker_env["_FLASH_SOURCE_FINGERPRINT"] == "fingerprint_abc"
+
+    client_env = local_manifest["resources"]["vllm-server"].get("env", {})
+    assert "_FLASH_SOURCE_FINGERPRINT" not in client_env
+
+
+def _unchanged_manifest(**worker_fields):
+    worker = {
+        "resource_type": "LiveServerless",
+        "config": "same",
+        "endpoint_id": "endpoint-123",
+        **worker_fields,
+    }
+    return (
+        {"resources": {"worker": dict(worker)}, "resources_endpoints": {}},
+        {
+            "resources": {"worker": dict(worker)},
+            "resources_endpoints": {"worker": "https://worker.api.runpod.ai"},
+        },
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "worker_fields,expect_check",
+    [
+        ({"makes_remote_calls": False}, True),
+        ({"makes_remote_calls": True}, False),
+        ({}, False),
+        ({"makes_remote_calls": False, "env": {"RUNPOD_API_KEY": ""}}, False),
+    ],
+    ids=["local-only", "remote-caller", "unknown", "user-managed-key"],
+)
+async def test_unchanged_local_only_endpoint_gets_stale_key_check(
+    tmp_path, monkeypatch, worker_fields, expect_check
+):
+    """Unchanged resources skip provisioning, so stale keys are cleaned here."""
+    monkeypatch.setenv("RUNPOD_API_KEY", "deployer-key")
+    (tmp_path / ".flash").mkdir()
+    local_manifest, state_manifest = _unchanged_manifest(**worker_fields)
+
+    app = AsyncMock()
+    app.get_build_manifest = AsyncMock(return_value=state_manifest)
+    app.update_build_manifest = AsyncMock()
+
+    with (
+        patch("pathlib.Path.cwd", return_value=tmp_path),
+        patch("runpod_flash.cli.utils.deployment.ResourceManager"),
+        patch(
+            "runpod_flash.cli.utils.deployment._remove_stale_api_keys",
+            new=AsyncMock(),
+        ) as mock_cleanup,
+    ):
+        await reconcile_and_provision_resources(app, "build-123", "dev", local_manifest)
+
+    if expect_check:
+        mock_cleanup.assert_awaited_once_with([("worker", "endpoint-123")])
+    else:
+        mock_cleanup.assert_not_awaited()
+
+
+class TestRemoveStaleApiKey:
+    """_remove_stale_api_key drops only RUNPOD_API_KEY from the live template."""
+
+    @staticmethod
+    def _client(env, template_ids=None):
+        client = AsyncMock()
+        client.get_endpoint_template_ids = AsyncMock(
+            return_value={"endpoint-123": "tpl-1"}
+            if template_ids is None
+            else template_ids
+        )
+        client.get_template = AsyncMock(
+            return_value={
+                "id": "tpl-1",
+                "name": "worker-tpl",
+                "imageName": "runpod/flash:latest",
+                "containerDiskInGb": 64,
+                "dockerArgs": "",
+                "readme": None,
+                "env": env,
+            }
+        )
+        client.update_template = AsyncMock(return_value={})
+        return client
+
+    @staticmethod
+    async def _cleanup(client, endpoints=(("worker", "endpoint-123"),)):
+        from runpod_flash.cli.utils.deployment import _remove_stale_api_keys
+
+        with patch("runpod_flash.core.api.runpod.RunpodGraphQLClient") as cls:
+            cls.return_value.__aenter__.return_value = client
+            cls.return_value.__aexit__.return_value = None
+            await _remove_stale_api_keys(list(endpoints))
+
+    @pytest.mark.asyncio
+    async def test_removes_key_and_keeps_everything_else(self):
+        client = self._client(
+            [
+                {"key": "PORT", "value": "8080"},
+                {"key": "RUNPOD_API_KEY", "value": "old-key"},
+            ]
+        )
+
+        await self._cleanup(client)
+
+        client.get_template.assert_awaited_once_with("tpl-1")
+        payload = client.update_template.call_args.args[0]
+        assert payload == {
+            "id": "tpl-1",
+            "name": "worker-tpl",
+            "imageName": "runpod/flash:latest",
+            "containerDiskInGb": 64,
+            "dockerArgs": "",
+            "env": [{"key": "PORT", "value": "8080"}],
+            "volumeInGb": 0,
+        }
+
+    @pytest.mark.asyncio
+    async def test_no_update_when_key_absent(self):
+        client = self._client([{"key": "PORT", "value": "8080"}])
+
+        await self._cleanup(client)
+
+        client.update_template.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "template_ids",
+        [{}, {"endpoint-123": None}],
+        ids=["endpoint-deleted", "no-template"],
+    )
+    async def test_no_update_without_template(self, template_ids):
+        client = self._client([], template_ids=template_ids)
+
+        await self._cleanup(client)
+
+        client.get_template.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_shared_template_keeps_key(self):
+        client = self._client(
+            [{"key": "RUNPOD_API_KEY", "value": "old-key"}],
+            template_ids={"endpoint-123": "tpl-1", "caller": "tpl-1"},
+        )
+
+        await self._cleanup(client)
+
+        client.get_template.assert_not_awaited()
+        client.update_template.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_one_lookup_for_all_endpoints(self):
+        client = self._client(
+            [{"key": "RUNPOD_API_KEY", "value": "old-key"}],
+            template_ids={"endpoint-1": "tpl-1", "endpoint-2": "tpl-2"},
+        )
+
+        await self._cleanup(client, [("a", "endpoint-1"), ("b", "endpoint-2")])
+
+        client.get_endpoint_template_ids.assert_awaited_once()
+        assert client.update_template.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_one_failure_does_not_stop_the_others(self):
+        client = self._client(
+            [{"key": "RUNPOD_API_KEY", "value": "old-key"}],
+            template_ids={"endpoint-1": "tpl-1", "endpoint-2": "tpl-2"},
+        )
+        client.update_template = AsyncMock(side_effect=[RuntimeError("boom"), {}])
+
+        await self._cleanup(client, [("a", "endpoint-1"), ("b", "endpoint-2")])
+
+        assert client.update_template.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_slow_api_is_bounded(self, caplog):
+        import asyncio
+        import time
+
+        client = self._client([])
+
+        async def hang():
+            await asyncio.sleep(10)
+            return {"endpoint-123": "tpl-1"}
+
+        client.get_endpoint_template_ids = AsyncMock(side_effect=hang)
+        start = time.monotonic()
+        with (
+            patch(
+                "runpod_flash.cli.utils.deployment.STALE_KEY_CLEANUP_TIMEOUT_SECONDS",
+                0.05,
+            ),
+            caplog.at_level("WARNING"),
+        ):
+            await self._cleanup(client)
+
+        assert time.monotonic() - start < 2
+        assert "Stopped checking endpoints" in caplog.text
+        client.get_template.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_errors_never_fail_the_deploy(self):
+        from runpod_flash.cli.utils.deployment import _remove_stale_api_keys
+
+        with patch(
+            "runpod_flash.core.api.runpod.RunpodGraphQLClient",
+            side_effect=RuntimeError("no network"),
+        ):
+            await _remove_stale_api_keys([("worker", "endpoint-123")])

@@ -6,6 +6,19 @@ from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
+# Resource classes that create_resource_from_manifest can construct from a
+# manifest entry. "Endpoint" is accepted separately (resolved to one of these
+# via gpuIds). ManifestBuilder gates client-mode resource_type names against
+# this list so the manifest never names a class this module cannot rebuild.
+PROVISIONABLE_RESOURCE_TYPES = (
+    "ServerlessResource",
+    "LiveServerless",
+    "CpuLiveServerless",
+    "LoadBalancerSlsResource",
+    "LiveLoadBalancer",
+    "CpuLiveLoadBalancer",
+)
+
 
 def create_resource_from_manifest(
     resource_name: str,
@@ -59,14 +72,7 @@ def create_resource_from_manifest(
             resource_type = "CpuLiveServerless"
 
     # Support both Serverless and LoadBalancer resource types
-    if resource_type not in [
-        "ServerlessResource",
-        "LiveServerless",
-        "CpuLiveServerless",
-        "LoadBalancerSlsResource",
-        "LiveLoadBalancer",
-        "CpuLiveLoadBalancer",
-    ]:
+    if resource_type not in PROVISIONABLE_RESOURCE_TYPES:
         raise ValueError(
             f"Unsupported resource type for auto-provisioning: {resource_type}"
         )
@@ -194,5 +200,10 @@ def create_resource_from_manifest(
     else:
         # ServerlessResource (default)
         resource = ServerlessResource(**deployment_kwargs)
+
+    # Pin the build-time decision so template injection does not re-search
+    # for flash_manifest.json, which deploy keeps under .flash/.
+    if "makes_remote_calls" in resource_data:
+        resource._makes_remote_calls = bool(resource_data["makes_remote_calls"])
 
     return resource

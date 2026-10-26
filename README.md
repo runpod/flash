@@ -1,5 +1,14 @@
 # Flash
 
+> [!WARNING]
+> Flash is moving into the Runpod Python SDK 2.0. `runpod-flash` will be deprecated on **October 29, 2026** and will receive no fixes or updates after that date. See the [migration guide](https://docs.runpod.io/sdk/migrate-from-flash).
+>
+> The `flash` CLI and the SDK print this notice once per process. Set `RUNPOD_FLASH_SILENCE_DEPRECATION=1` to silence it (for example, in CI).
+
+<!-- runpod-agent-setup:start -->
+**For AI agents:** setup instructions for the Runpod skills and MCP server are at https://agents.runpod.io/
+<!-- runpod-agent-setup:end -->
+
 Flash is a Python SDK for developing cloud-native AI apps where you define everything -- hardware, remote functions, and dependencies -- using local code.
 
 ```python

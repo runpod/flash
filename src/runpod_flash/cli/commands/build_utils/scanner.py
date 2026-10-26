@@ -6,16 +6,19 @@ language constructs without needing to rebuild an interpreter via AST.
 """
 
 import ast
+import functools
 import importlib.util
 import inspect
+import itertools
 import logging
 import os
 import sys
+import textwrap
 import threading
 import types
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from runpod_flash.cli.utils.ignore import get_file_tree, load_ignore_patterns
 from runpod_flash.core.resources.load_balancer_sls_resource import (
@@ -407,16 +410,376 @@ def _find_remote_decorated(module: Any) -> Dict[str, Any]:
     return results
 
 
+_API_KEY_ENV = "RUNPOD_API_KEY"
+_UNANALYZED = "<unanalyzed>"
+_MISSING = object()
+
+
+@dataclass
+class _CallScan:
+    """shared state for one endpoint's cross-call analysis.
+
+    project_modules maps each scanned module path to its module, or None when
+    the file failed to import. the scanner removes those modules from
+    sys.modules after importing them, so this is how analysis still finds
+    them.
+    """
+
+    remote_function_names: Set[str]
+    project_files: Optional[Set[Path]]
+    project_modules: Dict[str, Any]
+    cache: Dict[int, List[str]] = field(default_factory=dict)
+
+    def lookup_module(self, name: str) -> Any:
+        """the module for name, or None. scanned project modules win."""
+        if name in self.project_modules:
+            return self.project_modules[name]
+        return sys.modules.get(name)
+
+    def is_project_module(self, name: str) -> bool:
+        """true if name is a scanned module or a package that contains one."""
+        prefix = name + "."
+        return any(
+            key == name or key.startswith(prefix) for key in self.project_modules
+        )
+
+
+def _resolve(expr: ast.expr, namespace: Dict[str, Any], scan: _CallScan) -> Any:
+    """resolve a Name, or an attribute of a module (pkg.utils.helper), to its object."""
+    if isinstance(expr, ast.Name):
+        return namespace.get(expr.id, _MISSING)
+    if isinstance(expr, ast.Attribute):
+        base = _resolve(expr.value, namespace, scan)
+        if isinstance(base, types.ModuleType):
+            obj = getattr(base, expr.attr, _MISSING)
+            if obj is _MISSING:
+                # a scanned submodule is not set as an attribute of its package
+                obj = scan.lookup_module(f"{base.__name__}.{expr.attr}")
+            return _MISSING if obj is None else obj
+    return _MISSING
+
+
+def _is_client_endpoint(obj: Any) -> bool:
+    return isinstance(obj, Endpoint) and obj.is_client
+
+
+def _is_runpod_sdk(obj: Any) -> bool:
+    """true for the runpod SDK module or anything defined in it."""
+    try:
+        if isinstance(obj, types.ModuleType):
+            name = obj.__name__
+        else:
+            name = getattr(obj, "__module__", None) or ""
+    except Exception:
+        return False
+    return isinstance(name, str) and _is_runpod_module_name(name)
+
+
+def _is_remote(obj: Any) -> bool:
+    """true for an @remote / @Endpoint decorated function or class."""
+    try:
+        return obj is not _MISSING and hasattr(obj, "__remote_config__")
+    except Exception:
+        return False
+
+
+def _in_project(source_file: Optional[str], scan: _CallScan) -> bool:
+    return (
+        bool(scan.project_files)
+        and source_file is not None
+        and Path(source_file).resolve() in scan.project_files  # type: ignore[operator]
+    )
+
+
+def _project_function(obj: Any, scan: _CallScan) -> Any:
+    """return obj if it is a plain function defined in one of the scanned files.
+
+    limiting this to scanned files keeps helper analysis out of library code,
+    including virtualenvs or bundled packages that live inside the project.
+    """
+    if _is_remote(obj):
+        return None
+    obj = _unwrap(obj)
+    if not isinstance(obj, types.FunctionType) or _is_remote(obj):
+        return None
+    try:
+        source_file = inspect.getsourcefile(obj)
+    except Exception:
+        return None
+    return obj if _in_project(source_file, scan) else None
+
+
+def _project_class(obj: Any, scan: _CallScan) -> Tuple[Any, Any]:
+    """return (class, module) if obj is a project class or an instance of one."""
+    if obj is _MISSING or isinstance(obj, types.ModuleType) or _is_remote(obj):
+        return None, None
+    try:
+        cls = obj if inspect.isclass(obj) else type(obj)
+        module = scan.lookup_module(cls.__module__)
+        source_file = getattr(module, "__file__", None)
+    except Exception:
+        return None, None
+    if _is_remote(cls) or not _in_project(source_file, scan):
+        return None, None
+    return cls, module
+
+
+def _is_client_endpoint_construction(
+    call: ast.Call, namespace: Dict[str, Any], scan: _CallScan
+) -> bool:
+    """match Endpoint(id=...), Endpoint(image=...), or Endpoint(**kw) built inline."""
+    func = call.func
+    literal = (isinstance(func, ast.Name) and func.id == "Endpoint") or (
+        isinstance(func, ast.Attribute) and func.attr == "Endpoint"
+    )
+    if not literal and _resolve(func, namespace, scan) is not Endpoint:
+        return False
+    # id and image are keyword-only; **kwargs could carry either
+    return any(kw.arg in ("id", "image", None) for kw in call.keywords)
+
+
+def _local_imports(
+    node: ast.AST, namespace: Dict[str, Any], scan: _CallScan
+) -> Tuple[Dict[str, Any], bool, bool]:
+    """resolve imports made inside node against already-loaded modules.
+
+    returns (name -> object overlay, whether the runpod SDK is imported,
+    whether a project import could not be resolved). only loaded modules are
+    consulted, so analysis never imports new code.
+    """
+    overlay: Dict[str, Any] = {}
+    uses_runpod = False
+    unresolved = False
+    for child in ast.walk(node):
+        if isinstance(child, ast.Import):
+            for alias in child.names:
+                if _is_runpod_module_name(alias.name):
+                    uses_runpod = True
+                if alias.asname:
+                    name, bound = alias.name, alias.asname
+                else:
+                    name = bound = alias.name.split(".")[0]
+                module = scan.lookup_module(name)
+                if module is not None:
+                    overlay[bound] = module
+                elif scan.is_project_module(alias.name):
+                    unresolved = True
+        elif isinstance(child, ast.ImportFrom):
+            if child.level:
+                try:
+                    name = importlib.util.resolve_name(
+                        "." * child.level + (child.module or ""),
+                        namespace.get("__package__"),
+                    )
+                except (ImportError, ValueError):
+                    unresolved = True
+                    continue
+            elif child.module:
+                name = child.module
+            else:
+                continue
+            if _is_runpod_module_name(name):
+                uses_runpod = True
+            # a relative import always names project code
+            in_project = bool(child.level) or scan.is_project_module(name)
+            module = scan.lookup_module(name)
+            if module is None:
+                unresolved = unresolved or in_project
+                continue
+            for alias in child.names:
+                obj = getattr(module, alias.name, _MISSING)
+                if obj is _MISSING:
+                    submodule = f"{name}.{alias.name}"
+                    obj = scan.lookup_module(submodule)
+                    if obj is None:
+                        unresolved = (
+                            unresolved
+                            or in_project
+                            or scan.is_project_module(submodule)
+                        )
+                        continue
+                overlay[alias.asname or alias.name] = obj
+    return overlay, uses_runpod, unresolved
+
+
+def _is_runpod_module_name(name: str) -> bool:
+    return name == "runpod" or name.startswith("runpod.")
+
+
+def _object_needs_key(obj: Any, scan: _CallScan) -> bool:
+    """true if referencing obj means the worker needs RUNPOD_API_KEY.
+
+    a project class, or an instance of one, needs it when any of its methods
+    or instance attributes would. the whole class is analyzed because calls
+    through self cannot be resolved statically.
+    """
+    return _needs_key(obj, scan, set())
+
+
+# cap on container items followed, so a large config dict stays cheap
+_MAX_CONTAINER_ITEMS = 1000
+
+
+def _needs_key(obj: Any, scan: _CallScan, seen: Set[int]) -> bool:
+    if _is_remote(obj) or _is_client_endpoint(obj):
+        return True
+    if id(obj) in seen:
+        return False
+    seen.add(id(obj))
+    # vllm.runsync, functools.partial(vllm.runsync), {"vllm": vllm}, and
+    # wrappers that set __wrapped__ (functools.lru_cache, functools.wraps)
+    if isinstance(obj, types.MethodType):
+        return _needs_key(obj.__self__, scan, seen)
+    if isinstance(obj, functools.partial):
+        parts = [obj.func, *obj.args, *obj.keywords.values()]
+        return any(_needs_key(part, scan, seen) for part in parts)
+    if isinstance(obj, (dict, list, tuple, set, frozenset)):
+        items = obj.values() if isinstance(obj, dict) else obj
+        return any(
+            _needs_key(item, scan, seen)
+            for item in itertools.islice(items, _MAX_CONTAINER_ITEMS)
+        )
+    unwrapped = _unwrap(obj)
+    if unwrapped is not obj:
+        return _needs_key(unwrapped, scan, seen)
+    # a project helper used as a value: partial(call_model), {"gen": call_model}
+    helper = _project_function(obj, scan)
+    if helper is not None:
+        return bool(_helper_targets(helper, scan))
+    cls, module = _project_class(obj, scan)
+    if cls is None:
+        return False
+    if _class_targets(cls, module, scan):
+        return True
+    if inspect.isclass(obj):
+        return False
+    try:
+        attrs = list(vars(obj).values())
+    except TypeError:
+        return False
+    # holder.inner.ep: follow instance attributes into nested project objects
+    return any(_needs_key(value, scan, seen) for value in attrs)
+
+
+def _unwrap(obj: Any) -> Any:
+    """the function under functools.wraps / lru_cache style wrappers, else obj."""
+    if inspect.isclass(obj):
+        return obj
+    try:
+        return inspect.unwrap(obj)
+    except Exception:
+        return obj
+
+
+def _remote_call_targets(
+    node: ast.AST, namespace: Dict[str, Any], scan: _CallScan
+) -> List[str]:
+    """names of the things in node that need RUNPOD_API_KEY on the worker."""
+    called: List[str] = []
+
+    def add(target: str) -> None:
+        if target not in called:
+            called.append(target)
+
+    overlay, uses_runpod, unresolved = _local_imports(node, namespace, scan)
+    if unresolved:
+        add(_UNANALYZED)
+    if uses_runpod:
+        add("runpod")
+    if overlay:
+        namespace = {**namespace, **overlay}
+
+    for child in ast.walk(node):
+        if isinstance(child, ast.Constant) and child.value == _API_KEY_ENV:
+            add(_API_KEY_ENV)
+        elif isinstance(child, ast.Call):
+            if (
+                isinstance(child.func, ast.Name)
+                and child.func.id in scan.remote_function_names
+            ):
+                add(child.func.id)
+            if _is_client_endpoint_construction(child, namespace, scan):
+                add("Endpoint")
+            helper = _project_function(_resolve(child.func, namespace, scan), scan)
+            if helper is not None and _helper_targets(helper, scan):
+                add(helper.__name__)
+        elif isinstance(child, ast.Name):
+            obj = _resolve(child, namespace, scan)
+            if _is_runpod_sdk(obj) or _object_needs_key(obj, scan):
+                add(child.id)
+        elif isinstance(child, ast.Attribute):
+            # tasks.square(x), pkg.tasks.square(x), or utils.vllm.runsync(x)
+            obj = _resolve(child, namespace, scan)
+            if _object_needs_key(obj, scan):
+                add(ast.unparse(child))
+    return called
+
+
+def _helper_targets(func: Any, scan: _CallScan) -> List[str]:
+    """analyze a project helper function, resolving names in its own module."""
+    key = id(func)
+    if key in scan.cache:
+        return scan.cache[key]
+    scan.cache[key] = []  # break recursion cycles
+    try:
+        tree = ast.parse(textwrap.dedent(inspect.getsource(func)))
+    except Exception:
+        # e.g. a lambda inside a multi-line call: getsource returns a fragment
+        scan.cache[key] = [_UNANALYZED]
+        return scan.cache[key]
+    scan.cache[key] = _remote_call_targets(tree, func.__globals__, scan)
+    return scan.cache[key]
+
+
+def _class_targets(cls: Any, module: Any, scan: _CallScan) -> List[str]:
+    """analyze every method of a project class, resolving names in its module."""
+    key = id(cls)
+    if key in scan.cache:
+        return scan.cache[key]
+    scan.cache[key] = []  # break recursion cycles
+    try:
+        tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
+        nodes = [
+            n
+            for n in ast.walk(tree)
+            if isinstance(n, ast.ClassDef) and n.name == cls.__name__
+        ]
+    except Exception:
+        nodes = []
+    if not nodes:
+        scan.cache[key] = [_UNANALYZED]
+        return scan.cache[key]
+    targets: List[str] = []
+    for class_node in nodes:
+        for target in _remote_call_targets(class_node, vars(module), scan):
+            if target not in targets:
+                targets.append(target)
+    scan.cache[key] = targets
+    return targets
+
+
 def _analyze_cross_calls_ast(
     file_path: Path,
     function_names: Set[str],
     remote_function_names: Set[str],
+    namespace: Optional[Dict[str, Any]] = None,
+    project_files: Optional[Set[Path]] = None,
+    project_modules: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, List[str]]:
-    """find which functions call other @remote functions via AST.
+    """find which functions need RUNPOD_API_KEY on the worker, via AST.
 
-    returns a dict of function_name -> list of called remote function names.
-    only matches direct calls (foo()), not attribute calls (obj.foo()).
+    returns a dict of function_name -> list of what triggered it. a function
+    needs the key when it references another @remote function or class
+    (directly, aliased, or through a module), uses a client-mode Endpoint
+    (id= or image=), uses the runpod SDK, reads RUNPOD_API_KEY, or calls a
+    project helper or project class that does any of these. namespace is the
+    module's globals, used to resolve names; project_files (resolved paths)
+    limits helper analysis to scanned project code; project_modules maps
+    scanned module paths to their modules. detection errs toward giving the
+    key, since a missing key fails at runtime with a 401: a function, helper,
+    or project import that cannot be analyzed is reported as needing it.
     """
+    ns = namespace or {}
     result: Dict[str, List[str]] = {}
     try:
         tree = ast.parse(file_path.read_text(encoding="utf-8"))
@@ -429,12 +792,14 @@ def _analyze_cross_calls_ast(
         if node.name not in function_names:
             continue
 
-        called: List[str] = []
-        for child in ast.walk(node):
-            if isinstance(child, ast.Call) and isinstance(child.func, ast.Name):
-                if child.func.id in remote_function_names:
-                    if child.func.id not in called:
-                        called.append(child.func.id)
+        # fresh per function: a helper cached mid-cycle can hold a partial
+        # result that is only correct within the traversal that produced it.
+        scan = _CallScan(remote_function_names, project_files, project_modules or {})
+        try:
+            called = _remote_call_targets(node, ns, scan)
+        except Exception as e:
+            logger.debug(f"cross-call analysis failed for {node.name}: {e}")
+            called = [_UNANALYZED]
         if called:
             result[node.name] = called
 
@@ -457,6 +822,9 @@ class RuntimeScanner:
         self.resource_variables: Dict[str, str] = {}
         # populated after discover_remote_functions() runs
         self.import_errors: Dict[str, str] = {}
+        # client-mode Endpoints (image=..., id=None) keyed by endpoint name;
+        # each value carries var_name/file_path/module_path for the manifest.
+        self.client_endpoints: Dict[str, Dict[str, Any]] = {}
 
     def discover_remote_functions(self) -> List[RemoteFunctionMetadata]:
         """discover all @remote decorated functions and classes by importing modules."""
@@ -476,10 +844,14 @@ class RuntimeScanner:
         functions: List[RemoteFunctionMetadata] = []
         seen_functions: Set[str] = set()
         failed_files: List[Path] = []
+        namespaces: Dict[Path, Dict[str, Any]] = {}
+        # module path -> module (None if the import failed), for analysis
+        project_modules: Dict[str, Any] = {}
 
         try:
             for py_file in py_files:
                 module_path = file_to_module_path(py_file, self.project_dir)
+                project_modules[module_path] = None
                 try:
                     module = _import_module_from_file(py_file, module_path)
                 except Exception as e:
@@ -490,20 +862,32 @@ class RuntimeScanner:
                 if module is None:
                     failed_files.append(py_file)
                     continue
+                project_modules[module_path] = module
 
                 file_functions = self._extract_from_module(
                     module, module_path, py_file, seen_functions
                 )
                 functions.extend(file_functions)
+                namespaces[py_file] = vars(module)
 
             # cross-call analysis
             remote_names = {f.function_name for f in functions}
+            # __init__.py files are not scanned for endpoints, but helpers
+            # defined in a package __init__ still need analysis
+            project_files = {f.resolve() for f in all_files if f.suffix == ".py"}
             files_with_functions: Dict[Path, Set[str]] = {}
             for f in functions:
                 files_with_functions.setdefault(f.file_path, set()).add(f.function_name)
 
             for file_path, func_names in files_with_functions.items():
-                calls = _analyze_cross_calls_ast(file_path, func_names, remote_names)
+                calls = _analyze_cross_calls_ast(
+                    file_path,
+                    func_names,
+                    remote_names,
+                    namespaces.get(file_path),
+                    project_files,
+                    project_modules,
+                )
                 for f in functions:
                     if f.file_path == file_path and f.function_name in calls:
                         f.calls_remote_functions = True
@@ -556,6 +940,8 @@ class RuntimeScanner:
         """extract RemoteFunctionMetadata from a single imported module."""
         results: List[RemoteFunctionMetadata] = []
 
+        self._collect_client_endpoints(module, module_path, file_path)
+
         remote_objects = _find_remote_decorated(module)
         endpoint_instances = _find_endpoint_instances(module)
 
@@ -607,6 +993,61 @@ class RuntimeScanner:
                 results.append(meta)
 
         return results
+
+    def _collect_client_endpoints(
+        self, module: Any, module_path: str, file_path: Path
+    ) -> None:
+        """record client-mode Endpoints (image=..., no id) for the manifest.
+
+        client-mode endpoints declare an external service image; they have no
+        decorated functions, but `flash deploy` should still provision them.
+        id= endpoints are excluded: they attach to an already-existing
+        endpoint, so there is nothing to provision.
+
+        Re-exports (``from defs import ep`` in a second file) surface as a
+        distinct object with the same name and image because each scanned file
+        is imported fresh; those keep the first record. The same name with a
+        *different* image is a genuine collision and fails the build.
+        """
+        for member_name in dir(module):
+            try:
+                member = getattr(module, member_name)
+            except Exception:
+                continue
+            if (
+                not isinstance(member, Endpoint)
+                or member.image is None
+                or member.id is not None
+            ):
+                continue
+            # image-based endpoints always carry a name: Endpoint.__init__
+            # raises when name is None and image is set.
+            name = member.name
+            existing = self.client_endpoints.get(name)
+            record = {
+                "var_name": member_name,
+                "file_path": file_path,
+                "module_path": module_path,
+                "object_id": id(member),
+                "image": member.image,
+            }
+            if existing is None:
+                self.client_endpoints[name] = record
+                continue
+            if existing["object_id"] == id(member):
+                continue  # aliased under a second variable name
+            if existing["file_path"] == file_path:
+                # two distinct objects with the same name in one file: last wins
+                self.client_endpoints[name] = record
+                continue
+            if existing["image"] == member.image:
+                # re-exported from another file; keep the first record
+                continue
+            raise ValueError(
+                f"endpoint '{name}' is defined in multiple files: "
+                f"{existing['file_path']}, {file_path}. "
+                f"each endpoint name must be unique across the project."
+            )
 
     def _populate_resource_dicts(self, functions: List[RemoteFunctionMetadata]) -> None:
         """populate resource tracking dicts for ManifestBuilder compatibility."""
