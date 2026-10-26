@@ -71,11 +71,11 @@ test-integration: # Run integration tests in parallel (auto-detect cores)
 test-integration-serial: # Run integration tests serially (for debugging)
 	uv run pytest tests/integration/ -v -m integration
 
+# The serial pass re-emits the XML after appending, or coverage.xml is left
+# holding only the parallel run and undercounts.
 test-coverage: # Run tests with coverage report (parallel non-serial, then serial pass for state isolation)
-	uv run pytest tests/ -v -n auto -m "not serial" --cov=runpod_flash --cov-branch --cov-report=xml
-	# Re-emit the XML after appending the serial tests, or coverage.xml is left
-	# holding only the parallel run and undercounts.
-	uv run pytest tests/ -v -m "serial" --cov=runpod_flash --cov-branch --cov-append --cov-report=term-missing --cov-report=xml
+	uv run pytest tests/ -v -n auto -m "not serial" --cov=runpod_flash --cov-report=xml
+	uv run pytest tests/ -v -m "serial" --cov=runpod_flash --cov-append --cov-report=term-missing --cov-report=xml
 
 test-coverage-serial: # Run tests with coverage report (serial execution)
 	uv run pytest tests/ -v --cov=runpod_flash --cov-report=term-missing
@@ -118,6 +118,20 @@ quality-check-strict: format-check lint typecheck test-coverage # Strict quality
 quality-check-serial: ci-quality-github-serial # Serial quality gate for debugging
 
 # GitHub Actions specific target -- canonical CI quality gate.
+# The serial pass re-emits the XML after appending, or coverage.xml is left
+# holding only the parallel run and undercounts.
+#
+# The serial pass, not the parallel one, is the real coverage gate: the
+# parallel invocation passes --cov-fail-under=0 to suppress the partial
+# number, while the serial one inherits --cov-fail-under=65 from pyproject
+# addopts. Do not "align" the two flags -- that quietly disables the gate.
+#
+# make stops at the first failing recipe line, so if the parallel pass fails
+# the re-emit never runs and coverage.xml holds the parallel subset. That is
+# deliberate: guarding the parallel line with `-`/`|| true` so the serial pass
+# always ran would let a red parallel suite exit 0. The weekly report only
+# reads runs whose status is success, so an undercount on an already-failing
+# run is not consumed by anything.
 ci-quality-github: # Quality checks with GitHub Actions formatting (parallel by default)
 	@echo "::group::Code formatting check"
 	uv run ruff format --check .
@@ -126,24 +140,10 @@ ci-quality-github: # Quality checks with GitHub Actions formatting (parallel by 
 	uv run ruff check . --output-format=github
 	@echo "::endgroup::"
 	@echo "::group::Test suite with coverage (parallel non-serial)"
-	uv run pytest tests/ --junitxml=pytest-results-parallel.xml -v -n auto -m "not serial" --cov=runpod_flash --cov-branch --cov-report=xml --cov-fail-under=0
+	uv run pytest tests/ --junitxml=pytest-results-parallel.xml -v -n auto -m "not serial" --cov=runpod_flash --cov-report=xml --cov-fail-under=0
 	@echo "::endgroup::"
 	@echo "::group::Test suite with coverage (serial pass)"
-	# Re-emit the XML after appending the serial tests, or coverage.xml is left
-	# holding only the parallel run and undercounts.
-	#
-	# This line, not the parallel one above, is the real coverage gate: the
-	# parallel invocation passes --cov-fail-under=0 to suppress the partial
-	# number, while this one inherits --cov-fail-under=65 from pyproject
-	# addopts. Do not "align" the two flags — that quietly disables the gate.
-	#
-	# Note also that make stops at the first failing recipe line, so if the
-	# parallel pass fails this re-emit never runs and coverage.xml holds the
-	# parallel subset. That is deliberate: guarding the parallel line with
-	# `-`/`|| true` so this always ran would let a red parallel suite exit 0.
-	# The weekly report only reads runs whose status is success, so an
-	# undercount on an already-failing run is not consumed by anything.
-	uv run pytest tests/ --junitxml=pytest-results-serial.xml -v -m "serial" --cov=runpod_flash --cov-branch --cov-append --cov-report=term-missing --cov-report=xml
+	uv run pytest tests/ --junitxml=pytest-results-serial.xml -v -m "serial" --cov=runpod_flash --cov-append --cov-report=term-missing --cov-report=xml
 	@echo "::endgroup::"
 
 ci-quality-github-serial: # Serial quality checks for GitHub Actions (for debugging)
