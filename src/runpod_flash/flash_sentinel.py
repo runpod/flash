@@ -10,6 +10,7 @@ dict as kwargs. the sentinel maps positional args to named params via
 inspect.signature and sends the result as the runsync input body.
 """
 
+import asyncio
 import base64
 import inspect
 import logging
@@ -21,6 +22,7 @@ import runpod
 
 from .core.urls import ENDPOINT_DOMAIN
 from .core.utils import http as _http
+from .core.utils.backoff import get_backoff_delay
 from .protos.remote_execution import FunctionRequest
 
 log = logging.getLogger(__name__)
@@ -30,6 +32,13 @@ FLASH_SENTINEL_ID = "flash"
 # default timeout for sentinel requests. configurable via
 # FLASH_SENTINEL_TIMEOUT env var (seconds).
 DEFAULT_SENTINEL_TIMEOUT = 90
+
+# runsync returns one of these when the job outlives the server-side wait
+# (cold starts, model downloads). the job keeps running, so poll /status.
+_PENDING_STATUSES = frozenset({"IN_QUEUE", "IN_PROGRESS"})
+
+# longest gap between /status polls, in seconds.
+_STATUS_POLL_MAX_SECONDS = 5.0
 
 
 def _get_timeout(override: Optional[float] = None) -> float:
@@ -108,7 +117,46 @@ async def _sentinel_qb_post(
             f"environment '{env}'. deploy it first with 'flash deploy'."
         )
     response.raise_for_status()
-    return response.json()
+    data: Dict[str, Any] = response.json()
+
+    if data.get("status") in _PENDING_STATUSES and data.get("id"):
+        data = await _poll_until_done(
+            app, env, endpoint_name, data["id"], effective_timeout
+        )
+    return data
+
+
+async def _poll_until_done(
+    app: str,
+    env: str,
+    endpoint_name: str,
+    job_id: str,
+    request_timeout: float,
+) -> Dict[str, Any]:
+    """poll the sentinel /status route until the job leaves IN_QUEUE/IN_PROGRESS.
+
+    there is no overall deadline here: the endpoint's execution timeout
+    ends the job server-side with TIMED_OUT, which this loop returns.
+    """
+    url = f"{runpod.endpoint_url_base}/{FLASH_SENTINEL_ID}/status/{job_id}"
+    headers = _flash_headers(app, env, endpoint_name)
+
+    log.debug("sentinel QB job %s still pending, polling /status", job_id)
+
+    attempt = 0
+    async with _http.get_authenticated_httpx_client(timeout=request_timeout) as client:
+        while True:
+            await asyncio.sleep(
+                get_backoff_delay(
+                    attempt, base=1.0, max_seconds=_STATUS_POLL_MAX_SECONDS
+                )
+            )
+            attempt += 1
+            response = await client.get(url, headers=headers)
+            response.raise_for_status()
+            data: Dict[str, Any] = response.json()
+            if data.get("status") not in _PENDING_STATUSES:
+                return data
 
 
 def _handle_sentinel_response(data: Dict[str, Any]) -> Any:
@@ -121,6 +169,11 @@ def _handle_sentinel_response(data: Dict[str, Any]) -> Any:
     if data.get("status") == "FAILED" or data.get("error"):
         err = data.get("error") or data.get("output", {}).get("error", "unknown")
         raise RuntimeError(f"remote execution failed: {err}")
+
+    if data.get("status") in ("CANCELLED", "TIMED_OUT"):
+        raise RuntimeError(
+            f"remote execution {data['status'].lower()} (job {data.get('id', 'unknown')})"
+        )
 
     if "output" not in data and "status" not in data:
         raise RuntimeError(
