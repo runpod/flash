@@ -219,7 +219,12 @@ async def _poll_until_done(
                 log.debug("polling job %s failed (%s), retrying", job_id, exc)
                 continue
             transport_errors = 0
-            response.raise_for_status()
+            try:
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                raise RuntimeError(
+                    f"checking job {job_id} on endpoint '{endpoint_name}' failed: {exc}"
+                ) from exc
             data: Dict[str, Any] = response.json()
             status = data.get("status")
             if status not in _PENDING_STATUSES:

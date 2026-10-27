@@ -362,8 +362,9 @@ class TestSentinelQBPolling:
         async def my_func():
             pass
 
-        with pytest.raises(httpx.HTTPStatusError):
+        with pytest.raises(RuntimeError, match="job job-1.*gpu-worker") as exc_info:
             await sentinel_qb_execute("myapp", "prod", "gpu-worker", my_func)
+        assert isinstance(exc_info.value.__cause__, httpx.HTTPStatusError)
         mock_client.get.assert_awaited_once()
 
     @pytest.mark.asyncio
