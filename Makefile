@@ -129,9 +129,7 @@ quality-check-serial: ci-quality-github-serial # Serial quality gate for debuggi
 # make stops at the first failing recipe line, so if the parallel pass fails
 # the re-emit never runs and coverage.xml holds the parallel subset. That is
 # deliberate: guarding the parallel line with `-`/`|| true` so the serial pass
-# always ran would let a red parallel suite exit 0. The weekly report only
-# reads runs whose status is success, so an undercount on an already-failing
-# run is not consumed by anything.
+# always ran would let a red parallel suite exit 0.
 ci-quality-github: # Quality checks with GitHub Actions formatting (parallel by default)
 	@echo "::group::Code formatting check"
 	uv run ruff format --check .
