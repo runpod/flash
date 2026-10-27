@@ -131,6 +131,8 @@ async def _sentinel_qb_post(
 
     log.debug("sentinel QB -> %s/%s/%s", app, env, endpoint_name)
 
+    submitted_at = time.monotonic()
+
     try:
         async with _http.get_authenticated_httpx_client(
             timeout=effective_timeout
@@ -166,7 +168,7 @@ async def _sentinel_qb_post(
                 f"{data['status']} without a job id: {data}"
             )
         data = await _poll_until_done(
-            app, env, endpoint_name, data["id"], effective_timeout
+            app, env, endpoint_name, data["id"], effective_timeout, submitted_at
         )
     return data
 
@@ -177,19 +179,20 @@ async def _poll_until_done(
     endpoint_name: str,
     job_id: str,
     request_timeout: float,
+    submitted_at: float,
 ) -> Dict[str, Any]:
     """poll the sentinel /status route until the job leaves IN_QUEUE/IN_PROGRESS.
 
     a running job is bounded by the endpoint's execution timeout, which ends
     it server-side with TIMED_OUT. a job no worker picks up is cancelled
-    after _QUEUE_WAIT_MAX_SECONDS.
+    after _QUEUE_WAIT_MAX_SECONDS, counted from submission.
     """
     base = f"{runpod.endpoint_url_base}/{FLASH_SENTINEL_ID}"
     headers = _flash_headers(app, env, endpoint_name)
 
     log.debug("sentinel QB job %s still pending, polling /status", job_id)
 
-    queued_since = time.monotonic()
+    queued_since = submitted_at
     attempt = 0
     transport_errors = 0
     async with _http.get_authenticated_httpx_client(timeout=request_timeout) as client:

@@ -446,6 +446,32 @@ class TestSentinelQBPolling:
                 await sentinel_qb_execute("myapp", "prod", "gpu-worker", my_func)
 
     @pytest.mark.asyncio
+    async def test_queue_deadline_counts_time_spent_in_runsync(self, mock_httpx):
+        from runpod_flash.flash_sentinel import (
+            _QUEUE_WAIT_MAX_SECONDS,
+            sentinel_qb_execute,
+        )
+
+        queued = _json_response({"id": "job-1", "status": "IN_QUEUE"})
+        mock_client = _make_mock_client(queued)
+        mock_client.get = AsyncMock(return_value=queued)
+        mock_httpx.return_value = mock_client
+
+        # submitted at 0, runsync returns pending, first poll is already late
+        clock = iter([0.0, _QUEUE_WAIT_MAX_SECONDS + 1])
+
+        async def my_func():
+            pass
+
+        with patch(
+            "runpod_flash.flash_sentinel.time.monotonic",
+            side_effect=lambda: next(clock),
+        ):
+            with pytest.raises(RuntimeError, match="still queued"):
+                await sentinel_qb_execute("myapp", "prod", "gpu-worker", my_func)
+        mock_client.get.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_running_job_is_not_cancelled_by_queue_deadline(self, mock_httpx):
         from runpod_flash.flash_sentinel import (
             _QUEUE_WAIT_MAX_SECONDS,

@@ -148,28 +148,31 @@ def _required_params(
             return None
         body = cls.body
 
-    for node in body:
-        if (
-            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and node.name == func_name
-        ):
-            args = node.args
-            positional = args.posonlyargs + args.args
-            required = positional[: len(positional) - len(args.defaults)]
-            required += [
-                a
-                for a, default in zip(args.kwonlyargs, args.kw_defaults)
-                if default is None
-            ]
-            # a method's receiver is bound by the handler, not sent as input
-            if class_name is not None and required and positional:
-                if required[0] is positional[0] and positional[0].arg in (
-                    "self",
-                    "cls",
-                ):
-                    required = required[1:]
-            return [a.arg for a in required]
-    return None
+    # the last definition wins at import time, as in python itself
+    matches = [
+        node
+        for node in body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == func_name
+    ]
+    if not matches:
+        return None
+
+    args = matches[-1].args
+    positional = args.posonlyargs + args.args
+    required = positional[: len(positional) - len(args.defaults)]
+    required += [
+        a for a, default in zip(args.kwonlyargs, args.kw_defaults) if default is None
+    ]
+    # a method's receiver is bound by the handler, not sent as input
+    if (
+        class_name is not None
+        and required
+        and required[0] is positional[0]
+        and positional[0].arg in ("self", "cls")
+    ):
+        required = required[1:]
+    return [a.arg for a in required]
 
 
 def _qb_example_input(resource: dict[str, Any]) -> dict[str, Any]:
