@@ -163,7 +163,9 @@ def _required_params(
     # a method's receiver (whatever it's named) is bound by the handler, not
     # sent as input. static methods have no receiver.
     is_static = any(
-        isinstance(d, ast.Name) and d.id == "staticmethod" for d in func.decorator_list
+        (isinstance(d, ast.Name) and d.id == "staticmethod")
+        or (isinstance(d, ast.Attribute) and d.attr == "staticmethod")
+        for d in func.decorator_list
     )
     if class_name is not None and not is_static and required:
         if required[0] is positional[0]:

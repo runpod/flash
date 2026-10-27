@@ -924,6 +924,11 @@ class TestDisplayPostDeploymentGuidance:
                 "    def predict(image):\n        ...\n",
                 '{"input": {"image": "<image>"}}',
             ),
+            (
+                "import builtins\n\nclass Model:\n    @builtins.staticmethod\n"
+                "    def predict(image):\n        ...\n",
+                '{"input": {"image": "<image>"}}',
+            ),
         ],
     )
     def test_qb_curl_drops_only_the_method_receiver(
