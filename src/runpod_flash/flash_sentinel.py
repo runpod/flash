@@ -113,10 +113,21 @@ async def _sentinel_qb_post(
     payload: Dict[str, Any],
     timeout: Optional[float] = None,
 ) -> Dict[str, Any]:
-    """post a payload to the sentinel runsync URL and return the raw response dict."""
-    url = f"{runpod.endpoint_url_base}/{FLASH_SENTINEL_ID}/runsync"
+    """submit a payload through the sentinel and return the final response dict.
+
+    uses /runsync with a server-side wait below the client timeout. a
+    timeout too short to leave room for runsync's minimum wait submits
+    with /run instead. either way, a pending job is polled to completion.
+    """
     headers = _flash_headers(app, env, endpoint_name)
     effective_timeout = _get_timeout(timeout)
+    base = f"{runpod.endpoint_url_base}/{FLASH_SENTINEL_ID}"
+    if effective_timeout > _RUNSYNC_WAIT_MARGIN_SECONDS + _RUNSYNC_WAIT_MIN_SECONDS:
+        url = f"{base}/runsync"
+        params: Dict[str, Any] = {"wait": _runsync_wait_ms(effective_timeout)}
+    else:
+        url = f"{base}/run"
+        params = {}
 
     log.debug("sentinel QB -> %s/%s/%s", app, env, endpoint_name)
 
@@ -128,7 +139,7 @@ async def _sentinel_qb_post(
                 url,
                 json=payload,
                 headers=headers,
-                params={"wait": _runsync_wait_ms(effective_timeout)},
+                params=params,
             )
     except Exception as exc:
         if "timeout" in type(exc).__name__.lower() or "timeout" in str(exc).lower():

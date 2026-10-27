@@ -510,6 +510,54 @@ class TestRunsyncWait:
         assert mock_httpx.call_args.kwargs["timeout"] == 90
 
 
+class TestShortTimeoutUsesRun:
+    @pytest.fixture(autouse=True)
+    def no_sleep(self):
+        with patch("runpod_flash.flash_sentinel.asyncio.sleep", new=AsyncMock()):
+            yield
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("timeout", [1, 11])
+    async def test_short_timeout_submits_with_run(self, mock_httpx, timeout):
+        from runpod_flash.flash_sentinel import FLASH_SENTINEL_ID, _sentinel_qb_post
+
+        mock_client = _make_mock_client(
+            _json_response({"id": "job-1", "status": "IN_QUEUE"})
+        )
+        mock_client.get = AsyncMock(
+            return_value=_json_response(
+                {"id": "job-1", "status": "COMPLETED", "output": {"ok": True}}
+            )
+        )
+        mock_httpx.return_value = mock_client
+
+        data = await _sentinel_qb_post(
+            "myapp", "prod", "gpu-worker", {"input": {"a": 1}}, timeout=timeout
+        )
+
+        assert data["output"] == {"ok": True}
+        call = mock_client.post.call_args
+        assert call.args[0].endswith(f"/{FLASH_SENTINEL_ID}/run")
+        assert call.kwargs["params"] == {}
+
+    @pytest.mark.asyncio
+    async def test_timeout_above_margin_uses_runsync(self, mock_httpx):
+        from runpod_flash.flash_sentinel import FLASH_SENTINEL_ID, _sentinel_qb_post
+
+        mock_client = _make_mock_client(
+            _json_response({"status": "COMPLETED", "output": {}})
+        )
+        mock_httpx.return_value = mock_client
+
+        await _sentinel_qb_post(
+            "myapp", "prod", "gpu-worker", {"input": {"a": 1}}, timeout=12
+        )
+
+        call = mock_client.post.call_args
+        assert call.args[0].endswith(f"/{FLASH_SENTINEL_ID}/runsync")
+        assert call.kwargs["params"] == {"wait": 2_000}
+
+
 class TestSentinelQBClassExecute:
     @pytest.mark.asyncio
     async def test_dispatches_on_method_name(self, mock_httpx):
