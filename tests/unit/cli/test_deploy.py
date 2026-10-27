@@ -912,6 +912,25 @@ class TestDisplayPostDeploymentGuidance:
         output = self._collect_output(patched_console)
         assert '{"input": {"method": "predict", "image": "<image>"}}' in output
 
+    def test_qb_curl_uses_last_definition_of_redefined_class(
+        self, patched_console, tmp_path
+    ):
+        from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
+
+        src = tmp_path / "model.py"
+        src.write_text(
+            "class Model:\n    def predict(self, text):\n        ...\n\n"
+            "class Model:\n    def predict(self, image):\n        ...\n"
+        )
+        _display_post_deployment_guidance(
+            env_name="production",
+            resources_endpoints={"my_qb": "https://api.runpod.ai/v2/abc123"},
+            resources=self._class_resource(src, ["predict"]),
+            routes={},
+        )
+        output = self._collect_output(patched_console)
+        assert '{"input": {"image": "<image>"}}' in output
+
     def test_qb_curl_reads_top_level_function_not_nested_namesake(
         self, patched_console, tmp_path
     ):

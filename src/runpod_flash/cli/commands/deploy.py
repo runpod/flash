@@ -136,17 +136,12 @@ def _required_params(
 
     body: list[ast.stmt] = tree.body
     if class_name is not None:
-        cls = next(
-            (
-                n
-                for n in tree.body
-                if isinstance(n, ast.ClassDef) and n.name == class_name
-            ),
-            None,
-        )
-        if cls is None:
+        classes = [
+            n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == class_name
+        ]
+        if not classes:
             return None
-        body = cls.body
+        body = classes[-1].body
 
     # the last definition wins at import time, as in python itself
     matches = [
