@@ -864,22 +864,77 @@ class TestDisplayPostDeploymentGuidance:
         assert '{"input": {"__empty": true}}' in output
         assert '{"input": {}}' not in output
 
-    def test_qb_curl_for_class_endpoint_names_method(self, patched_console):
+    def _class_resource(self, src, methods):
+        return {
+            "my_qb": {
+                "file_path": str(src),
+                "functions": [
+                    {"name": "Model", "is_class": True, "class_methods": methods}
+                ],
+            }
+        }
+
+    def test_qb_curl_for_single_method_class_omits_method(
+        self, patched_console, tmp_path
+    ):
         from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
 
+        src = tmp_path / "model.py"
+        src.write_text(
+            "class Model:\n    def predict(self, image, k=1):\n        ...\n"
+        )
+        _display_post_deployment_guidance(
+            env_name="production",
+            resources_endpoints={"my_qb": "https://api.runpod.ai/v2/abc123"},
+            resources=self._class_resource(src, ["predict"]),
+            routes={},
+        )
+        output = self._collect_output(patched_console)
+        assert '{"input": {"image": "<image>"}}' in output
+
+    def test_qb_curl_for_multi_method_class_names_real_method(
+        self, patched_console, tmp_path
+    ):
+        from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
+
+        src = tmp_path / "model.py"
+        src.write_text(
+            "class Model:\n"
+            "    def predict(self, image):\n        ...\n"
+            "    def embed(self, text):\n        ...\n"
+        )
+        _display_post_deployment_guidance(
+            env_name="production",
+            resources_endpoints={"my_qb": "https://api.runpod.ai/v2/abc123"},
+            resources=self._class_resource(src, ["predict", "embed"]),
+            routes={},
+        )
+        output = self._collect_output(patched_console)
+        assert '{"input": {"method": "predict", "image": "<image>"}}' in output
+
+    def test_qb_curl_reads_top_level_function_not_nested_namesake(
+        self, patched_console, tmp_path
+    ):
+        from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
+
+        src = tmp_path / "jobs.py"
+        src.write_text(
+            "class Helper:\n    def predict(self, image):\n        ...\n\n"
+            "def predict(prompt):\n    ...\n"
+        )
         _display_post_deployment_guidance(
             env_name="production",
             resources_endpoints={"my_qb": "https://api.runpod.ai/v2/abc123"},
             resources={
                 "my_qb": {
-                    "file_path": "model.py",
-                    "functions": [{"name": "Model", "is_class": True}],
+                    "file_path": str(src),
+                    "functions": [{"name": "predict", "is_class": False}],
                 }
             },
             routes={},
         )
         output = self._collect_output(patched_console)
-        assert '{"input": {"method": "<method_name>"}}' in output
+        assert '{"input": {"prompt": "<prompt>"}}' in output
 
     def test_lb_endpoint_shows_routes(self, patched_console):
         from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance

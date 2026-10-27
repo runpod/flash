@@ -273,17 +273,154 @@ class TestSentinelQBPolling:
         mock_client.get.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_pending_without_id_is_not_polled(self, mock_httpx):
+    async def test_pending_without_id_raises(self, mock_httpx):
         from runpod_flash.flash_sentinel import _sentinel_qb_post
 
         mock_client = _make_mock_client(_json_response({"status": "IN_QUEUE"}))
         mock_client.get = AsyncMock()
         mock_httpx.return_value = mock_client
 
-        data = await _sentinel_qb_post("myapp", "prod", "gpu-worker", {"input": {}})
-
-        assert data == {"status": "IN_QUEUE"}
+        with pytest.raises(RuntimeError, match="without a job id"):
+            await _sentinel_qb_post("myapp", "prod", "gpu-worker", {"input": {}})
         mock_client.get.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_transient_poll_error_is_retried(self, mock_httpx):
+        import httpx
+
+        from runpod_flash.flash_sentinel import sentinel_qb_execute
+
+        mock_client = _make_mock_client(
+            _json_response({"id": "job-1", "status": "IN_PROGRESS"})
+        )
+        mock_client.get = AsyncMock(
+            side_effect=[
+                httpx.ReadTimeout("slow"),
+                _json_response(
+                    {"id": "job-1", "status": "COMPLETED", "output": {"ok": True}}
+                ),
+            ]
+        )
+        mock_httpx.return_value = mock_client
+
+        async def my_func():
+            pass
+
+        result = await sentinel_qb_execute("myapp", "prod", "gpu-worker", my_func)
+
+        assert result == {"ok": True}
+        assert mock_client.get.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_repeated_poll_errors_raise(self, mock_httpx):
+        import httpx
+
+        from runpod_flash.flash_sentinel import (
+            _STATUS_POLL_MAX_TRANSPORT_ERRORS,
+            sentinel_qb_execute,
+        )
+
+        mock_client = _make_mock_client(
+            _json_response({"id": "job-1", "status": "IN_PROGRESS"})
+        )
+        mock_client.get = AsyncMock(side_effect=httpx.ConnectError("down"))
+        mock_httpx.return_value = mock_client
+
+        async def my_func():
+            pass
+
+        with pytest.raises(RuntimeError, match="lost contact.*job-1"):
+            await sentinel_qb_execute("myapp", "prod", "gpu-worker", my_func)
+        assert mock_client.get.call_count == _STATUS_POLL_MAX_TRANSPORT_ERRORS
+
+    @pytest.mark.asyncio
+    async def test_poll_http_error_propagates(self, mock_httpx):
+        import httpx
+
+        from runpod_flash.flash_sentinel import sentinel_qb_execute
+
+        error_response = MagicMock()
+        error_response.raise_for_status = MagicMock(
+            side_effect=httpx.HTTPStatusError(
+                "500", request=MagicMock(), response=MagicMock()
+            )
+        )
+        mock_client = _make_mock_client(
+            _json_response({"id": "job-1", "status": "IN_PROGRESS"})
+        )
+        mock_client.get = AsyncMock(return_value=error_response)
+        mock_httpx.return_value = mock_client
+
+        async def my_func():
+            pass
+
+        with pytest.raises(httpx.HTTPStatusError):
+            await sentinel_qb_execute("myapp", "prod", "gpu-worker", my_func)
+        mock_client.get.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_job_stuck_in_queue_is_cancelled(self, mock_httpx):
+        from runpod_flash.flash_sentinel import (
+            _QUEUE_WAIT_MAX_SECONDS,
+            FLASH_SENTINEL_ID,
+            sentinel_qb_execute,
+        )
+
+        queued = _json_response({"id": "job-1", "status": "IN_QUEUE"})
+        mock_client = _make_mock_client(queued)
+        mock_client.get = AsyncMock(return_value=queued)
+        mock_httpx.return_value = mock_client
+
+        clock = iter([0.0, 10.0, _QUEUE_WAIT_MAX_SECONDS + 1])
+
+        async def my_func():
+            pass
+
+        with patch(
+            "runpod_flash.flash_sentinel.time.monotonic",
+            side_effect=lambda: next(clock),
+        ):
+            with pytest.raises(RuntimeError, match="still queued.*cancelled"):
+                await sentinel_qb_execute("myapp", "prod", "gpu-worker", my_func)
+
+        cancel_url = mock_client.post.call_args.args[0]
+        assert cancel_url.endswith(f"/{FLASH_SENTINEL_ID}/cancel/job-1")
+
+    @pytest.mark.asyncio
+    async def test_running_job_is_not_cancelled_by_queue_deadline(self, mock_httpx):
+        from runpod_flash.flash_sentinel import (
+            _QUEUE_WAIT_MAX_SECONDS,
+            sentinel_qb_execute,
+        )
+
+        mock_client = _make_mock_client(
+            _json_response({"id": "job-1", "status": "IN_QUEUE"})
+        )
+        mock_client.get = AsyncMock(
+            side_effect=[
+                _json_response({"id": "job-1", "status": "IN_PROGRESS"}),
+                _json_response({"id": "job-1", "status": "IN_PROGRESS"}),
+                _json_response(
+                    {"id": "job-1", "status": "COMPLETED", "output": {"ok": 1}}
+                ),
+            ]
+        )
+        mock_httpx.return_value = mock_client
+
+        far = _QUEUE_WAIT_MAX_SECONDS * 10
+        clock = iter([0.0, far, far * 2, far * 3])
+
+        async def my_func():
+            pass
+
+        with patch(
+            "runpod_flash.flash_sentinel.time.monotonic",
+            side_effect=lambda: next(clock),
+        ):
+            result = await sentinel_qb_execute("myapp", "prod", "gpu-worker", my_func)
+
+        assert result == {"ok": 1}
+        assert mock_client.post.await_count == 1  # the runsync call, no cancel
 
 
 class TestRunsyncWait:

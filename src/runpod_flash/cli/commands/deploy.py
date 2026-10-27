@@ -120,16 +120,35 @@ def _handle_deploy_error(exc: Exception) -> None:
     raise typer.Exit(1)
 
 
-def _required_params(file_path: str, func_name: str) -> list[str] | None:
+def _required_params(
+    file_path: str, func_name: str, class_name: str | None = None
+) -> list[str] | None:
     """names of a function's parameters that have no default, read from source.
 
-    returns None when the source can't be read or the function isn't found.
+    looks only at top-level definitions (or methods of a top-level class),
+    which is what the generated handler imports. returns None when the
+    source can't be read or the definition isn't found.
     """
     try:
         tree = ast.parse(Path(file_path).read_text())
     except (OSError, SyntaxError, ValueError):
         return None
-    for node in ast.walk(tree):
+
+    body: list[ast.stmt] = tree.body
+    if class_name is not None:
+        cls = next(
+            (
+                n
+                for n in tree.body
+                if isinstance(n, ast.ClassDef) and n.name == class_name
+            ),
+            None,
+        )
+        if cls is None:
+            return None
+        body = cls.body
+
+    for node in body:
         if (
             isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
             and node.name == func_name
@@ -151,15 +170,27 @@ def _qb_example_input(resource: dict[str, Any]) -> dict[str, Any]:
 
     runpod drops a job whose input is an empty dict, so the job never
     reaches the worker and times out. the deployed handler strips the
-    "__empty" marker, so use it when the function needs no arguments.
+    "__empty" marker, so use it when the call needs no arguments.
     """
     functions = resource.get("functions") or []
     if not functions:
         return {"__empty": True}
     func = functions[0]
+    file_path = resource.get("file_path", "")
+
     if func.get("is_class"):
-        return {"method": "<method_name>"}
-    params = _required_params(resource.get("file_path", ""), func.get("name", ""))
+        methods = func.get("class_methods") or []
+        if not methods:
+            return {"method": "<method_name>"}
+        method = methods[0]
+        params = _required_params(file_path, method, class_name=func.get("name"))
+        body: dict[str, Any] = {name: f"<{name}>" for name in params or []}
+        # class handlers dispatch on "method" only when there's more than one
+        if len(methods) > 1:
+            body = {"method": method, **body}
+        return body or {"__empty": True}
+
+    params = _required_params(file_path, func.get("name", ""))
     if not params:
         return {"__empty": True}
     return {name: f"<{name}>" for name in params}

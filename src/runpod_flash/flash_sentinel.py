@@ -15,9 +15,11 @@ import base64
 import inspect
 import logging
 import os
+import time
 from typing import Any, Callable, Dict, Optional
 
 import cloudpickle
+import httpx
 import runpod
 
 from .core.urls import ENDPOINT_DOMAIN
@@ -39,6 +41,13 @@ _PENDING_STATUSES = frozenset({"IN_QUEUE", "IN_PROGRESS"})
 
 # longest gap between /status polls, in seconds.
 _STATUS_POLL_MAX_SECONDS = 5.0
+
+# give up (and cancel) when no worker picks the job up for this long.
+# once the job is IN_PROGRESS, the endpoint's execution timeout bounds it.
+_QUEUE_WAIT_MAX_SECONDS = 900.0
+
+# consecutive network errors tolerated while polling /status.
+_STATUS_POLL_MAX_TRANSPORT_ERRORS = 5
 
 # runsync holds the request for 90s by default, the same as the default
 # client timeout, so the client could give up before runsync hands back a
@@ -139,7 +148,12 @@ async def _sentinel_qb_post(
     response.raise_for_status()
     data: Dict[str, Any] = response.json()
 
-    if data.get("status") in _PENDING_STATUSES and data.get("id"):
+    if data.get("status") in _PENDING_STATUSES:
+        if not data.get("id"):
+            raise RuntimeError(
+                f"endpoint '{endpoint_name}' returned status "
+                f"{data['status']} without a job id: {data}"
+            )
         data = await _poll_until_done(
             app, env, endpoint_name, data["id"], effective_timeout
         )
@@ -155,15 +169,18 @@ async def _poll_until_done(
 ) -> Dict[str, Any]:
     """poll the sentinel /status route until the job leaves IN_QUEUE/IN_PROGRESS.
 
-    there is no overall deadline here: the endpoint's execution timeout
-    ends the job server-side with TIMED_OUT, which this loop returns.
+    a running job is bounded by the endpoint's execution timeout, which ends
+    it server-side with TIMED_OUT. a job no worker picks up is cancelled
+    after _QUEUE_WAIT_MAX_SECONDS.
     """
-    url = f"{runpod.endpoint_url_base}/{FLASH_SENTINEL_ID}/status/{job_id}"
+    base = f"{runpod.endpoint_url_base}/{FLASH_SENTINEL_ID}"
     headers = _flash_headers(app, env, endpoint_name)
 
     log.debug("sentinel QB job %s still pending, polling /status", job_id)
 
+    queued_since = time.monotonic()
     attempt = 0
+    transport_errors = 0
     async with _http.get_authenticated_httpx_client(timeout=request_timeout) as client:
         while True:
             await asyncio.sleep(
@@ -172,11 +189,44 @@ async def _poll_until_done(
                 )
             )
             attempt += 1
-            response = await client.get(url, headers=headers)
+            try:
+                response = await client.get(f"{base}/status/{job_id}", headers=headers)
+            except httpx.TransportError as exc:
+                transport_errors += 1
+                if transport_errors >= _STATUS_POLL_MAX_TRANSPORT_ERRORS:
+                    raise RuntimeError(
+                        f"lost contact with endpoint '{endpoint_name}' while "
+                        f"waiting for job {job_id}: {exc}"
+                    ) from exc
+                log.debug("polling job %s failed (%s), retrying", job_id, exc)
+                continue
+            transport_errors = 0
             response.raise_for_status()
             data: Dict[str, Any] = response.json()
-            if data.get("status") not in _PENDING_STATUSES:
+            status = data.get("status")
+            if status not in _PENDING_STATUSES:
                 return data
+            if status != "IN_QUEUE":
+                queued_since = time.monotonic()
+            elif time.monotonic() - queued_since > _QUEUE_WAIT_MAX_SECONDS:
+                await _cancel_job(client, base, headers, job_id)
+                raise RuntimeError(
+                    f"job {job_id} on endpoint '{endpoint_name}' was still "
+                    f"queued after {_QUEUE_WAIT_MAX_SECONDS:.0f}s, so it was "
+                    f"cancelled. no worker picked it up; check that GPUs of "
+                    f"the requested type are available."
+                )
+
+
+async def _cancel_job(
+    client: httpx.AsyncClient, base: str, headers: Dict[str, str], job_id: str
+) -> None:
+    """best-effort cancel so an abandoned job doesn't run later."""
+    try:
+        response = await client.post(f"{base}/cancel/{job_id}", headers=headers)
+        response.raise_for_status()
+    except Exception as exc:
+        log.warning("could not cancel job %s: %s", job_id, exc)
 
 
 def _handle_sentinel_response(data: Dict[str, Any]) -> Any:
