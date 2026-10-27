@@ -161,7 +161,14 @@ def _required_params(
                 for a, default in zip(args.kwonlyargs, args.kw_defaults)
                 if default is None
             ]
-            return [a.arg for a in required if a.arg not in ("self", "cls")]
+            # a method's receiver is bound by the handler, not sent as input
+            if class_name is not None and required and positional:
+                if required[0] is positional[0] and positional[0].arg in (
+                    "self",
+                    "cls",
+                ):
+                    required = required[1:]
+            return [a.arg for a in required]
     return None
 
 

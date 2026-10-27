@@ -936,6 +936,27 @@ class TestDisplayPostDeploymentGuidance:
         output = self._collect_output(patched_console)
         assert '{"input": {"prompt": "<prompt>"}}' in output
 
+    def test_qb_curl_keeps_self_param_on_plain_function(
+        self, patched_console, tmp_path
+    ):
+        from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
+
+        src = tmp_path / "jobs.py"
+        src.write_text("def run(self):\n    ...\n")
+        _display_post_deployment_guidance(
+            env_name="production",
+            resources_endpoints={"my_qb": "https://api.runpod.ai/v2/abc123"},
+            resources={
+                "my_qb": {
+                    "file_path": str(src),
+                    "functions": [{"name": "run", "is_class": False}],
+                }
+            },
+            routes={},
+        )
+        output = self._collect_output(patched_console)
+        assert '{"input": {"self": "<self>"}}' in output
+
     def test_lb_endpoint_shows_routes(self, patched_console):
         from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
 

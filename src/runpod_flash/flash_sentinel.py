@@ -46,7 +46,7 @@ _STATUS_POLL_MAX_SECONDS = 5.0
 # once the job is IN_PROGRESS, the endpoint's execution timeout bounds it.
 _QUEUE_WAIT_MAX_SECONDS = 900.0
 
-# consecutive network errors tolerated while polling /status.
+# consecutive network errors or 429/5xx responses tolerated while polling.
 _STATUS_POLL_MAX_TRANSPORT_ERRORS = 5
 
 # runsync holds the request for 90s by default, the same as the default
@@ -191,7 +191,9 @@ async def _poll_until_done(
             attempt += 1
             try:
                 response = await client.get(f"{base}/status/{job_id}", headers=headers)
-            except httpx.TransportError as exc:
+                if response.status_code == 429 or response.status_code >= 500:
+                    response.raise_for_status()
+            except (httpx.TransportError, httpx.HTTPStatusError) as exc:
                 transport_errors += 1
                 if transport_errors >= _STATUS_POLL_MAX_TRANSPORT_ERRORS:
                     raise RuntimeError(
@@ -209,24 +211,31 @@ async def _poll_until_done(
             if status != "IN_QUEUE":
                 queued_since = time.monotonic()
             elif time.monotonic() - queued_since > _QUEUE_WAIT_MAX_SECONDS:
-                await _cancel_job(client, base, headers, job_id)
+                cancelled = await _cancel_job(client, base, headers, job_id)
+                outcome = (
+                    "it was cancelled"
+                    if cancelled
+                    else "cancelling it failed, so it may still run later"
+                )
                 raise RuntimeError(
                     f"job {job_id} on endpoint '{endpoint_name}' was still "
-                    f"queued after {_QUEUE_WAIT_MAX_SECONDS:.0f}s, so it was "
-                    f"cancelled. no worker picked it up; check that GPUs of "
-                    f"the requested type are available."
+                    f"queued after {_QUEUE_WAIT_MAX_SECONDS:.0f}s and {outcome}. "
+                    f"no worker picked it up; check that GPUs of the requested "
+                    f"type are available."
                 )
 
 
 async def _cancel_job(
     client: httpx.AsyncClient, base: str, headers: Dict[str, str], job_id: str
-) -> None:
+) -> bool:
     """best-effort cancel so an abandoned job doesn't run later."""
     try:
         response = await client.post(f"{base}/cancel/{job_id}", headers=headers)
         response.raise_for_status()
     except Exception as exc:
         log.warning("could not cancel job %s: %s", job_id, exc)
+        return False
+    return True
 
 
 def _handle_sentinel_response(data: Dict[str, Any]) -> Any:
