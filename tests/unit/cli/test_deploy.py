@@ -801,6 +801,86 @@ class TestDisplayPostDeploymentGuidance:
         assert "curl" in output
         assert "curl -X POST https://def.api.runpod.ai/runsync" in output
 
+    def test_qb_curl_sends_required_params(self, patched_console, tmp_path):
+        from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
+
+        src = tmp_path / "gpu_demo.py"
+        src.write_text(
+            "async def gpu_matrix_multiply(size, *, scale, seed=0, verbose=False):\n"
+            "    return size\n"
+        )
+        _display_post_deployment_guidance(
+            env_name="production",
+            resources_endpoints={"my_qb": "https://api.runpod.ai/v2/abc123"},
+            resources={
+                "my_qb": {
+                    "file_path": str(src),
+                    "functions": [{"name": "gpu_matrix_multiply", "is_class": False}],
+                }
+            },
+            routes={},
+        )
+        output = self._collect_output(patched_console)
+        assert '{"input": {"size": "<size>", "scale": "<scale>"}}' in output
+        assert '{"input": {}}' not in output
+
+    def test_qb_curl_marks_empty_input_for_no_arg_function(
+        self, patched_console, tmp_path
+    ):
+        from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
+
+        src = tmp_path / "jobs.py"
+        src.write_text("def ping(verbose=False):\n    return 'pong'\n")
+        _display_post_deployment_guidance(
+            env_name="production",
+            resources_endpoints={"my_qb": "https://api.runpod.ai/v2/abc123"},
+            resources={
+                "my_qb": {
+                    "file_path": str(src),
+                    "functions": [{"name": "ping", "is_class": False}],
+                }
+            },
+            routes={},
+        )
+        output = self._collect_output(patched_console)
+        assert '{"input": {"__empty": true}}' in output
+
+    def test_qb_curl_never_sends_empty_input(self, patched_console):
+        """runpod drops jobs with an empty input dict, so the example must not."""
+        from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
+
+        _display_post_deployment_guidance(
+            env_name="production",
+            resources_endpoints={"my_qb": "https://api.runpod.ai/v2/abc123"},
+            resources={
+                "my_qb": {
+                    "file_path": "missing.py",
+                    "functions": [{"name": "f", "is_class": False}],
+                }
+            },
+            routes={},
+        )
+        output = self._collect_output(patched_console)
+        assert '{"input": {"__empty": true}}' in output
+        assert '{"input": {}}' not in output
+
+    def test_qb_curl_for_class_endpoint_names_method(self, patched_console):
+        from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
+
+        _display_post_deployment_guidance(
+            env_name="production",
+            resources_endpoints={"my_qb": "https://api.runpod.ai/v2/abc123"},
+            resources={
+                "my_qb": {
+                    "file_path": "model.py",
+                    "functions": [{"name": "Model", "is_class": True}],
+                }
+            },
+            routes={},
+        )
+        output = self._collect_output(patched_console)
+        assert '{"input": {"method": "<method_name>"}}' in output
+
     def test_lb_endpoint_shows_routes(self, patched_console):
         from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
 

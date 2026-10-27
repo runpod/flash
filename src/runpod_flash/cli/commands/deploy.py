@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import ast
 import asyncio
+import json
 import logging
 import shutil
+from pathlib import Path
 from typing import Any
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 
 from runpod_flash.cli.utils.formatting import print_error
 from runpod_flash.core.exceptions import RunpodAPIKeyError
@@ -116,15 +120,63 @@ def _handle_deploy_error(exc: Exception) -> None:
     raise typer.Exit(1)
 
 
-def _print_curl_example(url: str, method: str = "POST") -> None:
+def _required_params(file_path: str, func_name: str) -> list[str] | None:
+    """names of a function's parameters that have no default, read from source.
+
+    returns None when the source can't be read or the function isn't found.
+    """
+    try:
+        tree = ast.parse(Path(file_path).read_text())
+    except (OSError, SyntaxError, ValueError):
+        return None
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == func_name
+        ):
+            args = node.args
+            positional = args.posonlyargs + args.args
+            required = positional[: len(positional) - len(args.defaults)]
+            required += [
+                a
+                for a, default in zip(args.kwonlyargs, args.kw_defaults)
+                if default is None
+            ]
+            return [a.arg for a in required if a.arg not in ("self", "cls")]
+    return None
+
+
+def _qb_example_input(resource: dict[str, Any]) -> dict[str, Any]:
+    """example runsync input for a queue-based endpoint.
+
+    runpod drops a job whose input is an empty dict, so the job never
+    reaches the worker and times out. the deployed handler strips the
+    "__empty" marker, so use it when the function needs no arguments.
+    """
+    functions = resource.get("functions") or []
+    if not functions:
+        return {"__empty": True}
+    func = functions[0]
+    if func.get("is_class"):
+        return {"method": "<method_name>"}
+    params = _required_params(resource.get("file_path", ""), func.get("name", ""))
+    if not params:
+        return {"__empty": True}
+    return {name: f"<{name}>" for name in params}
+
+
+def _print_curl_example(
+    url: str, method: str = "POST", body: dict[str, Any] | None = None
+) -> None:
     """Print a curl example for the given URL."""
     lines = [f"curl -X {method} {url}"]
     if method == "POST":
         lines.append('  -H "Content-Type: application/json"')
     lines.append('  -H "Authorization: Bearer $RUNPOD_API_KEY"')
     if method == "POST":
-        lines.append("""  -d '{"input": {}}'""")
-    console.print("[dim]" + " \\\n".join(lines) + "[/dim]")
+        payload = json.dumps(body if body is not None else {"input": {}})
+        lines.append(f"  -d '{payload}'")
+    console.print("[dim]" + escape(" \\\n".join(lines)) + "[/dim]")
 
 
 def _display_post_deployment_guidance(
@@ -187,8 +239,11 @@ def _display_post_deployment_guidance(
     # one curl example
     curl_url = None
     curl_method = "POST"
+    curl_body = None
     if qb_entries:
-        curl_url = f"{qb_entries[0][1]}/runsync"
+        qb_name, qb_url = qb_entries[0]
+        curl_url = f"{qb_url}/runsync"
+        curl_body = {"input": _qb_example_input(resources.get(qb_name, {}))}
     elif lb_entries:
         _name, base_url, lb_routes = lb_entries[0]
         for k in sorted(lb_routes.keys()):
@@ -205,7 +260,7 @@ def _display_post_deployment_guidance(
 
     if curl_url:
         console.print()
-        _print_curl_example(curl_url, method=curl_method)
+        _print_curl_example(curl_url, method=curl_method, body=curl_body)
 
 
 def _launch_preview(project_dir):
