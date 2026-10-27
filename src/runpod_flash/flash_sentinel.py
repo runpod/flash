@@ -202,7 +202,9 @@ async def _poll_until_done(
                     attempt, base=1.0, max_seconds=_STATUS_POLL_MAX_SECONDS
                 )
             )
-            attempt += 1
+            # the delay is already at its cap by now; a growing exponent
+            # overflows float after ~1000 polls on long jobs
+            attempt = min(attempt + 1, 8)
             try:
                 response = await client.get(f"{base}/status/{job_id}", headers=headers)
                 if response.status_code == 429 or response.status_code >= 500:

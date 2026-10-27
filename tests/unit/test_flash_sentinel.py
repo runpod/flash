@@ -472,6 +472,27 @@ class TestSentinelQBPolling:
         mock_client.get.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_long_running_job_polls_past_backoff_overflow(self, mock_httpx):
+        """an uncapped exponent overflows float after ~1024 polls."""
+        from runpod_flash.flash_sentinel import sentinel_qb_execute
+
+        running = _json_response({"id": "job-1", "status": "IN_PROGRESS"})
+        done = _json_response(
+            {"id": "job-1", "status": "COMPLETED", "output": {"ok": True}}
+        )
+        mock_client = _make_mock_client(running)
+        mock_client.get = AsyncMock(side_effect=[running] * 1100 + [done])
+        mock_httpx.return_value = mock_client
+
+        async def my_func():
+            pass
+
+        result = await sentinel_qb_execute("myapp", "prod", "gpu-worker", my_func)
+
+        assert result == {"ok": True}
+        assert mock_client.get.call_count == 1101
+
+    @pytest.mark.asyncio
     async def test_running_job_is_not_cancelled_by_queue_deadline(self, mock_httpx):
         from runpod_flash.flash_sentinel import (
             _QUEUE_WAIT_MAX_SECONDS,

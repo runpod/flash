@@ -153,20 +153,21 @@ def _required_params(
     if not matches:
         return None
 
-    args = matches[-1].args
+    func = matches[-1]
+    args = func.args
     positional = args.posonlyargs + args.args
     required = positional[: len(positional) - len(args.defaults)]
     required += [
         a for a, default in zip(args.kwonlyargs, args.kw_defaults) if default is None
     ]
-    # a method's receiver is bound by the handler, not sent as input
-    if (
-        class_name is not None
-        and required
-        and required[0] is positional[0]
-        and positional[0].arg in ("self", "cls")
-    ):
-        required = required[1:]
+    # a method's receiver (whatever it's named) is bound by the handler, not
+    # sent as input. static methods have no receiver.
+    is_static = any(
+        isinstance(d, ast.Name) and d.id == "staticmethod" for d in func.decorator_list
+    )
+    if class_name is not None and not is_static and required:
+        if required[0] is positional[0]:
+            required = required[1:]
     return [a.arg for a in required]
 
 

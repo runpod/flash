@@ -912,6 +912,35 @@ class TestDisplayPostDeploymentGuidance:
         output = self._collect_output(patched_console)
         assert '{"input": {"method": "predict", "image": "<image>"}}' in output
 
+    @pytest.mark.parametrize(
+        ("source", "expected"),
+        [
+            (
+                "class Model:\n    def predict(this, image):\n        ...\n",
+                '{"input": {"image": "<image>"}}',
+            ),
+            (
+                "class Model:\n    @staticmethod\n"
+                "    def predict(image):\n        ...\n",
+                '{"input": {"image": "<image>"}}',
+            ),
+        ],
+    )
+    def test_qb_curl_drops_only_the_method_receiver(
+        self, patched_console, tmp_path, source, expected
+    ):
+        from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
+
+        src = tmp_path / "model.py"
+        src.write_text(source)
+        _display_post_deployment_guidance(
+            env_name="production",
+            resources_endpoints={"my_qb": "https://api.runpod.ai/v2/abc123"},
+            resources=self._class_resource(src, ["predict"]),
+            routes={},
+        )
+        assert expected in self._collect_output(patched_console)
+
     def test_qb_curl_uses_last_definition_of_redefined_class(
         self, patched_console, tmp_path
     ):
