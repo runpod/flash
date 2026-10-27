@@ -597,9 +597,9 @@ def build_command(
         None,
         "--python-version",
         help=(
-            "Target Python version for worker images (3.10, 3.11, or 3.12). "
-            "Overrides per-resource python_version declarations. "
-            "Defaults to the version declared on resource configs, or 3.12 if none set."
+            "Target Python version for worker images (3.10, 3.11, 3.12, or 3.13). "
+            "Defaults to the version declared on resource configs, or 3.12 if none "
+            "set. Fails if it conflicts with a declared python_version."
         ),
     ),
 ):
