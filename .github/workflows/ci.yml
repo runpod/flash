@@ -263,6 +263,18 @@ jobs:
       - name: Quality checks
         run: make ci-quality-github
 
+      # Public repo so this public repo can resolve it. Pinned by commit SHA.
+      # Uploads the coverage artifact only. Test results upload separately below.
+      - name: Coverage summary
+        if: always()
+        uses: runpod/coverage-summary-action@65b35a32ecfd9c2f0dc2352394eca1decfba4915
+        with:
+          format: cobertura
+          coverage-file: coverage.xml
+          results: pytest-results-*.xml
+          artifact-name: coverage-${{ matrix.python-version }}
+          if-no-files-found: warn
+
       - name: Upload test results
         uses: actions/upload-artifact@v4
         if: always()
