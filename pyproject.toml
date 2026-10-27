@@ -119,7 +119,7 @@ ignore_missing_imports = true
 
 [tool.coverage.run]
 parallel = true
-branch = false
+branch = true
 source = ["runpod_flash"]
 omit = ["*/tests/*", "*/test_*.py", "*/__pycache__/*", "*/site-packages/*"]
 
