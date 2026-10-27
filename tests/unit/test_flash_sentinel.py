@@ -368,6 +368,38 @@ class TestSentinelQBPolling:
         mock_client.get.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_poll_non_json_response_raises(self, mock_httpx):
+        import json
+
+        from runpod_flash.flash_sentinel import sentinel_qb_execute
+
+        html_response = _json_response(None)
+        html_response.json.side_effect = json.JSONDecodeError("Expecting value", "", 0)
+        html_response.text = "<html>bad gateway</html>"
+        mock_client = _make_mock_client(
+            _json_response({"id": "job-1", "status": "IN_PROGRESS"})
+        )
+        mock_client.get = AsyncMock(return_value=html_response)
+        mock_httpx.return_value = mock_client
+
+        async def my_func():
+            pass
+
+        with pytest.raises(RuntimeError, match="job job-1.*gpu-worker.*non-JSON"):
+            await sentinel_qb_execute("myapp", "prod", "gpu-worker", my_func)
+
+    def test_poll_attempt_cap_reaches_max_delay(self):
+        from runpod_flash.flash_sentinel import (
+            _STATUS_POLL_BASE_SECONDS,
+            _STATUS_POLL_MAX_ATTEMPT,
+            _STATUS_POLL_MAX_SECONDS,
+        )
+
+        capped = _STATUS_POLL_BASE_SECONDS * 2**_STATUS_POLL_MAX_ATTEMPT
+        below = _STATUS_POLL_BASE_SECONDS * 2 ** (_STATUS_POLL_MAX_ATTEMPT - 1)
+        assert capped >= _STATUS_POLL_MAX_SECONDS > below
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize("status_code", [429, 503])
     async def test_poll_recovers_from_transient_status(self, mock_httpx, status_code):
         from runpod_flash.flash_sentinel import sentinel_qb_execute

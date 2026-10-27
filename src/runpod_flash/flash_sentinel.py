@@ -14,6 +14,7 @@ import asyncio
 import base64
 import inspect
 import logging
+import math
 import os
 import time
 from typing import Any, Callable, Dict, Optional
@@ -31,8 +32,9 @@ log = logging.getLogger(__name__)
 
 FLASH_SENTINEL_ID = "flash"
 
-# default timeout for sentinel requests. configurable via
-# FLASH_SENTINEL_TIMEOUT env var (seconds).
+# default timeout for each sentinel HTTP request. configurable via
+# FLASH_SENTINEL_TIMEOUT env var (seconds). it doesn't cap the total wait:
+# a pending job is polled until it finishes.
 DEFAULT_SENTINEL_TIMEOUT = 90
 
 # runsync returns one of these when the job outlives the server-side wait
@@ -42,11 +44,22 @@ _PENDING_STATUSES = frozenset({"IN_QUEUE", "IN_PROGRESS"})
 # longest gap between /status polls, in seconds.
 _STATUS_POLL_MAX_SECONDS = 5.0
 
+# backoff exponent at which the poll delay reaches _STATUS_POLL_MAX_SECONDS
+# (with a 1s base). capping the exponent there keeps 2**attempt from
+# overflowing float after ~1000 polls on long jobs.
+_STATUS_POLL_BASE_SECONDS = 1.0
+_STATUS_POLL_MAX_ATTEMPT = math.ceil(
+    math.log2(_STATUS_POLL_MAX_SECONDS / _STATUS_POLL_BASE_SECONDS)
+)
+
 # give up (and cancel) when no worker picks the job up for this long.
-# once the job is IN_PROGRESS, the endpoint's execution timeout bounds it.
+# once the job is IN_PROGRESS, only the endpoint's execution_timeout_ms
+# bounds it. flash defaults that to 0 (no limit), so a hung handler is
+# polled until the job's 24h TTL expires.
 _QUEUE_WAIT_MAX_SECONDS = 900.0
 
-# consecutive network errors or 429/5xx responses tolerated while polling.
+# polling raises after this many consecutive network errors or 429/5xx
+# responses.
 _STATUS_POLL_MAX_TRANSPORT_ERRORS = 5
 
 # runsync holds the request for 90s by default, the same as the default
@@ -183,9 +196,10 @@ async def _poll_until_done(
 ) -> Dict[str, Any]:
     """poll the sentinel /status route until the job leaves IN_QUEUE/IN_PROGRESS.
 
-    a running job is bounded by the endpoint's execution timeout, which ends
-    it server-side with TIMED_OUT. a job no worker picks up is cancelled
-    after _QUEUE_WAIT_MAX_SECONDS, counted from submission.
+    a running job is bounded only by the endpoint's execution_timeout_ms,
+    which ends it server-side with TIMED_OUT. the default of 0 sets no limit.
+    a job no worker picks up is cancelled after _QUEUE_WAIT_MAX_SECONDS,
+    counted from submission.
     """
     base = f"{runpod.endpoint_url_base}/{FLASH_SENTINEL_ID}"
     headers = _flash_headers(app, env, endpoint_name)
@@ -199,12 +213,12 @@ async def _poll_until_done(
         while True:
             await asyncio.sleep(
                 get_backoff_delay(
-                    attempt, base=1.0, max_seconds=_STATUS_POLL_MAX_SECONDS
+                    attempt,
+                    base=_STATUS_POLL_BASE_SECONDS,
+                    max_seconds=_STATUS_POLL_MAX_SECONDS,
                 )
             )
-            # the delay is already at its cap by now; a growing exponent
-            # overflows float after ~1000 polls on long jobs
-            attempt = min(attempt + 1, 8)
+            attempt = min(attempt + 1, _STATUS_POLL_MAX_ATTEMPT)
             try:
                 response = await client.get(f"{base}/status/{job_id}", headers=headers)
                 if response.status_code == 429 or response.status_code >= 500:
@@ -225,7 +239,13 @@ async def _poll_until_done(
                 raise RuntimeError(
                     f"checking job {job_id} on endpoint '{endpoint_name}' failed: {exc}"
                 ) from exc
-            data: Dict[str, Any] = response.json()
+            try:
+                data: Dict[str, Any] = response.json()
+            except ValueError as exc:
+                raise RuntimeError(
+                    f"checking job {job_id} on endpoint '{endpoint_name}' "
+                    f"returned a non-JSON response: {response.text[:200]!r}"
+                ) from exc
             status = data.get("status")
             if status not in _PENDING_STATUSES:
                 return data
