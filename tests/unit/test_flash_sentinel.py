@@ -286,6 +286,34 @@ class TestSentinelQBPolling:
         mock_client.get.assert_not_awaited()
 
 
+class TestRunsyncWait:
+    """runsync must return a pending status before the client times out."""
+
+    @pytest.mark.parametrize(
+        ("timeout", "expected_ms"),
+        [(90, 80_000), (30, 20_000), (5, 1_000), (900, 300_000)],
+    )
+    def test_wait_stays_below_client_timeout(self, timeout, expected_ms):
+        from runpod_flash.flash_sentinel import _runsync_wait_ms
+
+        assert _runsync_wait_ms(timeout) == expected_ms
+
+    @pytest.mark.asyncio
+    async def test_runsync_sends_wait_param(self, mock_httpx, monkeypatch):
+        from runpod_flash.flash_sentinel import _sentinel_qb_post
+
+        monkeypatch.delenv("FLASH_SENTINEL_TIMEOUT", raising=False)
+        mock_client = _make_mock_client(
+            _json_response({"status": "COMPLETED", "output": {}})
+        )
+        mock_httpx.return_value = mock_client
+
+        await _sentinel_qb_post("myapp", "prod", "gpu-worker", {"input": {"a": 1}})
+
+        assert mock_client.post.call_args.kwargs["params"] == {"wait": 80_000}
+        assert mock_httpx.call_args.kwargs["timeout"] == 90
+
+
 class TestSentinelQBClassExecute:
     @pytest.mark.asyncio
     async def test_dispatches_on_method_name(self, mock_httpx):

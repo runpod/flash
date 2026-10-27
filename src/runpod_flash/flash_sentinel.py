@@ -40,6 +40,14 @@ _PENDING_STATUSES = frozenset({"IN_QUEUE", "IN_PROGRESS"})
 # longest gap between /status polls, in seconds.
 _STATUS_POLL_MAX_SECONDS = 5.0
 
+# runsync holds the request for 90s by default, the same as the default
+# client timeout, so the client could give up before runsync hands back a
+# pending status. ask runsync to return this many seconds before the client
+# timeout. ai-api accepts a wait of 1s to 300s.
+_RUNSYNC_WAIT_MARGIN_SECONDS = 10.0
+_RUNSYNC_WAIT_MIN_SECONDS = 1.0
+_RUNSYNC_WAIT_MAX_SECONDS = 300.0
+
 
 def _get_timeout(override: Optional[float] = None) -> float:
     """resolve the sentinel request timeout.
@@ -56,6 +64,13 @@ def _get_timeout(override: Optional[float] = None) -> float:
         except ValueError:
             pass
     return DEFAULT_SENTINEL_TIMEOUT
+
+
+def _runsync_wait_ms(timeout: float) -> int:
+    """server-side runsync wait in ms, kept below the client timeout."""
+    wait = timeout - _RUNSYNC_WAIT_MARGIN_SECONDS
+    wait = max(_RUNSYNC_WAIT_MIN_SECONDS, min(wait, _RUNSYNC_WAIT_MAX_SECONDS))
+    return int(wait * 1000)
 
 
 def _flash_headers(app: str, env: str, endpoint: str) -> Dict[str, str]:
@@ -100,7 +115,12 @@ async def _sentinel_qb_post(
         async with _http.get_authenticated_httpx_client(
             timeout=effective_timeout
         ) as client:
-            response = await client.post(url, json=payload, headers=headers)
+            response = await client.post(
+                url,
+                json=payload,
+                headers=headers,
+                params={"wait": _runsync_wait_ms(effective_timeout)},
+            )
     except Exception as exc:
         if "timeout" in type(exc).__name__.lower() or "timeout" in str(exc).lower():
             raise RuntimeError(
