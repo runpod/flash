@@ -20,7 +20,7 @@ jobs:
   # duplicate ~24 min of compute per merge for zero added signal.
   release-please:
     name: Release Please
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
 
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
@@ -42,7 +42,7 @@ jobs:
 
   pypi-publish:
     name: PyPI Publish
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     needs: [release-please]
     if: ${{ needs.release-please.outputs.release_created == 'true' }}
 
@@ -75,7 +75,7 @@ jobs:
   linear-sync:
     name: Linear Release Sync
     needs: release-please
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     permissions:
       contents: read
     steps:
@@ -94,7 +94,7 @@ jobs:
     name: Linear Release Complete
     if: ${{ needs.release-please.outputs.release_created == 'true' }}
     needs: [release-please, linear-sync]
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     permissions:
       contents: read
     steps:

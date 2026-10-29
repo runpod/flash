@@ -30,7 +30,7 @@ jobs:
   # named release-please-- and inherits sentinel passes for free.
   guard:
     name: Guard
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 2
     outputs:
       mode: ${{ steps.classify.outputs.mode }}
@@ -200,7 +200,7 @@ jobs:
   # match local `make quality-check`.
   pre-check:
     name: Pre-check (format + lint)
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     needs: [guard]
     if: ${{ needs.guard.outputs.mode == 'full' }}
     timeout-minutes: 3
@@ -222,7 +222,7 @@ jobs:
 
   quality-gates:
     name: Quality Gates
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     needs: [guard, pre-check]
     if: ${{ needs.guard.outputs.mode == 'full' }}
     strategy:
@@ -284,7 +284,7 @@ jobs:
 
   build:
     name: Build Package
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     needs: [guard, quality-gates]
     if: ${{ needs.guard.outputs.mode == 'full' && needs.guard.outputs.should_build == 'true' }}
     timeout-minutes: 5
@@ -319,7 +319,7 @@ jobs:
   # A failed Nix build blocks validation, protecting the advertised Nix CLI.
   nix:
     name: Nix flake
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     needs: [guard]
     if: ${{ needs.guard.outputs.mode == 'full' }}
     timeout-minutes: 30
@@ -348,7 +348,7 @@ jobs:
   # job in `needs:` and the results array.
   validation:
     name: Validation
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     needs: [guard, pre-check, quality-gates, build, nix]
     if: always()
     timeout-minutes: 1
