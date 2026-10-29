@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import ast
 import asyncio
+import json
 import logging
 import shutil
+from pathlib import Path
 from typing import Any
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 
 from runpod_flash.cli.utils.formatting import print_error
 from runpod_flash.core.exceptions import RunpodAPIKeyError
@@ -47,8 +51,9 @@ def deploy_command(
         None,
         "--python-version",
         help=(
-            "Target Python version for worker images (3.10, 3.11, or 3.12). "
-            "Overrides per-resource python_version declarations."
+            "Target Python version for worker images (3.10, 3.11, 3.12, or 3.13). "
+            "Defaults to the version declared on resource configs, or 3.12 if none "
+            "set. Fails if it conflicts with a declared python_version."
         ),
     ),
 ):
@@ -116,15 +121,102 @@ def _handle_deploy_error(exc: Exception) -> None:
     raise typer.Exit(1)
 
 
-def _print_curl_example(url: str, method: str = "POST") -> None:
+def _required_params(
+    file_path: str, func_name: str, class_name: str | None = None
+) -> list[str] | None:
+    """names of a function's parameters that have no default, read from source.
+
+    looks only at top-level definitions (or methods of a top-level class),
+    which is what the generated handler imports. returns None when the
+    source can't be read or the definition isn't found.
+    """
+    try:
+        tree = ast.parse(Path(file_path).read_text())
+    except (OSError, SyntaxError, ValueError):
+        return None
+
+    body: list[ast.stmt] = tree.body
+    if class_name is not None:
+        classes = [
+            n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == class_name
+        ]
+        if not classes:
+            return None
+        body = classes[-1].body
+
+    # the last definition wins at import time, as in python itself
+    matches = [
+        node
+        for node in body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == func_name
+    ]
+    if not matches:
+        return None
+
+    func = matches[-1]
+    args = func.args
+    positional = args.posonlyargs + args.args
+    required = positional[: len(positional) - len(args.defaults)]
+    required += [
+        a for a, default in zip(args.kwonlyargs, args.kw_defaults) if default is None
+    ]
+    # a method's receiver (whatever it's named) is bound by the handler, not
+    # sent as input. static methods have no receiver.
+    is_static = any(
+        (isinstance(d, ast.Name) and d.id == "staticmethod")
+        or (isinstance(d, ast.Attribute) and d.attr == "staticmethod")
+        for d in func.decorator_list
+    )
+    if class_name is not None and not is_static and required:
+        if required[0] is positional[0]:
+            required = required[1:]
+    return [a.arg for a in required]
+
+
+def _qb_example_input(resource: dict[str, Any]) -> dict[str, Any]:
+    """example runsync input for a queue-based endpoint.
+
+    runpod drops a job whose input is an empty dict, so the job never
+    reaches the worker and times out. the deployed handler strips the
+    "__empty" marker, so use it when the call needs no arguments.
+    """
+    functions = resource.get("functions") or []
+    if not functions:
+        return {"__empty": True}
+    func = functions[0]
+    file_path = resource.get("file_path", "")
+
+    if func.get("is_class"):
+        methods = func.get("class_methods") or []
+        if not methods:
+            return {"method": "<method_name>"}
+        method = methods[0]
+        params = _required_params(file_path, method, class_name=func.get("name"))
+        body: dict[str, Any] = {name: f"<{name}>" for name in params or []}
+        # class handlers dispatch on "method" only when there's more than one
+        if len(methods) > 1:
+            body = {"method": method, **body}
+        return body or {"__empty": True}
+
+    params = _required_params(file_path, func.get("name", ""))
+    if not params:
+        return {"__empty": True}
+    return {name: f"<{name}>" for name in params}
+
+
+def _print_curl_example(
+    url: str, method: str = "POST", body: dict[str, Any] | None = None
+) -> None:
     """Print a curl example for the given URL."""
     lines = [f"curl -X {method} {url}"]
     if method == "POST":
         lines.append('  -H "Content-Type: application/json"')
     lines.append('  -H "Authorization: Bearer $RUNPOD_API_KEY"')
     if method == "POST":
-        lines.append("""  -d '{"input": {}}'""")
-    console.print("[dim]" + " \\\n".join(lines) + "[/dim]")
+        payload = json.dumps(body if body is not None else {"input": {}})
+        lines.append(f"  -d '{payload}'")
+    console.print("[dim]" + escape(" \\\n".join(lines)) + "[/dim]")
 
 
 def _display_post_deployment_guidance(
@@ -187,8 +279,11 @@ def _display_post_deployment_guidance(
     # one curl example
     curl_url = None
     curl_method = "POST"
+    curl_body = None
     if qb_entries:
-        curl_url = f"{qb_entries[0][1]}/runsync"
+        qb_name, qb_url = qb_entries[0]
+        curl_url = f"{qb_url}/runsync"
+        curl_body = {"input": _qb_example_input(resources.get(qb_name, {}))}
     elif lb_entries:
         _name, base_url, lb_routes = lb_entries[0]
         for k in sorted(lb_routes.keys()):
@@ -205,7 +300,7 @@ def _display_post_deployment_guidance(
 
     if curl_url:
         console.print()
-        _print_curl_example(curl_url, method=curl_method)
+        _print_curl_example(curl_url, method=curl_method, body=curl_body)
 
 
 def _launch_preview(project_dir):

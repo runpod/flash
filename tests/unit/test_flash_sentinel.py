@@ -154,6 +154,490 @@ class TestSentinelQBExecute:
             await sentinel_qb_execute("myapp", "prod", "gpu-worker", my_func)
 
 
+class TestHandleSentinelTerminalStatuses:
+    @pytest.mark.parametrize("status", ["CANCELLED", "TIMED_OUT"])
+    def test_cancelled_or_timed_out_raises(self, status):
+        from runpod_flash.flash_sentinel import _handle_sentinel_response
+
+        data = {"id": "job-1", "status": status}
+        with pytest.raises(RuntimeError, match=status.lower()):
+            _handle_sentinel_response(data)
+
+
+def _json_response(payload):
+    response = MagicMock()
+    response.status_code = 200
+    response.raise_for_status = MagicMock()
+    response.json.return_value = payload
+    return response
+
+
+def _http_error_response(status_code):
+    import httpx
+
+    response = MagicMock()
+    response.status_code = status_code
+    response.raise_for_status = MagicMock(
+        side_effect=httpx.HTTPStatusError(
+            str(status_code), request=MagicMock(), response=MagicMock()
+        )
+    )
+    return response
+
+
+class TestSentinelQBPolling:
+    """runsync returns IN_QUEUE/IN_PROGRESS when the job outlives the server wait."""
+
+    @pytest.fixture(autouse=True)
+    def no_sleep(self):
+        with patch("runpod_flash.flash_sentinel.asyncio.sleep", new=AsyncMock()):
+            yield
+
+    @pytest.mark.asyncio
+    async def test_polls_status_until_completed(self, mock_httpx):
+        from runpod_flash.flash_sentinel import FLASH_SENTINEL_ID, sentinel_qb_execute
+
+        mock_client = _make_mock_client(
+            _json_response({"id": "job-1", "status": "IN_QUEUE"})
+        )
+        mock_client.get = AsyncMock(
+            side_effect=[
+                _json_response({"id": "job-1", "status": "IN_QUEUE"}),
+                _json_response({"id": "job-1", "status": "IN_PROGRESS"}),
+                _json_response(
+                    {"id": "job-1", "status": "COMPLETED", "output": {"image": "b64"}}
+                ),
+            ]
+        )
+        mock_httpx.return_value = mock_client
+
+        async def my_func(prompt):
+            pass
+
+        result = await sentinel_qb_execute(
+            "myapp", "prod", "gpu-worker", my_func, "a cat"
+        )
+
+        assert result == {"image": "b64"}
+        assert mock_client.get.call_count == 3
+        status_call = mock_client.get.call_args
+        assert status_call.args[0].endswith(f"/{FLASH_SENTINEL_ID}/status/job-1")
+        assert status_call.kwargs["headers"]["X-Flash-Endpoint"] == "gpu-worker"
+
+    @pytest.mark.asyncio
+    async def test_polled_failure_raises(self, mock_httpx):
+        from runpod_flash.flash_sentinel import sentinel_qb_execute
+
+        mock_client = _make_mock_client(
+            _json_response({"id": "job-1", "status": "IN_PROGRESS"})
+        )
+        mock_client.get = AsyncMock(
+            return_value=_json_response(
+                {"id": "job-1", "status": "FAILED", "error": "CUDA out of memory"}
+            )
+        )
+        mock_httpx.return_value = mock_client
+
+        async def my_func():
+            pass
+
+        with pytest.raises(RuntimeError, match="CUDA out of memory"):
+            await sentinel_qb_execute("myapp", "prod", "gpu-worker", my_func)
+
+    @pytest.mark.asyncio
+    async def test_polled_timeout_raises(self, mock_httpx):
+        from runpod_flash.flash_sentinel import sentinel_qb_execute
+
+        mock_client = _make_mock_client(
+            _json_response({"id": "job-1", "status": "IN_QUEUE"})
+        )
+        mock_client.get = AsyncMock(
+            return_value=_json_response({"id": "job-1", "status": "TIMED_OUT"})
+        )
+        mock_httpx.return_value = mock_client
+
+        async def my_func():
+            pass
+
+        with pytest.raises(RuntimeError, match="timed_out"):
+            await sentinel_qb_execute("myapp", "prod", "gpu-worker", my_func)
+
+    @pytest.mark.asyncio
+    async def test_class_execute_polls_too(self, mock_httpx):
+        from runpod_flash.flash_sentinel import sentinel_qb_class_execute
+        from runpod_flash.protos.remote_execution import FunctionRequest
+
+        mock_client = _make_mock_client(
+            _json_response({"id": "job-2", "status": "IN_PROGRESS"})
+        )
+        mock_client.get = AsyncMock(
+            return_value=_json_response(
+                {"id": "job-2", "status": "COMPLETED", "output": {"ok": True}}
+            )
+        )
+        mock_httpx.return_value = mock_client
+
+        request = FunctionRequest(
+            execution_type="class", class_name="MyModel", method_name="predict"
+        )
+        result = await sentinel_qb_class_execute("myapp", "prod", "gpu-worker", request)
+
+        assert result == {"ok": True}
+        mock_client.get.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_pending_without_id_raises(self, mock_httpx):
+        from runpod_flash.flash_sentinel import _sentinel_qb_post
+
+        mock_client = _make_mock_client(_json_response({"status": "IN_QUEUE"}))
+        mock_client.get = AsyncMock()
+        mock_httpx.return_value = mock_client
+
+        with pytest.raises(RuntimeError, match="without a job id"):
+            await _sentinel_qb_post("myapp", "prod", "gpu-worker", {"input": {}})
+        mock_client.get.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_transient_poll_error_is_retried(self, mock_httpx):
+        import httpx
+
+        from runpod_flash.flash_sentinel import sentinel_qb_execute
+
+        mock_client = _make_mock_client(
+            _json_response({"id": "job-1", "status": "IN_PROGRESS"})
+        )
+        mock_client.get = AsyncMock(
+            side_effect=[
+                httpx.ReadTimeout("slow"),
+                _json_response(
+                    {"id": "job-1", "status": "COMPLETED", "output": {"ok": True}}
+                ),
+            ]
+        )
+        mock_httpx.return_value = mock_client
+
+        async def my_func():
+            pass
+
+        result = await sentinel_qb_execute("myapp", "prod", "gpu-worker", my_func)
+
+        assert result == {"ok": True}
+        assert mock_client.get.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_repeated_poll_errors_raise(self, mock_httpx):
+        import httpx
+
+        from runpod_flash.flash_sentinel import (
+            _STATUS_POLL_MAX_TRANSPORT_ERRORS,
+            sentinel_qb_execute,
+        )
+
+        mock_client = _make_mock_client(
+            _json_response({"id": "job-1", "status": "IN_PROGRESS"})
+        )
+        mock_client.get = AsyncMock(side_effect=httpx.ConnectError("down"))
+        mock_httpx.return_value = mock_client
+
+        async def my_func():
+            pass
+
+        with pytest.raises(RuntimeError, match="lost contact.*job-1"):
+            await sentinel_qb_execute("myapp", "prod", "gpu-worker", my_func)
+        assert mock_client.get.call_count == _STATUS_POLL_MAX_TRANSPORT_ERRORS
+
+    @pytest.mark.asyncio
+    async def test_poll_client_error_propagates(self, mock_httpx):
+        import httpx
+
+        from runpod_flash.flash_sentinel import sentinel_qb_execute
+
+        error_response = _http_error_response(404)
+        mock_client = _make_mock_client(
+            _json_response({"id": "job-1", "status": "IN_PROGRESS"})
+        )
+        mock_client.get = AsyncMock(return_value=error_response)
+        mock_httpx.return_value = mock_client
+
+        async def my_func():
+            pass
+
+        with pytest.raises(RuntimeError, match="job job-1.*gpu-worker") as exc_info:
+            await sentinel_qb_execute("myapp", "prod", "gpu-worker", my_func)
+        assert isinstance(exc_info.value.__cause__, httpx.HTTPStatusError)
+        mock_client.get.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_poll_non_json_response_raises(self, mock_httpx):
+        import json
+
+        from runpod_flash.flash_sentinel import sentinel_qb_execute
+
+        html_response = _json_response(None)
+        html_response.json.side_effect = json.JSONDecodeError("Expecting value", "", 0)
+        html_response.text = "<html>bad gateway</html>"
+        mock_client = _make_mock_client(
+            _json_response({"id": "job-1", "status": "IN_PROGRESS"})
+        )
+        mock_client.get = AsyncMock(return_value=html_response)
+        mock_httpx.return_value = mock_client
+
+        async def my_func():
+            pass
+
+        with pytest.raises(RuntimeError, match="job job-1.*gpu-worker.*non-JSON"):
+            await sentinel_qb_execute("myapp", "prod", "gpu-worker", my_func)
+
+    def test_poll_attempt_cap_reaches_max_delay(self):
+        from runpod_flash.flash_sentinel import (
+            _STATUS_POLL_BASE_SECONDS,
+            _STATUS_POLL_MAX_ATTEMPT,
+            _STATUS_POLL_MAX_SECONDS,
+        )
+
+        capped = _STATUS_POLL_BASE_SECONDS * 2**_STATUS_POLL_MAX_ATTEMPT
+        below = _STATUS_POLL_BASE_SECONDS * 2 ** (_STATUS_POLL_MAX_ATTEMPT - 1)
+        assert capped >= _STATUS_POLL_MAX_SECONDS > below
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("status_code", [429, 503])
+    async def test_poll_recovers_from_transient_status(self, mock_httpx, status_code):
+        from runpod_flash.flash_sentinel import sentinel_qb_execute
+
+        mock_client = _make_mock_client(
+            _json_response({"id": "job-1", "status": "IN_PROGRESS"})
+        )
+        mock_client.get = AsyncMock(
+            side_effect=[
+                _http_error_response(status_code),
+                _json_response(
+                    {"id": "job-1", "status": "COMPLETED", "output": {"ok": True}}
+                ),
+            ]
+        )
+        mock_httpx.return_value = mock_client
+
+        async def my_func():
+            pass
+
+        result = await sentinel_qb_execute("myapp", "prod", "gpu-worker", my_func)
+
+        assert result == {"ok": True}
+        assert mock_client.get.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_job_stuck_in_queue_is_cancelled(self, mock_httpx):
+        from runpod_flash.flash_sentinel import (
+            _QUEUE_WAIT_MAX_SECONDS,
+            FLASH_SENTINEL_ID,
+            sentinel_qb_execute,
+        )
+
+        queued = _json_response({"id": "job-1", "status": "IN_QUEUE"})
+        mock_client = _make_mock_client(queued)
+        mock_client.get = AsyncMock(return_value=queued)
+        mock_httpx.return_value = mock_client
+
+        clock = iter([0.0, 10.0, _QUEUE_WAIT_MAX_SECONDS + 1])
+
+        async def my_func():
+            pass
+
+        with patch(
+            "runpod_flash.flash_sentinel.time.monotonic",
+            side_effect=lambda: next(clock),
+        ):
+            with pytest.raises(RuntimeError, match="still queued.*cancelled"):
+                await sentinel_qb_execute("myapp", "prod", "gpu-worker", my_func)
+
+        cancel_url = mock_client.post.call_args.args[0]
+        assert cancel_url.endswith(f"/{FLASH_SENTINEL_ID}/cancel/job-1")
+
+    @pytest.mark.asyncio
+    async def test_failed_cancel_is_reported(self, mock_httpx):
+        from runpod_flash.flash_sentinel import (
+            _QUEUE_WAIT_MAX_SECONDS,
+            sentinel_qb_execute,
+        )
+
+        queued = _json_response({"id": "job-1", "status": "IN_QUEUE"})
+        mock_client = _make_mock_client(queued)
+        mock_client.post = AsyncMock(side_effect=[queued, _http_error_response(500)])
+        mock_client.get = AsyncMock(return_value=queued)
+        mock_httpx.return_value = mock_client
+
+        clock = iter([0.0, _QUEUE_WAIT_MAX_SECONDS + 1])
+
+        async def my_func():
+            pass
+
+        with patch(
+            "runpod_flash.flash_sentinel.time.monotonic",
+            side_effect=lambda: next(clock),
+        ):
+            with pytest.raises(RuntimeError, match="cancelling it failed"):
+                await sentinel_qb_execute("myapp", "prod", "gpu-worker", my_func)
+
+    @pytest.mark.asyncio
+    async def test_queue_deadline_counts_time_spent_in_runsync(self, mock_httpx):
+        from runpod_flash.flash_sentinel import (
+            _QUEUE_WAIT_MAX_SECONDS,
+            sentinel_qb_execute,
+        )
+
+        queued = _json_response({"id": "job-1", "status": "IN_QUEUE"})
+        mock_client = _make_mock_client(queued)
+        mock_client.get = AsyncMock(return_value=queued)
+        mock_httpx.return_value = mock_client
+
+        # submitted at 0, runsync returns pending, first poll is already late
+        clock = iter([0.0, _QUEUE_WAIT_MAX_SECONDS + 1])
+
+        async def my_func():
+            pass
+
+        with patch(
+            "runpod_flash.flash_sentinel.time.monotonic",
+            side_effect=lambda: next(clock),
+        ):
+            with pytest.raises(RuntimeError, match="still queued"):
+                await sentinel_qb_execute("myapp", "prod", "gpu-worker", my_func)
+        mock_client.get.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_long_running_job_polls_past_backoff_overflow(self, mock_httpx):
+        """an uncapped exponent overflows float after ~1024 polls."""
+        from runpod_flash.flash_sentinel import sentinel_qb_execute
+
+        running = _json_response({"id": "job-1", "status": "IN_PROGRESS"})
+        done = _json_response(
+            {"id": "job-1", "status": "COMPLETED", "output": {"ok": True}}
+        )
+        mock_client = _make_mock_client(running)
+        mock_client.get = AsyncMock(side_effect=[running] * 1100 + [done])
+        mock_httpx.return_value = mock_client
+
+        async def my_func():
+            pass
+
+        result = await sentinel_qb_execute("myapp", "prod", "gpu-worker", my_func)
+
+        assert result == {"ok": True}
+        assert mock_client.get.call_count == 1101
+
+    @pytest.mark.asyncio
+    async def test_running_job_is_not_cancelled_by_queue_deadline(self, mock_httpx):
+        from runpod_flash.flash_sentinel import (
+            _QUEUE_WAIT_MAX_SECONDS,
+            sentinel_qb_execute,
+        )
+
+        mock_client = _make_mock_client(
+            _json_response({"id": "job-1", "status": "IN_QUEUE"})
+        )
+        mock_client.get = AsyncMock(
+            side_effect=[
+                _json_response({"id": "job-1", "status": "IN_PROGRESS"}),
+                _json_response({"id": "job-1", "status": "IN_PROGRESS"}),
+                _json_response(
+                    {"id": "job-1", "status": "COMPLETED", "output": {"ok": 1}}
+                ),
+            ]
+        )
+        mock_httpx.return_value = mock_client
+
+        far = _QUEUE_WAIT_MAX_SECONDS * 10
+        clock = iter([0.0, far, far * 2, far * 3])
+
+        async def my_func():
+            pass
+
+        with patch(
+            "runpod_flash.flash_sentinel.time.monotonic",
+            side_effect=lambda: next(clock),
+        ):
+            result = await sentinel_qb_execute("myapp", "prod", "gpu-worker", my_func)
+
+        assert result == {"ok": 1}
+        assert mock_client.post.await_count == 1  # the runsync call, no cancel
+
+
+class TestRunsyncWait:
+    """runsync must return a pending status before the client times out."""
+
+    @pytest.mark.parametrize(
+        ("timeout", "expected_ms"),
+        [(90, 80_000), (30, 20_000), (5, 1_000), (900, 300_000)],
+    )
+    def test_wait_stays_below_client_timeout(self, timeout, expected_ms):
+        from runpod_flash.flash_sentinel import _runsync_wait_ms
+
+        assert _runsync_wait_ms(timeout) == expected_ms
+
+    @pytest.mark.asyncio
+    async def test_runsync_sends_wait_param(self, mock_httpx, monkeypatch):
+        from runpod_flash.flash_sentinel import _sentinel_qb_post
+
+        monkeypatch.delenv("FLASH_SENTINEL_TIMEOUT", raising=False)
+        mock_client = _make_mock_client(
+            _json_response({"status": "COMPLETED", "output": {}})
+        )
+        mock_httpx.return_value = mock_client
+
+        await _sentinel_qb_post("myapp", "prod", "gpu-worker", {"input": {"a": 1}})
+
+        assert mock_client.post.call_args.kwargs["params"] == {"wait": 80_000}
+        assert mock_httpx.call_args.kwargs["timeout"] == 90
+
+
+class TestShortTimeoutUsesRun:
+    @pytest.fixture(autouse=True)
+    def no_sleep(self):
+        with patch("runpod_flash.flash_sentinel.asyncio.sleep", new=AsyncMock()):
+            yield
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("timeout", [1, 11])
+    async def test_short_timeout_submits_with_run(self, mock_httpx, timeout):
+        from runpod_flash.flash_sentinel import FLASH_SENTINEL_ID, _sentinel_qb_post
+
+        mock_client = _make_mock_client(
+            _json_response({"id": "job-1", "status": "IN_QUEUE"})
+        )
+        mock_client.get = AsyncMock(
+            return_value=_json_response(
+                {"id": "job-1", "status": "COMPLETED", "output": {"ok": True}}
+            )
+        )
+        mock_httpx.return_value = mock_client
+
+        data = await _sentinel_qb_post(
+            "myapp", "prod", "gpu-worker", {"input": {"a": 1}}, timeout=timeout
+        )
+
+        assert data["output"] == {"ok": True}
+        call = mock_client.post.call_args
+        assert call.args[0].endswith(f"/{FLASH_SENTINEL_ID}/run")
+        assert call.kwargs["params"] == {}
+
+    @pytest.mark.asyncio
+    async def test_timeout_above_margin_uses_runsync(self, mock_httpx):
+        from runpod_flash.flash_sentinel import FLASH_SENTINEL_ID, _sentinel_qb_post
+
+        mock_client = _make_mock_client(
+            _json_response({"status": "COMPLETED", "output": {}})
+        )
+        mock_httpx.return_value = mock_client
+
+        await _sentinel_qb_post(
+            "myapp", "prod", "gpu-worker", {"input": {"a": 1}}, timeout=12
+        )
+
+        call = mock_client.post.call_args
+        assert call.args[0].endswith(f"/{FLASH_SENTINEL_ID}/runsync")
+        assert call.kwargs["params"] == {"wait": 2_000}
+
+
 class TestSentinelQBClassExecute:
     @pytest.mark.asyncio
     async def test_dispatches_on_method_name(self, mock_httpx):

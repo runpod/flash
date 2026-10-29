@@ -281,8 +281,10 @@ Optional:
 ```bash
 FLASH_APP=my-project            # defaults to current directory name
 FLASH_ENV=staging               # defaults to "production"
-FLASH_SENTINEL_TIMEOUT=120      # sentinel request timeout in seconds (default: 90)
+FLASH_SENTINEL_TIMEOUT=120      # timeout for each sentinel HTTP request in seconds (default: 90)
 ```
+
+`FLASH_SENTINEL_TIMEOUT` doesn't cap how long a call waits. A job that's still queued or running is polled until it finishes. A job no worker picks up within 15 minutes is cancelled. To bound a running job, set `execution_timeout_ms` on the `Endpoint`. The default of 0 sets no limit.
 
 ## Testing your dev server
 

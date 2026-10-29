@@ -10,26 +10,65 @@ dict as kwargs. the sentinel maps positional args to named params via
 inspect.signature and sends the result as the runsync input body.
 """
 
+import asyncio
 import base64
 import inspect
 import logging
+import math
 import os
+import time
 from typing import Any, Callable, Dict, Optional
 
 import cloudpickle
+import httpx
 import runpod
 
 from .core.urls import ENDPOINT_DOMAIN
 from .core.utils import http as _http
+from .core.utils.backoff import get_backoff_delay
 from .protos.remote_execution import FunctionRequest
 
 log = logging.getLogger(__name__)
 
 FLASH_SENTINEL_ID = "flash"
 
-# default timeout for sentinel requests. configurable via
-# FLASH_SENTINEL_TIMEOUT env var (seconds).
+# default timeout for each sentinel HTTP request. configurable via
+# FLASH_SENTINEL_TIMEOUT env var (seconds). it doesn't cap the total wait:
+# a pending job is polled until it finishes.
 DEFAULT_SENTINEL_TIMEOUT = 90
+
+# runsync returns one of these when the job outlives the server-side wait
+# (cold starts, model downloads). the job keeps running, so poll /status.
+_PENDING_STATUSES = frozenset({"IN_QUEUE", "IN_PROGRESS"})
+
+# longest gap between /status polls, in seconds.
+_STATUS_POLL_MAX_SECONDS = 5.0
+
+# backoff exponent at which the poll delay reaches _STATUS_POLL_MAX_SECONDS
+# (with a 1s base). capping the exponent there keeps 2**attempt from
+# overflowing float after ~1000 polls on long jobs.
+_STATUS_POLL_BASE_SECONDS = 1.0
+_STATUS_POLL_MAX_ATTEMPT = math.ceil(
+    math.log2(_STATUS_POLL_MAX_SECONDS / _STATUS_POLL_BASE_SECONDS)
+)
+
+# give up (and cancel) when no worker picks the job up for this long.
+# once the job is IN_PROGRESS, only the endpoint's execution_timeout_ms
+# bounds it. flash defaults that to 0 (no limit), so a hung handler is
+# polled until the job's 24h TTL expires.
+_QUEUE_WAIT_MAX_SECONDS = 900.0
+
+# polling raises after this many consecutive network errors or 429/5xx
+# responses.
+_STATUS_POLL_MAX_TRANSPORT_ERRORS = 5
+
+# runsync holds the request for 90s by default, the same as the default
+# client timeout, so the client could give up before runsync hands back a
+# pending status. ask runsync to return this many seconds before the client
+# timeout. ai-api accepts a wait of 1s to 300s.
+_RUNSYNC_WAIT_MARGIN_SECONDS = 10.0
+_RUNSYNC_WAIT_MIN_SECONDS = 1.0
+_RUNSYNC_WAIT_MAX_SECONDS = 300.0
 
 
 def _get_timeout(override: Optional[float] = None) -> float:
@@ -47,6 +86,13 @@ def _get_timeout(override: Optional[float] = None) -> float:
         except ValueError:
             pass
     return DEFAULT_SENTINEL_TIMEOUT
+
+
+def _runsync_wait_ms(timeout: float) -> int:
+    """server-side runsync wait in ms, kept below the client timeout."""
+    wait = timeout - _RUNSYNC_WAIT_MARGIN_SECONDS
+    wait = max(_RUNSYNC_WAIT_MIN_SECONDS, min(wait, _RUNSYNC_WAIT_MAX_SECONDS))
+    return int(wait * 1000)
 
 
 def _flash_headers(app: str, env: str, endpoint: str) -> Dict[str, str]:
@@ -80,18 +126,36 @@ async def _sentinel_qb_post(
     payload: Dict[str, Any],
     timeout: Optional[float] = None,
 ) -> Dict[str, Any]:
-    """post a payload to the sentinel runsync URL and return the raw response dict."""
-    url = f"{runpod.endpoint_url_base}/{FLASH_SENTINEL_ID}/runsync"
+    """submit a payload through the sentinel and return the final response dict.
+
+    uses /runsync with a server-side wait below the client timeout. a
+    timeout too short to leave room for runsync's minimum wait submits
+    with /run instead. either way, a pending job is polled to completion.
+    """
     headers = _flash_headers(app, env, endpoint_name)
     effective_timeout = _get_timeout(timeout)
+    base = f"{runpod.endpoint_url_base}/{FLASH_SENTINEL_ID}"
+    if effective_timeout > _RUNSYNC_WAIT_MARGIN_SECONDS + _RUNSYNC_WAIT_MIN_SECONDS:
+        url = f"{base}/runsync"
+        params: Dict[str, Any] = {"wait": _runsync_wait_ms(effective_timeout)}
+    else:
+        url = f"{base}/run"
+        params = {}
 
     log.debug("sentinel QB -> %s/%s/%s", app, env, endpoint_name)
+
+    submitted_at = time.monotonic()
 
     try:
         async with _http.get_authenticated_httpx_client(
             timeout=effective_timeout
         ) as client:
-            response = await client.post(url, json=payload, headers=headers)
+            response = await client.post(
+                url,
+                json=payload,
+                headers=headers,
+                params=params,
+            )
     except Exception as exc:
         if "timeout" in type(exc).__name__.lower() or "timeout" in str(exc).lower():
             raise RuntimeError(
@@ -108,7 +172,111 @@ async def _sentinel_qb_post(
             f"environment '{env}'. deploy it first with 'flash deploy'."
         )
     response.raise_for_status()
-    return response.json()
+    data: Dict[str, Any] = response.json()
+
+    if data.get("status") in _PENDING_STATUSES:
+        if not data.get("id"):
+            raise RuntimeError(
+                f"endpoint '{endpoint_name}' returned status "
+                f"{data['status']} without a job id: {data}"
+            )
+        data = await _poll_until_done(
+            app, env, endpoint_name, data["id"], effective_timeout, submitted_at
+        )
+    return data
+
+
+async def _poll_until_done(
+    app: str,
+    env: str,
+    endpoint_name: str,
+    job_id: str,
+    request_timeout: float,
+    submitted_at: float,
+) -> Dict[str, Any]:
+    """poll the sentinel /status route until the job leaves IN_QUEUE/IN_PROGRESS.
+
+    a running job is bounded only by the endpoint's execution_timeout_ms,
+    which ends it server-side with TIMED_OUT. the default of 0 sets no limit.
+    a job no worker picks up is cancelled after _QUEUE_WAIT_MAX_SECONDS,
+    counted from submission.
+    """
+    base = f"{runpod.endpoint_url_base}/{FLASH_SENTINEL_ID}"
+    headers = _flash_headers(app, env, endpoint_name)
+
+    log.debug("sentinel QB job %s still pending, polling /status", job_id)
+
+    queued_since = submitted_at
+    attempt = 0
+    transport_errors = 0
+    async with _http.get_authenticated_httpx_client(timeout=request_timeout) as client:
+        while True:
+            await asyncio.sleep(
+                get_backoff_delay(
+                    attempt,
+                    base=_STATUS_POLL_BASE_SECONDS,
+                    max_seconds=_STATUS_POLL_MAX_SECONDS,
+                )
+            )
+            attempt = min(attempt + 1, _STATUS_POLL_MAX_ATTEMPT)
+            try:
+                response = await client.get(f"{base}/status/{job_id}", headers=headers)
+                if response.status_code == 429 or response.status_code >= 500:
+                    response.raise_for_status()
+            except (httpx.TransportError, httpx.HTTPStatusError) as exc:
+                transport_errors += 1
+                if transport_errors >= _STATUS_POLL_MAX_TRANSPORT_ERRORS:
+                    raise RuntimeError(
+                        f"lost contact with endpoint '{endpoint_name}' while "
+                        f"waiting for job {job_id}: {exc}"
+                    ) from exc
+                log.debug("polling job %s failed (%s), retrying", job_id, exc)
+                continue
+            transport_errors = 0
+            try:
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                raise RuntimeError(
+                    f"checking job {job_id} on endpoint '{endpoint_name}' failed: {exc}"
+                ) from exc
+            try:
+                data: Dict[str, Any] = response.json()
+            except ValueError as exc:
+                raise RuntimeError(
+                    f"checking job {job_id} on endpoint '{endpoint_name}' "
+                    f"returned a non-JSON response: {response.text[:200]!r}"
+                ) from exc
+            status = data.get("status")
+            if status not in _PENDING_STATUSES:
+                return data
+            if status != "IN_QUEUE":
+                queued_since = time.monotonic()
+            elif time.monotonic() - queued_since > _QUEUE_WAIT_MAX_SECONDS:
+                cancelled = await _cancel_job(client, base, headers, job_id)
+                outcome = (
+                    "it was cancelled"
+                    if cancelled
+                    else "cancelling it failed, so it may still run later"
+                )
+                raise RuntimeError(
+                    f"job {job_id} on endpoint '{endpoint_name}' was still "
+                    f"queued after {_QUEUE_WAIT_MAX_SECONDS:.0f}s and {outcome}. "
+                    f"no worker picked it up; check that GPUs of the requested "
+                    f"type are available."
+                )
+
+
+async def _cancel_job(
+    client: httpx.AsyncClient, base: str, headers: Dict[str, str], job_id: str
+) -> bool:
+    """best-effort cancel so an abandoned job doesn't run later."""
+    try:
+        response = await client.post(f"{base}/cancel/{job_id}", headers=headers)
+        response.raise_for_status()
+    except Exception as exc:
+        log.warning("could not cancel job %s: %s", job_id, exc)
+        return False
+    return True
 
 
 def _handle_sentinel_response(data: Dict[str, Any]) -> Any:
@@ -121,6 +289,11 @@ def _handle_sentinel_response(data: Dict[str, Any]) -> Any:
     if data.get("status") == "FAILED" or data.get("error"):
         err = data.get("error") or data.get("output", {}).get("error", "unknown")
         raise RuntimeError(f"remote execution failed: {err}")
+
+    if data.get("status") in ("CANCELLED", "TIMED_OUT"):
+        raise RuntimeError(
+            f"remote execution {data['status'].lower()} (job {data.get('id', 'unknown')})"
+        )
 
     if "output" not in data and "status" not in data:
         raise RuntimeError(

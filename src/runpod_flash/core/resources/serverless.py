@@ -276,7 +276,7 @@ class ServerlessResource(DeployableResource):
     datacenter: Optional[List[DataCenter] | DataCenter] = Field(default=None)
     python_version: Optional[str] = Field(
         default=None,
-        description="Python version for runtime image selection. Defaults to the local interpreter version at build time.",
+        description="Python version for runtime image selection. Defaults to 3.12 when no resource declares one.",
     )
 
     # === Input Fields ===

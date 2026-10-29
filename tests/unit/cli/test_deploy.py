@@ -801,6 +801,238 @@ class TestDisplayPostDeploymentGuidance:
         assert "curl" in output
         assert "curl -X POST https://def.api.runpod.ai/runsync" in output
 
+    def test_qb_curl_sends_required_params(self, patched_console, tmp_path):
+        from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
+
+        src = tmp_path / "gpu_demo.py"
+        src.write_text(
+            "async def gpu_matrix_multiply(size, *, scale, seed=0, verbose=False):\n"
+            "    return size\n"
+        )
+        _display_post_deployment_guidance(
+            env_name="production",
+            resources_endpoints={"my_qb": "https://api.runpod.ai/v2/abc123"},
+            resources={
+                "my_qb": {
+                    "file_path": str(src),
+                    "functions": [{"name": "gpu_matrix_multiply", "is_class": False}],
+                }
+            },
+            routes={},
+        )
+        output = self._collect_output(patched_console)
+        assert '{"input": {"size": "<size>", "scale": "<scale>"}}' in output
+        assert '{"input": {}}' not in output
+
+    def test_qb_curl_marks_empty_input_for_no_arg_function(
+        self, patched_console, tmp_path
+    ):
+        from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
+
+        src = tmp_path / "jobs.py"
+        src.write_text("def ping(verbose=False):\n    return 'pong'\n")
+        _display_post_deployment_guidance(
+            env_name="production",
+            resources_endpoints={"my_qb": "https://api.runpod.ai/v2/abc123"},
+            resources={
+                "my_qb": {
+                    "file_path": str(src),
+                    "functions": [{"name": "ping", "is_class": False}],
+                }
+            },
+            routes={},
+        )
+        output = self._collect_output(patched_console)
+        assert '{"input": {"__empty": true}}' in output
+
+    def test_qb_curl_never_sends_empty_input(self, patched_console):
+        """runpod drops jobs with an empty input dict, so the example must not."""
+        from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
+
+        _display_post_deployment_guidance(
+            env_name="production",
+            resources_endpoints={"my_qb": "https://api.runpod.ai/v2/abc123"},
+            resources={
+                "my_qb": {
+                    "file_path": "missing.py",
+                    "functions": [{"name": "f", "is_class": False}],
+                }
+            },
+            routes={},
+        )
+        output = self._collect_output(patched_console)
+        assert '{"input": {"__empty": true}}' in output
+        assert '{"input": {}}' not in output
+
+    def _class_resource(self, src, methods):
+        return {
+            "my_qb": {
+                "file_path": str(src),
+                "functions": [
+                    {"name": "Model", "is_class": True, "class_methods": methods}
+                ],
+            }
+        }
+
+    def test_qb_curl_for_single_method_class_omits_method(
+        self, patched_console, tmp_path
+    ):
+        from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
+
+        src = tmp_path / "model.py"
+        src.write_text(
+            "class Model:\n    def predict(self, image, k=1):\n        ...\n"
+        )
+        _display_post_deployment_guidance(
+            env_name="production",
+            resources_endpoints={"my_qb": "https://api.runpod.ai/v2/abc123"},
+            resources=self._class_resource(src, ["predict"]),
+            routes={},
+        )
+        output = self._collect_output(patched_console)
+        assert '{"input": {"image": "<image>"}}' in output
+
+    def test_qb_curl_for_multi_method_class_names_real_method(
+        self, patched_console, tmp_path
+    ):
+        from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
+
+        src = tmp_path / "model.py"
+        src.write_text(
+            "class Model:\n"
+            "    def predict(self, image):\n        ...\n"
+            "    def embed(self, text):\n        ...\n"
+        )
+        _display_post_deployment_guidance(
+            env_name="production",
+            resources_endpoints={"my_qb": "https://api.runpod.ai/v2/abc123"},
+            resources=self._class_resource(src, ["predict", "embed"]),
+            routes={},
+        )
+        output = self._collect_output(patched_console)
+        assert '{"input": {"method": "predict", "image": "<image>"}}' in output
+
+    @pytest.mark.parametrize(
+        ("source", "expected"),
+        [
+            (
+                "class Model:\n    def predict(this, image):\n        ...\n",
+                '{"input": {"image": "<image>"}}',
+            ),
+            (
+                "class Model:\n    @staticmethod\n"
+                "    def predict(image):\n        ...\n",
+                '{"input": {"image": "<image>"}}',
+            ),
+            (
+                "import builtins\n\nclass Model:\n    @builtins.staticmethod\n"
+                "    def predict(image):\n        ...\n",
+                '{"input": {"image": "<image>"}}',
+            ),
+        ],
+    )
+    def test_qb_curl_drops_only_the_method_receiver(
+        self, patched_console, tmp_path, source, expected
+    ):
+        from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
+
+        src = tmp_path / "model.py"
+        src.write_text(source)
+        _display_post_deployment_guidance(
+            env_name="production",
+            resources_endpoints={"my_qb": "https://api.runpod.ai/v2/abc123"},
+            resources=self._class_resource(src, ["predict"]),
+            routes={},
+        )
+        assert expected in self._collect_output(patched_console)
+
+    def test_qb_curl_uses_last_definition_of_redefined_class(
+        self, patched_console, tmp_path
+    ):
+        from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
+
+        src = tmp_path / "model.py"
+        src.write_text(
+            "class Model:\n    def predict(self, text):\n        ...\n\n"
+            "class Model:\n    def predict(self, image):\n        ...\n"
+        )
+        _display_post_deployment_guidance(
+            env_name="production",
+            resources_endpoints={"my_qb": "https://api.runpod.ai/v2/abc123"},
+            resources=self._class_resource(src, ["predict"]),
+            routes={},
+        )
+        output = self._collect_output(patched_console)
+        assert '{"input": {"image": "<image>"}}' in output
+
+    def test_qb_curl_reads_top_level_function_not_nested_namesake(
+        self, patched_console, tmp_path
+    ):
+        from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
+
+        src = tmp_path / "jobs.py"
+        src.write_text(
+            "class Helper:\n    def predict(self, image):\n        ...\n\n"
+            "def predict(prompt):\n    ...\n"
+        )
+        _display_post_deployment_guidance(
+            env_name="production",
+            resources_endpoints={"my_qb": "https://api.runpod.ai/v2/abc123"},
+            resources={
+                "my_qb": {
+                    "file_path": str(src),
+                    "functions": [{"name": "predict", "is_class": False}],
+                }
+            },
+            routes={},
+        )
+        output = self._collect_output(patched_console)
+        assert '{"input": {"prompt": "<prompt>"}}' in output
+
+    def test_qb_curl_keeps_self_param_on_plain_function(
+        self, patched_console, tmp_path
+    ):
+        from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
+
+        src = tmp_path / "jobs.py"
+        src.write_text("def run(self):\n    ...\n")
+        _display_post_deployment_guidance(
+            env_name="production",
+            resources_endpoints={"my_qb": "https://api.runpod.ai/v2/abc123"},
+            resources={
+                "my_qb": {
+                    "file_path": str(src),
+                    "functions": [{"name": "run", "is_class": False}],
+                }
+            },
+            routes={},
+        )
+        output = self._collect_output(patched_console)
+        assert '{"input": {"self": "<self>"}}' in output
+
+    def test_qb_curl_uses_last_definition_of_redefined_function(
+        self, patched_console, tmp_path
+    ):
+        from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
+
+        src = tmp_path / "jobs.py"
+        src.write_text(
+            "def predict(image):\n    ...\n\ndef predict(image, scale):\n    ...\n"
+        )
+        _display_post_deployment_guidance(
+            env_name="production",
+            resources_endpoints={"my_qb": "https://api.runpod.ai/v2/abc123"},
+            resources={
+                "my_qb": {
+                    "file_path": str(src),
+                    "functions": [{"name": "predict", "is_class": False}],
+                }
+            },
+            routes={},
+        )
+        output = self._collect_output(patched_console)
+        assert '{"input": {"image": "<image>", "scale": "<scale>"}}' in output
+
     def test_lb_endpoint_shows_routes(self, patched_console):
         from runpod_flash.cli.commands.deploy import _display_post_deployment_guidance
 
