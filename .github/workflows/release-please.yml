@@ -34,6 +34,17 @@ jobs:
           app-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
 
+      # Temporary: release creation fails with "Resource not accessible by
+      # integration". An empty POST is always rejected, so it creates nothing:
+      # 403 means the token lacks a permission (named in
+      # x-accepted-github-permissions), 422 means the token can write.
+      - name: Probe release-create permission
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          gh api -i -X POST "repos/${{ github.repository }}/releases" --input /dev/null 2>&1 \
+            | grep -iE '^HTTP/|^x-accepted-github-permissions|^x-oauth-scopes|"message"|^gh:' || true
+
       - name: Run Release Please
         uses: google-github-actions/release-please-action@v4
         id: release
