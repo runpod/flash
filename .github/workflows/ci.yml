@@ -222,7 +222,7 @@ jobs:
 
   quality-gates:
     name: Quality Gates
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: [guard, pre-check]
     if: ${{ needs.guard.outputs.mode == 'full' }}
     strategy:
@@ -311,8 +311,8 @@ jobs:
   # Build and check the optional Nix flake, so the packaged CLI
   # (`nix run github:runpod/flash`) can't silently break -- its runtime
   # dependency list is maintained separately from pyproject.toml. The uv path
-  # above is untouched, and this job only runs on
-  # x86_64-linux (ubuntu-latest). `nix flake check` runs the flake's own gate
+  # above is untouched, and this job only runs on x86_64-linux
+  # (blacksmith-2vcpu-ubuntu-2404). `nix flake check` runs the flake's own gate
   # (ruff lint + format, nixfmt, shellcheck, the pytest suite) in a sandbox;
   # the build + smoke-test confirm the packaged CLI on the pinned Python 3.14.
   #
