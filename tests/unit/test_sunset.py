@@ -32,6 +32,12 @@ class TestSunsetMessage:
         assert "Runpod Python SDK 2.0" in sunset.SUNSET_MESSAGE
         assert sunset.MIGRATION_GUIDE_URL in sunset.SUNSET_MESSAGE
 
+    def test_message_states_deprecation_in_past_tense(self):
+        # the final release ships at the sunset date, so the notice must not
+        # describe the deprecation as upcoming
+        assert "was deprecated on October 29, 2026" in sunset.SUNSET_MESSAGE
+        assert "will be" not in sunset.SUNSET_MESSAGE
+
 
 class TestImportWarning:
     def test_public_api_access_emits_future_warning(self):

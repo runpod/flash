@@ -1,7 +1,7 @@
 """Package-level deprecation notice for runpod-flash.
 
-Flash is moving into the Runpod Python SDK 2.0. This module owns the notice
-users see before and after the sunset date, shown once per process through
+Flash has moved into the Runpod Python SDK 2.0. This module owns the notice
+users see once the package is deprecated, shown once per process through
 one of two channels:
 
 - the ``flash`` CLI prints it to stderr on every invocation (stdout stays
@@ -26,9 +26,9 @@ SUNSET_DATE = "October 29, 2026"
 MIGRATION_GUIDE_URL = "https://docs.runpod.io/sdk/migrate-from-flash"
 
 SUNSET_MESSAGE = (
-    "Flash is moving into the Runpod Python SDK 2.0. runpod-flash will be "
-    f"deprecated on {SUNSET_DATE} and will receive no fixes or updates after "
-    f"that date. Migration guide: {MIGRATION_GUIDE_URL}"
+    "Flash has moved into the Runpod Python SDK 2.0. runpod-flash was "
+    f"deprecated on {SUNSET_DATE} and receives no fixes or updates. "
+    f"Migration guide: {MIGRATION_GUIDE_URL}"
 )
 
 _WORKER_ENV_VARS = ("RUNPOD_ENDPOINT_ID", "RUNPOD_POD_ID")
