@@ -1,7 +1,7 @@
 # Flash
 
 > [!WARNING]
-> Flash is moving into the Runpod Python SDK 2.0. `runpod-flash` will be deprecated on **October 29, 2026** and will receive no fixes or updates after that date. See the [migration guide](https://docs.runpod.io/sdk/migrate-from-flash).
+> Flash has moved into the Runpod Python SDK 2.0. `runpod-flash` was deprecated on **October 29, 2026** and receives no fixes or updates. This repository is archived and read-only. See the [migration guide](https://docs.runpod.io/sdk/migrate-from-flash).
 >
 > The `flash` CLI and the SDK print this notice once per process. Set `RUNPOD_FLASH_SILENCE_DEPRECATION=1` to silence it (for example, in CI).
 
