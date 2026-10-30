@@ -18,4 +18,4 @@ jobs:
             gh api -X DELETE "repos/$R/git/refs/tags/probe-$1-$GITHUB_RUN_ID" >/dev/null 2>&1 && echo "deleted"
           }
           probe release-commit 50e819a65a4b39fa7a198860e1c9f3039fc0cbab
-          probe v1210-commit {"message":"Not Found","documentation_url":"https://docs.github.com/rest/git/tags#get-a-tag","status":"404"}c0f78436b74682e0961c09e9e79c06613eb51fd2
+          probe v1210-commit c0f78436b74682e0961c09e9e79c06613eb51fd2
