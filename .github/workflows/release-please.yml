@@ -27,15 +27,24 @@ jobs:
       tag_name: ${{ steps.release.outputs.tag_name }}
 
     steps:
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          # Tagging a release whose commits change .github/workflows/ needs
+          # workflows: write, which GITHUB_TOKEN can never have (#402). PR labels
+          # and comments go through pull-requests, so issues isn't requested.
+          permission-contents: write
+          permission-pull-requests: write
+          permission-workflows: write
+
       - name: Run Release Please
         uses: google-github-actions/release-please-action@v4
         id: release
         with:
-          # The built-in token, as runpod-python uses. The release app lacks the
-          # workflows permission #399 requested, so its token can't be created.
-          # The workflow-level permissions grant contents, pull-requests and
-          # issues write.
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ steps.app-token.outputs.token }}
 
   pypi-publish:
     name: PyPI Publish
