@@ -49,7 +49,7 @@ jobs:
 
   pypi-publish:
     name: PyPI Publish
-    runs-on: runpod-4vCPU-ubuntu-2404 # GitHub-hosted (trusted publishing needs that) with allow-listed static IPs
+    runs-on: runpod-4vCPU-ubuntu-2404 # GitHub-hosted, the runner type pypa/gh-action-pypi-publish supports; its static IPs are on the org allow list
     needs: [release-please]
     if: ${{ needs.release-please.outputs.release_created == 'true' }}
 
