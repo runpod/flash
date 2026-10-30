@@ -37,7 +37,6 @@ jobs:
           # to tag a release whose commits change .github/workflows/; if the
           # app lacks it, token creation fails here with that permission named.
           permission-contents: write
-          permission-issues: write
           permission-pull-requests: write
           permission-workflows: write
 
