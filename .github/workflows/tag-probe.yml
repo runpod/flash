@@ -1,0 +1,21 @@
+name: tag-probe
+on: pull_request
+permissions:
+  contents: write
+jobs:
+  probe:
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    env:
+      GH_TOKEN: ${{ github.token }}
+      R: ${{ github.repository }}
+    steps:
+      - name: Probe tag creation with the built-in token
+        run: |
+          probe() { # $1 label, $2 sha
+            echo "== $1 ($2)"
+            out=$(gh api -i -X POST "repos/$R/git/refs" -f ref="refs/tags/probe-$1-$GITHUB_RUN_ID" -f sha="$2" 2>&1)
+            echo "$out" | grep -iE '^HTTP/|x-accepted-github-permissions|"message"' || true
+            gh api -X DELETE "repos/$R/git/refs/tags/probe-$1-$GITHUB_RUN_ID" >/dev/null 2>&1 && echo "deleted"
+          }
+          probe release-commit 50e819a65a4b39fa7a198860e1c9f3039fc0cbab
+          probe v1210-commit {"message":"Not Found","documentation_url":"https://docs.github.com/rest/git/tags#get-a-tag","status":"404"}c0f78436b74682e0961c09e9e79c06613eb51fd2
