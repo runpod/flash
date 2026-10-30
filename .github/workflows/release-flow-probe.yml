@@ -1,0 +1,86 @@
+name: release-flow-probe
+
+on: pull_request
+
+permissions:
+  contents: write
+  checks: read
+  pull-requests: read
+
+jobs:
+  # Step 1 of release-please.yml: can the built-in token tag the commit main
+  # points at, with workflow changes since v1.21.1 in its history?
+  tag-probe:
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    steps:
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          R: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+          sha=$(gh api "repos/$R/commits/main" --jq .sha)
+          echo "main=$sha"
+          echo "workflow changes since v1.21.1:"
+          gh api "repos/$R/compare/v1.21.1...$sha" --jq '.files[].filename' | grep '^.github/workflows/' || echo none
+          tag="probe-tag-$GITHUB_RUN_ID"
+          out=$(gh api -i -X POST "repos/$R/git/refs" -f ref="refs/tags/$tag" -f sha="$sha" 2>&1)
+          echo "$out" | grep -iE '^HTTP/|x-accepted-github-permissions|"message"'
+          gh api -X DELETE "repos/$R/git/refs/tags/$tag" >/dev/null 2>&1 && echo "deleted $tag"
+          echo "$out" | grep -q '^HTTP/2.0 201' || { echo "TAG PROBE FAILED"; exit 1; }
+
+  # Step 2 of release-please.yml: a PR opened with the app token on a
+  # release-please-- branch must start ci.yml and pass Validation.
+  pr-probe:
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    steps:
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - name: Open release-shaped PR as the app
+        id: open
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          R: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          branch="release-please--probe-$GITHUB_RUN_ID"
+          sha=$(gh api "repos/$R/commits/main" --jq .sha)
+          gh api -X POST "repos/$R/git/refs" -f ref="refs/heads/$branch" -f sha="$sha" --jq .ref
+          blob=$(gh api "repos/$R/contents/CHANGELOG.md?ref=$branch" --jq .sha)
+          content=$( { echo "<!-- release flow probe $GITHUB_RUN_ID -->"; gh api "repos/$R/contents/CHANGELOG.md?ref=$branch" --jq .content | base64 -d; } | base64 -w0)
+          gh api -X PUT "repos/$R/contents/CHANGELOG.md" -f message="chore: release flow probe" -f content="$content" -f sha="$blob" -f branch="$branch" --jq .commit.sha
+          num=$(gh api -X POST "repos/$R/pulls" -f title="probe: release PR CI trigger (do not merge)" -f head="$branch" -f base=main -f body="Temporary probe for #405. Closed automatically." --jq .number)
+          echo "opened PR #$num as $(gh api repos/$R/pulls/$num --jq .user.login)"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          echo "num=$num" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for Guard and Validation on that PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          R: ${{ github.repository }}
+          NUM: ${{ steps.open.outputs.num }}
+        run: |
+          set -uo pipefail
+          head=$(gh api "repos/$R/pulls/$NUM" --jq .head.sha)
+          for i in $(seq 1 40); do
+            runs=$(gh api "repos/$R/commits/$head/check-runs" --jq '.check_runs[] | "\(.name)=\(.status)/\(.conclusion)"' | sort)
+            echo "[$i] $(echo $runs)"
+            if echo "$runs" | grep -q '^Validation=completed/success'; then echo "VALIDATION PASSED"; exit 0; fi
+            if echo "$runs" | grep -q '^Validation=completed/'; then echo "VALIDATION DID NOT PASS"; exit 1; fi
+            sleep 15
+          done
+          echo "TIMED OUT: Validation never completed"
+          exit 1
+
+      - name: Close probe PR and delete branch
+        if: always() && steps.open.outputs.num != ''
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          R: ${{ github.repository }}
+        run: |
+          gh api -X PATCH "repos/$R/pulls/${{ steps.open.outputs.num }}" -f state=closed --jq .state
+          gh api -X DELETE "repos/$R/git/refs/heads/${{ steps.open.outputs.branch }}" && echo "deleted branch"
