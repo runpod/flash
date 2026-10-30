@@ -1,0 +1,19 @@
+name: tag-probe
+on: pull_request
+permissions:
+  contents: write
+jobs:
+  probe:
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    steps:
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          R: ${{ github.repository }}
+        run: |
+          probe() {
+            echo "== $1 ($2)"
+            out=$(gh api -i -X POST "repos/$R/git/refs" -f ref="refs/tags/probe-$1-$GITHUB_RUN_ID" -f sha="$2" 2>&1) || true
+            echo "$out" | grep -iE '^HTTP/|"message"' || true
+            gh api -X DELETE "repos/$R/git/refs/tags/probe-$1-$GITHUB_RUN_ID" >/dev/null 2>&1 && echo deleted || true
+          }
+          probe release-commit-anchored 50e819a65a4b39fa7a198860e1c9f3039fc0cbab
