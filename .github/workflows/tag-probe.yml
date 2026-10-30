@@ -13,7 +13,7 @@ jobs:
         run: |
           probe() { # $1 label, $2 sha
             echo "== $1 ($2)"
-            out=$(gh api -i -X POST "repos/$R/git/refs" -f ref="refs/tags/probe-$1-$GITHUB_RUN_ID" -f sha="$2" 2>&1)
+            out=$(gh api -i -X POST "repos/$R/git/refs" -f ref="refs/tags/probe-$1-$GITHUB_RUN_ID" -f sha="$2" 2>&1) || true
             echo "$out" | grep -iE '^HTTP/|x-accepted-github-permissions|"message"' || true
             gh api -X DELETE "repos/$R/git/refs/tags/probe-$1-$GITHUB_RUN_ID" >/dev/null 2>&1 && echo "deleted"
           }
