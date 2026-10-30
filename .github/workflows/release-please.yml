@@ -49,7 +49,7 @@ jobs:
 
   pypi-publish:
     name: PyPI Publish
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: runpod-4vCPU-ubuntu-2404 # GitHub-hosted (trusted publishing needs that) with allow-listed static IPs
     needs: [release-please]
     if: ${{ needs.release-please.outputs.release_created == 'true' }}
 
