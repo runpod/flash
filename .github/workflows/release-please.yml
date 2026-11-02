@@ -27,15 +27,36 @@ jobs:
       tag_name: ${{ steps.release.outputs.tag_name }}
 
     steps:
-      - name: Run Release Please
+      # Releases and release PRs use different tokens.
+      #
+      # Tagging: the built-in token. The release app lacks the workflows
+      # permission, and GitHub requires it to tag a commit whose history
+      # changes .github/workflows/ unless a branch already points at it.
+      # Run this step first so a merged release PR is tagged before the
+      # PR step looks for it.
+      - name: Create release
         uses: google-github-actions/release-please-action@v4
         id: release
         with:
-          # The built-in token, as runpod-python uses. The release app lacks the
-          # workflows permission #399 requested, so its token can't be created.
-          # The workflow-level permissions grant contents, pull-requests and
-          # issues write.
           token: ${{ secrets.GITHUB_TOKEN }}
+          skip-github-pull-request: true
+
+      # Release PRs: the app token. GitHub does not start pull_request
+      # workflows for events made with the built-in token, so a release PR
+      # opened with it never gets the required Validation check. ci.yml's
+      # Guard also expects runpod-release-please-bot as the author.
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - name: Open or update release PR
+        uses: google-github-actions/release-please-action@v4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          skip-github-release: true
 
   pypi-publish:
     name: PyPI Publish
